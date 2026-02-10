@@ -1,0 +1,318 @@
+import SwiftUI
+import AppKit
+
+@main
+struct VoicePeterApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
+    var body: some Scene {
+        Settings {
+            EmptyView()
+        }
+    }
+}
+
+// MARK: - AppDelegate with NSStatusItem
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem!
+    private let appState = AppState()
+    private var settingsWindow: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Create the status bar item
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+
+        if let button = statusItem.button {
+            let icon = NSImage(named: "MenuBarIcon")
+            icon?.size = NSSize(width: 18, height: 18)
+            icon?.isTemplate = true
+            button.image = icon
+        }
+
+        // Build the menu
+        rebuildMenu()
+
+        // Prompt for Accessibility permission if not granted
+        // (Xcode rebuilds re-sign the binary, invalidating previous grants)
+        if !PasteService.isAccessibilityGranted {
+            PasteService.promptAccessibility()
+        }
+
+        // Request speech authorization
+        appState.speechEngine.requestAuthorization { granted in
+            if !granted {
+                print("Speech recognition authorization denied")
+            }
+        }
+
+        // Set up hotkey
+        appState.hotkeyManager.onToggle = { [weak self] in
+            DispatchQueue.main.async {
+                self?.appState.toggleRecording()
+                self?.updateIcon()
+                self?.rebuildMenu()
+            }
+        }
+        appState.hotkeyManager.start()
+    }
+
+    private func updateIcon() {
+        let icon = NSImage(named: "MenuBarIcon")
+        icon?.size = NSSize(width: 18, height: 18)
+        icon?.isTemplate = !appState.speechEngine.isRecording // When recording, show as non-template (tinted)
+        statusItem.button?.image = icon
+        statusItem.button?.appearsDisabled = false
+        if appState.speechEngine.isRecording {
+            statusItem.button?.contentTintColor = .red
+        } else {
+            statusItem.button?.contentTintColor = nil
+        }
+    }
+
+    private func rebuildMenu() {
+        let menu = NSMenu()
+
+        let shortcut = currentShortcutDisplayString()
+        if appState.speechEngine.isRecording {
+            let stopItem = NSMenuItem(title: "Stop Recording (\(shortcut))", action: #selector(toggleRecording), keyEquivalent: "")
+            stopItem.target = self
+            menu.addItem(stopItem)
+        } else {
+            let startItem = NSMenuItem(title: "Start Recording (\(shortcut))", action: #selector(toggleRecording), keyEquivalent: "")
+            startItem.target = self
+            menu.addItem(startItem)
+        }
+
+        menu.addItem(.separator())
+
+        let recordItem = NSMenuItem(title: "Record...", action: #selector(openRecordPanel), keyEquivalent: "")
+        recordItem.target = self
+        menu.addItem(recordItem)
+
+        menu.addItem(.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(title: "Quit VoicePeter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(quitItem)
+
+        statusItem.menu = menu
+    }
+
+    @objc private func toggleRecording() {
+        appState.toggleRecording()
+        updateIcon()
+        rebuildMenu()
+    }
+
+    @objc private func openRecordPanel() {
+        appState.showDirectRecordingPanel()
+    }
+
+    @objc private func openSettings() {
+        if let existing = settingsWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 500),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "VoicePeter Settings"
+        window.contentView = NSHostingView(rootView: SettingsView())
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        settingsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func currentShortcutDisplayString() -> String {
+        let defaults = UserDefaults.standard
+        let kc: UInt16
+        let mf: NSEvent.ModifierFlags
+        if defaults.object(forKey: SettingsKeys.hotkeyKeyCode) != nil {
+            kc = UInt16(defaults.integer(forKey: SettingsKeys.hotkeyKeyCode))
+            mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.hotkeyModifierFlags)))
+        } else {
+            kc = 49
+            mf = .option
+        }
+        return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
+    }
+}
+
+// MARK: - AppState
+
+@Observable
+final class AppState {
+    let speechEngine = SpeechEngine()
+    let hotkeyManager = HotkeyManager()
+
+    private var overlayPanel: RecordingOverlayPanel?
+    private var resultPanel: ResultPanelWindow?
+    private var directRecordingPanel: DirectRecordingPanelWindow?
+    private var directRecordingSpeechEngine: SpeechEngine?
+    /// The app the user was in before recording started (paste target)
+    var previousApp: NSRunningApplication?
+
+    func toggleRecording() {
+        if speechEngine.isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+
+    private func startRecording() {
+        // Save the frontmost app so we can paste back into it
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = front
+        }
+
+        let locale = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage) ?? "en-US"
+        speechEngine.startRecording(locale: locale)
+        showOverlay()
+    }
+
+    private func stopRecording() {
+        speechEngine.stopRecording()
+        hideOverlay()
+
+        let providerRaw = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "apple"
+        let providerType = STTProviderType(rawValue: providerRaw) ?? .apple
+
+        if providerType == .apple {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+                self?.handleTranscriptionResult()
+            }
+        } else {
+            waitForTranscription()
+        }
+    }
+
+    private func waitForTranscription() {
+        guard speechEngine.isTranscribing else {
+            handleTranscriptionResult()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.waitForTranscription()
+        }
+    }
+
+    private func handleTranscriptionResult() {
+        let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        pasteTextToTarget(text)
+    }
+
+    func pasteTextToTarget(_ text: String) {
+        print("[AppState] pasteTextToTarget called, text: \(text.prefix(50))...")
+        print("[AppState] previousApp: \(previousApp?.localizedName ?? "nil")")
+
+        // Re-activate the app the user was in before recording
+        if let app = previousApp {
+            PasteService.activateApp(app)
+        } else {
+            print("[AppState] WARNING: no previousApp saved!")
+        }
+
+        // Wait for the app to regain focus, then paste
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            PasteService.pasteAtCursor(text)
+        }
+    }
+
+    private func showOverlay() {
+        let panel = RecordingOverlayPanel()
+        let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, onCancel: { [weak self] in
+            self?.speechEngine.stopRecording()
+            self?.hideOverlay()
+        }))
+        panel.contentView = hostingView
+        panel.orderFrontRegardless()
+        overlayPanel = panel
+    }
+
+    private func hideOverlay() {
+        overlayPanel?.close()
+        overlayPanel = nil
+    }
+
+    private func showResultPanel(text: String) {
+        let panel = ResultPanelWindow()
+        let hostingView = NSHostingView(rootView: ResultPanelView(
+            text: text,
+            onCopy: {},
+            onSendToPeter: {},
+            onDismiss: { [weak self] in
+                self?.hideResultPanel()
+            }
+        ))
+        panel.contentView = hostingView
+        panel.center()
+        panel.orderFrontRegardless()
+        resultPanel = panel
+    }
+
+    private func hideResultPanel() {
+        resultPanel?.close()
+        resultPanel = nil
+    }
+
+    func showDirectRecordingPanel() {
+        hideDirectRecordingPanel()
+
+        // Save the app the user was in before opening the panel
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = front
+        }
+
+        let engine = SpeechEngine()
+        engine.requestAuthorization { _ in }
+        directRecordingSpeechEngine = engine
+
+        let panel = DirectRecordingPanelWindow()
+        let hostingView = NSHostingView(rootView: DirectRecordingPanelView(
+            speechEngine: engine,
+            appState: self,
+            onDismiss: { [weak self] in
+                self?.hideDirectRecordingPanel()
+            }
+        ))
+        panel.contentView = hostingView
+        panel.center()
+        panel.orderFrontRegardless()
+        directRecordingPanel = panel
+    }
+
+    private func hideDirectRecordingPanel() {
+        directRecordingSpeechEngine?.stopRecording()
+        directRecordingSpeechEngine = nil
+        directRecordingPanel?.close()
+        directRecordingPanel = nil
+    }
+}
+
+/// A wrapper view that observes the SpeechEngine to update the waveform overlay
+struct ObservedOverlay: View {
+    @Bindable var speechEngine: SpeechEngine
+    let onCancel: () -> Void
+
+    var body: some View {
+        RecordingOverlayView(barLevels: speechEngine.barLevels, onCancel: onCancel)
+    }
+}
