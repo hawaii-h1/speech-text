@@ -187,18 +187,7 @@ final class AppState {
 
     private func stopRecording() {
         speechEngine.stopRecording()
-        hideOverlay()
-
-        let providerRaw = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "apple"
-        let providerType = STTProviderType(rawValue: providerRaw) ?? .apple
-
-        if providerType == .apple {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
-                self?.handleTranscriptionResult()
-            }
-        } else {
-            waitForTranscription()
-        }
+        waitForTranscription()
     }
 
     private func waitForTranscription() {
@@ -206,12 +195,13 @@ final class AppState {
             handleTranscriptionResult()
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.waitForTranscription()
         }
     }
 
     private func handleTranscriptionResult() {
+        hideOverlay()
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
@@ -230,7 +220,7 @@ final class AppState {
         }
 
         // Wait for the app to regain focus, then paste
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             PasteService.pasteAtCursor(text)
         }
     }
@@ -313,6 +303,6 @@ struct ObservedOverlay: View {
     let onCancel: () -> Void
 
     var body: some View {
-        RecordingOverlayView(barLevels: speechEngine.barLevels, onCancel: onCancel)
+        RecordingOverlayView(barLevels: speechEngine.barLevels, isLoading: speechEngine.isTranscribing, onCancel: onCancel)
     }
 }

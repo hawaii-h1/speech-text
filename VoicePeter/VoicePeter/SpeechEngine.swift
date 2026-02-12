@@ -121,11 +121,13 @@ final class SpeechEngine {
         let providerType = currentProviderType()
 
         if providerType == .apple {
+            isTranscribing = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self else { return }
                 if self.finalText.isEmpty {
                     self.finalText = self.liveText
                 }
+                self.isTranscribing = false
                 self.cleanup()
             }
         } else {
