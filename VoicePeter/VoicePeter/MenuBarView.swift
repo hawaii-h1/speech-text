@@ -41,10 +41,18 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Keyboard Shortcut") {
-                HotkeyRecorderView()
+            Section("Keyboard Shortcuts") {
+                HotkeyRecorderView(label: "Inline Recording")
 
-                Text("Click the button, then press your desired shortcut.")
+                HotkeyRecorderView(
+                    label: "Record Window",
+                    keyCodeKey: SettingsKeys.recordWindowHotkeyKeyCode,
+                    modifierFlagsKey: SettingsKeys.recordWindowHotkeyModifierFlags,
+                    defaultKeyCode: 49,
+                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.option, .shift]).rawValue)
+                )
+
+                Text("Click a button, then press your desired shortcut.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

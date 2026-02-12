@@ -3,48 +3,69 @@ import Carbon.HIToolbox
 
 @Observable
 final class HotkeyManager {
-    private var hotKeyRef: EventHotKeyRef?
+    private var inlineHotKeyRef: EventHotKeyRef?
+    private var recordWindowHotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var notificationObserver: Any?
-    var onToggle: (() -> Void)?
 
-    private var keyCode: UInt32 = 49
-    private var cocoaModifiers: NSEvent.ModifierFlags = .option
+    var onInlineToggle: (() -> Void)?
+    var onRecordWindowToggle: (() -> Void)?
+
+    // Inline recording hotkey
+    private var inlineKeyCode: UInt32 = 49
+    private var inlineModifiers: NSEvent.ModifierFlags = .option
+
+    // Record window hotkey
+    private var recordWindowKeyCode: UInt32 = 49
+    private var recordWindowModifiers: NSEvent.ModifierFlags = [.option, .shift]
+
+    private static let signature: OSType = 0x56504852
+    private static let inlineID: UInt32 = 1
+    private static let recordWindowID: UInt32 = 2
 
     func start() {
-        loadHotkey()
-        registerHotkey()
+        loadHotkeys()
+        registerHotkeys()
 
         notificationObserver = NotificationCenter.default.addObserver(
             forName: .hotkeyDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadHotkey()
+            self?.reloadHotkeys()
         }
     }
 
     func stop() {
-        unregisterHotkey()
+        unregisterHotkeys()
     }
 
-    private func loadHotkey() {
+    private func loadHotkeys() {
         let defaults = UserDefaults.standard
+
+        // Inline
         if defaults.object(forKey: SettingsKeys.hotkeyKeyCode) != nil {
-            keyCode = UInt32(defaults.integer(forKey: SettingsKeys.hotkeyKeyCode))
-            cocoaModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.hotkeyModifierFlags)))
+            inlineKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.hotkeyKeyCode))
+            inlineModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.hotkeyModifierFlags)))
+        }
+
+        // Record window
+        if defaults.object(forKey: SettingsKeys.recordWindowHotkeyKeyCode) != nil {
+            recordWindowKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyKeyCode))
+            recordWindowModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyModifierFlags)))
         }
     }
 
-    private func reloadHotkey() {
-        unregisterHotkey()
-        loadHotkey()
-        registerHotkey()
+    private func reloadHotkeys() {
+        unregisterHotkeys()
+        loadHotkeys()
+        registerHotkeys()
     }
 
-    private func registerHotkey() {
+    private func registerHotkeys() {
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
+        // Install single event handler for all hotkeys
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
@@ -52,11 +73,28 @@ final class HotkeyManager {
 
         InstallEventHandler(
             GetApplicationEventTarget(),
-            { (_: EventHandlerCallRef?, _: EventRef?, userData: UnsafeMutableRawPointer?) -> OSStatus in
-                guard let userData else { return OSStatus(eventNotHandledErr) }
+            { (_: EventHandlerCallRef?, event: EventRef?, userData: UnsafeMutableRawPointer?) -> OSStatus in
+                guard let event, let userData else { return OSStatus(eventNotHandledErr) }
                 let mgr = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+
+                var hotKeyID = EventHotKeyID()
+                let status = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+                guard status == noErr else { return OSStatus(eventNotHandledErr) }
+
                 DispatchQueue.main.async {
-                    mgr.onToggle?()
+                    switch hotKeyID.id {
+                    case 1: mgr.onInlineToggle?()
+                    case 2: mgr.onRecordWindowToggle?()
+                    default: break
+                    }
                 }
                 return noErr
             },
@@ -66,19 +104,31 @@ final class HotkeyManager {
             &eventHandlerRef
         )
 
-        let carbonMods = Self.cocoaToCarbonModifiers(cocoaModifiers)
-        let hotKeyID = EventHotKeyID(signature: OSType(0x56504852), id: 1)
-        RegisterEventHotKey(keyCode, carbonMods, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        // Register inline hotkey (id: 1)
+        let inlineCarbonMods = Self.cocoaToCarbonModifiers(inlineModifiers)
+        let inlineHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.inlineID)
+        RegisterEventHotKey(inlineKeyCode, inlineCarbonMods, inlineHotKeyID,
+                            GetApplicationEventTarget(), 0, &inlineHotKeyRef)
+
+        // Register record window hotkey (id: 2)
+        let rwCarbonMods = Self.cocoaToCarbonModifiers(recordWindowModifiers)
+        let rwHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.recordWindowID)
+        RegisterEventHotKey(recordWindowKeyCode, rwCarbonMods, rwHotKeyID,
+                            GetApplicationEventTarget(), 0, &recordWindowHotKeyRef)
     }
 
-    private func unregisterHotkey() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
+    private func unregisterHotkeys() {
+        if let ref = inlineHotKeyRef {
+            UnregisterEventHotKey(ref)
+            inlineHotKeyRef = nil
         }
-        if let eventHandlerRef {
-            RemoveEventHandler(eventHandlerRef)
-            self.eventHandlerRef = nil
+        if let ref = recordWindowHotKeyRef {
+            UnregisterEventHotKey(ref)
+            recordWindowHotKeyRef = nil
+        }
+        if let ref = eventHandlerRef {
+            RemoveEventHandler(ref)
+            eventHandlerRef = nil
         }
     }
 

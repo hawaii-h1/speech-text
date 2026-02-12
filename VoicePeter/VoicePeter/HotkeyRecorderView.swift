@@ -3,15 +3,44 @@ import AppKit
 import Carbon.HIToolbox
 
 struct HotkeyRecorderView: View {
-    @AppStorage(SettingsKeys.hotkeyKeyCode) private var keyCode: Int = 49
-    @AppStorage(SettingsKeys.hotkeyModifierFlags) private var modifierFlags: Int = Int(NSEvent.ModifierFlags.option.rawValue)
+    let label: String
+    let keyCodeKey: String
+    let modifierFlagsKey: String
+    let defaultKeyCode: Int
+    let defaultModifierFlags: Int
 
+    @State private var keyCode: Int
+    @State private var modifierFlags: Int
     @State private var isRecording = false
     @State private var localMonitor: Any?
 
+    init(
+        label: String = "Shortcut",
+        keyCodeKey: String = SettingsKeys.hotkeyKeyCode,
+        modifierFlagsKey: String = SettingsKeys.hotkeyModifierFlags,
+        defaultKeyCode: Int = 49,
+        defaultModifierFlags: Int = Int(NSEvent.ModifierFlags.option.rawValue)
+    ) {
+        self.label = label
+        self.keyCodeKey = keyCodeKey
+        self.modifierFlagsKey = modifierFlagsKey
+        self.defaultKeyCode = defaultKeyCode
+        self.defaultModifierFlags = defaultModifierFlags
+
+        let defaults = UserDefaults.standard
+        let kc = defaults.object(forKey: keyCodeKey) != nil
+            ? defaults.integer(forKey: keyCodeKey)
+            : defaultKeyCode
+        let mf = defaults.object(forKey: modifierFlagsKey) != nil
+            ? defaults.integer(forKey: modifierFlagsKey)
+            : defaultModifierFlags
+        _keyCode = State(initialValue: kc)
+        _modifierFlags = State(initialValue: mf)
+    }
+
     var body: some View {
         HStack {
-            Text("Shortcut")
+            Text(label)
             Spacer()
             Button(action: toggleRecording) {
                 if isRecording {
@@ -46,6 +75,9 @@ struct HotkeyRecorderView: View {
 
             self.keyCode = Int(event.keyCode)
             self.modifierFlags = Int(mods.rawValue)
+
+            UserDefaults.standard.set(self.keyCode, forKey: keyCodeKey)
+            UserDefaults.standard.set(self.modifierFlags, forKey: modifierFlagsKey)
 
             stopListening()
             NotificationCenter.default.post(name: .hotkeyDidChange, object: nil)

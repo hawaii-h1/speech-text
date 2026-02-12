@@ -1,28 +1,29 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Overlay View
+// MARK: - Reusable Waveform Bars
 
-struct RecordingOverlayView: View {
+struct WaveformBarsView: View {
     let barLevels: [CGFloat]
     let isLoading: Bool
-    let onCancel: () -> Void
+    var barWidth: CGFloat = 4
+    var spacing: CGFloat = 3
+    var minBarHeight: CGFloat = 6
+    var maxBarHeight: CGFloat = 42
+    var barColor: Color = .white
 
     @State private var activeDot: Int = 0
 
     var body: some View {
-        HStack(alignment: .center, spacing: 3) {
+        HStack(alignment: .center, spacing: spacing) {
             ForEach(0..<barLevels.count, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(.white.opacity(isLoading ? loadingOpacity(for: i) : 0.85))
-                    .frame(width: 4, height: isLoading ? 6 : barHeight(barLevels[i]))
+                    .fill(barColor.opacity(isLoading ? loadingOpacity(for: i) : 0.85))
+                    .frame(width: barWidth, height: isLoading ? minBarHeight : barHeight(barLevels[i]))
                     .animation(.easeInOut(duration: 0.35), value: isLoading)
                     .animation(.interpolatingSpring(stiffness: 300, damping: 18), value: barLevels[i])
             }
         }
-        .frame(width: 105, height: 65)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 32))
         .task(id: isLoading) {
             guard isLoading else { return }
             activeDot = 0
@@ -53,9 +54,22 @@ struct RecordingOverlayView: View {
     }
 
     private func barHeight(_ level: CGFloat) -> CGFloat {
-        let minH: CGFloat = 6
-        let maxH: CGFloat = 42
-        return minH + level * (maxH - minH)
+        minBarHeight + level * (maxBarHeight - minBarHeight)
+    }
+}
+
+// MARK: - Overlay View
+
+struct RecordingOverlayView: View {
+    let barLevels: [CGFloat]
+    let isLoading: Bool
+    let onCancel: () -> Void
+
+    var body: some View {
+        WaveformBarsView(barLevels: barLevels, isLoading: isLoading)
+            .frame(width: 105, height: 65)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 32))
     }
 }
 

@@ -46,15 +46,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Set up hotkey
-        appState.hotkeyManager.onToggle = { [weak self] in
+        // Set up hotkeys
+        appState.hotkeyManager.onInlineToggle = { [weak self] in
             DispatchQueue.main.async {
                 self?.appState.toggleRecording()
                 self?.updateIcon()
                 self?.rebuildMenu()
             }
         }
+        appState.hotkeyManager.onRecordWindowToggle = { [weak self] in
+            DispatchQueue.main.async {
+                self?.appState.showDirectRecordingPanel()
+            }
+        }
         appState.hotkeyManager.start()
+
+        // Rebuild menu when shortcuts change so display strings update
+        NotificationCenter.default.addObserver(
+            forName: .hotkeyDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.rebuildMenu()
+        }
     }
 
     private func updateIcon() {
@@ -86,7 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let recordItem = NSMenuItem(title: "Record...", action: #selector(openRecordPanel), keyEquivalent: "")
+        let rwShortcut = currentRecordWindowShortcutDisplayString()
+        let recordItem = NSMenuItem(title: "Record Window (\(rwShortcut))", action: #selector(openRecordPanel), keyEquivalent: "")
         recordItem.target = self
         menu.addItem(recordItem)
 
@@ -146,6 +159,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             kc = 49
             mf = .option
+        }
+        return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
+    }
+
+    private func currentRecordWindowShortcutDisplayString() -> String {
+        let defaults = UserDefaults.standard
+        let kc: UInt16
+        let mf: NSEvent.ModifierFlags
+        if defaults.object(forKey: SettingsKeys.recordWindowHotkeyKeyCode) != nil {
+            kc = UInt16(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyKeyCode))
+            mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyModifierFlags)))
+        } else {
+            kc = 49
+            mf = [.option, .shift]
         }
         return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
     }
@@ -287,12 +314,24 @@ final class AppState {
         panel.center()
         panel.orderFrontRegardless()
         directRecordingPanel = panel
+
+        // Stop recording when user closes the window via the X button
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            self?.directRecordingSpeechEngine?.stopRecording()
+            self?.directRecordingSpeechEngine = nil
+            self?.directRecordingPanel = nil
+        }
     }
 
     private func hideDirectRecordingPanel() {
         directRecordingSpeechEngine?.stopRecording()
         directRecordingSpeechEngine = nil
-        directRecordingPanel?.close()
+        if let panel = directRecordingPanel {
+            NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: panel)
+            panel.close()
+        }
         directRecordingPanel = nil
     }
 }

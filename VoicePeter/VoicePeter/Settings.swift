@@ -10,9 +10,13 @@ enum SettingsKeys {
     static let groqAPIKey = "groqAPIKey"
     static let groqModel = "groqModel"
 
-    // Hotkey
+    // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
     static let hotkeyModifierFlags = "hotkeyModifierFlags"
+
+    // Hotkey (record window)
+    static let recordWindowHotkeyKeyCode = "recordWindowHotkeyKeyCode"
+    static let recordWindowHotkeyModifierFlags = "recordWindowHotkeyModifierFlags"
 }
 
 let groqModels: [(id: String, name: String)] = [

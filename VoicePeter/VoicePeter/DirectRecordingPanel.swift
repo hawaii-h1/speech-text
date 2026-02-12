@@ -14,7 +14,7 @@ final class DirectRecordingPanelWindow: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         level = .floating
-        title = "VoicePeter Recorder"
+        title = "Record"
         isMovableByWindowBackground = true
         center()
     }
@@ -23,7 +23,6 @@ final class DirectRecordingPanelWindow: NSPanel {
 // MARK: - Panel State
 
 private enum RecordingPanelState: Equatable {
-    case ready
     case recording
     case transcribing
     case result(String)
@@ -36,7 +35,7 @@ struct DirectRecordingPanelView: View {
     var appState: AppState
     let onDismiss: () -> Void
 
-    @State private var panelState: RecordingPanelState = .ready
+    @State private var panelState: RecordingPanelState = .recording
     @State private var statusMessage: String?
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = "en-US"
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = "apple"
@@ -47,9 +46,9 @@ struct DirectRecordingPanelView: View {
 
     var body: some View {
         VStack(spacing: 16) {
+            headerView
+
             switch panelState {
-            case .ready:
-                readyView
             case .recording:
                 recordingView
             case .transcribing:
@@ -61,57 +60,68 @@ struct DirectRecordingPanelView: View {
         .padding(20)
         .frame(width: 380, height: 320)
         .background(.ultraThinMaterial)
+        .onAppear {
+            startRecording()
+        }
         .onChange(of: speechEngine.isTranscribing) { _, isTranscribing in
             if !isTranscribing && panelState == .transcribing {
                 transitionToResult()
             }
         }
+        .onChange(of: selectedLanguage) { _, newLang in
+            guard panelState == .recording, speechEngine.isRecording else { return }
+            speechEngine.stopRecording()
+            speechEngine.startRecording(locale: newLang)
+        }
     }
 
-    // MARK: - Ready State
+    // MARK: - Header
 
     @ViewBuilder
-    private var readyView: some View {
-        Spacer()
-
-        Image(systemName: "mic.circle.fill")
-            .font(.system(size: 64))
-            .foregroundStyle(.blue)
-
-        Text("Tap to start recording")
-            .font(.headline)
-
-        Picker("Language", selection: $selectedLanguage) {
-            ForEach(supportedLanguages) { lang in
-                Text(lang.displayName).tag(lang.localeIdentifier)
+    private var headerView: some View {
+        HStack {
+            if panelState == .recording {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 8, height: 8)
+                    Text("Recording")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                }
+            } else if panelState == .transcribing {
+                Text("Transcribing...")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Result")
+                    .font(.headline)
             }
-        }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 250)
 
-        Spacer()
+            Spacer()
 
-        Button(action: startRecording) {
-            Label("Start Recording", systemImage: "mic.fill")
-                .frame(maxWidth: .infinity)
+            Picker("", selection: $selectedLanguage) {
+                ForEach(supportedLanguages) { lang in
+                    Text(lang.displayName).tag(lang.localeIdentifier)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 140)
+            .labelsHidden()
         }
-        .controlSize(.large)
-        .buttonStyle(.borderedProminent)
-        .tint(.red)
     }
 
     // MARK: - Recording State
 
     @ViewBuilder
     private var recordingView: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(.red)
-                .frame(width: 10, height: 10)
-            Text("Recording...")
-                .font(.headline)
-                .foregroundStyle(.red)
-        }
+        WaveformBarsView(
+            barLevels: speechEngine.barLevels,
+            isLoading: false,
+            minBarHeight: 4,
+            maxBarHeight: 36
+        )
+        .frame(height: 50)
 
         ScrollView {
             if providerType.supportsLiveText {
@@ -119,13 +129,13 @@ struct DirectRecordingPanelView: View {
                     .font(.system(size: 14))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text("Recording audio... Transcription will begin when you stop.")
+                Text("Recording audio...")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(maxHeight: 150)
+        .frame(maxHeight: 120)
         .padding(8)
         .background(.quaternary.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -151,10 +161,16 @@ struct DirectRecordingPanelView: View {
     @ViewBuilder
     private var transcribingView: some View {
         Spacer()
-        ProgressView()
-            .scaleEffect(1.5)
+
+        WaveformBarsView(
+            barLevels: speechEngine.barLevels,
+            isLoading: true
+        )
+        .frame(height: 50)
+
         Text("Transcribing with \(providerType.displayName)...")
-            .font(.headline)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
 
         if let errorMessage = speechEngine.errorMessage {
             Text(errorMessage)
@@ -163,6 +179,7 @@ struct DirectRecordingPanelView: View {
         }
 
         Spacer()
+
         Button("Cancel") {
             cancelRecording()
         }
@@ -218,7 +235,7 @@ struct DirectRecordingPanelView: View {
             }
         }
 
-        Button(action: resetToReady) {
+        Button(action: recordAgain) {
             Label("Record Again", systemImage: "arrow.counterclockwise")
                 .frame(maxWidth: .infinity)
         }
@@ -228,20 +245,14 @@ struct DirectRecordingPanelView: View {
     // MARK: - Actions
 
     private func startRecording() {
+        statusMessage = nil
         speechEngine.startRecording(locale: selectedLanguage)
         panelState = .recording
     }
 
     private func stopRecording() {
         speechEngine.stopRecording()
-
-        if providerType == .apple {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                transitionToResult()
-            }
-        } else {
-            panelState = .transcribing
-        }
+        panelState = .transcribing
     }
 
     private func transitionToResult() {
@@ -250,7 +261,8 @@ struct DirectRecordingPanelView: View {
             if let error = speechEngine.errorMessage {
                 statusMessage = error
             }
-            panelState = .ready
+            panelState = .recording
+            speechEngine.startRecording(locale: selectedLanguage)
         } else {
             panelState = .result(text)
         }
@@ -258,11 +270,11 @@ struct DirectRecordingPanelView: View {
 
     private func cancelRecording() {
         speechEngine.stopRecording()
-        panelState = .ready
+        onDismiss()
     }
 
-    private func resetToReady() {
+    private func recordAgain() {
         statusMessage = nil
-        panelState = .ready
+        startRecording()
     }
 }
