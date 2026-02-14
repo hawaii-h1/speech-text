@@ -5,8 +5,12 @@ import AVFoundation
 @Observable
 final class SpeechEngine {
     var isRecording = false
+    var isPaused = false
     var liveText = ""
     var finalText = ""
+    var editedText: String = ""
+    /// Set when a segment's transcription is ready to be inserted at cursor
+    var pendingInsertionText: String?
     var errorMessage: String?
     var isTranscribing = false
     var barLevels: [CGFloat] = Array(repeating: 0, count: 12)
@@ -32,21 +36,89 @@ final class SpeechEngine {
 
     func startRecording(locale: String = "en-US") {
         guard !isRecording else { return }
-
-        liveText = ""
-        finalText = ""
-        errorMessage = nil
+        isPaused = false
+        editedText = ""
+        pendingInsertionText = nil
         isTranscribing = false
-        barLevels = Array(repeating: 0, count: 12)
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        setupRecordingSession(locale: locale)
+    }
+
+    func pauseRecording() {
+        guard isRecording else { return }
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        isPaused = true
+        isRecording = false
+        barLevels = Array(repeating: 0, count: 12)
 
         let providerType = currentProviderType()
 
-        // Always set up buffer writer (needed for batch providers)
+        if providerType == .apple {
+            let segmentText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !segmentText.isEmpty {
+                pendingInsertionText = segmentText
+            }
+        } else {
+            isTranscribing = true
+            let bufferWriter = audioBufferWriter
+
+            transcriptionTask?.cancel()
+            transcriptionTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    guard let fileURL = try bufferWriter?.writeWAV() else { return }
+                    defer { AudioBufferWriter.cleanup(fileURL: fileURL) }
+
+                    let provider = self.makeBatchProvider(for: providerType)
+                    let locale = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage)
+                    let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
+
+                    await MainActor.run {
+                        self.liveText = text
+                        let segmentText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !segmentText.isEmpty {
+                            self.pendingInsertionText = segmentText
+                        }
+                        self.isTranscribing = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        if !Task.isCancelled {
+                            self.errorMessage = error.localizedDescription
+                        }
+                        self.isTranscribing = false
+                    }
+                }
+            }
+        }
+    }
+
+    func resumeRecording(locale: String = "en-US") {
+        guard isPaused else { return }
+        isPaused = false
+        isTranscribing = false
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        setupRecordingSession(locale: locale)
+    }
+
+    /// Common setup for a new recording segment. Creates fresh buffer and recognizer.
+    private func setupRecordingSession(locale: String) {
+        liveText = ""
+        finalText = ""
+        errorMessage = nil
+        barLevels = Array(repeating: 0, count: 12)
+
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+
         audioBufferWriter = AudioBufferWriter()
 
-        // Only set up Apple speech recognizer for Apple provider
+        let providerType = currentProviderType()
+
         if providerType == .apple {
             speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
             guard let speechRecognizer, speechRecognizer.isAvailable else {
@@ -86,20 +158,7 @@ final class SpeechEngine {
             }
         }
 
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            guard let self else { return }
-            self.recognitionRequest?.append(buffer)
-            self.audioBufferWriter?.append(buffer)
-
-            let levels = Self.perSegmentRMS(buffer: buffer, count: 12)
-            DispatchQueue.main.async {
-                for i in 0..<self.barLevels.count {
-                    self.barLevels[i] = self.barLevels[i] * 0.2 + levels[i] * 0.8
-                }
-            }
-        }
+        installAudioTap()
 
         do {
             audioEngine.prepare()
@@ -112,11 +171,14 @@ final class SpeechEngine {
     }
 
     func stopRecording() {
-        guard isRecording else { return }
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        guard isRecording || isPaused else { return }
+        if isRecording {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
         recognitionRequest?.endAudio()
         isRecording = false
+        isPaused = false
 
         let providerType = currentProviderType()
 
@@ -179,6 +241,23 @@ final class SpeechEngine {
             return GroqSTTProvider(apiKey: apiKey, model: model)
         case .apple:
             fatalError("Apple provider does not use batch transcription")
+        }
+    }
+
+    private func installAudioTap() {
+        let inputNode = audioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+            guard let self else { return }
+            self.recognitionRequest?.append(buffer)
+            self.audioBufferWriter?.append(buffer)
+
+            let levels = Self.perSegmentRMS(buffer: buffer, count: 12)
+            DispatchQueue.main.async {
+                for i in 0..<self.barLevels.count {
+                    self.barLevels[i] = self.barLevels[i] * 0.2 + levels[i] * 0.8
+                }
+            }
         }
     }
 

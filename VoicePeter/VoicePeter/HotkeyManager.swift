@@ -12,12 +12,12 @@ final class HotkeyManager {
     var onRecordWindowToggle: (() -> Void)?
 
     // Inline recording hotkey
-    private var inlineKeyCode: UInt32 = 49
-    private var inlineModifiers: NSEvent.ModifierFlags = .option
+    private var inlineKeyCode: UInt32 = 0  // A
+    private var inlineModifiers: NSEvent.ModifierFlags = [.control, .shift]
 
     // Record window hotkey
-    private var recordWindowKeyCode: UInt32 = 49
-    private var recordWindowModifiers: NSEvent.ModifierFlags = [.option, .shift]
+    private var recordWindowKeyCode: UInt32 = 1  // S
+    private var recordWindowModifiers: NSEvent.ModifierFlags = [.control, .shift]
 
     private static let signature: OSType = 0x56504852
     private static let inlineID: UInt32 = 1

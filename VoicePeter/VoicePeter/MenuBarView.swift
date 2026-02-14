@@ -48,8 +48,8 @@ struct SettingsView: View {
                     label: "Record Window",
                     keyCodeKey: SettingsKeys.recordWindowHotkeyKeyCode,
                     modifierFlagsKey: SettingsKeys.recordWindowHotkeyModifierFlags,
-                    defaultKeyCode: 49,
-                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.option, .shift]).rawValue)
+                    defaultKeyCode: 1,  // S
+                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
                 )
 
                 Text("Click a button, then press your desired shortcut.")

@@ -7,25 +7,102 @@ final class DirectRecordingPanelWindow: NSPanel {
     init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 380, height: 320),
-            styleMask: [.titled, .closable, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         isOpaque = false
         backgroundColor = .clear
         level = .floating
-        title = "Record"
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        title = ""
         isMovableByWindowBackground = true
+        acceptsMouseMovedEvents = true
         center()
     }
 }
 
-// MARK: - Panel State
+// MARK: - Text Insertion Handler
 
-private enum RecordingPanelState: Equatable {
-    case recording
-    case transcribing
-    case result(String)
+final class TextInsertionHandler {
+    weak var textView: NSTextView?
+
+    func insert(_ text: String) {
+        guard let textView, !text.isEmpty else { return }
+        let range = textView.selectedRange()
+
+        // Add a space before the new text if the character before cursor is not whitespace
+        var prefix = ""
+        if range.location > 0 {
+            let charBefore = (textView.string as NSString).substring(with: NSRange(location: range.location - 1, length: 1))
+            if let scalar = charBefore.unicodeScalars.first,
+               !CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                prefix = " "
+            }
+        }
+
+        textView.insertText(prefix + text, replacementRange: range)
+    }
+}
+
+// MARK: - Cursor Text Editor (NSViewRepresentable)
+
+struct CursorTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    let insertionHandler: TextInsertionHandler
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: CursorTextEditor
+        var isUpdating = false
+
+        init(_ parent: CursorTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard !isUpdating else { return }
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        let textView = scrollView.documentView as! NSTextView
+        textView.delegate = context.coordinator
+        textView.string = text
+        textView.font = .systemFont(ofSize: 14)
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 4, height: 8)
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.textColor = .labelColor
+        insertionHandler.textView = textView
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        let textView = scrollView.documentView as! NSTextView
+        if textView.string != text {
+            context.coordinator.isUpdating = true
+            let range = textView.selectedRange()
+            textView.string = text
+            let safeLoc = min(range.location, (text as NSString).length)
+            textView.setSelectedRange(NSRange(location: safeLoc, length: 0))
+            context.coordinator.isUpdating = false
+        }
+    }
 }
 
 // MARK: - Panel View
@@ -35,246 +112,253 @@ struct DirectRecordingPanelView: View {
     var appState: AppState
     let onDismiss: () -> Void
 
-    @State private var panelState: RecordingPanelState = .recording
-    @State private var statusMessage: String?
+    @State private var isHoveringTextArea = false
+    @State private var isHoveringCopy = false
+    @State private var isHoveringSend = false
+    @State private var isHoveringRecord = false
+    @State private var showCopyCheck = false
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = "en-US"
-    @AppStorage(SettingsKeys.sttProvider) private var sttProvider = "apple"
 
-    private var providerType: STTProviderType {
-        STTProviderType(rawValue: sttProvider) ?? .apple
+    private let insertionHandler = TextInsertionHandler()
+
+    private var hasWebhook: Bool {
+        guard let url = UserDefaults.standard.string(forKey: SettingsKeys.webhookURL) else { return false }
+        return !url.isEmpty
+    }
+
+    private var hasText: Bool {
+        !speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            headerView
-
-            switch panelState {
-            case .recording:
-                recordingView
-            case .transcribing:
-                transcribingView
-            case .result(let text):
-                resultView(text: text)
-            }
+        ZStack(alignment: .bottom) {
+            contentArea
+            controlsBar
         }
-        .padding(20)
         .frame(width: 380, height: 320)
         .background(.ultraThinMaterial)
         .onAppear {
-            startRecording()
+            speechEngine.startRecording(locale: selectedLanguage)
         }
-        .onChange(of: speechEngine.isTranscribing) { _, isTranscribing in
-            if !isTranscribing && panelState == .transcribing {
-                transitionToResult()
+        .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
+            if let text = newValue, !text.isEmpty {
+                insertionHandler.insert(text)
+                speechEngine.pendingInsertionText = nil
             }
-        }
-        .onChange(of: selectedLanguage) { _, newLang in
-            guard panelState == .recording, speechEngine.isRecording else { return }
-            speechEngine.stopRecording()
-            speechEngine.startRecording(locale: newLang)
         }
     }
 
-    // MARK: - Header
+    // MARK: - Content Area
 
     @ViewBuilder
-    private var headerView: some View {
-        HStack {
-            if panelState == .recording {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
-                    Text("Recording")
-                        .font(.headline)
-                        .foregroundStyle(.red)
-                }
-            } else if panelState == .transcribing {
-                Text("Transcribing...")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Result")
-                    .font(.headline)
-            }
+    private var contentArea: some View {
+        VStack(spacing: 0) {
+            // Text editor — always visible
+            ZStack(alignment: .topTrailing) {
+                CursorTextEditor(
+                    text: $speechEngine.editedText,
+                    insertionHandler: insertionHandler
+                )
+                .padding(4)
 
-            Spacer()
-
-            Picker("", selection: $selectedLanguage) {
-                ForEach(supportedLanguages) { lang in
-                    Text(lang.displayName).tag(lang.localeIdentifier)
+                // Copy button — hover to reveal
+                if isHoveringTextArea && hasText {
+                    copyButton
+                        .padding(8)
+                        .transition(.opacity)
                 }
             }
-            .pickerStyle(.menu)
-            .frame(width: 140)
-            .labelsHidden()
+            .background(.quaternary.opacity(0.3))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .onHover { isHoveringTextArea = $0 }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 32) // space so text doesn't hide behind buttons
         }
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.15), value: isHoveringTextArea)
     }
 
-    // MARK: - Recording State
+    // MARK: - Copy Button
 
     @ViewBuilder
-    private var recordingView: some View {
-        WaveformBarsView(
-            barLevels: speechEngine.barLevels,
-            isLoading: false,
-            minBarHeight: 4,
-            maxBarHeight: 36
-        )
-        .frame(height: 50)
-
-        ScrollView {
-            if providerType.supportsLiveText {
-                Text(speechEngine.liveText.isEmpty ? "Listening..." : speechEngine.liveText)
-                    .font(.system(size: 14))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var copyButton: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(speechEngine.editedText, forType: .string)
+            showCopyCheck = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                showCopyCheck = false
+            }
+        } label: {
+            Image(systemName: showCopyCheck ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(showCopyCheck ? .green : .secondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+                )
+                .scaleEffect(isHoveringCopy ? 1.08 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHoveringCopy = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
             } else {
-                Text("Recording audio...")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                NSCursor.pop()
             }
         }
-        .frame(maxHeight: 120)
-        .padding(8)
-        .background(.quaternary.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-        HStack(spacing: 12) {
-            Button("Cancel") {
-                cancelRecording()
-            }
-            .buttonStyle(.bordered)
-
-            Button(action: stopRecording) {
-                Label("Stop", systemImage: "stop.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .controlSize(.large)
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-        }
+        .animation(.easeInOut(duration: 0.15), value: isHoveringCopy)
+        .animation(.easeInOut(duration: 0.2), value: showCopyCheck)
     }
 
-    // MARK: - Transcribing State
+    // MARK: - Controls Bar
 
     @ViewBuilder
-    private var transcribingView: some View {
-        Spacer()
-
-        WaveformBarsView(
-            barLevels: speechEngine.barLevels,
-            isLoading: true
-        )
-        .frame(height: 50)
-
-        Text("Transcribing with \(providerType.displayName)...")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-
-        if let errorMessage = speechEngine.errorMessage {
-            Text(errorMessage)
-                .font(.caption)
-                .foregroundStyle(.red)
-        }
-
-        Spacer()
-
-        Button("Cancel") {
-            cancelRecording()
-        }
-        .buttonStyle(.bordered)
-    }
-
-    // MARK: - Result State
-
-    @ViewBuilder
-    private func resultView(text: String) -> some View {
-        ScrollView {
-            Text(text)
-                .font(.system(size: 14))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxHeight: 150)
-        .padding(8)
-        .background(.quaternary.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-        if let statusMessage {
-            Text(statusMessage)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-
-        HStack(spacing: 12) {
-            Button("Paste at cursor") {
-                onDismiss()
-                appState.pasteTextToTarget(text)
+    private var controlsBar: some View {
+        VStack(spacing: 6) {
+            if let errorMessage = speechEngine.errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
             }
-            .keyboardShortcut(.return, modifiers: .command)
-            .buttonStyle(.borderedProminent)
 
-            Button("Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-                statusMessage = "Copied!"
-            }
-            .keyboardShortcut("c", modifiers: .command)
+            ZStack {
+                // Record button — always centered
+                recordButton
 
-            Button("Send to Peter") {
-                statusMessage = "Sending..."
-                WebhookService.send(text: text) { result in
-                    switch result {
-                    case .success:
-                        statusMessage = "Sent!"
-                    case .failure(let error):
-                        statusMessage = error.localizedDescription
+                // Send button — right aligned
+                if hasWebhook && hasText {
+                    HStack {
+                        Spacer()
+                        sendButton
                     }
                 }
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .padding(.top, 8)
+        .offset(y: 4) // buttons overlap ~30% onto the text area edge
+    }
 
-        Button(action: recordAgain) {
-            Label("Record Again", systemImage: "arrow.counterclockwise")
-                .frame(maxWidth: .infinity)
+    // MARK: - Send Button
+
+    // Icon options to try:
+    //   "paperplane.fill"    — classic send / paper plane
+    //   "paperplane.circle.fill" — send in a circle
+    //   "ant.fill"           — ant (closest creature to spider/crab in SF Symbols)
+    //   "ladybug.fill"       — ladybug
+    //   "arrow.up.circle.fill" — upload arrow
+    //   "bolt.fill"          — lightning bolt
+    private let sendIcon = "paperplane.fill"
+
+    @ViewBuilder
+    private var sendButton: some View {
+        Button {
+            WebhookService.send(text: speechEngine.editedText) { _ in }
+        } label: {
+            Image(systemName: sendIcon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 48, height: 48)
+                .background(
+                    Circle()
+                        .fill(.blue.opacity(0.85))
+                        .shadow(color: .blue.opacity(isHoveringSend ? 0.5 : 0.25), radius: isHoveringSend ? 10 : 4, y: 2)
+                )
+                .overlay(
+                    Circle()
+                        .fill(.white.opacity(isHoveringSend ? 0.12 : 0))
+                )
+                .scaleEffect(isHoveringSend ? 1.02 : 1.0)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHoveringSend = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .animation(.easeInOut(duration: 0.15), value: isHoveringSend)
     }
 
-    // MARK: - Actions
+    // MARK: - Record Button
 
-    private func startRecording() {
-        statusMessage = nil
-        speechEngine.startRecording(locale: selectedLanguage)
-        panelState = .recording
+    private var isExpanded: Bool {
+        speechEngine.isRecording || speechEngine.isTranscribing
     }
 
-    private func stopRecording() {
-        speechEngine.stopRecording()
-        panelState = .transcribing
-    }
-
-    private func transitionToResult() {
-        let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty {
-            if let error = speechEngine.errorMessage {
-                statusMessage = error
+    @ViewBuilder
+    private var recordButton: some View {
+        Button {
+            let spring = Animation.spring(response: 0.35, dampingFraction: 0.75)
+            if speechEngine.isRecording {
+                withAnimation(spring) { speechEngine.pauseRecording() }
+            } else if speechEngine.isTranscribing {
+                // do nothing while transcribing
+            } else if speechEngine.isPaused {
+                withAnimation(spring) { speechEngine.resumeRecording(locale: selectedLanguage) }
+            } else {
+                withAnimation(spring) { speechEngine.startRecording(locale: selectedLanguage) }
             }
-            panelState = .recording
-            speechEngine.startRecording(locale: selectedLanguage)
-        } else {
-            panelState = .result(text)
+        } label: {
+            ZStack {
+                if speechEngine.isRecording {
+                    // Live waveform
+                    WaveformBarsView(
+                        barLevels: speechEngine.barLevels,
+                        isLoading: false,
+                        barWidth: 3,
+                        spacing: 2,
+                        minBarHeight: 4,
+                        maxBarHeight: 28,
+                        barColor: .white
+                    )
+                    .padding(.horizontal, 16)
+                    .transition(.opacity)
+                } else if speechEngine.isTranscribing {
+                    // Loading dot animation
+                    WaveformBarsView(
+                        barLevels: speechEngine.barLevels,
+                        isLoading: true,
+                        barWidth: 3,
+                        spacing: 2,
+                        minBarHeight: 4,
+                        maxBarHeight: 28,
+                        barColor: .white
+                    )
+                    .padding(.horizontal, 16)
+                    .transition(.opacity)
+                } else {
+                    // Round mic icon
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white)
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: isExpanded ? 160 : 48, height: 48)
+            .background(
+                Capsule()
+                    .fill(.red.opacity(isExpanded ? 0.85 : 1.0))
+                    .shadow(color: .red.opacity(isHoveringRecord ? 0.5 : 0.25), radius: isHoveringRecord ? 10 : 4, y: 2)
+            )
+            .overlay(
+                Capsule()
+                    .fill(.white.opacity(isHoveringRecord ? 0.12 : 0))
+            )
+            .scaleEffect(isHoveringRecord ? 1.02 : 1.0)
         }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHoveringRecord = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .animation(.easeInOut(duration: 0.15), value: isHoveringRecord)
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: speechEngine.isTranscribing)
     }
 
-    private func cancelRecording() {
-        speechEngine.stopRecording()
-        onDismiss()
-    }
-
-    private func recordAgain() {
-        statusMessage = nil
-        startRecording()
-    }
 }

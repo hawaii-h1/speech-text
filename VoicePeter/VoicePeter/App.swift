@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         appState.hotkeyManager.onRecordWindowToggle = { [weak self] in
             DispatchQueue.main.async {
-                self?.appState.showDirectRecordingPanel()
+                self?.appState.toggleOrShowDirectRecordingPanel()
             }
         }
         appState.hotkeyManager.start()
@@ -157,8 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             kc = UInt16(defaults.integer(forKey: SettingsKeys.hotkeyKeyCode))
             mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.hotkeyModifierFlags)))
         } else {
-            kc = 49
-            mf = .option
+            kc = 0   // A
+            mf = [.control, .shift]
         }
         return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
     }
@@ -171,8 +171,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             kc = UInt16(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyKeyCode))
             mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyModifierFlags)))
         } else {
-            kc = 49
-            mf = [.option, .shift]
+            kc = 1   // S
+            mf = [.control, .shift]
         }
         return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
     }
@@ -289,6 +289,27 @@ final class AppState {
         resultPanel = nil
     }
 
+    func toggleOrShowDirectRecordingPanel() {
+        if directRecordingPanel != nil {
+            toggleDirectRecordingState()
+        } else {
+            showDirectRecordingPanel()
+        }
+    }
+
+    func toggleDirectRecordingState() {
+        guard let engine = directRecordingSpeechEngine else { return }
+        let locale = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage) ?? "en-US"
+        let spring = Animation.spring(response: 0.35, dampingFraction: 0.75)
+        if engine.isRecording {
+            withAnimation(spring) { engine.pauseRecording() }
+        } else if engine.isPaused {
+            withAnimation(spring) { engine.resumeRecording(locale: locale) }
+        } else {
+            withAnimation(spring) { engine.startRecording(locale: locale) }
+        }
+    }
+
     func showDirectRecordingPanel() {
         hideDirectRecordingPanel()
 
@@ -313,20 +334,32 @@ final class AppState {
         panel.contentView = hostingView
         panel.center()
         panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         directRecordingPanel = panel
 
-        // Stop recording when user closes the window via the X button
+        // Silent save on close: stop recording / let transcription finish, but don't paste
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            self?.directRecordingSpeechEngine?.stopRecording()
-            self?.directRecordingSpeechEngine = nil
-            self?.directRecordingPanel = nil
+            guard let self else { return }
+            if let engine = self.directRecordingSpeechEngine {
+                if engine.isRecording || engine.isPaused {
+                    engine.stopRecording()
+                }
+                // If transcribing, let it finish on its own — don't cancel
+            }
+            self.directRecordingSpeechEngine = nil
+            self.directRecordingPanel = nil
         }
     }
 
     private func hideDirectRecordingPanel() {
-        directRecordingSpeechEngine?.stopRecording()
+        if let engine = directRecordingSpeechEngine {
+            if engine.isRecording || engine.isPaused {
+                engine.stopRecording()
+            }
+        }
         directRecordingSpeechEngine = nil
         if let panel = directRecordingPanel {
             NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: panel)
