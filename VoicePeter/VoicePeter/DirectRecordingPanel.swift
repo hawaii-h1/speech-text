@@ -6,7 +6,7 @@ import AppKit
 final class DirectRecordingPanelWindow: NSPanel {
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 260),
             styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -110,14 +110,15 @@ struct CursorTextEditor: NSViewRepresentable {
 struct DirectRecordingPanelView: View {
     @Bindable var speechEngine: SpeechEngine
     var appState: AppState
+    var autoStartRecording: Bool = true
     let onDismiss: () -> Void
 
-    @State private var isHoveringTextArea = false
     @State private var isHoveringCopy = false
     @State private var isHoveringSend = false
     @State private var isHoveringRecord = false
     @State private var showCopyCheck = false
-    @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = "en-US"
+    @State private var showSendCheck = false
+    @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
 
     private let insertionHandler = TextInsertionHandler()
 
@@ -135,10 +136,12 @@ struct DirectRecordingPanelView: View {
             contentArea
             controlsBar
         }
-        .frame(width: 380, height: 320)
+        .frame(width: 380, height: 260)
         .background(.ultraThinMaterial)
         .onAppear {
-            speechEngine.startRecording(locale: selectedLanguage)
+            if autoStartRecording {
+                speechEngine.startRecording(locale: resolvedLocale())
+            }
         }
         .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
             if let text = newValue, !text.isEmpty {
@@ -153,30 +156,30 @@ struct DirectRecordingPanelView: View {
     @ViewBuilder
     private var contentArea: some View {
         VStack(spacing: 0) {
-            // Text editor — always visible
-            ZStack(alignment: .topTrailing) {
-                CursorTextEditor(
-                    text: $speechEngine.editedText,
-                    insertionHandler: insertionHandler
-                )
-                .padding(4)
-
-                // Copy button — hover to reveal
-                if isHoveringTextArea && hasText {
-                    copyButton
-                        .padding(8)
-                        .transition(.opacity)
+            // Toolbar with action buttons
+            HStack(spacing: 8) {
+                Spacer()
+                copyButton
+                if hasWebhook {
+                    webhookSendButton
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            // Text editor
+            CursorTextEditor(
+                text: $speechEngine.editedText,
+                insertionHandler: insertionHandler
+            )
+            .padding(4)
             .background(.quaternary.opacity(0.3))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .onHover { isHoveringTextArea = $0 }
             .padding(.horizontal, 16)
             .padding(.bottom, 32) // space so text doesn't hide behind buttons
         }
-        .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.15), value: isHoveringTextArea)
     }
 
     // MARK: - Copy Button
@@ -227,18 +230,7 @@ struct DirectRecordingPanelView: View {
                     .lineLimit(1)
             }
 
-            ZStack {
-                // Record button — always centered
-                recordButton
-
-                // Send button — right aligned
-                if hasWebhook && hasText {
-                    HStack {
-                        Spacer()
-                        sendButton
-                    }
-                }
-            }
+            recordButton
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
@@ -246,43 +238,39 @@ struct DirectRecordingPanelView: View {
         .offset(y: 4) // buttons overlap ~30% onto the text area edge
     }
 
-    // MARK: - Send Button
-
-    // Icon options to try:
-    //   "paperplane.fill"    — classic send / paper plane
-    //   "paperplane.circle.fill" — send in a circle
-    //   "ant.fill"           — ant (closest creature to spider/crab in SF Symbols)
-    //   "ladybug.fill"       — ladybug
-    //   "arrow.up.circle.fill" — upload arrow
-    //   "bolt.fill"          — lightning bolt
-    private let sendIcon = "paperplane.fill"
+    // MARK: - Webhook Send Button
 
     @ViewBuilder
-    private var sendButton: some View {
+    private var webhookSendButton: some View {
         Button {
             WebhookService.send(text: speechEngine.editedText) { _ in }
+            showSendCheck = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                showSendCheck = false
+            }
         } label: {
-            Image(systemName: sendIcon)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: 48, height: 48)
+            Image(systemName: showSendCheck ? "checkmark" : "paperplane")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(showSendCheck ? .green : .secondary)
+                .frame(width: 28, height: 28)
                 .background(
-                    Circle()
-                        .fill(.blue.opacity(0.85))
-                        .shadow(color: .blue.opacity(isHoveringSend ? 0.5 : 0.25), radius: isHoveringSend ? 10 : 4, y: 2)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
                 )
-                .overlay(
-                    Circle()
-                        .fill(.white.opacity(isHoveringSend ? 0.12 : 0))
-                )
-                .scaleEffect(isHoveringSend ? 1.02 : 1.0)
+                .scaleEffect(isHoveringSend ? 1.08 : 1.0)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             isHoveringSend = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: isHoveringSend)
+        .animation(.easeInOut(duration: 0.2), value: showSendCheck)
     }
 
     // MARK: - Record Button
@@ -300,9 +288,9 @@ struct DirectRecordingPanelView: View {
             } else if speechEngine.isTranscribing {
                 // do nothing while transcribing
             } else if speechEngine.isPaused {
-                withAnimation(spring) { speechEngine.resumeRecording(locale: selectedLanguage) }
+                withAnimation(spring) { speechEngine.resumeRecording(locale: resolvedLocale()) }
             } else {
-                withAnimation(spring) { speechEngine.startRecording(locale: selectedLanguage) }
+                withAnimation(spring) { speechEngine.startRecording(locale: resolvedLocale()) }
             }
         } label: {
             ZStack {

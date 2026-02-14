@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage(SettingsKeys.webhookURL) private var webhookURL = ""
     @AppStorage(SettingsKeys.authToken) private var authToken = ""
-    @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = "en-US"
+    @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = "apple"
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"

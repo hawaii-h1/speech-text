@@ -22,14 +22,10 @@ final class SpeechEngine {
     private var audioBufferWriter: AudioBufferWriter?
     private var transcriptionTask: Task<Void, Never>?
 
-    var isAuthorized: Bool {
-        SFSpeechRecognizer.authorizationStatus() == .authorized
-    }
-
-    func requestAuthorization(completion: @escaping (Bool) -> Void) {
-        SFSpeechRecognizer.requestAuthorization { status in
+    func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
             DispatchQueue.main.async {
-                completion(status == .authorized)
+                completion(granted)
             }
         }
     }
@@ -72,7 +68,7 @@ final class SpeechEngine {
                     defer { AudioBufferWriter.cleanup(fileURL: fileURL) }
 
                     let provider = self.makeBatchProvider(for: providerType)
-                    let locale = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage)
+                    let locale: String? = resolvedLocale()
                     let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
 
                     await MainActor.run {
@@ -194,7 +190,7 @@ final class SpeechEngine {
             }
         } else {
             isTranscribing = true
-            let locale = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage)
+            let locale: String? = resolvedLocale()
             let bufferWriter = audioBufferWriter
 
             transcriptionTask = Task { [weak self] in

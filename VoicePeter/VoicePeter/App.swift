@@ -33,16 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Build the menu
         rebuildMenu()
 
-        // Prompt for Accessibility permission if not granted
-        // (Xcode rebuilds re-sign the binary, invalidating previous grants)
-        if !PasteService.isAccessibilityGranted {
-            PasteService.promptAccessibility()
-        }
-
-        // Request speech authorization
-        appState.speechEngine.requestAuthorization { granted in
+        // Request microphone access on first launch
+        appState.speechEngine.requestMicrophoneAccess { granted in
             if !granted {
-                print("Speech recognition authorization denied")
+                print("Microphone access denied!")
             }
         }
 
@@ -207,7 +201,7 @@ final class AppState {
             previousApp = front
         }
 
-        let locale = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage) ?? "en-US"
+        let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
         showOverlay()
     }
@@ -232,7 +226,22 @@ final class AppState {
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        pasteTextToTarget(text)
+        guard let app = previousApp, PasteService.isAccessibilityGranted else {
+            showDirectRecordingPanel(withText: text)
+            return
+        }
+
+        // Re-activate the target app
+        PasteService.activateApp(app)
+
+        // Wait for activation, then check if there's a text input to paste into
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            if PasteService.hasFocusedTextInput(in: app) {
+                PasteService.pasteAtCursor(text)
+            } else {
+                self?.showDirectRecordingPanel(withText: text)
+            }
+        }
     }
 
     func pasteTextToTarget(_ text: String) {
@@ -299,7 +308,7 @@ final class AppState {
 
     func toggleDirectRecordingState() {
         guard let engine = directRecordingSpeechEngine else { return }
-        let locale = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage) ?? "en-US"
+        let locale = resolvedLocale()
         let spring = Animation.spring(response: 0.35, dampingFraction: 0.75)
         if engine.isRecording {
             withAnimation(spring) { engine.pauseRecording() }
@@ -310,23 +319,28 @@ final class AppState {
         }
     }
 
-    func showDirectRecordingPanel() {
+    func showDirectRecordingPanel(withText text: String? = nil) {
         hideDirectRecordingPanel()
 
         // Save the app the user was in before opening the panel
-        let front = NSWorkspace.shared.frontmostApplication
-        if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
-            previousApp = front
+        if text == nil {
+            let front = NSWorkspace.shared.frontmostApplication
+            if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
+                previousApp = front
+            }
         }
 
         let engine = SpeechEngine()
-        engine.requestAuthorization { _ in }
+        if let text {
+            engine.editedText = text
+        }
         directRecordingSpeechEngine = engine
 
         let panel = DirectRecordingPanelWindow()
         let hostingView = NSHostingView(rootView: DirectRecordingPanelView(
             speechEngine: engine,
             appState: self,
+            autoStartRecording: text == nil,
             onDismiss: { [weak self] in
                 self?.hideDirectRecordingPanel()
             }
