@@ -1,16 +1,16 @@
 {
   "images" : [
     {
-      "filename" : "app-icon.png",
+      "filename" : "app-icon-512.png",
       "idiom" : "mac",
-      "platform" : "macos",
+      "scale" : "1x",
       "size" : "512x512"
     },
     {
       "filename" : "app-icon.png",
       "idiom" : "mac",
-      "platform" : "macos",
-      "size" : "1024x1024"
+      "scale" : "2x",
+      "size" : "512x512"
     }
   ],
   "info" : {
