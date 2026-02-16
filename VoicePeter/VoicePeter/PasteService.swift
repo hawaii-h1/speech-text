@@ -18,23 +18,14 @@ struct PasteService {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        let script = NSAppleScript(source: """
-            tell application "System Events"
-                keystroke "v" using command down
-            end tell
-        """)
-        var scriptError: NSDictionary?
-        script?.executeAndReturnError(&scriptError)
+        // Use CGEvent as primary method — it only requires Accessibility permission,
+        // unlike AppleScript which also needs Automation permission for System Events
+        // and com.apple.security.automation.apple-events entitlement with hardened runtime.
+        simulatePasteCGEvent()
 
-        if let scriptError {
-            print("[PasteService] AppleScript failed: \(scriptError)")
-            simulatePasteCGEvent()
-        } else {
-            print("[PasteService] AppleScript ⌘V succeeded")
-        }
-
-        // Restore the original clipboard after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        // Restore the original clipboard after a generous delay to ensure the target app
+        // has fully processed the paste command and read from the clipboard.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             restoreClipboard(pasteboard, items: savedItems)
             print("[PasteService] Clipboard restored")
         }
@@ -71,8 +62,8 @@ struct PasteService {
         let result = app.activate()
         print("[PasteService] NSRunningApplication.activate: \(result)")
 
-        // Also try AppleScript as backup
-        if let bundleID = app.bundleIdentifier {
+        if !result, let bundleID = app.bundleIdentifier {
+            // Fallback to AppleScript only if direct activation failed
             let script = NSAppleScript(source: """
                 tell application id "\(bundleID)" to activate
             """)

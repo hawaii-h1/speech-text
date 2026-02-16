@@ -40,6 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Prompt for accessibility permission on first launch if not already granted.
+        // This is required for pasting text at the cursor via the inline recorder.
+        if !PasteService.isAccessibilityGranted {
+            PasteService.promptAccessibility()
+        }
+
         // Set up hotkeys
         appState.hotkeyManager.onInlineToggle = { [weak self] in
             DispatchQueue.main.async {
@@ -226,21 +232,25 @@ final class AppState {
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        guard let app = previousApp, PasteService.isAccessibilityGranted else {
+        if !PasteService.isAccessibilityGranted {
+            PasteService.promptAccessibility()
             showDirectRecordingPanel(withText: text)
             return
         }
 
-        // Re-activate the target app
+        guard let app = previousApp else {
+            showDirectRecordingPanel(withText: text)
+            return
+        }
+
+        // Re-activate the target app and paste directly.
+        // We skip hasFocusedTextInput — it fails for Electron apps (VS Code, Slack, etc.)
+        // and on newer macOS versions where accessibility roles differ.
+        // Sending Cmd+V when there's no text field is harmless.
         PasteService.activateApp(app)
 
-        // Wait for activation, then check if there's a text input to paste into
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            if PasteService.hasFocusedTextInput(in: app) {
-                PasteService.pasteAtCursor(text)
-            } else {
-                self?.showDirectRecordingPanel(withText: text)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            PasteService.pasteAtCursor(text)
         }
     }
 
@@ -256,7 +266,7 @@ final class AppState {
         }
 
         // Wait for the app to regain focus, then paste
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             PasteService.pasteAtCursor(text)
         }
     }
