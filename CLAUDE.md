@@ -21,14 +21,14 @@ All source files live in `VoicePeter/VoicePeter/`. There are no tests, no SPM pa
 
 ### Recording Modes
 
-- **Inline recording** — Triggered by global hotkey (default: `Ctrl+Shift+A`). Shows a small floating overlay (`RecordingOverlay.swift`) at the bottom of the screen. On stop, transcribed text is pasted at the cursor in the previously focused app via `PasteService`. If no text input is focused in the target app, falls back to opening the Record Window with the transcribed text.
+- **Inline recording** — Triggered by global hotkey (default: `Ctrl+Shift+A`). Shows a small floating overlay (`RecordingOverlay.swift`) at the bottom of the screen. On stop, transcribed text is pasted at the cursor in the previously focused app via `PasteService`. Falls back to opening the Record Window if accessibility permission is missing or the previous app couldn't be detected.
 - **Record Window** — Triggered by global hotkey (default: `Ctrl+Shift+S`). Opens `DirectRecordingPanel.swift`, a floating panel that auto-starts recording and shows waveform + live text in an editable text area. Supports pause/resume via hotkey or button. After transcription, text can be edited, then pasted at cursor, copied, or sent to webhook. The hotkey toggles recording state when the panel is already open.
 
 ### Services
 
 - **`HotkeyManager.swift`** — Registers global hotkeys using Carbon `RegisterEventHotKey`. Supports two hotkeys (inline recording and record window) with configurable key codes and modifiers. Listens for `hotkeyDidChange` notifications to hot-reload shortcuts. Uses `Unmanaged` pointer for Carbon event handler callback.
 - **`HotkeyRecorderView.swift`** — SwiftUI view that captures a new keyboard shortcut via `NSEvent.addLocalMonitorForEvents`. Filters out bare modifier keys and requires at least one modifier. Also contains free functions `shortcutDisplayString()` (builds display string with modifier symbols) and `keyCodeToString()` (converts virtual key codes to readable strings using `UCKeyTranslate`). Defines the `hotkeyDidChange` notification name.
-- **`PasteService.swift`** — Pastes text at cursor by saving clipboard contents, setting the clipboard to the transcription text, simulating `Cmd+V` via AppleScript (primary) or `CGEvent` (fallback), then restoring the original clipboard after a delay. Also handles app activation (via `NSRunningApplication.activate` + AppleScript fallback), focused text input detection via Accessibility APIs (`AXUIElement`), and accessibility permission checks/prompts.
+- **`PasteService.swift`** — Pastes text at cursor by saving clipboard contents, setting the clipboard to the transcription text, simulating `Cmd+V` via `CGEvent`, then restoring the original clipboard after a delay. Also handles app activation (via `NSRunningApplication.activate` + AppleScript fallback) and accessibility permission checks/prompts.
 - **`WebhookService.swift`** — Sends transcribed text to a user-configured webhook URL via POST with JSON body (`text`, `source`, `timestamp`). Supports optional Bearer token auth. Uses completion handler pattern with `Result<Void, Error>`.
 
 ### UI
@@ -53,7 +53,7 @@ All source files live in `VoicePeter/VoicePeter/`. There are no tests, no SPM pa
 
 - **Microphone** — For audio capture (`AVAudioEngine`)
 - **Speech Recognition** — For Apple on-device STT (`SFSpeechRecognizer`)
-- **Accessibility** — For simulating `Cmd+V` paste via AppleScript/CGEvent and detecting focused text inputs. Must be granted in System Settings > Privacy & Security > Accessibility.
+- **Accessibility** — For simulating `Cmd+V` paste via CGEvent. Must be granted in System Settings > Privacy & Security > Accessibility. The app prompts for this on first launch.
 
 ## Settings Keys Reference
 
