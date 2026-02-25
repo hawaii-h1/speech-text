@@ -79,6 +79,7 @@ struct PasteService {
 
     /// Check whether the given app has a focused element that accepts text input.
     /// Uses Accessibility APIs to inspect the focused UI element.
+    /// Handles native text fields, Electron/Chromium web views, and custom text editors.
     static func hasFocusedTextInput(in app: NSRunningApplication) -> Bool {
         guard AXIsProcessTrusted() else { return true } // Can't check — assume yes
 
@@ -97,7 +98,7 @@ struct PasteService {
 
         let axElement = element as! AXUIElement
 
-        // Primary check: is the value attribute settable? (accepts text input)
+        // Check 1: is the value attribute settable? (native text inputs)
         var isSettable = DarwinBoolean(false)
         let settableResult = AXUIElementIsAttributeSettable(
             axElement,
@@ -109,14 +110,29 @@ struct PasteService {
             return true
         }
 
-        // Fallback: check role for known text input types
+        // Check 2: does it support text selection? (reliable for Electron/Chromium too)
+        var selectedRange: CFTypeRef?
+        let rangeResult = AXUIElementCopyAttributeValue(
+            axElement,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectedRange
+        )
+        if rangeResult == .success {
+            return true
+        }
+
+        // Check 3: role-based detection (includes web view roles for Electron apps)
         var role: CFTypeRef?
         AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role)
 
         if let roleString = role as? String {
-            return roleString == (kAXTextFieldRole as String) ||
-                   roleString == (kAXTextAreaRole as String) ||
-                   roleString == (kAXComboBoxRole as String)
+            let textInputRoles: Set<String> = [
+                kAXTextFieldRole as String,
+                kAXTextAreaRole as String,
+                kAXComboBoxRole as String,
+                "AXWebArea",
+            ]
+            return textInputRoles.contains(roleString)
         }
 
         return false

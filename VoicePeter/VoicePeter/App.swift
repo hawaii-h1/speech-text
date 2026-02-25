@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 @main
 struct VoicePeterApp: App {
@@ -66,6 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: .hotkeyDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             self?.rebuildMenu()
+        }
+
+        // Auto-register as login item on first launch (default: ON)
+        if !UserDefaults.standard.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) {
+            UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
+            try? SMAppService.mainApp.register()
         }
     }
 
@@ -135,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 550),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -243,14 +250,26 @@ final class AppState {
             return
         }
 
-        // Re-activate the target app and paste directly.
-        // We skip hasFocusedTextInput — it fails for Electron apps (VS Code, Slack, etc.)
-        // and on newer macOS versions where accessibility roles differ.
-        // Sending Cmd+V when there's no text field is harmless.
-        PasteService.activateApp(app)
+        // Check if the previous app is still in front (the overlay is non-activating,
+        // so this is the common case). If so, paste immediately without delay.
+        // Otherwise re-activate it and wait for focus before pasting.
+        let alreadyFocused = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            PasteService.pasteAtCursor(text)
+        if alreadyFocused {
+            if PasteService.hasFocusedTextInput(in: app) {
+                PasteService.pasteAtCursor(text)
+            } else {
+                showDirectRecordingPanel(withText: text)
+            }
+        } else {
+            PasteService.activateApp(app)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                if PasteService.hasFocusedTextInput(in: app) {
+                    PasteService.pasteAtCursor(text)
+                } else {
+                    self?.showDirectRecordingPanel(withText: text)
+                }
+            }
         }
     }
 
