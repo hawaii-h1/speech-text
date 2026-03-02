@@ -1,6 +1,10 @@
 import Foundation
 import Speech
 import AVFoundation
+import os.log
+
+private let seLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoicePeter",
+                            category: "SpeechEngine")
 
 @Observable
 final class SpeechEngine {
@@ -18,9 +22,13 @@ final class SpeechEngine {
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
+    /// Created fresh for each recording session so it always binds to the current audio device.
+    private var audioEngine: AVAudioEngine?
     private var audioBufferWriter: AudioBufferWriter?
     private var transcriptionTask: Task<Void, Never>?
+    /// The locale used for the current/last recording session, kept for restart after device change.
+    private var currentLocale: String = "en-US"
+    private var configChangeObserver: NSObjectProtocol?
 
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -32,6 +40,7 @@ final class SpeechEngine {
 
     func startRecording(locale: String = "en-US") {
         guard !isRecording else { return }
+        seLog.info("startRecording: locale=\(locale, privacy: .public)")
         isPaused = false
         editedText = ""
         pendingInsertionText = nil
@@ -42,7 +51,7 @@ final class SpeechEngine {
     }
 
     func pauseRecording() {
-        guard isRecording else { return }
+        guard isRecording, let audioEngine else { return }
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         isPaused = true
@@ -102,6 +111,7 @@ final class SpeechEngine {
 
     /// Common setup for a new recording segment. Creates fresh buffer and recognizer.
     private func setupRecordingSession(locale: String) {
+        currentLocale = locale
         liveText = ""
         finalText = ""
         errorMessage = nil
@@ -110,6 +120,22 @@ final class SpeechEngine {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
+
+        // Tear down the old engine entirely. Creating a fresh AVAudioEngine each session
+        // guarantees it binds to the *current* default audio device, avoiding stale-format
+        // crashes when the user switches input devices between recordings.
+        tearDownAudioEngine()
+        let engine = AVAudioEngine()
+        audioEngine = engine
+
+        // Observe audio hardware changes (device plugged/unplugged, AirPods switch, etc.).
+        // AVAudioEngine silently stops when this happens — we need to restart on the new device.
+        removeConfigChangeObserver()
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            self?.handleAudioConfigChange()
+        }
 
         audioBufferWriter = AudioBufferWriter()
 
@@ -157,10 +183,12 @@ final class SpeechEngine {
         installAudioTap()
 
         do {
-            audioEngine.prepare()
-            try audioEngine.start()
+            engine.prepare()
+            try engine.start()
             isRecording = true
+            seLog.info("setupRecordingSession: audio engine started successfully")
         } catch {
+            seLog.error("setupRecordingSession: audio engine failed to start: \(error.localizedDescription, privacy: .public)")
             errorMessage = "Audio engine failed to start: \(error.localizedDescription)"
             cleanup()
         }
@@ -169,8 +197,8 @@ final class SpeechEngine {
     func stopRecording() {
         guard isRecording || isPaused else { return }
         if isRecording {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine?.stop()
+            audioEngine?.inputNode.removeTap(onBus: 0)
         }
         recognitionRequest?.endAudio()
         isRecording = false
@@ -236,14 +264,36 @@ final class SpeechEngine {
             let model = UserDefaults.standard.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo"
             return GroqSTTProvider(apiKey: apiKey, model: model)
         case .apple:
-            fatalError("Apple provider does not use batch transcription")
+            seLog.fault("makeBatchProvider called for Apple provider — this should never happen")
+            // Return Groq as fallback instead of crashing
+            let apiKey = UserDefaults.standard.string(forKey: SettingsKeys.groqAPIKey) ?? ""
+            let model = UserDefaults.standard.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo"
+            return GroqSTTProvider(apiKey: apiKey, model: model)
         }
     }
 
     private func installAudioTap() {
+        guard let audioEngine else {
+            seLog.error("installAudioTap: no audio engine")
+            errorMessage = "Audio engine not initialized"
+            return
+        }
+
         let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+        let hwFormat = inputNode.outputFormat(forBus: 0)
+
+        // Validate — a 0-channel or 0-sampleRate format means no input device is available
+        guard hwFormat.channelCount > 0, hwFormat.sampleRate > 0 else {
+            seLog.error("installAudioTap: invalid hardware format (channels=\(hwFormat.channelCount), sampleRate=\(hwFormat.sampleRate))")
+            errorMessage = "No audio input device available"
+            return
+        }
+
+        // Pass nil for format so AVAudioEngine uses the hardware's native format.
+        // This avoids "format mismatch" ObjC exceptions that Swift can't catch.
+        seLog.info("installAudioTap: hwFormat=\(hwFormat.description, privacy: .public)")
+
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             self.recognitionRequest?.append(buffer)
             self.audioBufferWriter?.append(buffer)
@@ -257,6 +307,48 @@ final class SpeechEngine {
         }
     }
 
+    /// Called when the audio hardware configuration changes (device switch, sample rate change, etc.).
+    /// AVAudioEngine stops itself automatically — we tear down and rebuild with a fresh engine.
+    private func handleAudioConfigChange() {
+        seLog.warning("handleAudioConfigChange: audio device changed, isRecording=\(self.isRecording)")
+
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+
+        guard isRecording || isPaused else {
+            // Not recording — just discard the stale engine so the next session gets a fresh one.
+            tearDownAudioEngine()
+            return
+        }
+
+        // Restart recording on the new audio device with a fresh engine.
+        let wasRecording = isRecording
+        isRecording = false
+        isPaused = false
+
+        if wasRecording {
+            setupRecordingSession(locale: currentLocale)
+        }
+    }
+
+    /// Stop and discard the current audio engine so the next session creates a fresh one.
+    private func tearDownAudioEngine() {
+        if let engine = audioEngine {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        audioEngine = nil
+    }
+
+    private func removeConfigChangeObserver() {
+        if let observer = configChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            configChangeObserver = nil
+        }
+    }
+
     private func cleanup() {
         recognitionTask?.cancel()
         recognitionTask = nil
@@ -264,6 +356,8 @@ final class SpeechEngine {
         speechRecognizer = nil
         audioBufferWriter?.reset()
         audioBufferWriter = nil
+        tearDownAudioEngine()
+        removeConfigChangeObserver()
     }
 
     /// Split the audio buffer into N segments and compute RMS for each.

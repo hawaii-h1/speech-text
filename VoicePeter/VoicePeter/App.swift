@@ -250,25 +250,24 @@ final class AppState {
             return
         }
 
-        // Check if the previous app is still in front (the overlay is non-activating,
-        // so this is the common case). If so, paste immediately without delay.
-        // Otherwise re-activate it and wait for focus before pasting.
+        // Paste into the previous app. If the focused element is a known non-text
+        // role (button, table, list, etc.), fall back to the Record Window instead.
         let alreadyFocused = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier
 
-        if alreadyFocused {
-            if PasteService.hasFocusedTextInput(in: app) {
+        let tryPaste = { [weak self] in
+            if PasteService.canLikelyPasteText(in: app) {
                 PasteService.pasteAtCursor(text)
             } else {
-                showDirectRecordingPanel(withText: text)
+                self?.showDirectRecordingPanel(withText: text)
             }
+        }
+
+        if alreadyFocused {
+            tryPaste()
         } else {
             PasteService.activateApp(app)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                if PasteService.hasFocusedTextInput(in: app) {
-                    PasteService.pasteAtCursor(text)
-                } else {
-                    self?.showDirectRecordingPanel(withText: text)
-                }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                tryPaste()
             }
         }
     }

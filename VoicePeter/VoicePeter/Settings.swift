@@ -17,6 +17,9 @@ enum SettingsKeys {
     // Hotkey (record window)
     static let recordWindowHotkeyKeyCode = "recordWindowHotkeyKeyCode"
     static let recordWindowHotkeyModifierFlags = "recordWindowHotkeyModifierFlags"
+
+    // Launch at Login
+    static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
 }
 
 let groqModels: [(id: String, name: String)] = [

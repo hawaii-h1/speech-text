@@ -77,10 +77,12 @@ struct PasteService {
         }
     }
 
-    /// Check whether the given app has a focused element that accepts text input.
-    /// Uses Accessibility APIs to inspect the focused UI element.
-    /// Handles native text fields, Electron/Chromium web views, and custom text editors.
-    static func hasFocusedTextInput(in app: NSRunningApplication) -> Bool {
+    /// Check whether the given app likely accepts pasted text.
+    /// Uses a denylist approach: returns true unless the focused element is a known
+    /// non-text role (button, table, list, etc.). Unknown roles (including Electron/Chromium
+    /// custom elements) default to true so paste is attempted.
+    /// Returns false only when there is no focused element or it's definitely not a text input.
+    static func canLikelyPasteText(in app: NSRunningApplication) -> Bool {
         guard AXIsProcessTrusted() else { return true } // Can't check — assume yes
 
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
@@ -93,49 +95,56 @@ struct PasteService {
         )
 
         guard result == .success, let element = focusedElement else {
-            return false
+            return false // No focused element at all
         }
 
         let axElement = element as! AXUIElement
 
-        // Check 1: is the value attribute settable? (native text inputs)
+        // Quick positive: if the value attribute is settable, it's definitely a text input
         var isSettable = DarwinBoolean(false)
         let settableResult = AXUIElementIsAttributeSettable(
             axElement,
             kAXValueAttribute as CFString,
             &isSettable
         )
-
         if settableResult == .success && isSettable.boolValue {
             return true
         }
 
-        // Check 2: does it support text selection? (reliable for Electron/Chromium too)
-        var selectedRange: CFTypeRef?
-        let rangeResult = AXUIElementCopyAttributeValue(
-            axElement,
-            kAXSelectedTextRangeAttribute as CFString,
-            &selectedRange
-        )
-        if rangeResult == .success {
-            return true
-        }
-
-        // Check 3: role-based detection (includes web view roles for Electron apps)
+        // Denylist: roles that definitely don't accept pasted text.
+        // Everything NOT in this list (including unknown Electron roles) defaults to "try paste".
         var role: CFTypeRef?
         AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role)
 
         if let roleString = role as? String {
-            let textInputRoles: Set<String> = [
-                kAXTextFieldRole as String,
-                kAXTextAreaRole as String,
-                kAXComboBoxRole as String,
-                "AXWebArea",
+            let nonTextRoles: Set<String> = [
+                kAXButtonRole as String,
+                kAXCheckBoxRole as String,
+                kAXRadioButtonRole as String,
+                kAXMenuItemRole as String,
+                kAXMenuBarRole as String,
+                kAXMenuRole as String,
+                kAXToolbarRole as String,
+                kAXScrollBarRole as String,
+                kAXImageRole as String,
+                kAXStaticTextRole as String,
+                kAXListRole as String,
+                kAXOutlineRole as String,
+                kAXTableRole as String,
+                kAXBrowserRole as String,
+                kAXTabGroupRole as String,
+                kAXScrollAreaRole as String,
+                kAXSplitGroupRole as String,
+                kAXSplitterRole as String,
+                kAXWindowRole as String,
             ]
-            return textInputRoles.contains(roleString)
+            if nonTextRoles.contains(roleString) {
+                return false
+            }
         }
 
-        return false
+        // Unknown or unrecognized role — default to trying paste
+        return true
     }
 
     /// Check if accessibility is granted

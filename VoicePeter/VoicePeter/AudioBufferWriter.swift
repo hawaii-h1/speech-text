@@ -1,26 +1,52 @@
 import AVFoundation
+import os.log
+
+private let abwLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoicePeter",
+                             category: "AudioBufferWriter")
 
 final class AudioBufferWriter {
+    private let lock = NSLock()
     private var buffers: [AVAudioPCMBuffer] = []
     private var format: AVAudioFormat?
 
     func append(_ buffer: AVAudioPCMBuffer) {
-        if format == nil {
-            format = buffer.format
+        guard let src = buffer.floatChannelData else {
+            abwLog.error("append: buffer has nil floatChannelData, skipping")
+            return
         }
+        guard buffer.frameLength > 0 else { return }
+
         guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format,
-                                          frameCapacity: buffer.frameLength) else { return }
+                                          frameCapacity: buffer.frameLength) else {
+            abwLog.error("append: failed to create copy buffer")
+            return
+        }
         copy.frameLength = buffer.frameLength
-        let src = buffer.floatChannelData!
-        let dst = copy.floatChannelData!
+
+        guard let dst = copy.floatChannelData else {
+            abwLog.error("append: copy buffer has nil floatChannelData")
+            return
+        }
+
         for ch in 0 ..< Int(buffer.format.channelCount) {
             memcpy(dst[ch], src[ch], Int(buffer.frameLength) * MemoryLayout<Float>.size)
         }
+
+        lock.lock()
+        if format == nil {
+            format = buffer.format
+        }
         buffers.append(copy)
+        lock.unlock()
     }
 
     func writeWAV() throws -> URL {
-        guard let format else {
+        lock.lock()
+        let capturedFormat = format
+        let capturedBuffers = buffers
+        lock.unlock()
+
+        guard let capturedFormat else {
             throw AudioBufferWriterError.noAudio
         }
 
@@ -30,12 +56,12 @@ final class AudioBufferWriter {
 
         let outputFile = try AVAudioFile(
             forWriting: tempURL,
-            settings: format.settings,
-            commonFormat: format.commonFormat,
-            interleaved: format.isInterleaved
+            settings: capturedFormat.settings,
+            commonFormat: capturedFormat.commonFormat,
+            interleaved: capturedFormat.isInterleaved
         )
 
-        for buffer in buffers {
+        for buffer in capturedBuffers {
             try outputFile.write(from: buffer)
         }
 
@@ -43,8 +69,10 @@ final class AudioBufferWriter {
     }
 
     func reset() {
+        lock.lock()
         buffers.removeAll()
         format = nil
+        lock.unlock()
     }
 
     static func cleanup(fileURL: URL) {
