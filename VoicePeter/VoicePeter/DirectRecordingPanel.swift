@@ -140,7 +140,11 @@ struct DirectRecordingPanelView: View {
         .background(.ultraThinMaterial)
         .onAppear {
             if autoStartRecording {
-                speechEngine.startRecording(locale: resolvedLocale())
+                // Defer one runloop so the panel renders before the audio engine
+                // initializes (engine.prepare() can block the main thread ~200-500ms).
+                DispatchQueue.main.async {
+                    speechEngine.startRecording(locale: resolvedLocale())
+                }
             }
         }
         .onChange(of: speechEngine.pendingInsertionText) { _, newValue in

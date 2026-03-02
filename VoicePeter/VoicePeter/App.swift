@@ -214,9 +214,13 @@ final class AppState {
             previousApp = front
         }
 
+        // Show overlay immediately for instant visual feedback before the audio
+        // engine initializes (AVAudioEngine.prepare + SFSpeechRecognizer can take
+        // 500ms–1s on first use, which would otherwise delay the UI).
+        showOverlay()
+
         let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
-        showOverlay()
     }
 
     private func stopRecording() {
@@ -417,6 +421,11 @@ struct ObservedOverlay: View {
     let onCancel: () -> Void
 
     var body: some View {
-        RecordingOverlayView(barLevels: speechEngine.barLevels, isLoading: speechEngine.isTranscribing, onCancel: onCancel)
+        RecordingOverlayView(
+            barLevels: speechEngine.barLevels,
+            isLoading: speechEngine.isTranscribing,
+            isPreparing: speechEngine.isStartingEngine,
+            onCancel: onCancel
+        )
     }
 }

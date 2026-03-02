@@ -95,7 +95,10 @@ struct PasteService {
         )
 
         guard result == .success, let element = focusedElement else {
-            return false // No focused element at all
+            // Can't determine focused element — common in Electron/web apps (Slack, Discord,
+            // VS Code, etc.) whose text inputs don't appear in the native AX tree.
+            // Default to attempting paste rather than falling back to Record Window.
+            return true
         }
 
         let axElement = element as! AXUIElement

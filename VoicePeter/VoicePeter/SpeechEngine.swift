@@ -29,6 +29,12 @@ final class SpeechEngine {
     /// The locale used for the current/last recording session, kept for restart after device change.
     private var currentLocale: String = "en-US"
     private var configChangeObserver: NSObjectProtocol?
+    /// Incremented each time the engine is torn down. Background engine-start closures compare
+    /// against this to detect stale sessions and bail out safely.
+    private var engineStartToken = 0
+    /// True while the audio engine is being prepared on the background thread.
+    /// Used by the overlay to show a "preparing" animation before the mic is live.
+    var isStartingEngine = false
 
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -111,6 +117,7 @@ final class SpeechEngine {
 
     /// Common setup for a new recording segment. Creates fresh buffer and recognizer.
     private func setupRecordingSession(locale: String) {
+        isStartingEngine = true
         currentLocale = locale
         liveText = ""
         finalText = ""
@@ -142,7 +149,11 @@ final class SpeechEngine {
         let providerType = currentProviderType()
 
         if providerType == .apple {
-            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
+            // Reuse the existing recognizer when the locale is unchanged — creating a new
+            // SFSpeechRecognizer reloads the speech model (~300-500ms on first use).
+            if speechRecognizer?.locale.identifier != locale {
+                speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
+            }
             guard let speechRecognizer, speechRecognizer.isAvailable else {
                 errorMessage = "Speech recognizer not available for \(locale)"
                 return
@@ -182,15 +193,38 @@ final class SpeechEngine {
 
         installAudioTap()
 
-        do {
-            engine.prepare()
-            try engine.start()
-            isRecording = true
-            seLog.info("setupRecordingSession: audio engine started successfully")
-        } catch {
-            seLog.error("setupRecordingSession: audio engine failed to start: \(error.localizedDescription, privacy: .public)")
-            errorMessage = "Audio engine failed to start: \(error.localizedDescription)"
-            cleanup()
+        // engine.prepare() + engine.start() acquire audio hardware resources and can block
+        // the main thread for 100–300ms. Run them on a background thread so the UI stays
+        // responsive. The token detects stale sessions (user stops before engine is ready).
+        engineStartToken += 1
+        let token = engineStartToken
+        let capturedEngine = engine
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            capturedEngine.prepare()
+            do {
+                try capturedEngine.start()
+            } catch {
+                let desc = error.localizedDescription
+                DispatchQueue.main.async {
+                    guard self?.engineStartToken == token else { return }
+                    seLog.error("setupRecordingSession: audio engine failed to start: \(desc, privacy: .public)")
+                    self?.isStartingEngine = false
+                    self?.errorMessage = "Audio engine failed to start: \(desc)"
+                    self?.cleanup()
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                // Session was cancelled (stop pressed before engine finished starting).
+                guard self?.engineStartToken == token else {
+                    capturedEngine.stop()
+                    return
+                }
+                self?.isStartingEngine = false
+                self?.isRecording = true
+                seLog.info("setupRecordingSession: audio engine started successfully")
+            }
         }
     }
 
@@ -335,6 +369,8 @@ final class SpeechEngine {
 
     /// Stop and discard the current audio engine so the next session creates a fresh one.
     private func tearDownAudioEngine() {
+        // Bump the token so any in-flight background prepare()/start() knows it's stale.
+        engineStartToken += 1
         if let engine = audioEngine {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
@@ -350,10 +386,12 @@ final class SpeechEngine {
     }
 
     private func cleanup() {
+        isStartingEngine = false
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        speechRecognizer = nil
+        // speechRecognizer is intentionally kept alive between sessions so the speech
+        // model stays loaded in memory, making subsequent recordings start much faster.
         audioBufferWriter?.reset()
         audioBufferWriter = nil
         tearDownAudioEngine()
