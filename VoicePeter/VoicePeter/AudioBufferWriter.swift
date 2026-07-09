@@ -46,7 +46,10 @@ final class AudioBufferWriter {
         let capturedBuffers = buffers
         lock.unlock()
 
+        dlog("Audio", "writeWAV: buffers=\(capturedBuffers.count), format=\(capturedFormat?.description ?? "nil")")
+
         guard let capturedFormat else {
+            dlog("Audio", "writeWAV: no format — throwing noAudio")
             throw AudioBufferWriterError.noAudio
         }
 
@@ -65,6 +68,9 @@ final class AudioBufferWriter {
             try outputFile.write(from: buffer)
         }
 
+        let totalFrames = capturedBuffers.reduce(0) { $0 + Int($1.frameLength) }
+        let duration = Double(totalFrames) / capturedFormat.sampleRate
+        dlog("Audio", "writeWAV: wrote \(totalFrames) frames (\(String(format: "%.1f", duration))s) to \(tempURL.lastPathComponent)")
         return tempURL
     }
 

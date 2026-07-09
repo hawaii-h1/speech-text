@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let appState = AppState()
     private var settingsWindow: NSWindow?
+    private var debugLogWindow: DebugLogWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
@@ -116,6 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let debugItem = NSMenuItem(title: "Debug Log...", action: #selector(openDebugLog), keyEquivalent: "")
+        debugItem.target = self
+        menu.addItem(debugItem)
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit VoicePeter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -153,6 +158,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openDebugLog() {
+        if let existing = debugLogWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let window = DebugLogWindow()
+        window.makeKeyAndOrderFront(nil)
+        debugLogWindow = window
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -200,23 +217,25 @@ final class AppState {
     var previousApp: NSRunningApplication?
 
     func toggleRecording() {
+        dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
         if speechEngine.isRecording {
             stopRecording()
+        } else if speechEngine.isTranscribing || speechEngine.isStartingEngine {
+            dlog("App", "toggleRecording: cancelling mid-flight")
+            speechEngine.cancelRecording()
+            hideOverlay()
         } else {
             startRecording()
         }
     }
 
     private func startRecording() {
-        // Save the frontmost app so we can paste back into it
         let front = NSWorkspace.shared.frontmostApplication
         if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = front
         }
+        dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(resolvedLocale())")
 
-        // Show overlay immediately for instant visual feedback before the audio
-        // engine initializes (AVAudioEngine.prepare + SFSpeechRecognizer can take
-        // 500ms–1s on first use, which would otherwise delay the UI).
         showOverlay()
 
         let locale = resolvedLocale()
@@ -224,14 +243,25 @@ final class AppState {
     }
 
     private func stopRecording() {
+        dlog("App", "stopRecording")
         speechEngine.stopRecording()
         waitForTranscription()
     }
 
+    private var transcriptionWaitCount = 0
+
     private func waitForTranscription() {
         guard speechEngine.isTranscribing else {
+            dlog("App", "waitForTranscription: done (waited \(transcriptionWaitCount) cycles)")
+            transcriptionWaitCount = 0
             handleTranscriptionResult()
             return
+        }
+        transcriptionWaitCount += 1
+        if transcriptionWaitCount == 1 {
+            dlog("App", "waitForTranscription: waiting for isTranscribing to become false…")
+        } else if transcriptionWaitCount % 100 == 0 {
+            dlog("App", "waitForTranscription: still waiting after \(transcriptionWaitCount) cycles (\(Double(transcriptionWaitCount) * 0.05)s)")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.waitForTranscription()
@@ -241,15 +271,21 @@ final class AppState {
     private func handleTranscriptionResult() {
         hideOverlay()
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil")")
+        guard !text.isEmpty else {
+            dlog("App", "handleTranscriptionResult: empty text, nothing to do")
+            return
+        }
 
         if !PasteService.isAccessibilityGranted {
+            dlog("App", "handleTranscriptionResult: no accessibility, showing record panel")
             PasteService.promptAccessibility()
             showDirectRecordingPanel(withText: text)
             return
         }
 
         guard let app = previousApp else {
+            dlog("App", "handleTranscriptionResult: no previousApp, showing record panel")
             showDirectRecordingPanel(withText: text)
             return
         }
@@ -294,10 +330,17 @@ final class AppState {
     }
 
     private func showOverlay() {
+        // Close any existing panel first to prevent orphaned overlays
+        hideOverlay()
+
         let panel = RecordingOverlayPanel()
-        let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, onCancel: { [weak self] in
-            self?.speechEngine.stopRecording()
-            self?.hideOverlay()
+        let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, onCancel: { [weak self, weak panel] in
+            self?.speechEngine.cancelRecording()
+            // Close this specific panel regardless of what overlayPanel points to
+            panel?.close()
+            if self?.overlayPanel === panel {
+                self?.overlayPanel = nil
+            }
         }))
         panel.contentView = hostingView
         panel.orderFrontRegardless()

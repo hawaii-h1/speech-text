@@ -8,15 +8,31 @@ private let seLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoicePete
 
 @Observable
 final class SpeechEngine {
-    var isRecording = false
-    var isPaused = false
+    var isRecording = false {
+        didSet { dlog("Engine", "isRecording: \(oldValue) → \(isRecording)") }
+    }
+    var isPaused = false {
+        didSet { dlog("Engine", "isPaused: \(oldValue) → \(isPaused)") }
+    }
     var liveText = ""
-    var finalText = ""
+    var finalText = "" {
+        didSet {
+            if oldValue != finalText {
+                dlog("Engine", "finalText updated (\(finalText.count) chars): \"\(finalText.prefix(80))\"")
+            }
+        }
+    }
     var editedText: String = ""
     /// Set when a segment's transcription is ready to be inserted at cursor
     var pendingInsertionText: String?
-    var errorMessage: String?
-    var isTranscribing = false
+    var errorMessage: String? {
+        didSet {
+            if let msg = errorMessage { dlog("Engine", "⚠ errorMessage: \(msg)") }
+        }
+    }
+    var isTranscribing = false {
+        didSet { dlog("Engine", "isTranscribing: \(oldValue) → \(isTranscribing)") }
+    }
     var barLevels: [CGFloat] = Array(repeating: 0, count: 12)
 
     private var speechRecognizer: SFSpeechRecognizer?
@@ -45,8 +61,11 @@ final class SpeechEngine {
     }
 
     func startRecording(locale: String = "en-US") {
-        guard !isRecording else { return }
-        seLog.info("startRecording: locale=\(locale, privacy: .public)")
+        guard !isRecording else {
+            dlog("Engine", "startRecording: already recording, ignoring")
+            return
+        }
+        dlog("Engine", "startRecording: locale=\(locale), provider=\(currentProviderType().rawValue)")
         isPaused = false
         editedText = ""
         pendingInsertionText = nil
@@ -57,7 +76,11 @@ final class SpeechEngine {
     }
 
     func pauseRecording() {
-        guard isRecording, let audioEngine else { return }
+        dlog("Engine", "pauseRecording: isRecording=\(isRecording), provider=\(currentProviderType().rawValue)")
+        guard isRecording, let audioEngine else {
+            dlog("Engine", "pauseRecording: guard failed (isRecording=\(isRecording), audioEngine=\(self.audioEngine != nil))")
+            return
+        }
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         isPaused = true
@@ -68,23 +91,31 @@ final class SpeechEngine {
 
         if providerType == .apple {
             let segmentText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
+            dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
             if !segmentText.isEmpty {
                 pendingInsertionText = segmentText
             }
         } else {
             isTranscribing = true
             let bufferWriter = audioBufferWriter
+            dlog("Engine", "pauseRecording(batch): bufferWriter=\(bufferWriter != nil), starting transcription task")
 
             transcriptionTask?.cancel()
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
                 do {
-                    guard let fileURL = try bufferWriter?.writeWAV() else { return }
+                    guard let fileURL = try bufferWriter?.writeWAV() else {
+                        dlog("Engine", "pauseRecording: writeWAV returned nil (bufferWriter was nil) — resetting isTranscribing")
+                        await MainActor.run { self.isTranscribing = false }
+                        return
+                    }
                     defer { AudioBufferWriter.cleanup(fileURL: fileURL) }
 
+                    dlog("Engine", "pauseRecording: calling batch provider…")
                     let provider = self.makeBatchProvider(for: providerType)
                     let locale: String? = resolvedLocale()
                     let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
+                    dlog("Engine", "pauseRecording: transcription done, \(text.count) chars")
 
                     await MainActor.run {
                         self.liveText = text
@@ -95,6 +126,7 @@ final class SpeechEngine {
                         self.isTranscribing = false
                     }
                 } catch {
+                    dlog("Engine", "pauseRecording: transcription error: \(error.localizedDescription)")
                     await MainActor.run {
                         if !Task.isCancelled {
                             self.errorMessage = error.localizedDescription
@@ -107,6 +139,7 @@ final class SpeechEngine {
     }
 
     func resumeRecording(locale: String = "en-US") {
+        dlog("Engine", "resumeRecording: isPaused=\(isPaused), locale=\(locale)")
         guard isPaused else { return }
         isPaused = false
         isTranscribing = false
@@ -117,6 +150,7 @@ final class SpeechEngine {
 
     /// Common setup for a new recording segment. Creates fresh buffer and recognizer.
     private func setupRecordingSession(locale: String) {
+        dlog("Engine", "setupRecordingSession: locale=\(locale), provider=\(currentProviderType().rawValue)")
         isStartingEngine = true
         currentLocale = locale
         liveText = ""
@@ -174,16 +208,19 @@ final class SpeechEngine {
                     DispatchQueue.main.async {
                         self.liveText = result.bestTranscription.formattedString
                         if result.isFinal {
+                            dlog("Engine", "recognitionTask: isFinal=true, text=\(result.bestTranscription.formattedString.prefix(80))")
                             self.finalText = result.bestTranscription.formattedString
                         }
                     }
                 }
                 if let error {
+                    let nsErr = error as NSError
+                    dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)")
                     DispatchQueue.main.async {
                         if self.finalText.isEmpty {
                             self.finalText = self.liveText
                         }
-                        if (error as NSError).code != 216 {
+                        if nsErr.code != 216 {
                             self.errorMessage = error.localizedDescription
                         }
                     }
@@ -228,8 +265,26 @@ final class SpeechEngine {
         }
     }
 
+    /// Cancel any in-progress recording or transcription without producing a result.
+    func cancelRecording() {
+        dlog("Engine", "cancelRecording: isRecording=\(isRecording), isPaused=\(isPaused), isTranscribing=\(isTranscribing)")
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        isTranscribing = false
+        isRecording = false
+        isPaused = false
+        finalText = ""
+        liveText = ""
+        barLevels = Array(repeating: 0, count: 12)
+        cleanup()
+    }
+
     func stopRecording() {
-        guard isRecording || isPaused else { return }
+        dlog("Engine", "stopRecording: isRecording=\(isRecording), isPaused=\(isPaused), provider=\(currentProviderType().rawValue)")
+        guard isRecording || isPaused else {
+            dlog("Engine", "stopRecording: not recording or paused, ignoring")
+            return
+        }
         if isRecording {
             audioEngine?.stop()
             audioEngine?.inputNode.removeTap(onBus: 0)
@@ -242,11 +297,14 @@ final class SpeechEngine {
 
         if providerType == .apple {
             isTranscribing = true
+            dlog("Engine", "stopRecording(apple): waiting 0.5s for final result, liveText=\(liveText.count) chars")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self else { return }
                 if self.finalText.isEmpty {
+                    dlog("Engine", "stopRecording(apple): finalText empty, using liveText (\(self.liveText.count) chars)")
                     self.finalText = self.liveText
                 }
+                dlog("Engine", "stopRecording(apple): done, finalText=\(self.finalText.count) chars")
                 self.isTranscribing = false
                 self.cleanup()
             }
@@ -254,17 +312,21 @@ final class SpeechEngine {
             isTranscribing = true
             let locale: String? = resolvedLocale()
             let bufferWriter = audioBufferWriter
+            dlog("Engine", "stopRecording(batch): bufferWriter=\(bufferWriter != nil), starting transcription task")
 
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
                 do {
                     guard let fileURL = try bufferWriter?.writeWAV() else {
+                        dlog("Engine", "stopRecording: writeWAV returned nil — no audio")
                         throw AudioBufferWriter.AudioBufferWriterError.noAudio
                     }
                     defer { AudioBufferWriter.cleanup(fileURL: fileURL) }
 
+                    dlog("Engine", "stopRecording: calling batch provider, locale=\(locale ?? "nil")…")
                     let provider = self.makeBatchProvider(for: providerType)
                     let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
+                    dlog("Engine", "stopRecording: transcription done, \(text.count) chars")
 
                     await MainActor.run {
                         self.finalText = text
@@ -272,6 +334,7 @@ final class SpeechEngine {
                         self.isTranscribing = false
                     }
                 } catch {
+                    dlog("Engine", "stopRecording: transcription error: \(error.localizedDescription)")
                     await MainActor.run {
                         if !Task.isCancelled {
                             self.errorMessage = error.localizedDescription
@@ -344,6 +407,7 @@ final class SpeechEngine {
     /// Called when the audio hardware configuration changes (device switch, sample rate change, etc.).
     /// AVAudioEngine stops itself automatically — we tear down and rebuild with a fresh engine.
     private func handleAudioConfigChange() {
+        dlog("Engine", "handleAudioConfigChange: audio device changed, isRecording=\(self.isRecording), isPaused=\(self.isPaused)")
         seLog.warning("handleAudioConfigChange: audio device changed, isRecording=\(self.isRecording)")
 
         recognitionRequest?.endAudio()
@@ -386,6 +450,7 @@ final class SpeechEngine {
     }
 
     private func cleanup() {
+        dlog("Engine", "cleanup: isTranscribing=\(isTranscribing), isRecording=\(isRecording)")
         isStartingEngine = false
         recognitionTask?.cancel()
         recognitionTask = nil

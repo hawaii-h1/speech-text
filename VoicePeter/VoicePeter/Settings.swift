@@ -20,6 +20,9 @@ enum SettingsKeys {
 
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
+
+    // Debug
+    static let debugMode = "debugMode"
 }
 
 let groqModels: [(id: String, name: String)] = [
@@ -66,6 +69,7 @@ private let layoutToLanguage: [String: String] = [
 /// Reads from `com.apple.HIToolbox` preferences (pure Foundation, no Carbon).
 private func currentInputSourceLanguage() -> String? {
     guard let defaults = UserDefaults(suiteName: "com.apple.HIToolbox") else { return nil }
+    defaults.synchronize()
 
     if let sourceID = defaults.string(forKey: "AppleCurrentKeyboardLayoutInputSourceID") {
         let layoutName = sourceID.replacingOccurrences(of: "com.apple.keylayout.", with: "")
@@ -94,4 +98,39 @@ func resolvedLocale() -> String {
             ?? Locale.current.identifier.replacingOccurrences(of: "_", with: "-")
     }
     return stored
+}
+
+// MARK: - Keyboard Change Observer
+
+/// Observes keyboard input source changes using .deliverImmediately so
+/// notifications arrive even when the app is in the background.
+final class KeyboardChangeObserver: NSObject {
+    static let shared = KeyboardChangeObserver()
+
+    private var handlers: [(id: UUID, block: () -> Void)] = []
+
+    override init() {
+        super.init()
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(keyboardDidChange),
+            name: NSNotification.Name("com.apple.Carbon.TISNotifySelectedKeyboardInputSourceChanged"),
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+    }
+
+    @objc private func keyboardDidChange() {
+        handlers.forEach { $0.block() }
+    }
+
+    func addHandler(_ block: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        handlers.append((id: id, block: block))
+        return id
+    }
+
+    func removeHandler(id: UUID) {
+        handlers.removeAll { $0.id == id }
+    }
 }

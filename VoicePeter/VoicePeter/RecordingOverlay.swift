@@ -118,15 +118,64 @@ struct RecordingOverlayView: View {
     let isPreparing: Bool
     let onCancel: () -> Void
 
+    @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
+    @State private var langLabel: String = ""
+    @State private var keyboardObserverID: UUID?
+    @State private var isHoveringCancel = false
+
+    private func refreshLangLabel() {
+        let locale = resolvedLocale()
+        langLabel = locale.components(separatedBy: "-").first.map { $0.uppercased() } ?? "?"
+    }
+
     var body: some View {
-        WaveformBarsView(
-            barLevels: barLevels,
-            isLoading: isLoading,
-            isPreparing: isPreparing
-        )
-        .frame(width: 105, height: 65)
+        HStack(spacing: 8) {
+            Text(langLabel)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 28, height: 28)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.white.opacity(0.35), lineWidth: 1)
+                )
+
+            WaveformBarsView(
+                barLevels: barLevels,
+                isLoading: isLoading,
+                isPreparing: isPreparing
+            )
+            .frame(width: 105, height: 65)
+
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(isHoveringCancel ? 1.0 : 0.6))
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(.white.opacity(isHoveringCancel ? 0.18 : 0))
+                    )
+                    .scaleEffect(isHoveringCancel ? 1.1 : 1.0)
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                isHoveringCancel = hovering
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+            .animation(.easeInOut(duration: 0.15), value: isHoveringCancel)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 65)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 32))
+        .onAppear {
+            refreshLangLabel()
+            keyboardObserverID = KeyboardChangeObserver.shared.addHandler { refreshLangLabel() }
+        }
+        .onDisappear {
+            if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
+        }
+        .onChange(of: selectedLanguage) { refreshLangLabel() }
     }
 }
 
@@ -135,7 +184,7 @@ struct RecordingOverlayView: View {
 final class RecordingOverlayPanel: NSPanel {
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 105, height: 65),
+            contentRect: NSRect(x: 0, y: 0, width: 197, height: 65),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -153,7 +202,7 @@ final class RecordingOverlayPanel: NSPanel {
     private func positionBottomCenter() {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
-        let x = screenFrame.midX - 105 / 2
+        let x = screenFrame.midX - 197 / 2
         let y = screenFrame.minY + 20
         setFrameOrigin(NSPoint(x: x, y: y))
     }

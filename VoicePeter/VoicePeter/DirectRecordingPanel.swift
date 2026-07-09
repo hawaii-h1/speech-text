@@ -131,6 +131,14 @@ struct DirectRecordingPanelView: View {
         !speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    @State private var langLabel: String = ""
+    @State private var keyboardObserverID: UUID?
+
+    private func refreshLangLabel() {
+        let locale = resolvedLocale()
+        langLabel = locale.components(separatedBy: "-").first.map { $0.uppercased() } ?? "?"
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             contentArea
@@ -139,6 +147,8 @@ struct DirectRecordingPanelView: View {
         .frame(width: 380, height: 260)
         .background(.ultraThinMaterial)
         .onAppear {
+            refreshLangLabel()
+            keyboardObserverID = KeyboardChangeObserver.shared.addHandler { refreshLangLabel() }
             if autoStartRecording {
                 // Defer one runloop so the panel renders before the audio engine
                 // initializes (engine.prepare() can block the main thread ~200-500ms).
@@ -147,6 +157,10 @@ struct DirectRecordingPanelView: View {
                 }
             }
         }
+        .onDisappear {
+            if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
+        }
+        .onChange(of: selectedLanguage) { refreshLangLabel() }
         .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
             if let text = newValue, !text.isEmpty {
                 insertionHandler.insert(text)
@@ -162,6 +176,7 @@ struct DirectRecordingPanelView: View {
         VStack(spacing: 0) {
             // Toolbar with action buttons
             HStack(spacing: 8) {
+                languageIndicator
                 Spacer()
                 copyButton
                 if hasWebhook {
@@ -234,12 +249,28 @@ struct DirectRecordingPanelView: View {
                     .lineLimit(1)
             }
 
-            recordButton
+            ZStack {
+                recordButton
+            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
         .padding(.top, 8)
         .offset(y: 4) // buttons overlap ~30% onto the text area edge
+    }
+
+    // MARK: - Language Indicator
+
+    @ViewBuilder
+    private var languageIndicator: some View {
+        Text(langLabel)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(.secondary.opacity(0.5), lineWidth: 1)
+            )
     }
 
     // MARK: - Webhook Send Button

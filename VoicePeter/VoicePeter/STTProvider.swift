@@ -35,6 +35,15 @@ struct GroqSTTProvider: BatchSTTProvider {
     let apiKey: String
     let model: String
 
+    /// Custom URLSession with a 120s timeout — URLSession.shared ignores
+    /// URLRequest.timeoutInterval and enforces its own 60s default.
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 300
+        return URLSession(configuration: config)
+    }()
+
     init(apiKey: String, model: String = "whisper-large-v3-turbo") {
         self.apiKey = apiKey
         self.model = model
@@ -48,9 +57,10 @@ struct GroqSTTProvider: BatchSTTProvider {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120
 
         let audioData = try Data(contentsOf: audioFileURL)
+        dlog("Groq", "transcribe: audioSize=\(audioData.count) bytes, model=\(model), language=\(language ?? "nil")")
+
         var body = Data()
 
         body.appendMultipartFile(boundary: boundary, name: "file",
@@ -67,17 +77,24 @@ struct GroqSTTProvider: BatchSTTProvider {
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let startTime = CFAbsoluteTimeGetCurrent()
+        dlog("Groq", "transcribe: sending request…")
+        let (data, response) = try await Self.session.data(for: request)
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        dlog("Groq", "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            dlog("Groq", "transcribe: invalid response (not HTTP)")
             throw GroqError.invalidResponse
         }
         guard (200 ... 299).contains(httpResponse.statusCode) else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            dlog("Groq", "transcribe: HTTP error \(httpResponse.statusCode): \(errorBody.prefix(200))")
             throw GroqError.httpError(httpResponse.statusCode, errorBody)
         }
 
         let decoded = try JSONDecoder().decode(GroqTranscriptionResponse.self, from: data)
+        dlog("Groq", "transcribe: success, text=\(decoded.text.count) chars")
         return decoded.text
     }
 }
