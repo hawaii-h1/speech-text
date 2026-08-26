@@ -9,6 +9,8 @@ enum SettingsKeys {
     static let sttProvider = "sttProvider"
     static let groqAPIKey = "groqAPIKey"
     static let groqModel = "groqModel"
+    static let elevenLabsAPIKey = "elevenLabsAPIKey"
+    static let elevenLabsModel = "elevenLabsModel"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -50,6 +52,11 @@ enum SettingsKeys {
 let groqModels: [(id: String, name: String)] = [
     ("whisper-large-v3-turbo", "Whisper Large V3 Turbo"),
     ("whisper-large-v3", "Whisper Large V3"),
+]
+
+let elevenLabsModels: [(id: String, name: String)] = [
+    ("scribe_v1", "Scribe v1"),
+    ("scribe_v1_experimental", "Scribe v1 Experimental"),
 ]
 
 struct SupportedLanguage: Identifiable, Hashable {

@@ -9,6 +9,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
+    @AppStorage(SettingsKeys.elevenLabsAPIKey) private var elevenLabsAPIKey = ""
+    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = "scribe_v1"
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
@@ -132,9 +134,18 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            if stt == .groq {
+            switch stt {
+            case .apple:
+                EmptyView()
+            case .groq:
                 Picker("Speech Model", selection: $groqModel) {
                     ForEach(groqModels, id: \.id) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+            case .elevenlabs:
+                Picker("Speech Model", selection: $elevenLabsModel) {
+                    ForEach(elevenLabsModels, id: \.id) { model in
                         Text(model.name).tag(model.id)
                     }
                 }
@@ -221,6 +232,14 @@ struct SettingsView: View {
                 SecureField("Groq", text: $groqAPIKey)
                     .textFieldStyle(.roundedBorder)
                 Text("One key, used for \(groqKeyUses.joined(separator: " and ")).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if stt == .elevenlabs {
+                SecureField("ElevenLabs", text: $elevenLabsAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                Text("Used for speech recognition.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
