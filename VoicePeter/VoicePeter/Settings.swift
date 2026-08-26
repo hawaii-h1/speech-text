@@ -18,8 +18,30 @@ enum SettingsKeys {
     static let recordWindowHotkeyKeyCode = "recordWindowHotkeyKeyCode"
     static let recordWindowHotkeyModifierFlags = "recordWindowHotkeyModifierFlags"
 
+    // Hotkey (AI recording — transcription is post-processed by an LLM)
+    static let aiHotkeyKeyCode = "aiHotkeyKeyCode"
+    static let aiHotkeyModifierFlags = "aiHotkeyModifierFlags"
+
+    // LLM post-processing
+    static let llmProvider = "llmProvider"
+    static let groqLLMModel = "groqLLMModel"
+    static let anthropicAPIKey = "anthropicAPIKey"
+    static let anthropicModel = "anthropicModel"
+    static let openAIAPIKey = "openAIAPIKey"
+    static let openAIModel = "openAIModel"
+    /// JSON-encoded `[PromptPreset]`.
+    static let promptPresets = "promptPresets"
+    /// UUID string of the preset used when no other preset matches.
+    static let defaultPresetID = "defaultPresetID"
+    /// Whether the Record Window's ✨ toggle is on.
+    static let aiModeInRecordWindow = "aiModeInRecordWindow"
+
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
+
+    /// Bumped when the built-in hotkey layout changes, so stored shortcuts can be
+    /// migrated once instead of silently keeping the old assignment.
+    static let hotkeyLayoutVersion = "hotkeyLayoutVersion"
 
     // Debug
     static let debugMode = "debugMode"
@@ -86,6 +108,27 @@ private func currentInputSourceLanguage() -> String? {
     }
 
     return nil
+}
+
+/// Drops provider settings whose stored value no longer maps to a known case.
+///
+/// A stale identifier is worse than a missing one: the picker in Settings finds no
+/// matching tag and renders blank, while the engine quietly falls back to its
+/// default — so the UI shows nothing and the app runs something the user did not pick.
+func normalizeStoredProviders() {
+    let defaults = UserDefaults.standard
+
+    if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
+       STTProviderType(rawValue: raw) == nil {
+        dlog("Settings", "sttProvider=\"\(raw)\" is not a known engine — resetting to Apple")
+        defaults.set(STTProviderType.apple.rawValue, forKey: SettingsKeys.sttProvider)
+    }
+
+    if let raw = defaults.string(forKey: SettingsKeys.llmProvider),
+       LLMProviderType(rawValue: raw) == nil {
+        dlog("Settings", "llmProvider=\"\(raw)\" is not a known provider — resetting to Groq")
+        defaults.set(LLMProviderType.groq.rawValue, forKey: SettingsKeys.llmProvider)
+    }
 }
 
 /// Resolves the effective locale identifier for speech recognition.

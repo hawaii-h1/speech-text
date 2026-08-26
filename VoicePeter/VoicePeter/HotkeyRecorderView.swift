@@ -18,7 +18,7 @@ struct HotkeyRecorderView: View {
         label: String = "Shortcut",
         keyCodeKey: String = SettingsKeys.hotkeyKeyCode,
         modifierFlagsKey: String = SettingsKeys.hotkeyModifierFlags,
-        defaultKeyCode: Int = 0,  // A
+        defaultKeyCode: Int = 12,  // Q
         defaultModifierFlags: Int = Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
     ) {
         self.label = label

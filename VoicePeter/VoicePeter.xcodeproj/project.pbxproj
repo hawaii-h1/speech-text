@@ -23,6 +23,10 @@
 		A1000001000000000000000E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000011 /* Assets.xcassets */; };
 		A1000001000000000000000F /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000012 /* DebugLog.swift */; };
 		A10000010000000000000010 /* DebugLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000013 /* DebugLogView.swift */; };
+		A10000010000000000000011 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000014 /* LLMProvider.swift */; };
+		A10000010000000000000012 /* PromptPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000015 /* PromptPresets.swift */; };
+		A10000010000000000000013 /* TextRefinementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000016 /* TextRefinementService.swift */; };
+		A10000010000000000000014 /* PromptPresetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000017 /* PromptPresetsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +49,10 @@
 		A20000010000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000010000000000000012 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		A20000010000000000000013 /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
+		A20000010000000000000014 /* LLMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
+		A20000010000000000000015 /* PromptPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptPresets.swift; sourceTree = "<group>"; };
+		A20000010000000000000016 /* TextRefinementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRefinementService.swift; sourceTree = "<group>"; };
+		A20000010000000000000017 /* PromptPresetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptPresetsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +92,10 @@
 				A20000010000000000000010 /* HotkeyRecorderView.swift */,
 				A20000010000000000000012 /* DebugLog.swift */,
 				A20000010000000000000013 /* DebugLogView.swift */,
+				A20000010000000000000014 /* LLMProvider.swift */,
+				A20000010000000000000015 /* PromptPresets.swift */,
+				A20000010000000000000016 /* TextRefinementService.swift */,
+				A20000010000000000000017 /* PromptPresetsView.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
 				A2000001000000000000000A /* Info.plist */,
 				A2000001000000000000000B /* VoicePeter.entitlements */,
@@ -178,6 +190,10 @@
 				A1000001000000000000000D /* HotkeyRecorderView.swift in Sources */,
 				A1000001000000000000000F /* DebugLog.swift in Sources */,
 				A10000010000000000000010 /* DebugLogView.swift in Sources */,
+				A10000010000000000000011 /* LLMProvider.swift in Sources */,
+				A10000010000000000000012 /* PromptPresets.swift in Sources */,
+				A10000010000000000000013 /* TextRefinementService.swift in Sources */,
+				A10000010000000000000014 /* PromptPresetsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

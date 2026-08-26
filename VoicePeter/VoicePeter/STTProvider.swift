@@ -10,8 +10,18 @@ enum STTProviderType: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .apple: "Apple (On-Device)"
-        case .groq: "Groq Whisper"
+        case .apple: "Apple — on-device"
+        case .groq: "Groq Whisper — cloud"
+        }
+    }
+
+    /// One-line explanation shown under the engine picker in Settings.
+    var subtitle: String {
+        switch self {
+        case .apple:
+            "Runs on your Mac. Free, private, shows text live while you speak."
+        case .groq:
+            "Cloud Whisper. Usually more accurate, needs an API key, and text only appears once you stop speaking."
         }
     }
 

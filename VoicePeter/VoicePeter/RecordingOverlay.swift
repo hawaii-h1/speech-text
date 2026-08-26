@@ -116,7 +116,12 @@ struct RecordingOverlayView: View {
     let barLevels: [CGFloat]
     let isLoading: Bool
     let isPreparing: Bool
+    /// Tints the overlay so the user can tell an LLM-processed recording apart
+    /// from a plain one at a glance.
+    var isAIMode: Bool = false
     let onCancel: () -> Void
+
+    private var accent: Color { isAIMode ? Color(red: 0.72, green: 0.55, blue: 1.0) : .white }
 
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @State private var langLabel: String = ""
@@ -132,17 +137,26 @@ struct RecordingOverlayView: View {
         HStack(spacing: 8) {
             Text(langLabel)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(accent.opacity(0.9))
                 .frame(width: 28, height: 28)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(.white.opacity(0.35), lineWidth: 1)
+                        .stroke(accent.opacity(isAIMode ? 0.6 : 0.35), lineWidth: 1)
                 )
+                .overlay(alignment: .topTrailing) {
+                    if isAIMode {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(accent)
+                            .offset(x: 4, y: -3)
+                    }
+                }
 
             WaveformBarsView(
                 barLevels: barLevels,
                 isLoading: isLoading,
-                isPreparing: isPreparing
+                isPreparing: isPreparing,
+                barColor: accent
             )
             .frame(width: 105, height: 65)
 
@@ -168,6 +182,12 @@ struct RecordingOverlayView: View {
         .frame(height: 65)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 32))
+        .overlay {
+            if isAIMode {
+                RoundedRectangle(cornerRadius: 32)
+                    .stroke(accent.opacity(0.55), lineWidth: 1.5)
+            }
+        }
         .onAppear {
             refreshLangLabel()
             keyboardObserverID = KeyboardChangeObserver.shared.addHandler { refreshLangLabel() }
