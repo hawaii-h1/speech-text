@@ -116,9 +116,19 @@ struct DirectRecordingPanelView: View {
     @State private var isHoveringCopy = false
     @State private var isHoveringSend = false
     @State private var isHoveringRecord = false
+    @State private var isHoveringAI = false
     @State private var showCopyCheck = false
     @State private var showSendCheck = false
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
+    @AppStorage(SettingsKeys.aiModeInRecordWindow) private var aiMode = false
+
+    /// True while the LLM is rewriting the panel's text.
+    @State private var isRefining = false
+    @State private var refineTask: Task<Void, Never>?
+    /// Which preset the last refinement routed to, shown under the text area.
+    @State private var refineStatus: String?
+
+    private static let aiAccent = Color(red: 0.55, green: 0.36, blue: 0.96)
 
     private let insertionHandler = TextInsertionHandler()
 
@@ -159,14 +169,115 @@ struct DirectRecordingPanelView: View {
         }
         .onDisappear {
             if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
+            refineTask?.cancel()
         }
         .onChange(of: selectedLanguage) { refreshLangLabel() }
         .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
             if let text = newValue, !text.isEmpty {
                 insertionHandler.insert(text)
                 speechEngine.pendingInsertionText = nil
+                if aiMode {
+                    // insertText() drives the text view's delegate, which writes back
+                    // into editedText — refine on the next runloop so we see it.
+                    DispatchQueue.main.async { runRefinement() }
+                }
             }
         }
+    }
+
+    // MARK: - LLM Refinement
+
+    /// Sends the whole text area through the LLM and replaces it with the result.
+    private func runRefinement() {
+        let source = speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty, !isRefining else { return }
+        guard TextRefinementService.isConfigured else {
+            refineStatus = "Set an LLM API key in Settings to use AI mode"
+            return
+        }
+
+        refineTask?.cancel()
+        isRefining = true
+        refineStatus = nil
+        // Anchor the entry for the segment that triggered this pass. The input recorded
+        // below is the whole text area, which may span several segments and manual edits.
+        let recordID = speechEngine.lastRecordID
+        refineTask = Task { @MainActor in
+            do {
+                let result = try await TextRefinementService.refine(source)
+                guard !Task.isCancelled else { return }
+                speechEngine.editedText = result.text
+                refineStatus = result.presetName.map { "AI · \($0)" } ?? "AI"
+                if let recordID {
+                    TranscriptionHistory.shared.recordRefinement(
+                        id: recordID, input: source, output: result.text,
+                        presetName: result.presetName,
+                        provider: result.provider, model: result.model
+                    )
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                // The raw transcription stays in the text area — nothing is lost.
+                refineStatus = "AI failed: \(error.localizedDescription)"
+                if let recordID {
+                    let type = LLMConfiguration.providerType
+                    TranscriptionHistory.shared.recordRefinementFailure(
+                        id: recordID, input: source, error: error.localizedDescription,
+                        provider: type.rawValue, model: LLMConfiguration.model(for: type)
+                    )
+                }
+            }
+            isRefining = false
+            refineTask = nil
+        }
+    }
+
+    // MARK: - AI Toggle Button
+
+    @ViewBuilder
+    private var aiToggleButton: some View {
+        Button {
+            aiMode.toggle()
+            // Turning it on with text already dictated should act on that text now,
+            // otherwise the toggle would appear to do nothing.
+            if aiMode, !speechEngine.isRecording, !speechEngine.isTranscribing {
+                runRefinement()
+            } else if !aiMode {
+                refineTask?.cancel()
+                refineTask = nil
+                isRefining = false
+                refineStatus = nil
+            }
+        } label: {
+            Group {
+                if isRefining {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.65)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(aiMode ? .white : .secondary)
+                }
+            }
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(aiMode ? AnyShapeStyle(Self.aiAccent) : AnyShapeStyle(.ultraThinMaterial))
+                    .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+            )
+            .scaleEffect(isHoveringAI ? 1.08 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .help(aiMode
+              ? "AI mode on — dictation is rewritten by the LLM using your prompt presets"
+              : "AI mode off — text is inserted as transcribed")
+        .onHover { hovering in
+            isHoveringAI = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .animation(.easeInOut(duration: 0.15), value: isHoveringAI)
+        .animation(.easeInOut(duration: 0.2), value: aiMode)
     }
 
     // MARK: - Content Area
@@ -178,6 +289,7 @@ struct DirectRecordingPanelView: View {
             HStack(spacing: 8) {
                 languageIndicator
                 Spacer()
+                aiToggleButton
                 copyButton
                 if hasWebhook {
                     webhookSendButton
@@ -247,6 +359,18 @@ struct DirectRecordingPanelView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .lineLimit(1)
+            } else if isRefining {
+                Text("Processing with AI…")
+                    .font(.caption)
+                    .foregroundStyle(Self.aiAccent)
+                    .lineLimit(1)
+            } else if let refineStatus {
+                Text(refineStatus)
+                    .font(.caption)
+                    .foregroundStyle(refineStatus.hasPrefix("AI ·") || refineStatus == "AI"
+                                     ? AnyShapeStyle(Color.secondary)
+                                     : AnyShapeStyle(Color.red))
+                    .lineLimit(1)
             }
 
             ZStack {
@@ -311,7 +435,7 @@ struct DirectRecordingPanelView: View {
     // MARK: - Record Button
 
     private var isExpanded: Bool {
-        speechEngine.isRecording || speechEngine.isTranscribing
+        speechEngine.isRecording || speechEngine.isTranscribing || isRefining
     }
 
     @ViewBuilder
@@ -320,8 +444,8 @@ struct DirectRecordingPanelView: View {
             let spring = Animation.spring(response: 0.35, dampingFraction: 0.75)
             if speechEngine.isRecording {
                 withAnimation(spring) { speechEngine.pauseRecording() }
-            } else if speechEngine.isTranscribing {
-                // do nothing while transcribing
+            } else if speechEngine.isTranscribing || isRefining {
+                // do nothing while transcribing or refining
             } else if speechEngine.isPaused {
                 withAnimation(spring) { speechEngine.resumeRecording(locale: resolvedLocale()) }
             } else {
@@ -342,7 +466,7 @@ struct DirectRecordingPanelView: View {
                     )
                     .padding(.horizontal, 16)
                     .transition(.opacity)
-                } else if speechEngine.isTranscribing {
+                } else if speechEngine.isTranscribing || isRefining {
                     // Loading dot animation
                     WaveformBarsView(
                         barLevels: speechEngine.barLevels,
@@ -382,6 +506,7 @@ struct DirectRecordingPanelView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: isHoveringRecord)
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: speechEngine.isTranscribing)
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: isRefining)
     }
 
 }

@@ -5,23 +5,30 @@ import Carbon.HIToolbox
 final class HotkeyManager {
     private var inlineHotKeyRef: EventHotKeyRef?
     private var recordWindowHotKeyRef: EventHotKeyRef?
+    private var aiHotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var notificationObserver: Any?
 
     var onInlineToggle: (() -> Void)?
     var onRecordWindowToggle: (() -> Void)?
+    var onAIToggle: (() -> Void)?
 
     // Inline recording hotkey
-    private var inlineKeyCode: UInt32 = 0  // A
+    private var inlineKeyCode: UInt32 = 12  // Q
     private var inlineModifiers: NSEvent.ModifierFlags = [.control, .shift]
 
     // Record window hotkey
-    private var recordWindowKeyCode: UInt32 = 1  // S
+    private var recordWindowKeyCode: UInt32 = 13  // W
     private var recordWindowModifiers: NSEvent.ModifierFlags = [.control, .shift]
+
+    // AI recording hotkey (transcription is post-processed by an LLM)
+    private var aiKeyCode: UInt32 = 0  // A
+    private var aiModifiers: NSEvent.ModifierFlags = [.control, .shift]
 
     private static let signature: OSType = 0x56504852
     private static let inlineID: UInt32 = 1
     private static let recordWindowID: UInt32 = 2
+    private static let aiID: UInt32 = 3
 
     func start() {
         loadHotkeys()
@@ -53,6 +60,12 @@ final class HotkeyManager {
         if defaults.object(forKey: SettingsKeys.recordWindowHotkeyKeyCode) != nil {
             recordWindowKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyKeyCode))
             recordWindowModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyModifierFlags)))
+        }
+
+        // AI recording
+        if defaults.object(forKey: SettingsKeys.aiHotkeyKeyCode) != nil {
+            aiKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.aiHotkeyKeyCode))
+            aiModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.aiHotkeyModifierFlags)))
         }
     }
 
@@ -93,6 +106,7 @@ final class HotkeyManager {
                     switch hotKeyID.id {
                     case 1: mgr.onInlineToggle?()
                     case 2: mgr.onRecordWindowToggle?()
+                    case 3: mgr.onAIToggle?()
                     default: break
                     }
                 }
@@ -115,6 +129,12 @@ final class HotkeyManager {
         let rwHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.recordWindowID)
         RegisterEventHotKey(recordWindowKeyCode, rwCarbonMods, rwHotKeyID,
                             GetApplicationEventTarget(), 0, &recordWindowHotKeyRef)
+
+        // Register AI recording hotkey (id: 3)
+        let aiCarbonMods = Self.cocoaToCarbonModifiers(aiModifiers)
+        let aiHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.aiID)
+        RegisterEventHotKey(aiKeyCode, aiCarbonMods, aiHotKeyID,
+                            GetApplicationEventTarget(), 0, &aiHotKeyRef)
     }
 
     private func unregisterHotkeys() {
@@ -125,6 +145,10 @@ final class HotkeyManager {
         if let ref = recordWindowHotKeyRef {
             UnregisterEventHotKey(ref)
             recordWindowHotKeyRef = nil
+        }
+        if let ref = aiHotKeyRef {
+            UnregisterEventHotKey(ref)
+            aiHotKeyRef = nil
         }
         if let ref = eventHandlerRef {
             RemoveEventHandler(ref)

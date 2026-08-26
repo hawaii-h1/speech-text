@@ -116,7 +116,12 @@ struct RecordingOverlayView: View {
     let barLevels: [CGFloat]
     let isLoading: Bool
     let isPreparing: Bool
+    /// Tints the overlay so the user can tell an LLM-processed recording apart
+    /// from a plain one at a glance.
+    var isAIMode: Bool = false
     let onCancel: () -> Void
+
+    private var accent: Color { isAIMode ? Color(red: 0.72, green: 0.55, blue: 1.0) : .white }
 
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @State private var langLabel: String = ""
@@ -132,17 +137,26 @@ struct RecordingOverlayView: View {
         HStack(spacing: 8) {
             Text(langLabel)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(accent.opacity(0.9))
                 .frame(width: 28, height: 28)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(.white.opacity(0.35), lineWidth: 1)
+                        .stroke(accent.opacity(isAIMode ? 0.6 : 0.35), lineWidth: 1)
                 )
+                .overlay(alignment: .topTrailing) {
+                    if isAIMode {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(accent)
+                            .offset(x: 4, y: -3)
+                    }
+                }
 
             WaveformBarsView(
                 barLevels: barLevels,
                 isLoading: isLoading,
-                isPreparing: isPreparing
+                isPreparing: isPreparing,
+                barColor: accent
             )
             .frame(width: 105, height: 65)
 
@@ -168,6 +182,12 @@ struct RecordingOverlayView: View {
         .frame(height: 65)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 32))
+        .overlay {
+            if isAIMode {
+                RoundedRectangle(cornerRadius: 32)
+                    .stroke(accent.opacity(0.55), lineWidth: 1.5)
+            }
+        }
         .onAppear {
             refreshLangLabel()
             keyboardObserverID = KeyboardChangeObserver.shared.addHandler { refreshLangLabel() }
@@ -176,6 +196,86 @@ struct RecordingOverlayView: View {
             if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
         }
         .onChange(of: selectedLanguage) { refreshLangLabel() }
+    }
+}
+
+// MARK: - Status Overlay
+
+/// Transient notice shown after a recording ends without usable text — a provider
+/// error, or silence. Without this the inline flow fails completely silently.
+struct StatusOverlayView: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let tint: Color
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 60)
+        .background(.ultraThinMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(.white.opacity(isHovering ? 0.25 : 0.10), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .animation(.easeInOut(duration: 0.15), value: isHovering)
+    }
+}
+
+final class StatusOverlayPanel: NSPanel {
+    static let panelWidth: CGFloat = 340
+
+    init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 60),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        isOpaque = false
+        backgroundColor = .clear
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        isMovableByWindowBackground = true
+        hasShadow = true
+
+        positionBottomCenter()
+    }
+
+    private func positionBottomCenter() {
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        let x = screenFrame.midX - Self.panelWidth / 2
+        let y = screenFrame.minY + 20
+        setFrameOrigin(NSPoint(x: x, y: y))
     }
 }
 

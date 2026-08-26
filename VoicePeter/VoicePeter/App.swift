@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState = AppState()
     private var settingsWindow: NSWindow?
     private var debugLogWindow: DebugLogWindow?
+    private var historyWindow: HistoryWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
@@ -48,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PasteService.promptAccessibility()
         }
 
+        // Drop provider values left over from removed engines before any UI reads them.
+        normalizeStoredProviders()
+        migrateHotkeyLayoutIfNeeded()
+
         // Set up hotkeys
         appState.hotkeyManager.onInlineToggle = { [weak self] in
             DispatchQueue.main.async {
@@ -61,6 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.appState.toggleOrShowDirectRecordingPanel()
             }
         }
+        appState.hotkeyManager.onAIToggle = { [weak self] in
+            DispatchQueue.main.async {
+                self?.appState.toggleRecording(aiMode: true)
+                self?.updateIcon()
+                self?.rebuildMenu()
+            }
+        }
         appState.hotkeyManager.start()
 
         // Rebuild menu when shortcuts change so display strings update
@@ -70,11 +82,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.rebuildMenu()
         }
 
+        // The status overlay asks for History via notification (AppState doesn't own windows)
+        NotificationCenter.default.addObserver(
+            forName: .openHistoryWindow, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.openHistory()
+        }
+
         // Auto-register as login item on first launch (default: ON)
         if !UserDefaults.standard.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) {
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
             try? SMAppService.mainApp.register()
         }
+    }
+
+    /// Moves existing installs onto the current shortcut layout (Inline ⌃⇧Q,
+    /// Record Window ⌃⇧W, AI ⌃⇧A). Clearing the stored values lets the new built-in
+    /// defaults take effect; this runs once, so later customisations are kept.
+    private func migrateHotkeyLayoutIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.integer(forKey: SettingsKeys.hotkeyLayoutVersion) < 1 else { return }
+
+        for key in [
+            SettingsKeys.hotkeyKeyCode, SettingsKeys.hotkeyModifierFlags,
+            SettingsKeys.recordWindowHotkeyKeyCode, SettingsKeys.recordWindowHotkeyModifierFlags,
+            SettingsKeys.aiHotkeyKeyCode, SettingsKeys.aiHotkeyModifierFlags,
+        ] {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.set(1, forKey: SettingsKeys.hotkeyLayoutVersion)
+        dlog("App", "migrated shortcuts to the ⌃⇧Q / ⌃⇧W / ⌃⇧A layout")
     }
 
     private func updateIcon() {
@@ -104,6 +141,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(startItem)
         }
 
+        let aiShortcut = currentAIShortcutDisplayString()
+        let aiTitle = appState.speechEngine.isRecording && appState.isAIMode
+            ? "Stop AI Recording (\(aiShortcut))"
+            : "AI Recording (\(aiShortcut))"
+        let aiItem = NSMenuItem(title: aiTitle, action: #selector(toggleAIRecording), keyEquivalent: "")
+        aiItem.target = self
+        menu.addItem(aiItem)
+
         menu.addItem(.separator())
 
         let rwShortcut = currentRecordWindowShortcutDisplayString()
@@ -116,6 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let historyItem = NSMenuItem(title: "History...", action: #selector(openHistory), keyEquivalent: "y")
+        historyItem.target = self
+        menu.addItem(historyItem)
 
         let debugItem = NSMenuItem(title: "Debug Log...", action: #selector(openDebugLog), keyEquivalent: "")
         debugItem.target = self
@@ -135,6 +184,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
+    @objc private func toggleAIRecording() {
+        appState.toggleRecording(aiMode: true)
+        updateIcon()
+        rebuildMenu()
+    }
+
     @objc private func openRecordPanel() {
         appState.showDirectRecordingPanel()
     }
@@ -147,8 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 550),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 680),
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -158,6 +213,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openHistory() {
+        if let existing = historyWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let window = HistoryWindow()
+        window.makeKeyAndOrderFront(nil)
+        historyWindow = window
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -181,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             kc = UInt16(defaults.integer(forKey: SettingsKeys.hotkeyKeyCode))
             mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.hotkeyModifierFlags)))
         } else {
-            kc = 0   // A
+            kc = 12   // Q
             mf = [.control, .shift]
         }
         return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
@@ -195,11 +262,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             kc = UInt16(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyKeyCode))
             mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyModifierFlags)))
         } else {
-            kc = 1   // S
+            kc = 13   // W
             mf = [.control, .shift]
         }
         return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
     }
+
+    private func currentAIShortcutDisplayString() -> String {
+        let defaults = UserDefaults.standard
+        let kc: UInt16
+        let mf: NSEvent.ModifierFlags
+        if defaults.object(forKey: SettingsKeys.aiHotkeyKeyCode) != nil {
+            kc = UInt16(defaults.integer(forKey: SettingsKeys.aiHotkeyKeyCode))
+            mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.aiHotkeyModifierFlags)))
+        } else {
+            kc = 0   // A
+            mf = [.control, .shift]
+        }
+        return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
+    }
+}
+
+extension Notification.Name {
+    /// Posted when something (menu item, status overlay tap) wants the History window.
+    /// AppDelegate owns the window, so AppState signals rather than opening it directly.
+    static let openHistoryWindow = Notification.Name("openHistoryWindow")
 }
 
 // MARK: - AppState
@@ -210,23 +297,41 @@ final class AppState {
     let hotkeyManager = HotkeyManager()
 
     private var overlayPanel: RecordingOverlayPanel?
+    private var statusPanel: StatusOverlayPanel?
+    private var statusDismissItem: DispatchWorkItem?
     private var resultPanel: ResultPanelWindow?
     private var directRecordingPanel: DirectRecordingPanelWindow?
     private var directRecordingSpeechEngine: SpeechEngine?
     /// The app the user was in before recording started (paste target)
     var previousApp: NSRunningApplication?
 
-    func toggleRecording() {
+    /// True when the current inline session was started with the AI hotkey, so the
+    /// transcription gets routed through `TextRefinementService` before pasting.
+    private(set) var isAIMode = false
+    /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
+    private(set) var isRefining = false
+    private var refinementTask: Task<Void, Never>?
+
+    func toggleRecording(aiMode: Bool = false) {
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
         if speechEngine.isRecording {
             stopRecording()
-        } else if speechEngine.isTranscribing || speechEngine.isStartingEngine {
+        } else if speechEngine.isTranscribing || speechEngine.isStartingEngine || isRefining {
             dlog("App", "toggleRecording: cancelling mid-flight")
-            speechEngine.cancelRecording()
-            hideOverlay()
+            cancelInlineFlow()
         } else {
+            isAIMode = aiMode
             startRecording()
         }
+    }
+
+    /// Aborts recording, transcription and any in-flight LLM call, and drops the overlay.
+    func cancelInlineFlow() {
+        refinementTask?.cancel()
+        refinementTask = nil
+        isRefining = false
+        speechEngine.cancelRecording()
+        hideOverlay()
     }
 
     private func startRecording() {
@@ -234,7 +339,7 @@ final class AppState {
         if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = front
         }
-        dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(resolvedLocale())")
+        dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(resolvedLocale()), aiMode=\(isAIMode)")
 
         showOverlay()
 
@@ -269,23 +374,114 @@ final class AppState {
     }
 
     private func handleTranscriptionResult() {
-        hideOverlay()
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil")")
-        guard !text.isEmpty else {
-            dlog("App", "handleTranscriptionResult: empty text, nothing to do")
+        dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil"), aiMode=\(isAIMode)")
+
+        // A failed transcription used to end here silently — the user just saw nothing
+        // happen and lost everything they said. Always surface it.
+        if let rawError = speechEngine.errorMessage {
+            dlog("App", "handleTranscriptionResult: error — \(rawError)")
+            hideOverlay()
+            showStatus(
+                icon: "exclamationmark.triangle.fill",
+                title: "Transcription failed",
+                detail: friendlySTTError(rawError),
+                tint: .orange
+            )
+            // Any partial text is better than nothing — hand it to the Record Window.
+            // Refinement is skipped: there is no trustworthy transcript to rewrite.
+            if !text.isEmpty {
+                showDirectRecordingPanel(withText: text)
+            }
             return
         }
 
+        guard !text.isEmpty else {
+            dlog("App", "handleTranscriptionResult: empty text")
+            hideOverlay()
+            showStatus(
+                icon: "waveform.slash",
+                title: "No speech detected",
+                detail: "Nothing was transcribed from that recording.",
+                tint: .secondary
+            )
+            return
+        }
+
+        guard isAIMode else {
+            hideOverlay()
+            deliver(text)
+            return
+        }
+
+        guard TextRefinementService.isConfigured else {
+            dlog("App", "handleTranscriptionResult: AI mode but no LLM API key — pasting raw transcript")
+            hideOverlay()
+            showStatus(
+                icon: "key.slash",
+                title: "AI processing skipped",
+                detail: "No API key for \(LLMConfiguration.providerType.displayName). Pasted the raw transcription.",
+                tint: .orange
+            )
+            deliver(text)
+            return
+        }
+
+        // Keep the overlay up (now in its loading state) while the LLM rewrites the text.
+        isRefining = true
+        let recordID = speechEngine.lastRecordID
+        refinementTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var output = text
+            do {
+                let result = try await TextRefinementService.refine(text)
+                if Task.isCancelled { return }
+                output = result.text
+                if let recordID {
+                    TranscriptionHistory.shared.recordRefinement(
+                        id: recordID, input: text, output: result.text,
+                        presetName: result.presetName,
+                        provider: result.provider, model: result.model
+                    )
+                }
+            } catch {
+                if Task.isCancelled { return }
+                if let recordID {
+                    let type = LLMConfiguration.providerType
+                    TranscriptionHistory.shared.recordRefinementFailure(
+                        id: recordID, input: text, error: error.localizedDescription,
+                        provider: type.rawValue, model: LLMConfiguration.model(for: type)
+                    )
+                }
+                // Never lose the dictation: fall back to the raw transcript, but say so
+                // rather than pasting unrewritten text with no explanation.
+                dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript")
+                self.showStatus(
+                    icon: "sparkles.slash",
+                    title: "AI processing failed",
+                    detail: "\(error.localizedDescription) Pasted the raw transcription.",
+                    tint: .orange
+                )
+            }
+            self.isRefining = false
+            self.refinementTask = nil
+            self.hideOverlay()
+            self.deliver(output)
+        }
+    }
+
+    /// Pastes into the previously focused app, falling back to the Record Window when
+    /// that isn't possible.
+    private func deliver(_ text: String) {
         if !PasteService.isAccessibilityGranted {
-            dlog("App", "handleTranscriptionResult: no accessibility, showing record panel")
+            dlog("App", "deliver: no accessibility, showing record panel")
             PasteService.promptAccessibility()
             showDirectRecordingPanel(withText: text)
             return
         }
 
         guard let app = previousApp else {
-            dlog("App", "handleTranscriptionResult: no previousApp, showing record panel")
+            dlog("App", "deliver: no previousApp, showing record panel")
             showDirectRecordingPanel(withText: text)
             return
         }
@@ -334,7 +530,10 @@ final class AppState {
         hideOverlay()
 
         let panel = RecordingOverlayPanel()
-        let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, onCancel: { [weak self, weak panel] in
+        let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, appState: self, onCancel: { [weak self, weak panel] in
+            self?.refinementTask?.cancel()
+            self?.refinementTask = nil
+            self?.isRefining = false
             self?.speechEngine.cancelRecording()
             // Close this specific panel regardless of what overlayPanel points to
             panel?.close()
@@ -350,6 +549,64 @@ final class AppState {
     private func hideOverlay() {
         overlayPanel?.close()
         overlayPanel = nil
+    }
+
+    // MARK: - Status Overlay
+
+    func showStatus(icon: String, title: String, detail: String?, tint: Color, duration: TimeInterval = 5) {
+        hideStatus()
+
+        let panel = StatusOverlayPanel()
+        panel.contentView = NSHostingView(rootView: StatusOverlayView(
+            icon: icon,
+            title: title,
+            detail: detail,
+            tint: tint,
+            onTap: { [weak self] in
+                self?.hideStatus()
+                self?.openHistoryWindow()
+            }
+        ))
+        panel.orderFrontRegardless()
+        statusPanel = panel
+
+        let dismiss = DispatchWorkItem { [weak self, weak panel] in
+            guard let self, self.statusPanel === panel else { return }
+            self.hideStatus()
+        }
+        statusDismissItem = dismiss
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: dismiss)
+    }
+
+    func openHistoryWindow() {
+        NotificationCenter.default.post(name: .openHistoryWindow, object: nil)
+    }
+
+    func hideStatus() {
+        statusDismissItem?.cancel()
+        statusDismissItem = nil
+        statusPanel?.close()
+        statusPanel = nil
+    }
+
+    /// Turn a raw provider error into something that tells the user what to actually do.
+    private func friendlySTTError(_ raw: String) -> String {
+        if raw.contains("413") || raw.localizedCaseInsensitiveContains("too large") {
+            return "That recording was too large for the provider. Try a shorter one."
+        }
+        if raw.contains("429") {
+            return "Rate limited by the provider. Wait a moment and retry from History."
+        }
+        if raw.contains("401") || raw.contains("403") {
+            return "The API key was rejected. Check it in Settings."
+        }
+        if raw.localizedCaseInsensitiveContains("timed out") || raw.contains("-1001") {
+            return "The request timed out. Retry from History."
+        }
+        if raw.localizedCaseInsensitiveContains("offline") || raw.contains("-1009") {
+            return "No internet connection. Retry from History once you're back online."
+        }
+        return raw
     }
 
     private func showResultPanel(text: String) {
@@ -461,13 +718,15 @@ final class AppState {
 /// A wrapper view that observes the SpeechEngine to update the waveform overlay
 struct ObservedOverlay: View {
     @Bindable var speechEngine: SpeechEngine
+    @Bindable var appState: AppState
     let onCancel: () -> Void
 
     var body: some View {
         RecordingOverlayView(
             barLevels: speechEngine.barLevels,
-            isLoading: speechEngine.isTranscribing,
+            isLoading: speechEngine.isTranscribing || appState.isRefining,
             isPreparing: speechEngine.isStartingEngine,
+            isAIMode: appState.isAIMode,
             onCancel: onCancel
         )
     }

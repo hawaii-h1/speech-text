@@ -9,6 +9,8 @@ enum SettingsKeys {
     static let sttProvider = "sttProvider"
     static let groqAPIKey = "groqAPIKey"
     static let groqModel = "groqModel"
+    static let elevenLabsAPIKey = "elevenLabsAPIKey"
+    static let elevenLabsModel = "elevenLabsModel"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -18,8 +20,30 @@ enum SettingsKeys {
     static let recordWindowHotkeyKeyCode = "recordWindowHotkeyKeyCode"
     static let recordWindowHotkeyModifierFlags = "recordWindowHotkeyModifierFlags"
 
+    // Hotkey (AI recording — transcription is post-processed by an LLM)
+    static let aiHotkeyKeyCode = "aiHotkeyKeyCode"
+    static let aiHotkeyModifierFlags = "aiHotkeyModifierFlags"
+
+    // LLM post-processing
+    static let llmProvider = "llmProvider"
+    static let groqLLMModel = "groqLLMModel"
+    static let anthropicAPIKey = "anthropicAPIKey"
+    static let anthropicModel = "anthropicModel"
+    static let openAIAPIKey = "openAIAPIKey"
+    static let openAIModel = "openAIModel"
+    /// JSON-encoded `[PromptPreset]`.
+    static let promptPresets = "promptPresets"
+    /// UUID string of the preset used when no other preset matches.
+    static let defaultPresetID = "defaultPresetID"
+    /// Whether the Record Window's ✨ toggle is on.
+    static let aiModeInRecordWindow = "aiModeInRecordWindow"
+
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
+
+    /// Bumped when the built-in hotkey layout changes, so stored shortcuts can be
+    /// migrated once instead of silently keeping the old assignment.
+    static let hotkeyLayoutVersion = "hotkeyLayoutVersion"
 
     // Debug
     static let debugMode = "debugMode"
@@ -28,6 +52,11 @@ enum SettingsKeys {
 let groqModels: [(id: String, name: String)] = [
     ("whisper-large-v3-turbo", "Whisper Large V3 Turbo"),
     ("whisper-large-v3", "Whisper Large V3"),
+]
+
+let elevenLabsModels: [(id: String, name: String)] = [
+    ("scribe_v1", "Scribe v1"),
+    ("scribe_v1_experimental", "Scribe v1 Experimental"),
 ]
 
 struct SupportedLanguage: Identifiable, Hashable {
@@ -86,6 +115,48 @@ private func currentInputSourceLanguage() -> String? {
     }
 
     return nil
+}
+
+/// Drops provider settings whose stored value no longer maps to a known case.
+///
+/// A stale identifier is worse than a missing one: the picker in Settings finds no
+/// matching tag and renders blank, while the engine quietly falls back to its
+/// default — so the UI shows nothing and the app runs something the user did not pick.
+func normalizeStoredProviders() {
+    let defaults = UserDefaults.standard
+
+    if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
+       STTProviderType(rawValue: raw) == nil {
+        dlog("Settings", "sttProvider=\"\(raw)\" is not a known engine — resetting to Apple")
+        defaults.set(STTProviderType.apple.rawValue, forKey: SettingsKeys.sttProvider)
+    }
+
+    if let raw = defaults.string(forKey: SettingsKeys.llmProvider),
+       LLMProviderType(rawValue: raw) == nil {
+        dlog("Settings", "llmProvider=\"\(raw)\" is not a known provider — resetting to Groq")
+        defaults.set(LLMProviderType.groq.rawValue, forKey: SettingsKeys.llmProvider)
+    }
+
+    // Model catalogues get replaced when a vendor retires a generation; a stored ID
+    // that is no longer offered blanks the picker exactly like a stale provider does.
+    normalizeStoredModel(SettingsKeys.groqModel, in: groqModels, fallback: "whisper-large-v3-turbo")
+    normalizeStoredModel(SettingsKeys.elevenLabsModel, in: elevenLabsModels, fallback: "scribe_v1")
+    normalizeStoredModel(SettingsKeys.groqLLMModel, in: groqChatModels, fallback: defaultGroqLLMModel)
+    normalizeStoredModel(SettingsKeys.anthropicModel, in: anthropicChatModels, fallback: defaultAnthropicModel)
+    normalizeStoredModel(SettingsKeys.openAIModel, in: openAIChatModels, fallback: defaultOpenAIModel)
+}
+
+private func normalizeStoredModel(
+    _ key: String,
+    in catalog: [(id: String, name: String)],
+    fallback: String
+) {
+    let defaults = UserDefaults.standard
+    guard let raw = defaults.string(forKey: key),
+          !catalog.contains(where: { $0.id == raw })
+    else { return }
+    dlog("Settings", "\(key)=\"\(raw)\" is no longer offered — resetting to \(fallback)")
+    defaults.set(fallback, forKey: key)
 }
 
 /// Resolves the effective locale identifier for speech recognition.
