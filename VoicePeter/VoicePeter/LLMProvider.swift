@@ -36,10 +36,9 @@ let anthropicChatModels: [(id: String, name: String)] = [
 ]
 
 let openAIChatModels: [(id: String, name: String)] = [
-    ("gpt-4.1", "GPT-4.1"),
-    ("gpt-4.1-mini", "GPT-4.1 mini"),
-    ("gpt-4o", "GPT-4o"),
-    ("gpt-4o-mini", "GPT-4o mini (fastest)"),
+    ("gpt-5.6-sol", "GPT-5.6 Sol — flagship"),
+    ("gpt-5.6-terra", "GPT-5.6 Terra — balanced"),
+    ("gpt-5.6-luna", "GPT-5.6 Luna — fastest"),
 ]
 
 // MARK: - Protocol
@@ -79,12 +78,23 @@ private let llmSession: URLSession = {
 // MARK: - OpenAI-compatible (Groq + OpenAI)
 
 /// Both Groq and OpenAI expose the same `/chat/completions` shape, so one
-/// implementation covers them; only the base URL, key and model differ.
+/// implementation covers them. They diverge on which parameters they accept —
+/// see `Dialect`.
 struct OpenAICompatibleLLMProvider: LLMChatProvider {
+    /// The two backends share an endpoint shape but not its parameters.
+    enum Dialect {
+        /// Groq: classic Chat Completions — `max_tokens` and sampling params accepted.
+        case classic
+        /// OpenAI's GPT-5.x reasoning models: `max_tokens` and `temperature` are both
+        /// rejected with HTTP 400. The output cap moved to `max_completion_tokens`.
+        case reasoning
+    }
+
     let label: String
     let baseURL: URL
     let apiKey: String
     let model: String
+    let dialect: Dialect
 
     func complete(system: String, user: String) async throws -> String {
         var request = URLRequest(url: baseURL)
@@ -92,15 +102,20 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": model,
-            "max_tokens": 8192,
-            "temperature": 0.3,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user],
             ],
         ]
+        switch dialect {
+        case .classic:
+            payload["max_tokens"] = 8192
+            payload["temperature"] = 0.3
+        case .reasoning:
+            payload["max_completion_tokens"] = 8192
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         let start = CFAbsoluteTimeGetCurrent()
@@ -263,13 +278,13 @@ enum LLMConfiguration {
             return OpenAICompatibleLLMProvider(
                 label: "Groq",
                 baseURL: URL(string: "https://api.groq.com/openai/v1/chat/completions")!,
-                apiKey: key, model: model
+                apiKey: key, model: model, dialect: .classic
             )
         case .openai:
             return OpenAICompatibleLLMProvider(
                 label: "OpenAI",
                 baseURL: URL(string: "https://api.openai.com/v1/chat/completions")!,
-                apiKey: key, model: model
+                apiKey: key, model: model, dialect: .reasoning
             )
         case .anthropic:
             return AnthropicLLMProvider(apiKey: key, model: model)
@@ -279,4 +294,4 @@ enum LLMConfiguration {
 
 let defaultGroqLLMModel = "llama-3.3-70b-versatile"
 let defaultAnthropicModel = "claude-opus-5"
-let defaultOpenAIModel = "gpt-4.1-mini"
+let defaultOpenAIModel = "gpt-5.6-terra"

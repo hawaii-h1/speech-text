@@ -136,6 +136,27 @@ func normalizeStoredProviders() {
         dlog("Settings", "llmProvider=\"\(raw)\" is not a known provider — resetting to Groq")
         defaults.set(LLMProviderType.groq.rawValue, forKey: SettingsKeys.llmProvider)
     }
+
+    // Model catalogues get replaced when a vendor retires a generation; a stored ID
+    // that is no longer offered blanks the picker exactly like a stale provider does.
+    normalizeStoredModel(SettingsKeys.groqModel, in: groqModels, fallback: "whisper-large-v3-turbo")
+    normalizeStoredModel(SettingsKeys.elevenLabsModel, in: elevenLabsModels, fallback: "scribe_v1")
+    normalizeStoredModel(SettingsKeys.groqLLMModel, in: groqChatModels, fallback: defaultGroqLLMModel)
+    normalizeStoredModel(SettingsKeys.anthropicModel, in: anthropicChatModels, fallback: defaultAnthropicModel)
+    normalizeStoredModel(SettingsKeys.openAIModel, in: openAIChatModels, fallback: defaultOpenAIModel)
+}
+
+private func normalizeStoredModel(
+    _ key: String,
+    in catalog: [(id: String, name: String)],
+    fallback: String
+) {
+    let defaults = UserDefaults.standard
+    guard let raw = defaults.string(forKey: key),
+          !catalog.contains(where: { $0.id == raw })
+    else { return }
+    dlog("Settings", "\(key)=\"\(raw)\" is no longer offered — resetting to \(fallback)")
+    defaults.set(fallback, forKey: key)
 }
 
 /// Resolves the effective locale identifier for speech recognition.
