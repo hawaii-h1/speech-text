@@ -13,6 +13,24 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
         case failed
     }
 
+    /// The LLM pass, when the dictation went through one. `text` always stays the raw
+    /// transcription, so both versions survive and can be compared after the fact.
+    struct Refinement: Codable, Equatable {
+        /// What was actually sent to the model. Usually equals the record's `text`, but
+        /// the Record Window refines its whole text area, which can span several
+        /// segments and manual edits — so it is stored rather than assumed.
+        var inputText: String
+        var outputText: String
+        /// Preset the model routed to, when it reported one on the `<<mode:…>>` line.
+        var presetName: String?
+        var provider: String
+        var model: String
+        /// Set when the LLM step failed; the raw transcription was used instead.
+        var errorMessage: String?
+
+        var succeeded: Bool { errorMessage == nil && !outputText.isEmpty }
+    }
+
     let id: UUID
     let date: Date
     var text: String
@@ -24,8 +42,17 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     /// Filename (not a full path — the container may move) of the archived WAV kept
     /// so a failed transcription can be retried instead of being lost.
     var audioFileName: String?
+    /// Optional, so history written before AI mode existed still decodes.
+    var refinement: Refinement?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
+
+    /// What the user actually received — the refined text when the LLM pass worked,
+    /// otherwise the raw transcription.
+    var deliveredText: String {
+        guard let refinement, refinement.succeeded else { return text }
+        return refinement.outputText
+    }
 }
 
 // MARK: - Store
@@ -78,10 +105,45 @@ final class TranscriptionHistory {
 
     // MARK: Recording outcomes
 
-    func recordSuccess(text: String, provider: String, locale: String?, duration: TimeInterval) {
-        add(TranscriptionRecord(id: UUID(), date: Date(), text: text, status: .success,
+    /// Returns the new record's id so a later LLM pass can be attached to this entry.
+    @discardableResult
+    func recordSuccess(text: String, provider: String, locale: String?,
+                       duration: TimeInterval) -> UUID {
+        let id = UUID()
+        add(TranscriptionRecord(id: id, date: Date(), text: text, status: .success,
                                 errorMessage: nil, provider: provider, locale: locale,
                                 duration: duration, audioFileName: nil))
+        return id
+    }
+
+    // MARK: LLM pass
+
+    /// Attaches the result of the AI step to an existing transcription entry.
+    func recordRefinement(id: UUID, input: String, output: String, presetName: String?,
+                          provider: String, model: String) {
+        updateRefinement(id: id, TranscriptionRecord.Refinement(
+            inputText: input, outputText: output, presetName: presetName,
+            provider: provider, model: model, errorMessage: nil
+        ))
+    }
+
+    /// Records that the AI step was attempted and failed. Worth keeping: the pasted text
+    /// silently differs from what the user asked for, and the entry explains why.
+    func recordRefinementFailure(id: UUID, input: String, error: String,
+                                 provider: String, model: String) {
+        updateRefinement(id: id, TranscriptionRecord.Refinement(
+            inputText: input, outputText: "", presetName: nil,
+            provider: provider, model: model, errorMessage: error
+        ))
+    }
+
+    private func updateRefinement(id: UUID, _ refinement: TranscriptionRecord.Refinement) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else {
+            histLog.info("refinement for unknown record \(id.uuidString, privacy: .public) — dropped")
+            return
+        }
+        records[index].refinement = refinement
+        save()
     }
 
     /// Records a failure and *keeps* the audio so the user can retry it. Passing the temp
@@ -115,6 +177,8 @@ final class TranscriptionHistory {
         record.status = .success
         record.errorMessage = nil
         record.audioFileName = nil
+        // The old refinement described text that no longer exists.
+        record.refinement = nil
         records[index] = record
         save()
     }

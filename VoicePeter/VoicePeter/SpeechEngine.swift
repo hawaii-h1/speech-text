@@ -58,6 +58,9 @@ final class SpeechEngine {
     private var appleChunkTimer: Timer?
     /// Comfortably under SFSpeechRecognitionTask's ~60s ceiling.
     private let appleChunkDuration: TimeInterval = 50
+    /// History entry written for the most recent successful transcription, so the LLM
+    /// pass (which runs later, in AppState or the Record Window) can attach itself to it.
+    private(set) var lastRecordID: UUID?
     /// True while the audio engine is being prepared on the background thread.
     /// Used by the overlay to show a "preparing" animation before the mic is live.
     var isStartingEngine = false
@@ -79,6 +82,7 @@ final class SpeechEngine {
         isPaused = false
         editedText = ""
         pendingInsertionText = nil
+        lastRecordID = nil
         isTranscribing = false
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -437,8 +441,8 @@ final class SpeechEngine {
         let history = TranscriptionHistory.shared
 
         guard text.isEmpty else {
-            history.recordSuccess(text: text, provider: STTProviderType.apple.rawValue,
-                                  locale: locale, duration: duration)
+            lastRecordID = history.recordSuccess(text: text, provider: STTProviderType.apple.rawValue,
+                                                 locale: locale, duration: duration)
             return
         }
 
@@ -495,8 +499,10 @@ final class SpeechEngine {
                                                             duration: duration, audioURL: fileURL)
                 } else {
                     AudioBufferWriter.cleanup(fileURL: fileURL)
-                    TranscriptionHistory.shared.recordSuccess(text: trimmed, provider: providerName,
-                                                              locale: locale, duration: duration)
+                    self.lastRecordID = TranscriptionHistory.shared.recordSuccess(
+                        text: trimmed, provider: providerName,
+                        locale: locale, duration: duration
+                    )
                 }
             }
             return text

@@ -199,16 +199,33 @@ struct DirectRecordingPanelView: View {
         refineTask?.cancel()
         isRefining = true
         refineStatus = nil
+        // Anchor the entry for the segment that triggered this pass. The input recorded
+        // below is the whole text area, which may span several segments and manual edits.
+        let recordID = speechEngine.lastRecordID
         refineTask = Task { @MainActor in
             do {
                 let result = try await TextRefinementService.refine(source)
                 guard !Task.isCancelled else { return }
                 speechEngine.editedText = result.text
                 refineStatus = result.presetName.map { "AI · \($0)" } ?? "AI"
+                if let recordID {
+                    TranscriptionHistory.shared.recordRefinement(
+                        id: recordID, input: source, output: result.text,
+                        presetName: result.presetName,
+                        provider: result.provider, model: result.model
+                    )
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 // The raw transcription stays in the text area — nothing is lost.
                 refineStatus = "AI failed: \(error.localizedDescription)"
+                if let recordID {
+                    let type = LLMConfiguration.providerType
+                    TranscriptionHistory.shared.recordRefinementFailure(
+                        id: recordID, input: source, error: error.localizedDescription,
+                        provider: type.rawValue, model: LLMConfiguration.model(for: type)
+                    )
+                }
             }
             isRefining = false
             refineTask = nil

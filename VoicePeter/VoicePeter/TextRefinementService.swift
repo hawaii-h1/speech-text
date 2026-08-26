@@ -8,6 +8,8 @@ enum TextRefinementService {
         let text: String
         /// Name of the preset the model routed to, when it reported one.
         let presetName: String?
+        let provider: String
+        let model: String
     }
 
     static var isConfigured: Bool { LLMConfiguration.isConfigured }
@@ -16,7 +18,12 @@ enum TextRefinementService {
 
     static func refine(_ transcript: String) async throws -> Result {
         let source = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty else { return Result(text: "", presetName: nil) }
+        let providerType = LLMConfiguration.providerType
+        let modelID = LLMConfiguration.model(for: providerType)
+        guard !source.isEmpty else {
+            return Result(text: "", presetName: nil,
+                          provider: providerType.rawValue, model: modelID)
+        }
 
         let provider = try LLMConfiguration.makeProvider()
         let presets = PromptPresetStore.load()
@@ -31,7 +38,8 @@ enum TextRefinementService {
         dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(parsed.text.count) chars")
 
         guard !parsed.text.isEmpty else { throw LLMError.emptyResponse }
-        return parsed
+        return Result(text: parsed.text, presetName: parsed.presetName,
+                      provider: providerType.rawValue, model: modelID)
     }
 
     // MARK: - Prompt construction
@@ -105,7 +113,8 @@ enum TextRefinementService {
 
         body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         body = stripWrappingCodeFence(body)
-        return Result(text: body, presetName: presetName?.isEmpty == false ? presetName : nil)
+        return Result(text: body, presetName: presetName?.isEmpty == false ? presetName : nil,
+                      provider: "", model: "")
     }
 
     /// Removes a fence only when it wraps the *entire* response — a fenced snippet

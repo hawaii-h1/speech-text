@@ -429,6 +429,7 @@ final class AppState {
 
         // Keep the overlay up (now in its loading state) while the LLM rewrites the text.
         isRefining = true
+        let recordID = speechEngine.lastRecordID
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var output = text
@@ -436,8 +437,22 @@ final class AppState {
                 let result = try await TextRefinementService.refine(text)
                 if Task.isCancelled { return }
                 output = result.text
+                if let recordID {
+                    TranscriptionHistory.shared.recordRefinement(
+                        id: recordID, input: text, output: result.text,
+                        presetName: result.presetName,
+                        provider: result.provider, model: result.model
+                    )
+                }
             } catch {
                 if Task.isCancelled { return }
+                if let recordID {
+                    let type = LLMConfiguration.providerType
+                    TranscriptionHistory.shared.recordRefinementFailure(
+                        id: recordID, input: text, error: error.localizedDescription,
+                        provider: type.rawValue, model: LLMConfiguration.model(for: type)
+                    )
+                }
                 // Never lose the dictation: fall back to the raw transcript, but say so
                 // rather than pasting unrewritten text with no explanation.
                 dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript")

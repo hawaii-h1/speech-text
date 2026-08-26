@@ -130,6 +130,14 @@ struct HistoryView: View {
                         Text("·")
                         Text(locale)
                     }
+                    if let refinement = record.refinement {
+                        Text("·")
+                        Label(
+                            refinement.succeeded ? (refinement.presetName ?? "AI") : "AI failed",
+                            systemImage: refinement.succeeded ? "sparkles" : "sparkles.slash"
+                        )
+                        .foregroundStyle(refinement.succeeded ? Color.purple : Color.orange)
+                    }
                 }
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
@@ -156,7 +164,7 @@ struct HistoryView: View {
                     .foregroundStyle(copiedID == record.id ? Color.green : Color.accentColor)
             }
             .buttonStyle(.borderless)
-            .disabled(record.text.isEmpty)
+            .disabled(record.deliveredText.isEmpty)
             .help("Copy text")
         }
         .padding(.vertical, 2)
@@ -178,7 +186,7 @@ struct HistoryView: View {
                         .foregroundStyle(.secondary)
                 }
                 Button("Copy") { copy(record) }
-                    .disabled(record.text.isEmpty)
+                    .disabled(record.deliveredText.isEmpty)
             }
 
             if let error = record.errorMessage {
@@ -189,24 +197,86 @@ struct HistoryView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ScrollView {
-                Text(record.text.isEmpty ? "(no text)" : record.text)
-                    .font(.system(size: 12))
-                    .foregroundStyle(record.text.isEmpty ? .secondary : .primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if let refinement = record.refinement {
+                refinementHeader(refinement)
+
+                HStack(alignment: .top, spacing: 10) {
+                    textPane("Dictated", refinement.inputText, tint: .secondary)
+                    textPane(
+                        refinement.succeeded ? "AI output (pasted)" : "AI output",
+                        refinement.succeeded ? refinement.outputText : "",
+                        tint: refinement.succeeded ? .purple : .secondary,
+                        placeholder: refinement.succeeded ? "(no text)" : "(failed — the dictated text was pasted)"
+                    )
+                }
+                .frame(height: 150)
+            } else {
+                ScrollView {
+                    Text(record.text.isEmpty ? "(no text)" : record.text)
+                        .font(.system(size: 12))
+                        .foregroundStyle(record.text.isEmpty ? .secondary : .primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 100)
             }
-            .frame(height: 100)
         }
         .padding(12)
     }
 
+    @ViewBuilder
+    private func refinementHeader(_ refinement: TranscriptionRecord.Refinement) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Label(
+                    refinement.presetName ?? "AI processing",
+                    systemImage: refinement.succeeded ? "sparkles" : "sparkles.slash"
+                )
+                .foregroundStyle(refinement.succeeded ? Color.purple : Color.orange)
+                Text("·")
+                Text("\(refinement.provider) / \(refinement.model)")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 11))
+
+            if let error = refinement.errorMessage {
+                Text("Fell back to the dictated text — \(error)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func textPane(_ title: String, _ body: String, tint: Color,
+                          placeholder: String = "(no text)") -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(tint)
+            ScrollView {
+                Text(body.isEmpty ? placeholder : body)
+                    .font(.system(size: 12))
+                    .foregroundStyle(body.isEmpty ? .secondary : .primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(6)
+            .background(.quaternary.opacity(0.25))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     // MARK: Actions
 
+    /// Copies what the user actually received, so an AI entry yields the rewritten text.
     private func copy(_ record: TranscriptionRecord) {
-        guard !record.text.isEmpty else { return }
+        guard !record.deliveredText.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(record.text, forType: .string)
+        NSPasteboard.general.setString(record.deliveredText, forType: .string)
 
         copiedID = record.id
         Task {
@@ -264,7 +334,7 @@ struct HistoryView: View {
     // MARK: Helpers
 
     private func primaryLine(_ record: TranscriptionRecord) -> String {
-        if !record.text.isEmpty { return record.text }
+        if !record.deliveredText.isEmpty { return record.deliveredText }
         switch record.status {
         case .failed: return record.errorMessage ?? "Transcription failed"
         case .empty:  return "No speech detected"
