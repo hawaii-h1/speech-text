@@ -179,6 +179,86 @@ struct RecordingOverlayView: View {
     }
 }
 
+// MARK: - Status Overlay
+
+/// Transient notice shown after a recording ends without usable text — a provider
+/// error, or silence. Without this the inline flow fails completely silently.
+struct StatusOverlayView: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let tint: Color
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 60)
+        .background(.ultraThinMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(.white.opacity(isHovering ? 0.25 : 0.10), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .animation(.easeInOut(duration: 0.15), value: isHovering)
+    }
+}
+
+final class StatusOverlayPanel: NSPanel {
+    static let panelWidth: CGFloat = 340
+
+    init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 60),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        isOpaque = false
+        backgroundColor = .clear
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        isMovableByWindowBackground = true
+        hasShadow = true
+
+        positionBottomCenter()
+    }
+
+    private func positionBottomCenter() {
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        let x = screenFrame.midX - Self.panelWidth / 2
+        let y = screenFrame.minY + 20
+        setFrameOrigin(NSPoint(x: x, y: y))
+    }
+}
+
 // MARK: - Panel
 
 final class RecordingOverlayPanel: NSPanel {

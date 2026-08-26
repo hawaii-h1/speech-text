@@ -48,6 +48,16 @@ final class SpeechEngine {
     /// Incremented each time the engine is torn down. Background engine-start closures compare
     /// against this to detect stale sessions and bail out safely.
     private var engineStartToken = 0
+    /// True once a pause has handed the current segment's audio to a batch provider, so a
+    /// subsequent stop knows not to send the same audio a second time.
+    private var pausedSegmentTranscribed = false
+    /// Transcript committed from earlier Apple recognition chunks (see `rotateAppleRecognition`).
+    private var appleCommittedText = ""
+    /// Incremented on every rotation so callbacks from retired chunks can be discarded.
+    private var appleChunkToken = 0
+    private var appleChunkTimer: Timer?
+    /// Comfortably under SFSpeechRecognitionTask's ~60s ceiling.
+    private let appleChunkDuration: TimeInterval = 50
     /// True while the audio engine is being prepared on the background thread.
     /// Used by the overlay to show a "preparing" animation before the mic is live.
     var isStartingEngine = false
@@ -83,6 +93,7 @@ final class SpeechEngine {
         }
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+        stopAppleChunkTimer()
         isPaused = true
         isRecording = false
         barLevels = Array(repeating: 0, count: 12)
@@ -98,41 +109,27 @@ final class SpeechEngine {
         } else {
             isTranscribing = true
             let bufferWriter = audioBufferWriter
+            // This segment's audio is being sent now. Stopping without resuming must not
+            // send it a second time — that produced duplicate requests (and duplicate
+            // history entries, and duplicate billing) for one recording.
+            pausedSegmentTranscribed = true
             dlog("Engine", "pauseRecording(batch): bufferWriter=\(bufferWriter != nil), starting transcription task")
 
             transcriptionTask?.cancel()
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
-                do {
-                    guard let fileURL = try bufferWriter?.writeWAV() else {
-                        dlog("Engine", "pauseRecording: writeWAV returned nil (bufferWriter was nil) — resetting isTranscribing")
-                        await MainActor.run { self.isTranscribing = false }
-                        return
-                    }
-                    defer { AudioBufferWriter.cleanup(fileURL: fileURL) }
-
-                    dlog("Engine", "pauseRecording: calling batch provider…")
-                    let provider = self.makeBatchProvider(for: providerType)
-                    let locale: String? = resolvedLocale()
-                    let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
-                    dlog("Engine", "pauseRecording: transcription done, \(text.count) chars")
-
-                    await MainActor.run {
+                let text = await self.transcribeBatch(providerType: providerType,
+                                                      bufferWriter: bufferWriter,
+                                                      locale: resolvedLocale())
+                await MainActor.run {
+                    if let text {
                         self.liveText = text
                         let segmentText = text.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !segmentText.isEmpty {
                             self.pendingInsertionText = segmentText
                         }
-                        self.isTranscribing = false
                     }
-                } catch {
-                    dlog("Engine", "pauseRecording: transcription error: \(error.localizedDescription)")
-                    await MainActor.run {
-                        if !Task.isCancelled {
-                            self.errorMessage = error.localizedDescription
-                        }
-                        self.isTranscribing = false
-                    }
+                    self.isTranscribing = false
                 }
             }
         }
@@ -153,6 +150,8 @@ final class SpeechEngine {
         dlog("Engine", "setupRecordingSession: locale=\(locale), provider=\(currentProviderType().rawValue)")
         isStartingEngine = true
         currentLocale = locale
+        // Fresh segment with a fresh buffer writer — nothing has been sent for it yet.
+        pausedSegmentTranscribed = false
         liveText = ""
         finalText = ""
         errorMessage = nil
@@ -188,44 +187,8 @@ final class SpeechEngine {
             if speechRecognizer?.locale.identifier != locale {
                 speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
             }
-            guard let speechRecognizer, speechRecognizer.isAvailable else {
-                errorMessage = "Speech recognizer not available for \(locale)"
-                return
-            }
-
-            recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-            guard let recognitionRequest else {
-                errorMessage = "Failed to create recognition request"
-                return
-            }
-
-            recognitionRequest.shouldReportPartialResults = true
-            recognitionRequest.requiresOnDeviceRecognition = true
-
-            recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-                guard let self else { return }
-                if let result {
-                    DispatchQueue.main.async {
-                        self.liveText = result.bestTranscription.formattedString
-                        if result.isFinal {
-                            dlog("Engine", "recognitionTask: isFinal=true, text=\(result.bestTranscription.formattedString.prefix(80))")
-                            self.finalText = result.bestTranscription.formattedString
-                        }
-                    }
-                }
-                if let error {
-                    let nsErr = error as NSError
-                    dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)")
-                    DispatchQueue.main.async {
-                        if self.finalText.isEmpty {
-                            self.finalText = self.liveText
-                        }
-                        if nsErr.code != 216 {
-                            self.errorMessage = error.localizedDescription
-                        }
-                    }
-                }
-            }
+            appleCommittedText = ""
+            guard startAppleRecognitionSession() else { return }
         }
 
         installAudioTap()
@@ -290,13 +253,24 @@ final class SpeechEngine {
             audioEngine?.inputNode.removeTap(onBus: 0)
         }
         recognitionRequest?.endAudio()
+        let wasPaused = isPaused
         isRecording = false
         isPaused = false
+
+        // Stopping from a paused state where the segment was already sent: the audio is
+        // in flight (or done) — finish with that result instead of transcribing it again.
+        if wasPaused && pausedSegmentTranscribed {
+            dlog("Engine", "stopRecording: segment already transcribed at pause — not resending")
+            finalizeAfterPausedTranscription()
+            return
+        }
 
         let providerType = currentProviderType()
 
         if providerType == .apple {
             isTranscribing = true
+            let bufferWriter = audioBufferWriter
+            let appleLocale = currentLocale
             dlog("Engine", "stopRecording(apple): waiting 0.5s for final result, liveText=\(liveText.count) chars")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self else { return }
@@ -305,6 +279,7 @@ final class SpeechEngine {
                     self.finalText = self.liveText
                 }
                 dlog("Engine", "stopRecording(apple): done, finalText=\(self.finalText.count) chars")
+                self.recordAppleOutcome(bufferWriter: bufferWriter, locale: appleLocale)
                 self.isTranscribing = false
                 self.cleanup()
             }
@@ -316,57 +291,235 @@ final class SpeechEngine {
 
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
-                do {
-                    guard let fileURL = try bufferWriter?.writeWAV() else {
-                        dlog("Engine", "stopRecording: writeWAV returned nil — no audio")
-                        throw AudioBufferWriter.AudioBufferWriterError.noAudio
-                    }
-                    defer { AudioBufferWriter.cleanup(fileURL: fileURL) }
-
-                    dlog("Engine", "stopRecording: calling batch provider, locale=\(locale ?? "nil")…")
-                    let provider = self.makeBatchProvider(for: providerType)
-                    let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
-                    dlog("Engine", "stopRecording: transcription done, \(text.count) chars")
-
-                    await MainActor.run {
+                let text = await self.transcribeBatch(providerType: providerType,
+                                                      bufferWriter: bufferWriter,
+                                                      locale: locale)
+                await MainActor.run {
+                    if let text {
                         self.finalText = text
                         self.liveText = text
-                        self.isTranscribing = false
                     }
-                } catch {
-                    dlog("Engine", "stopRecording: transcription error: \(error.localizedDescription)")
-                    await MainActor.run {
-                        if !Task.isCancelled {
-                            self.errorMessage = error.localizedDescription
-                        }
-                        self.isTranscribing = false
-                    }
-                }
-                await MainActor.run {
+                    self.isTranscribing = false
                     self.cleanup()
                 }
             }
         }
     }
 
+    /// Completes a stop that arrived while paused, reusing the transcription the pause
+    /// already started. Waits for it if it's still running so the caller's
+    /// `isTranscribing` poll doesn't finish before the text lands.
+    private func finalizeAfterPausedTranscription() {
+        func finish() {
+            if finalText.isEmpty {
+                finalText = liveText
+            }
+            isTranscribing = false
+            cleanup()
+        }
+
+        guard let task = transcriptionTask, !task.isCancelled else {
+            finish()
+            return
+        }
+
+        isTranscribing = true
+        Task { [weak self] in
+            await task.value
+            await MainActor.run {
+                guard let self else { return }
+                if self.finalText.isEmpty {
+                    self.finalText = self.liveText
+                }
+                self.isTranscribing = false
+                self.cleanup()
+            }
+        }
+    }
+
+    // MARK: - Apple Recognition Chunking
+
+    /// SFSpeechRecognitionTask stops accepting audio after roughly a minute. Left alone,
+    /// every word spoken past that point is silently dropped. We rotate to a fresh
+    /// recognition task before the limit and stitch the chunks together.
+    private func startAppleRecognitionSession() -> Bool {
+        guard let speechRecognizer, speechRecognizer.isAvailable else {
+            errorMessage = "Speech recognizer not available for \(currentLocale)"
+            return false
+        }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.requiresOnDeviceRecognition = true
+        recognitionRequest = request
+
+        appleChunkToken += 1
+        let token = appleChunkToken
+
+        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else { return }
+            if let result {
+                let partial = result.bestTranscription.formattedString
+                let isFinal = result.isFinal
+                DispatchQueue.main.async {
+                    // Ignore late callbacks from a chunk we've already rotated away from.
+                    guard self.appleChunkToken == token else { return }
+                    self.liveText = self.appleJoined(partial)
+                    if isFinal {
+                        dlog("Engine", "recognitionTask: isFinal=true, text=\(partial.prefix(80))")
+                        self.finalText = self.liveText
+                    }
+                }
+            }
+            if let error {
+                let nsErr = error as NSError
+                dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    guard self.appleChunkToken == token else { return }
+                    if self.finalText.isEmpty {
+                        self.finalText = self.liveText
+                    }
+                    if nsErr.code != 216 {
+                        self.errorMessage = error.localizedDescription
+                    }
+                }
+            }
+        }
+
+        scheduleAppleChunkRotation()
+        return true
+    }
+
+    /// Text committed from previous chunks, joined with the in-progress chunk.
+    private func appleJoined(_ partial: String) -> String {
+        if appleCommittedText.isEmpty { return partial }
+        if partial.isEmpty { return appleCommittedText }
+        return appleCommittedText + " " + partial
+    }
+
+    private func scheduleAppleChunkRotation() {
+        appleChunkTimer?.invalidate()
+        appleChunkTimer = Timer.scheduledTimer(withTimeInterval: appleChunkDuration, repeats: false) { [weak self] _ in
+            self?.rotateAppleRecognition()
+        }
+    }
+
+    private func rotateAppleRecognition() {
+        guard isRecording, currentProviderType() == .apple else { return }
+        dlog("Engine", "rotateAppleRecognition: committing \(liveText.count) chars, starting fresh chunk")
+
+        // Commit the latest partial. Partials arrive continuously, so this captures
+        // essentially everything said in this chunk; at most a word at the boundary
+        // is at risk, which beats losing every word after the one-minute mark.
+        appleCommittedText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+
+        // The audio tap appends to `recognitionRequest` by reference, so the running
+        // engine feeds the new request automatically — no need to touch the tap.
+        _ = startAppleRecognitionSession()
+    }
+
+    private func stopAppleChunkTimer() {
+        appleChunkTimer?.invalidate()
+        appleChunkTimer = nil
+    }
+
+    /// Records the outcome of an Apple on-device session. The tap feeds the buffer writer
+    /// regardless of provider, so when on-device recognition produces nothing we still have
+    /// the audio and can archive it for a cloud retry instead of discarding the speech.
+    private func recordAppleOutcome(bufferWriter: AudioBufferWriter?, locale: String?) {
+        let text = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let duration = bufferWriter?.bufferedDuration ?? 0
+        let history = TranscriptionHistory.shared
+
+        guard text.isEmpty else {
+            history.recordSuccess(text: text, provider: STTProviderType.apple.rawValue,
+                                  locale: locale, duration: duration)
+            return
+        }
+
+        // Nothing came back — preserve the audio so it can be retried.
+        let audioURL = try? bufferWriter?.writeWAV()
+        if let error = errorMessage {
+            history.recordFailure(error: error, provider: STTProviderType.apple.rawValue,
+                                  locale: locale, duration: duration, audioURL: audioURL ?? nil)
+        } else {
+            history.recordEmpty(provider: STTProviderType.apple.rawValue, locale: locale,
+                                duration: duration, audioURL: audioURL ?? nil)
+        }
+    }
+
+    /// Transcribes the buffered audio with a batch provider and records the outcome in
+    /// history. On failure the WAV is handed to the archive rather than deleted, so the
+    /// user can retry it — a failed upload no longer means the speech is gone.
+    /// Returns the transcribed text, or nil if it failed (`errorMessage` is set).
+    private func transcribeBatch(providerType: STTProviderType,
+                                 bufferWriter: AudioBufferWriter?,
+                                 locale: String?) async -> String? {
+        let duration = bufferWriter?.bufferedDuration ?? 0
+        let providerName = providerType.rawValue
+
+        let fileURL: URL
+        do {
+            guard let url = try bufferWriter?.writeWAV() else {
+                throw AudioBufferWriter.AudioBufferWriterError.noAudio
+            }
+            fileURL = url
+        } catch {
+            dlog("Engine", "transcribeBatch: could not write WAV: \(error.localizedDescription)")
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                self.errorMessage = error.localizedDescription
+                TranscriptionHistory.shared.recordFailure(error: error.localizedDescription,
+                                                          provider: providerName, locale: locale,
+                                                          duration: duration, audioURL: nil)
+            }
+            return nil
+        }
+
+        do {
+            dlog("Engine", "transcribeBatch: calling \(providerName), locale=\(locale ?? "nil")…")
+            let provider = makeBatchProvider(for: providerType)
+            let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            dlog("Engine", "transcribeBatch: done, \(trimmed.count) chars")
+
+            await MainActor.run {
+                if trimmed.isEmpty {
+                    // Keep the audio — an empty result is often worth a retry.
+                    TranscriptionHistory.shared.recordEmpty(provider: providerName, locale: locale,
+                                                            duration: duration, audioURL: fileURL)
+                } else {
+                    AudioBufferWriter.cleanup(fileURL: fileURL)
+                    TranscriptionHistory.shared.recordSuccess(text: trimmed, provider: providerName,
+                                                              locale: locale, duration: duration)
+                }
+            }
+            return text
+        } catch {
+            dlog("Engine", "transcribeBatch: error: \(error.localizedDescription)")
+            let cancelled = Task.isCancelled
+            await MainActor.run {
+                if cancelled {
+                    AudioBufferWriter.cleanup(fileURL: fileURL)
+                    return
+                }
+                self.errorMessage = error.localizedDescription
+                TranscriptionHistory.shared.recordFailure(error: error.localizedDescription,
+                                                          provider: providerName, locale: locale,
+                                                          duration: duration, audioURL: fileURL)
+            }
+            return nil
+        }
+    }
+
     private func currentProviderType() -> STTProviderType {
         let raw = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "apple"
         return STTProviderType(rawValue: raw) ?? .apple
-    }
-
-    private func makeBatchProvider(for type: STTProviderType) -> BatchSTTProvider {
-        switch type {
-        case .groq:
-            let apiKey = UserDefaults.standard.string(forKey: SettingsKeys.groqAPIKey) ?? ""
-            let model = UserDefaults.standard.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo"
-            return GroqSTTProvider(apiKey: apiKey, model: model)
-        case .apple:
-            seLog.fault("makeBatchProvider called for Apple provider — this should never happen")
-            // Return Groq as fallback instead of crashing
-            let apiKey = UserDefaults.standard.string(forKey: SettingsKeys.groqAPIKey) ?? ""
-            let model = UserDefaults.standard.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo"
-            return GroqSTTProvider(apiKey: apiKey, model: model)
-        }
     }
 
     private func installAudioTap() {
@@ -452,6 +605,7 @@ final class SpeechEngine {
     private func cleanup() {
         dlog("Engine", "cleanup: isTranscribing=\(isTranscribing), isRecording=\(isRecording)")
         isStartingEngine = false
+        stopAppleChunkTimer()
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil

@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState = AppState()
     private var settingsWindow: NSWindow?
     private var debugLogWindow: DebugLogWindow?
+    private var historyWindow: HistoryWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
@@ -70,6 +71,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.rebuildMenu()
         }
 
+        // The status overlay asks for History via notification (AppState doesn't own windows)
+        NotificationCenter.default.addObserver(
+            forName: .openHistoryWindow, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.openHistory()
+        }
+
         // Auto-register as login item on first launch (default: ON)
         if !UserDefaults.standard.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) {
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
@@ -117,6 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let historyItem = NSMenuItem(title: "History...", action: #selector(openHistory), keyEquivalent: "y")
+        historyItem.target = self
+        menu.addItem(historyItem)
+
         let debugItem = NSMenuItem(title: "Debug Log...", action: #selector(openDebugLog), keyEquivalent: "")
         debugItem.target = self
         menu.addItem(debugItem)
@@ -161,6 +173,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func openHistory() {
+        if let existing = historyWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let window = HistoryWindow()
+        window.makeKeyAndOrderFront(nil)
+        historyWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc private func openDebugLog() {
         if let existing = debugLogWindow {
             existing.makeKeyAndOrderFront(nil)
@@ -202,6 +226,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+extension Notification.Name {
+    /// Posted when something (menu item, status overlay tap) wants the History window.
+    /// AppDelegate owns the window, so AppState signals rather than opening it directly.
+    static let openHistoryWindow = Notification.Name("openHistoryWindow")
+}
+
 // MARK: - AppState
 
 @Observable
@@ -210,6 +240,8 @@ final class AppState {
     let hotkeyManager = HotkeyManager()
 
     private var overlayPanel: RecordingOverlayPanel?
+    private var statusPanel: StatusOverlayPanel?
+    private var statusDismissItem: DispatchWorkItem?
     private var resultPanel: ResultPanelWindow?
     private var directRecordingPanel: DirectRecordingPanelWindow?
     private var directRecordingSpeechEngine: SpeechEngine?
@@ -272,8 +304,32 @@ final class AppState {
         hideOverlay()
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil")")
+
+        // A failed transcription used to end here silently — the user just saw nothing
+        // happen and lost everything they said. Always surface it.
+        if let rawError = speechEngine.errorMessage {
+            dlog("App", "handleTranscriptionResult: error — \(rawError)")
+            showStatus(
+                icon: "exclamationmark.triangle.fill",
+                title: "Transcription failed",
+                detail: friendlySTTError(rawError),
+                tint: .orange
+            )
+            // Any partial text is better than nothing — hand it to the Record Window.
+            if !text.isEmpty {
+                showDirectRecordingPanel(withText: text)
+            }
+            return
+        }
+
         guard !text.isEmpty else {
-            dlog("App", "handleTranscriptionResult: empty text, nothing to do")
+            dlog("App", "handleTranscriptionResult: empty text")
+            showStatus(
+                icon: "waveform.slash",
+                title: "No speech detected",
+                detail: "Nothing was transcribed from that recording.",
+                tint: .secondary
+            )
             return
         }
 
@@ -350,6 +406,64 @@ final class AppState {
     private func hideOverlay() {
         overlayPanel?.close()
         overlayPanel = nil
+    }
+
+    // MARK: - Status Overlay
+
+    func showStatus(icon: String, title: String, detail: String?, tint: Color, duration: TimeInterval = 5) {
+        hideStatus()
+
+        let panel = StatusOverlayPanel()
+        panel.contentView = NSHostingView(rootView: StatusOverlayView(
+            icon: icon,
+            title: title,
+            detail: detail,
+            tint: tint,
+            onTap: { [weak self] in
+                self?.hideStatus()
+                self?.openHistoryWindow()
+            }
+        ))
+        panel.orderFrontRegardless()
+        statusPanel = panel
+
+        let dismiss = DispatchWorkItem { [weak self, weak panel] in
+            guard let self, self.statusPanel === panel else { return }
+            self.hideStatus()
+        }
+        statusDismissItem = dismiss
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: dismiss)
+    }
+
+    func openHistoryWindow() {
+        NotificationCenter.default.post(name: .openHistoryWindow, object: nil)
+    }
+
+    func hideStatus() {
+        statusDismissItem?.cancel()
+        statusDismissItem = nil
+        statusPanel?.close()
+        statusPanel = nil
+    }
+
+    /// Turn a raw provider error into something that tells the user what to actually do.
+    private func friendlySTTError(_ raw: String) -> String {
+        if raw.contains("413") || raw.localizedCaseInsensitiveContains("too large") {
+            return "That recording was too large for the provider. Try a shorter one."
+        }
+        if raw.contains("429") {
+            return "Rate limited by the provider. Wait a moment and retry from History."
+        }
+        if raw.contains("401") || raw.contains("403") {
+            return "The API key was rejected. Check it in Settings."
+        }
+        if raw.localizedCaseInsensitiveContains("timed out") || raw.contains("-1001") {
+            return "The request timed out. Retry from History."
+        }
+        if raw.localizedCaseInsensitiveContains("offline") || raw.contains("-1009") {
+            return "No internet connection. Retry from History once you're back online."
+        }
+        return raw
     }
 
     private func showResultPanel(text: String) {

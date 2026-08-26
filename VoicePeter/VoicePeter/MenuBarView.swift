@@ -8,6 +8,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = "apple"
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
+    @AppStorage(SettingsKeys.elevenLabsAPIKey) private var elevenLabsAPIKey = ""
+    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = "scribe_v1"
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -46,6 +48,21 @@ struct SettingsView: View {
                     }
 
                     Text("Groq transcribes after recording stops (no live text).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if sttProvider == STTProviderType.elevenlabs.rawValue {
+                    SecureField("ElevenLabs API Key", text: $elevenLabsAPIKey)
+                        .textFieldStyle(.roundedBorder)
+
+                    Picker("Model", selection: $elevenLabsModel) {
+                        ForEach(elevenLabsModels, id: \.id) { model in
+                            Text(model.name).tag(model.id)
+                        }
+                    }
+
+                    Text("ElevenLabs transcribes after recording stops (no live text).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
