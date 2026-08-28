@@ -10,3 +10,6 @@ DerivedData/
 # Design source files
 app-icon.svg
 menubar-icon.svg
+
+# Skill build output
+build/
