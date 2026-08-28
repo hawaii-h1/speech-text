@@ -30,6 +30,8 @@
 		A10000010000000000000018 /* PromptPresetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001B /* PromptPresetsView.swift */; };
 		A10000010000000000000019 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001C /* DesignKit.swift */; };
 		A1000001000000000000001A /* PixelDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001D /* PixelDisplay.swift */; };
+		A1000001000000000000001B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001E /* Theme.swift */; };
+		A1000001000000000000001C /* MinimalChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001F /* MinimalChrome.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +61,8 @@
 		A2000001000000000000001B /* PromptPresetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptPresetsView.swift; sourceTree = "<group>"; };
 		A2000001000000000000001C /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		A2000001000000000000001D /* PixelDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelDisplay.swift; sourceTree = "<group>"; };
+		A2000001000000000000001E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A2000001000000000000001F /* MinimalChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalChrome.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -105,6 +109,8 @@
 				A2000001000000000000001B /* PromptPresetsView.swift */,
 				A2000001000000000000001C /* DesignKit.swift */,
 				A2000001000000000000001D /* PixelDisplay.swift */,
+				A2000001000000000000001E /* Theme.swift */,
+				A2000001000000000000001F /* MinimalChrome.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
 				A2000001000000000000000A /* Info.plist */,
 				A2000001000000000000000B /* SpeachText.entitlements */,
@@ -205,6 +211,8 @@
 				A10000010000000000000017 /* TextRefinementService.swift in Sources */,
 				A10000010000000000000019 /* DesignKit.swift in Sources */,
 				A1000001000000000000001A /* PixelDisplay.swift in Sources */,
+				A1000001000000000000001B /* Theme.swift in Sources */,
+				A1000001000000000000001C /* MinimalChrome.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

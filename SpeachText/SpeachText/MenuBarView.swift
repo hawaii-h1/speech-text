@@ -19,6 +19,9 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIAPIKey) private var openAIAPIKey = ""
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
 
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
+
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var presetsWindow: PromptPresetsWindow?
 
@@ -60,6 +63,7 @@ struct SettingsView: View {
                     }
             }
 
+            appearanceSection
             speechToTextSection
             aiProcessingSection
             apiKeysSection
@@ -117,6 +121,76 @@ struct SettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             // A value left behind by a removed engine would render the picker blank.
             normalizeStoredProviders()
+        }
+    }
+
+    // MARK: - Appearance
+
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+
+    private var appearanceSection: some View {
+        Section {
+            Picker("Style", selection: $skinRaw) {
+                ForEach(AppSkin.allCases) { option in
+                    Text(option.displayName).tag(option.rawValue)
+                }
+            }
+            .onChange(of: skinRaw) { NotificationCenter.default.post(name: .skinDidChange, object: nil) }
+
+            Text(skin.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if skin.supportsAccent {
+                ColorPicker(
+                    "Colour",
+                    selection: Binding(
+                        get: { AccentColor.meter(accentHex) },
+                        set: { accentHex = AccentColor.hex(from: $0) }
+                    ),
+                    supportsOpacity: false
+                )
+
+                if AccentColor.isNeutral(accentHex) {
+                    Text("Default — ink on glass, with a red record button.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 8) {
+                    ForEach(AccentColor.presets, id: \.hex) { preset in
+                        let selected = accentHex.caseInsensitiveCompare(preset.hex) == .orderedSame
+                        Button {
+                            accentHex = preset.hex
+                        } label: {
+                            Group {
+                                // The neutral swatch shows the glass itself, because
+                                // that is literally what choosing it gets you.
+                                if AccentColor.isNeutral(preset.hex) {
+                                    Circle().fill(.ultraThinMaterial)
+                                } else {
+                                    Circle().fill(AccentColor.color(from: preset.hex))
+                                }
+                            }
+                            .frame(width: 18, height: 18)
+                            .overlay {
+                                Circle().strokeBorder(
+                                    .primary.opacity(selected ? 0.8 : 0.25),
+                                    lineWidth: selected ? 2 : 1
+                                )
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help(preset.name)
+                    }
+                }
+            } else {
+                Text("Techno is drawn to a fixed design, so it keeps its own colours.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Appearance")
         }
     }
 

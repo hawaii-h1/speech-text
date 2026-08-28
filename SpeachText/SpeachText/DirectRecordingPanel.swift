@@ -3,32 +3,71 @@ import AppKit
 
 // MARK: - Panel Window
 
-/// The record window is borderless: the shell it draws *is* the window, so a titlebar
-/// — even a transparent one — would only sit on top of the moulding and swallow clicks
-/// meant for the knob and the text.
+/// The record window, whose chrome follows the skin.
+///
+/// Minimal wears an ordinary macOS window: the rounded corners, the vibrancy behind
+/// the material and the close button all come from the system, and reimplementing them
+/// only produces a worse copy. Techno draws its own moulded shell, so it gets a
+/// borderless window — there, a titlebar would sit on top of the moulding and swallow
+/// clicks meant for the knob.
 final class DirectRecordingPanelWindow: NSPanel {
+    private var skinObserver: NSObjectProtocol?
+
     init() {
         super.init(
-            contentRect: NSRect(origin: .zero, size: DirectRecordingPanelView.panelSize),
-            styleMask: [.borderless, .nonactivatingPanel],
+            contentRect: NSRect(origin: .zero, size: AppSkin.current.recordPanelSize),
+            styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         isOpaque = false
         backgroundColor = .clear
         level = .floating
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        title = ""
         isMovableByWindowBackground = true
         acceptsMouseMovedEvents = true
         hasShadow = true
+
+        applySkin()
+
+        // The hosted view reflows itself, but the window it sits in does not — and the
+        // two skins want different chrome as well as different sizes.
+        skinObserver = NotificationCenter.default.addObserver(
+            forName: .skinDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.applySkin()
+        }
+
         center()
+    }
+
+    private func applySkin() {
+        switch AppSkin.current {
+        case .minimal:
+            styleMask = [.titled, .closable, .fullSizeContentView, .nonactivatingPanel]
+            standardWindowButton(.closeButton)?.isHidden = false
+            // Neither makes sense for a fixed-size floating scratchpad.
+            standardWindowButton(.miniaturizeButton)?.isHidden = true
+            standardWindowButton(.zoomButton)?.isHidden = true
+        case .techno:
+            styleMask = [.borderless, .nonactivatingPanel]
+        }
+        setContentSize(AppSkin.current.recordPanelSize)
+        invalidateShadow()
+    }
+
+    deinit {
+        if let skinObserver { NotificationCenter.default.removeObserver(skinObserver) }
     }
 
     /// `.nonactivatingPanel` normally refuses key status, but the panel's whole point
     /// is a text area the user can edit.
     override var canBecomeKey: Bool { true }
 
-    /// Borderless windows get no titlebar and this app has no menu bar, so the usual
-    /// ways out of a window have to be wired up by hand.
+    /// The techno skin has no titlebar and the app has no menu bar, so the usual ways
+    /// out of a window have to be wired up by hand.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "w" {
@@ -76,7 +115,7 @@ final class TextInsertionHandler {
 struct LCDTextEditor: NSViewRepresentable {
     @Binding var text: String
     let insertionHandler: TextInsertionHandler
-    var textColor: Color = Skin.phosphorText
+    var textColor: Color = TechnoSkin.phosphorText
 
     static let font = NSFont.systemFont(ofSize: 15, weight: .regular)
 
@@ -122,9 +161,9 @@ struct LCDTextEditor: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textColor = NSColor(textColor)
-        textView.insertionPointColor = NSColor(Skin.phosphor)
+        textView.insertionPointColor = NSColor(TechnoSkin.phosphor)
         textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(Skin.phosphor).withAlphaComponent(0.25),
+            .backgroundColor: NSColor(TechnoSkin.phosphor).withAlphaComponent(0.25),
             .foregroundColor: NSColor.white,
         ]
         insertionHandler.textView = textView
@@ -154,21 +193,19 @@ struct LCDTextEditor: NSViewRepresentable {
 
 // MARK: - Panel View
 
-/// The record window: the whole device, drawn at the size the design specifies.
+/// The record window.
 ///
-/// Everything is positioned against that fixed 362×284 canvas rather than laid out
-/// flexibly — the shell is a photograph of a moulding, so the knob and the button rail
-/// have to land exactly where the moulding has holes for them.
+/// One set of state and actions, two chassis. Every action lives once, below the two
+/// `body` variants, so a button can't exist in one skin and be missing from the other.
 struct DirectRecordingPanelView: View {
     @Bindable var speechEngine: SpeechEngine
     var appState: AppState
     var autoStartRecording: Bool = true
     let onDismiss: () -> Void
 
-    static let panelSize = CGSize(width: 362, height: 284)
-
-    /// Coordinates lifted straight from the design file. Anything drawn on the glass is
-    /// measured from the glass's top-left corner, everything else from the shell's.
+    /// Coordinates lifted straight from the design file, for the techno chassis.
+    /// Anything drawn on the glass is measured from the glass's top-left corner,
+    /// everything else from the shell's.
     private enum Layout {
         static let screenOrigin = CGPoint(x: 12, y: 12)
         static let screenSize = CGSize(width: 338, height: 259.108)
@@ -184,13 +221,18 @@ struct DirectRecordingPanelView: View {
         static let matrixOrigin = CGPoint(x: 4, y: 215)
         static let matrixColumns = 47
         static let matrixRows = 6
+        /// Air between the action rail and the close button below it.
+        static let closeGap: CGFloat = 6
     }
 
     @State private var showCopyCheck = false
     @State private var showSendCheck = false
     @State private var showPasteCheck = false
-    @State private var isHoveringPanel = false
-    @State private var isHoveringClose = false
+    @State private var isHoveringTransport = false
+    @State private var langLabel = ""
+    @State private var keyboardObserverID: UUID?
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @AppStorage(SettingsKeys.aiModeInRecordWindow) private var aiMode = false
 
@@ -215,8 +257,22 @@ struct DirectRecordingPanelView: View {
 
     private var isBusy: Bool { speechEngine.isTranscribing || isRefining || speechEngine.isStartingEngine }
 
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+
+    /// The transport's colour. Techno is drawn to a fixed design, so it ignores the
+    /// user's accent; AI mode overrides both — it means something.
+    private var accent: Color {
+        if aiMode { return skin == .techno ? TechnoSkin.aiPhosphor : Semantic.ai }
+        return skin == .techno ? TechnoSkin.phosphor : AccentColor.transport(accentHex)
+    }
+
+    /// The flash after copy / paste / send. Semantic, so it stays put whatever colour
+    /// the rest of the panel is wearing.
+    private var confirmation: Color {
+        skin == .techno ? TechnoSkin.phosphor : Semantic.confirmation
+    }
+
     private var palette: PixelPalette { aiMode ? .ai : .phosphor }
-    private var accent: Color { aiMode ? Skin.aiPhosphor : Skin.phosphor }
 
     private var displayMode: PixelDisplayMode {
         if speechEngine.isRecording { return .level }
@@ -225,6 +281,45 @@ struct DirectRecordingPanelView: View {
     }
 
     var body: some View {
+        Group {
+            switch skin {
+            case .minimal: minimalBody
+            case .techno: technoBody
+            }
+        }
+        .frame(width: skin.recordPanelSize.width, height: skin.recordPanelSize.height)
+        .onAppear {
+            refreshLangLabel()
+            keyboardObserverID = KeyboardChangeObserver.shared.addHandler { refreshLangLabel() }
+            if autoStartRecording {
+                // Defer one runloop so the panel renders before the audio engine
+                // initializes (engine.prepare() can block the main thread ~200-500ms).
+                DispatchQueue.main.async {
+                    speechEngine.startRecording(locale: resolvedLocale())
+                }
+            }
+        }
+        .onDisappear {
+            if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
+            refineTask?.cancel()
+        }
+        .onChange(of: selectedLanguage) { refreshLangLabel() }
+        .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
+            if let text = newValue, !text.isEmpty {
+                insertionHandler.insert(text)
+                speechEngine.pendingInsertionText = nil
+                if aiMode {
+                    // insertText() drives the text view's delegate, which writes back
+                    // into editedText — refine on the next runloop so we see it.
+                    DispatchQueue.main.async { runRefinement() }
+                }
+            }
+        }
+    }
+
+    // MARK: - Techno chassis
+
+    private var technoBody: some View {
         ZStack(alignment: .topLeading) {
             ShellBackground()
 
@@ -237,10 +332,10 @@ struct DirectRecordingPanelView: View {
 
             TransportKnob(
                 systemImage: speechEngine.isRecording ? "pause" : "play",
-                tint: aiMode ? Skin.aiPhosphor.opacity(0.95) : .white.opacity(0.92),
+                tint: aiMode ? TechnoSkin.aiPhosphor.opacity(0.95) : .white.opacity(0.92),
                 isBusy: isBusy,
                 isEnabled: !isBusy,
-                help: knobHelp,
+                help: transportHelp,
                 action: toggleRecording
             )
             .offset(
@@ -249,38 +344,131 @@ struct DirectRecordingPanelView: View {
             )
 
             buttonRail
+            closeButton
+        }
+        .clipShape(RoundedRectangle(cornerRadius: TechnoSkin.shellRadius, style: .continuous))
+    }
 
-            if isHoveringPanel {
-                closeButton.transition(.opacity)
+    // MARK: - Minimal chassis
+
+    /// The same controls in native macOS dress: a toolbar of icon buttons over a plain
+    /// text area, with the transport as a capsule that grows into a level meter.
+    private var minimalBody: some View {
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Text(langLabel)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(.secondary.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Spacer()
+
+                    ForEach(railActions) { item in
+                        MinimalIconButton(
+                            systemImage: item.systemImage,
+                            isOn: item.isOn,
+                            accent: item.accent,
+                            isEnabled: item.isEnabled,
+                            help: item.help,
+                            action: item.action
+                        )
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                PlainTextEditor(
+                    text: $speechEngine.editedText,
+                    insertionHandler: insertionHandler,
+                    onCancel: onDismiss
+                )
+                .overlay(alignment: .topLeading) {
+                    if !hasText, let ghost = ghostText {
+                        Text(ghost)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary.opacity(0.6))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .padding(4)
+                .background(.quaternary.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 32) // space so text doesn't hide behind the button
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            VStack(spacing: 6) {
+                if let text = statusText {
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(statusTint)
+                        .lineLimit(1)
+                }
+                minimalTransport
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            .padding(.top, 8)
+            .offset(y: 4) // the button overlaps the text area's edge
         }
-        .frame(width: Self.panelSize.width, height: Self.panelSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: Skin.shellRadius, style: .continuous))
-        .onHover { isHoveringPanel = $0 }
-        .animation(.easeInOut(duration: 0.18), value: isHoveringPanel)
-        .onAppear {
-            if autoStartRecording {
-                // Defer one runloop so the panel renders before the audio engine
-                // initializes (engine.prepare() can block the main thread ~200-500ms).
-                DispatchQueue.main.async {
-                    speechEngine.startRecording(locale: resolvedLocale())
+        .background(.ultraThinMaterial)
+    }
+
+    /// Collapsed it is a record button; recording or working, it stretches into the
+    /// level meter so the panel always shows what the microphone is doing.
+    private var minimalTransport: some View {
+        let expanded = speechEngine.isRecording || isBusy
+        return Button(action: toggleRecording) {
+            ZStack {
+                if expanded {
+                    WaveformBarsView(
+                        barLevels: speechEngine.barLevels,
+                        isLoading: isBusy,
+                        isPreparing: speechEngine.isStartingEngine,
+                        barWidth: 3,
+                        spacing: 2,
+                        minBarHeight: 4,
+                        maxBarHeight: 28,
+                        barColor: .white
+                    )
+                    .padding(.horizontal, 16)
+                    .transition(.opacity)
+                } else {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white)
+                        .transition(.opacity)
                 }
             }
+            .frame(width: expanded ? 160 : 48, height: 48)
+            .background(
+                Capsule()
+                    .fill(accent.opacity(expanded ? 0.85 : 1.0))
+                    .shadow(color: accent.opacity(isHoveringTransport ? 0.5 : 0.25),
+                            radius: isHoveringTransport ? 10 : 4, y: 2)
+            )
+            .overlay(Capsule().fill(.white.opacity(isHoveringTransport ? 0.12 : 0)))
+            .scaleEffect(isHoveringTransport ? 1.02 : 1.0)
         }
-        .onDisappear {
-            refineTask?.cancel()
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .help(transportHelp)
+        .onHover { hovering in
+            isHoveringTransport = hovering
+            guard !isBusy else { return }
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
-        .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
-            if let text = newValue, !text.isEmpty {
-                insertionHandler.insert(text)
-                speechEngine.pendingInsertionText = nil
-                if aiMode {
-                    // insertText() drives the text view's delegate, which writes back
-                    // into editedText — refine on the next runloop so we see it.
-                    DispatchQueue.main.async { runRefinement() }
-                }
-            }
-        }
+        .animation(.easeInOut(duration: 0.15), value: isHoveringTransport)
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: expanded)
     }
 
     // MARK: - Glass contents
@@ -303,7 +491,7 @@ struct DirectRecordingPanelView: View {
             LCDTextEditor(
                 text: $speechEngine.editedText,
                 insertionHandler: insertionHandler,
-                textColor: aiMode ? Skin.aiText : Skin.phosphorText
+                textColor: aiMode ? TechnoSkin.aiText : TechnoSkin.phosphorText
             )
 
             // While the first segment is still being spoken there is nothing in the
@@ -313,7 +501,7 @@ struct DirectRecordingPanelView: View {
                 Text(ghost)
                     .font(Font(LCDTextEditor.font))
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle((aiMode ? Skin.aiText : Skin.phosphorText).opacity(0.45))
+                    .foregroundStyle((aiMode ? TechnoSkin.aiText : TechnoSkin.phosphorText).opacity(0.45))
                     .allowsHitTesting(false)
             }
         }
@@ -354,18 +542,23 @@ struct DirectRecordingPanelView: View {
     }
 
     private var statusTint: Color {
-        if speechEngine.errorMessage != nil || refineFailed { return Skin.danger }
-        if isRefining { return Skin.aiText }
-        return Skin.phosphorText.opacity(0.55)
+        if speechEngine.errorMessage != nil || refineFailed { return TechnoSkin.danger }
+        if isRefining { return TechnoSkin.aiText }
+        return TechnoSkin.phosphorText.opacity(0.55)
     }
 
     // MARK: - Controls
 
-    private var knobHelp: String {
+    private var transportHelp: String {
         if isBusy { return "Working…" }
         if speechEngine.isRecording { return "Pause and transcribe" }
         if speechEngine.isPaused { return "Resume recording" }
         return "Start recording"
+    }
+
+    private func refreshLangLabel() {
+        let locale = resolvedLocale()
+        langLabel = locale.components(separatedBy: "-").first.map { $0.uppercased() } ?? "?"
     }
 
     private func toggleRecording() {
@@ -379,74 +572,108 @@ struct DirectRecordingPanelView: View {
         }
     }
 
-    private var railButtonCount: Int { hasWebhook ? 4 : 3 }
-
-    private var railHeight: CGFloat {
-        CGFloat(railButtonCount) * PlasticButton.size + CGFloat(railButtonCount - 1) * 4 + 8
+    /// The actions both chassis offer, defined once.
+    ///
+    /// The skins draw them differently — moulded discs in a rail, or a row of icon
+    /// buttons — but they render the same list, which is what keeps a button from
+    /// existing in one skin and quietly missing from the other.
+    private struct RailAction: Identifiable {
+        let id: String
+        let systemImage: String
+        var isOn = false
+        var accent: Color = .accentColor
+        var isEnabled = true
+        var help: String
+        let action: () -> Void
     }
 
-    /// The rail hangs from its bottom edge. A fourth button needs another 34pt, and it
-    /// borrows them from below: the knob is directly overhead, whereas the dot matrix
-    /// underneath is decoration and can lose a few unlit dots at its right edge.
-    private var railBottom: CGFloat { hasWebhook ? 232 : 219 }
-
-    private var buttonRail: some View {
-        ButtonRail {
-            PlasticButton(
+    private var railActions: [RailAction] {
+        var actions: [RailAction] = [
+            RailAction(
+                id: "ai",
                 systemImage: "sparkles",
                 isOn: aiMode,
-                accent: Skin.aiPhosphor,
+                accent: skin == .techno ? TechnoSkin.aiPhosphor : Semantic.ai,
                 help: aiMode
                     ? "AI mode on — dictation is rewritten using your prompt presets"
                     : "AI mode off — text is inserted as transcribed",
                 action: toggleAIMode
-            )
-
-            PlasticButton(
+            ),
+            RailAction(
+                id: "paste",
                 systemImage: showPasteCheck ? "checkmark" : "text.insert",
                 isOn: showPasteCheck,
+                accent: confirmation,
                 isEnabled: hasText,
                 help: "Insert at the cursor in the app you came from",
                 action: pasteAtCursor
-            )
-
-            PlasticButton(
+            ),
+            RailAction(
+                id: "copy",
                 systemImage: showCopyCheck ? "checkmark" : "doc.on.doc",
                 isOn: showCopyCheck,
+                accent: confirmation,
                 isEnabled: hasText,
                 help: "Copy to the clipboard",
                 action: copyToClipboard
-            )
-
-            if hasWebhook {
-                PlasticButton(
+            ),
+        ]
+        if hasWebhook {
+            actions.append(
+                RailAction(
+                    id: "webhook",
                     systemImage: showSendCheck ? "checkmark" : "paperplane",
                     isOn: showSendCheck,
+                    accent: confirmation,
                     isEnabled: hasText,
                     help: "Send to your webhook",
                     action: sendToWebhook
+                )
+            )
+        }
+        return actions
+    }
+
+    private var railHeight: CGFloat {
+        let count = CGFloat(railActions.count)
+        return count * PlasticButton.size + (count - 1) * 4 + 8
+    }
+
+    /// The rail hangs from its bottom edge, high enough that the close button below it
+    /// still clears the shell's bottom-right corner. A fourth action needs another
+    /// 34pt and borrows them from above, stopping just under the knob.
+    private var railBottom: CGFloat { hasWebhook ? 226 : 213 }
+
+    private var buttonRail: some View {
+        ButtonRail {
+            ForEach(railActions) { item in
+                PlasticButton(
+                    systemImage: item.systemImage,
+                    isOn: item.isOn,
+                    accent: item.accent,
+                    isEnabled: item.isEnabled,
+                    help: item.help,
+                    action: item.action
                 )
             }
         }
         .offset(x: Layout.railLeft, y: railBottom - railHeight)
     }
 
+    /// Closing the window is not one of the things you do *to the text*, so it does not
+    /// ride in their rail. It sits under it, in the same column but on its own and
+    /// without the milled recess that binds the rail's buttons into a group — the
+    /// missing recess is the separation.
+    ///
+    /// The minimal skin has no equivalent: there the system titlebar provides it, and a
+    /// second close button beside the real one would be nonsense.
     private var closeButton: some View {
-        Button(action: onDismiss) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.white.opacity(isHoveringClose ? 1 : 0.6))
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Color.black.opacity(isHoveringClose ? 0.7 : 0.45)))
-        }
-        .buttonStyle(.plain)
-        .help("Close (the transcription is kept in History)")
-        .onHover { hovering in
-            isHoveringClose = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-        .animation(.easeInOut(duration: 0.15), value: isHoveringClose)
-        .offset(x: 13, y: 13)
+        PlasticButton(
+            systemImage: "xmark",
+            help: "Close (the transcription is kept in History)",
+            action: onDismiss
+        )
+        .offset(x: Layout.railLeft + 3, y: railBottom + Layout.closeGap)
     }
 
     // MARK: - Actions

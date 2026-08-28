@@ -17,12 +17,15 @@ extension Color {
     }
 }
 
-// MARK: - Skin
+// MARK: - TechnoSkin
 
-/// SpeachText looks like a moulded plastic handset with a dark-green LCD set into it.
-/// Both surfaces the user ever sees — the inline overlay and the record window — are
-/// built from this palette, which is what makes them read as one device.
-enum Skin {
+/// The `techno` skin: a moulded plastic handset with a dark-green LCD set into it.
+///
+/// Both surfaces that wear this skin — the inline overlay and the record window — are
+/// built from this palette, which is what makes them read as one device. Every value
+/// was matched against the design file, so this skin ignores the user's accent colour;
+/// see `AppSkin.supportsAccent`.
+enum TechnoSkin {
 
     // The glass
 
@@ -41,6 +44,10 @@ enum Skin {
     /// AI mode swaps the phosphor colour so a rewritten dictation never looks like a
     /// plain one — the two flows share every other pixel of the UI.
     static let aiPhosphor = Color(hex: 0xB49CFF)
+    /// What a loud dot burns to in AI mode. Not the plain white the green phosphor
+    /// uses: a display whose peaks go white loses the violet exactly when it is
+    /// loudest, which is when the user is looking at it.
+    static let aiPeak = Color(hex: 0xEAE2FF)
     static let aiText = Color(hex: 0x9C85F0)
 
     static let danger = Color(hex: 0xE2564D)
@@ -260,7 +267,7 @@ struct LCDScreen<Content: View>: View {
 
     var body: some View {
         LCDScreenShape()
-            .fill(Skin.screen)
+            .fill(TechnoSkin.screen)
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .topLeading) {
                 // Color.clear pins the stack to the full glass, so a child's offset is
@@ -287,7 +294,7 @@ struct LCDScreen<Content: View>: View {
 /// The moulded shell the glass is set into — the design's texture, clipped to the
 /// panel's corner radius.
 struct ShellBackground: View {
-    var cornerRadius: CGFloat = Skin.shellRadius
+    var cornerRadius: CGFloat = TechnoSkin.shellRadius
 
     var body: some View {
         Image("PanelBackground")
@@ -308,7 +315,7 @@ struct ShellBackground: View {
 struct PlasticButton: View {
     let systemImage: String
     var isOn = false
-    var accent: Color = Skin.phosphor
+    var accent: Color = TechnoSkin.phosphor
     var isEnabled = true
     var help: String = ""
     let action: () -> Void
@@ -323,12 +330,12 @@ struct PlasticButton: View {
                 .font(.system(size: 12, weight: .light))
                 .foregroundStyle(foreground)
                 .frame(width: Self.size, height: Self.size)
-                .background(Circle().fill(Skin.plasticFace))
+                .background(Circle().fill(TechnoSkin.plasticFace))
                 .overlay(Circle().fill(Color.white.opacity(isHovering && isEnabled ? 0.10 : 0)))
                 .overlay {
                     // The design's inset hairline: a lit edge on the top-left rim.
                     Circle()
-                        .strokeBorder(Skin.plasticEdge.opacity(0.9), lineWidth: 0.5)
+                        .strokeBorder(TechnoSkin.plasticEdge.opacity(0.9), lineWidth: 0.5)
                         .mask(
                             LinearGradient(
                                 colors: [.white, .clear],
@@ -376,7 +383,7 @@ struct ButtonRail<Content: View>: View {
         }
         .padding(.horizontal, 3)
         .padding(.vertical, 4)
-        .background(Capsule().fill(Skin.recess))
+        .background(Capsule().fill(TechnoSkin.recess))
     }
 }
 
@@ -567,53 +574,5 @@ struct TransportKnob: View {
                 .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spinning)
                 .onAppear { spinning = true }
         }
-    }
-}
-
-// MARK: - Language badge
-
-/// The little "EN" dial next to the inline overlay: which language the engine is
-/// listening in, and — in AI mode — that the dictation will be rewritten.
-struct LanguageBadge: View {
-    let label: String
-    var isAIMode = false
-
-    /// Diameter of the recess the badge sits in.
-    static let diameter: CGFloat = 39
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(Skin.recess)
-                .frame(width: Self.diameter, height: Self.diameter)
-
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .kerning(-0.48)
-                .foregroundStyle(.white.opacity(0.8))
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(Skin.plasticFace))
-                .overlay {
-                    Circle()
-                        .strokeBorder(Skin.plasticEdge.opacity(0.9), lineWidth: 0.5)
-                        .mask(
-                            LinearGradient(
-                                colors: [.white, .clear],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-                .shadow(color: .black.opacity(0.6), radius: 2, x: -2, y: 1)
-
-            if isAIMode {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Skin.aiPhosphor)
-                    .shadow(color: .black.opacity(0.8), radius: 2)
-                    .offset(x: 13, y: -12)
-            }
-        }
-        .frame(width: Self.diameter, height: Self.diameter)
     }
 }

@@ -1,0 +1,167 @@
+import SwiftUI
+import AppKit
+
+// MARK: - Skins
+
+/// Which chassis the recording surfaces wear.
+///
+/// A skin changes only the chrome. Both skins expose exactly the same actions, because
+/// switching appearance must never quietly take a feature away — anything you can do
+/// in one you can do in the other, and `RecordingOverlayView` / `DirectRecordingPanelView`
+/// keep both variants side by side in the same file so the two can't drift apart.
+///
+/// Adding a third skin means: a case here, its two sizes, and a `body` branch in each
+/// of those two views.
+enum AppSkin: String, CaseIterable, Identifiable {
+    /// Native macOS: material panels, SF Symbols, a bar waveform. Neutral by default.
+    case minimal
+    /// The moulded handset with the dark-green dot-matrix LCD, drawn to the design file.
+    case techno
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .minimal: return "Minimal"
+        case .techno: return "Techno"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .minimal: return "Native macOS panels on glass. Tint them if you want to."
+        case .techno: return "A moulded handset with a dot-matrix LCD."
+        }
+    }
+
+    /// Techno is drawn to a fixed design — every colour in it was matched against the
+    /// design file, so letting the accent loose in there would only break it.
+    var supportsAccent: Bool { self == .minimal }
+
+    /// Size of the inline overlay's panel.
+    var overlaySize: CGSize {
+        switch self {
+        case .minimal: return CGSize(width: 197, height: 65)
+        // Glass (100 × 56) + gap (6) + the cancel button in its rail (36).
+        case .techno: return CGSize(width: 142, height: 56)
+        }
+    }
+
+    /// Where the strip's *display* sits inside its panel, measured from the left edge.
+    ///
+    /// This is what gets centred on screen, not the panel: the techno strip carries a
+    /// cancel button off to one side, and centring the whole block would push the words
+    /// the user is watching off to the left of where they are looking.
+    var overlayFocusX: CGFloat {
+        switch self {
+        case .minimal: return overlaySize.width / 2
+        // Centre of the 100pt glass, which starts at the panel's left edge.
+        case .techno: return 50
+        }
+    }
+
+    /// Size of the record window.
+    var recordPanelSize: CGSize {
+        switch self {
+        case .minimal: return CGSize(width: 380, height: 260)
+        case .techno: return CGSize(width: 362, height: 284)
+        }
+    }
+
+    /// The skin as stored. Read this from AppKit code; SwiftUI views should use
+    /// `@AppStorage` instead so they redraw when it changes.
+    static var current: AppSkin {
+        AppSkin(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.appSkin) ?? "")
+            ?? .minimal
+    }
+}
+
+// MARK: - Accent
+
+/// The colour the minimal skin is tinted with — if the user wants one at all.
+///
+/// Stored as `#RRGGBB` because UserDefaults has no colour type, and a hex string stays
+/// readable in `defaults read` and survives the rename migration like any other setting.
+enum AccentColor {
+    /// Stored value meaning "no accent": ink on glass with a red record button, which
+    /// is what the app has always looked like and what it still starts as. Tinting the
+    /// whole panel is opt-in, because an accent applied to everything turns a quiet
+    /// sliver of glass into a coloured object.
+    static let neutral = ""
+
+    /// Used when a stored colour can't be parsed.
+    static let fallback = "#FF453A"
+
+    static func isNeutral(_ hex: String) -> Bool {
+        hex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static let presets: [(name: String, hex: String)] = [
+        ("Default — glass", neutral),
+        ("Red", "#FF453A"),
+        ("Orange", "#FF9F0A"),
+        ("Yellow", "#FFD60A"),
+        ("Green", "#30D158"),
+        ("Teal", "#40C8E0"),
+        ("Blue", "#0A84FF"),
+        ("Purple", "#BF5AF2"),
+        ("Pink", "#FF375F"),
+        ("Graphite", "#98989D"),
+    ]
+
+    /// What the level meter and the language badge are drawn in: ink on the glass,
+    /// unless the user asked for a colour.
+    ///
+    /// `.primary`, not a hard-coded white — the strip floats over whatever the user is
+    /// working in and inherits the system appearance, so white would be white-on-white
+    /// in light mode. In dark mode it resolves to the white this has always been.
+    static func meter(_ hex: String) -> Color {
+        isNeutral(hex) ? .primary : color(from: hex)
+    }
+
+    /// The record transport. Red until the user picks something else — it reads as a
+    /// record button first and a brand colour second.
+    static func transport(_ hex: String) -> Color {
+        isNeutral(hex) ? Color(hex: 0xFF453A) : color(from: hex)
+    }
+
+    static func color(from hex: String) -> Color {
+        var text = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("#") { text.removeFirst() }
+        guard text.count == 6, let value = UInt32(text, radix: 16) else {
+            // Not `color(from: fallback)` — a bad fallback would recurse forever.
+            return Color(hex: 0xFF453A)
+        }
+        return Color(hex: value)
+    }
+
+    static func hex(from color: Color) -> String {
+        guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return fallback }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((srgb.redComponent * 255).rounded()),
+            Int((srgb.greenComponent * 255).rounded()),
+            Int((srgb.blueComponent * 255).rounded())
+        )
+    }
+}
+
+// MARK: - Semantic colours
+
+/// Colours that mean something rather than decorate something, so they hold across
+/// every skin and are deliberately not the user's accent.
+enum Semantic {
+    /// AI mode. Fixed on purpose: if it followed the accent, a user who picked violet
+    /// would have no way to tell a rewritten dictation from a plain one.
+    static let ai = Color(hex: 0x9E7BFF)
+    static let failure = Color(hex: 0xE2564D)
+    /// The momentary flash after copy / paste / send. Green means "that worked",
+    /// whatever colour the rest of the panel happens to be.
+    static let confirmation = Color(hex: 0x30D158)
+}
+
+extension Notification.Name {
+    /// Posted when the appearance changes. SwiftUI content reflows on its own through
+    /// `@AppStorage`, but the `NSPanel` around it has to be resized by hand.
+    static let skinDidChange = Notification.Name("skinDidChange")
+}

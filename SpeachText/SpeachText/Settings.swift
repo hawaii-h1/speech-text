@@ -45,6 +45,12 @@ enum SettingsKeys {
     /// migrated once instead of silently keeping the old assignment.
     static let hotkeyLayoutVersion = "hotkeyLayoutVersion"
 
+    // Appearance
+    /// `AppSkin.rawValue`.
+    static let appSkin = "appSkin"
+    /// `#RRGGBB` — only the minimal skin uses it.
+    static let accentColor = "accentColor"
+
     // Debug
     static let debugMode = "debugMode"
 
@@ -65,6 +71,7 @@ enum SettingsKeys {
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
+        appSkin, accentColor,
         hotkeyLayoutVersion, debugMode,
     ]
 }
