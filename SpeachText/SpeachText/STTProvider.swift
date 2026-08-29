@@ -28,16 +28,6 @@ enum STTProviderType: String, CaseIterable, Identifiable {
             "Cloud Scribe. Strongest on accents and noisy audio, needs an API key. Scribe v2 Realtime shows text live while you speak; the v1 models only after you stop."
         }
     }
-
-    /// Whether text appears while the user is still speaking, given the current settings.
-    var supportsLiveText: Bool {
-        switch self {
-        case .apple: true
-        case .groq: false
-        case .elevenlabs:
-            UserDefaults.standard.string(forKey: SettingsKeys.elevenLabsModel) == elevenLabsRealtimeModel
-        }
-    }
 }
 
 // MARK: - Tuning
@@ -119,26 +109,16 @@ func multipartAudioPart(for fileURL: URL) -> (filename: String, mimeType: String
     }
 }
 
-/// Builds a batch provider from the user's current settings. Shared by the live
-/// recording path and by History retries, so both honour the same configuration.
-func makeBatchProvider(for type: STTProviderType) -> BatchSTTProvider {
-    let defaults = UserDefaults.standard
-    switch type {
+/// Builds a batch provider for a session's configuration. Shared by the live
+/// recording path, the streaming fallback and History retries, so all three honour
+/// the same snapshot. The realtime→scribe_v1 and Apple→Groq mappings live on
+/// `RecordingConfiguration.batchModel`.
+func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvider {
+    switch configuration.provider {
     case .elevenlabs:
-        // The realtime model only exists behind the WebSocket; a file upload (the
-        // fallback when the stream drops, and every History retry) goes to Scribe v1.
-        var model = defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? "scribe_v1"
-        if model == elevenLabsRealtimeModel { model = "scribe_v1" }
-        return ElevenLabsSTTProvider(
-            apiKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
-            model: model
-        )
+        ElevenLabsSTTProvider(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel)
     case .groq, .apple:
-        // Apple has no batch API — a retry of an Apple recording goes through Groq.
-        return GroqSTTProvider(
-            apiKey: defaults.string(forKey: SettingsKeys.groqAPIKey) ?? "",
-            model: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo"
-        )
+        GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel)
     }
 }
 

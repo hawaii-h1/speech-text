@@ -32,22 +32,12 @@ protocol StreamingSTTProvider: AnyObject {
     func cancel()
 }
 
-/// Builds a streaming provider from the user's current settings, or nil when the
+/// Builds a streaming provider for a session's configuration, or nil when the
 /// selected engine/model works in batch mode.
-func makeStreamingProvider(for type: STTProviderType) -> StreamingSTTProvider? {
-    let defaults = UserDefaults.standard
-    switch type {
-    case .elevenlabs:
-        guard defaults.string(forKey: SettingsKeys.elevenLabsModel) == elevenLabsRealtimeModel else {
-            return nil
-        }
-        return ElevenLabsRealtimeProvider(
-            apiKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
-            model: elevenLabsRealtimeModel
-        )
-    case .apple, .groq:
-        return nil
-    }
+func makeStreamingProvider(configuration: RecordingConfiguration) -> StreamingSTTProvider? {
+    guard configuration.streams else { return nil }
+    return ElevenLabsRealtimeProvider(apiKey: configuration.elevenLabsAPIKey,
+                                      model: configuration.elevenLabsModel)
 }
 
 // MARK: - ElevenLabs Scribe v2 Realtime

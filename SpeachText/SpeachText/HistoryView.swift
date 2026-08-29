@@ -349,18 +349,18 @@ struct HistoryView: View {
             return
         }
 
-        let raw = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "apple"
-        let providerType = STTProviderType(rawValue: raw) ?? .apple
+        // Read fresh: a retry honours the *current* settings, not the ones the
+        // recording was made with.
+        let configuration = RecordingConfiguration.current()
 
         // Retries always go through a cloud provider — Apple's recognizer has no batch
-        // file API — so a Groq key is required when Apple is the selected provider.
-        if providerType == .apple || providerType == .groq {
-            let key = UserDefaults.standard.string(forKey: SettingsKeys.groqAPIKey) ?? ""
-            if key.isEmpty {
-                history.markRetryFailed(id: record.id,
-                                        error: "Retry needs a Groq API key — add one in Settings.")
-                return
-            }
+        // file API — so the key the upload will actually use must be present (the Groq
+        // key when Apple or Groq is selected, the ElevenLabs key otherwise).
+        if configuration.batchAPIKey.isEmpty {
+            let needed = configuration.provider == .elevenlabs ? "an ElevenLabs" : "a Groq"
+            history.markRetryFailed(id: record.id,
+                                    error: "Retry needs \(needed) API key — add one in Settings.")
+            return
         }
 
         retryingIDs.insert(record.id)
@@ -369,7 +369,7 @@ struct HistoryView: View {
 
         Task {
             do {
-                let provider = makeBatchProvider(for: providerType)
+                let provider = makeBatchProvider(configuration: configuration)
                 let text = try await provider.transcribe(audioFileURL: audioURL, language: locale)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 await MainActor.run {

@@ -6,14 +6,51 @@ import os.log
 private let seLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeachText",
                             category: "SpeechEngine")
 
+/// The single stored source of truth for the engine's state. The four booleans the
+/// views read are computed from it, so a state can no longer be half-updated — a stop
+/// that cleared `isRecording` a line before it set `isTranscribing` could be observed
+/// in between as "idle".
+enum RecordingPhase: Equatable {
+    case idle
+    /// `AVAudioEngine.prepare()/start()` running on the background queue.
+    case starting
+    case recording
+    /// `segmentInFlight` is true while a batch/stream segment handed over at pause is
+    /// still being transcribed — that is exactly when `isTranscribing` used to be true
+    /// while paused. Apple pauses never set it (the live text is handed over at once).
+    case paused(segmentInFlight: Bool)
+    /// A stop is waiting for the final text.
+    case finishing
+
+    var isRecording: Bool { self == .recording }
+    var isPaused: Bool { if case .paused = self { return true } else { return false } }
+    var isTranscribing: Bool {
+        switch self {
+        case .finishing, .paused(segmentInFlight: true): return true
+        default: return false
+        }
+    }
+    var isStartingEngine: Bool { self == .starting }
+}
+
 @Observable
 final class SpeechEngine {
-    var isRecording = false {
-        didSet { dlog("Engine", "isRecording: \(oldValue) → \(isRecording)") }
+    private(set) var phase: RecordingPhase = .idle {
+        didSet {
+            dlog("Engine", "phase: \(oldValue) → \(phase)")
+            // Same signal the old `isTranscribing` didSet fired: resume waiters only on
+            // the true → false edge. `paused(true) → finishing` is deliberately not an
+            // edge — the segment is still in flight and a stop is now waiting on it too.
+            if oldValue.isTranscribing && !phase.isTranscribing { resumeTranscriptionWaiters() }
+        }
     }
-    var isPaused = false {
-        didSet { dlog("Engine", "isPaused: \(oldValue) → \(isPaused)") }
-    }
+    var isRecording: Bool { phase.isRecording }
+    var isPaused: Bool { phase.isPaused }
+    var isTranscribing: Bool { phase.isTranscribing }
+    /// True while the audio engine is being prepared on the background thread.
+    /// Used by the overlay to show a "preparing" animation before the mic is live.
+    var isStartingEngine: Bool { phase.isStartingEngine }
+
     var liveText = ""
     var finalText = "" {
         didSet {
@@ -30,61 +67,39 @@ final class SpeechEngine {
             if let msg = errorMessage { dlog("Engine", "⚠ errorMessage: \(msg)") }
         }
     }
-    var isTranscribing = false {
-        didSet {
-            dlog("Engine", "isTranscribing: \(oldValue) → \(isTranscribing)")
-            if !isTranscribing { resumeTranscriptionWaiters() }
-        }
-    }
-    /// Callers parked in `awaitTranscription()`. Resumed from `isTranscribing`'s didSet so
-    /// there is exactly one place the signal fires, and it fires after every path has
-    /// already written its `finalText` / `errorMessage` / `lastRecordID`.
+    /// Callers parked in `awaitTranscription()`. Resumed from `phase`'s didSet — the
+    /// `isTranscribing` true → false edge — so there is exactly one place the signal
+    /// fires, and it fires after every path has already written its
+    /// `finalText` / `errorMessage` / `lastRecordID`.
     private var transcriptionWaiters: [CheckedContinuation<Void, Never>] = []
-    /// The deferred tail of an Apple stop, kept so an early `isFinal` can run it ahead of
-    /// its 0.5s deadline.
-    private var appleStopWork: DispatchWorkItem?
     var barLevels: [CGFloat] = Array(repeating: 0, count: 12)
 
+    /// Kept alive between sessions so the speech model stays loaded (~300-500ms to
+    /// create); rebuilt only when the locale changes.
     private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
     /// Created fresh for each recording session so it always binds to the current audio device.
     private var audioEngine: AVAudioEngine?
+    /// Collects every segment's audio, whatever the tier: the batch upload, the stream's
+    /// fallback, and the archive History keeps when nothing was recognised.
     private var audioBufferWriter: AudioBufferWriter?
+    /// The recogniser for the current segment. One per segment: a resume makes a new one.
+    private var session: RecognitionSession?
     private var transcriptionTask: Task<Void, Never>?
-    /// The locale used for the current/last recording session, kept for restart after device change.
-    private var currentLocale: String = "en-US"
+    /// Provider, model, keys and locale for the current/last session, read from
+    /// UserDefaults once at `startRecording` so a Settings change mid-recording cannot
+    /// switch the provider between pause and stop. Also kept for restart after a device change.
+    private var configuration: RecordingConfiguration?
+    private var providerType: STTProviderType { configuration?.provider ?? .apple }
     private var configChangeObserver: NSObjectProtocol?
     /// Incremented each time the engine is torn down. Background engine-start closures compare
     /// against this to detect stale sessions and bail out safely.
     private var engineStartToken = 0
-    /// True once a pause has handed the current segment's audio to a batch provider, so a
-    /// subsequent stop knows not to send the same audio a second time.
-    private var pausedSegmentTranscribed = false
-    /// Transcript committed from earlier Apple recognition chunks (see `rotateAppleRecognition`).
-    private var appleCommittedText = ""
-    /// Incremented on every rotation so callbacks from retired chunks can be discarded.
-    private var appleChunkToken = 0
-    private var appleChunkTimer: Timer?
-    /// Comfortably under SFSpeechRecognitionTask's ~60s ceiling.
-    private let appleChunkDuration: TimeInterval = 50
+    /// True once a pause has started `finish()` on the current segment, so a subsequent
+    /// stop knows not to send the same audio a second time.
+    private var segmentFinishStarted = false
     /// History entry written for the most recent successful transcription, so the LLM
     /// pass (which runs later, in AppState or the Record Window) can attach itself to it.
     private(set) var lastRecordID: UUID?
-    /// True while the audio engine is being prepared on the background thread.
-    /// Used by the overlay to show a "preparing" animation before the mic is live.
-    var isStartingEngine = false
-
-    // MARK: Streaming state
-    /// Live provider for the current segment, when the selected model streams.
-    private var streamProvider: StreamingSTTProvider?
-    private var streamEventsTask: Task<Void, Never>?
-    /// Segments the provider has committed so far in this session.
-    private var streamCommittedText = ""
-    /// The segment still in progress.
-    private var streamPartialText = ""
-    /// Set when the stream broke; the stop then falls back to a batch upload of the segment file.
-    private var streamFailure: String?
 
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -99,94 +114,101 @@ final class SpeechEngine {
             dlog("Engine", "startRecording: already recording, ignoring")
             return
         }
-        dlog("Engine", "startRecording: locale=\(locale), provider=\(currentProviderType().rawValue)")
-        isPaused = false
+        configuration = .current(locale: locale)
+        dlog("Engine", "startRecording: locale=\(locale), provider=\(providerType.rawValue)")
         editedText = ""
         pendingInsertionText = nil
         lastRecordID = nil
-        isTranscribing = false
         transcriptionTask?.cancel()
         transcriptionTask = nil
-        setupRecordingSession(locale: locale)
+        setupRecordingSession()
     }
 
     func pauseRecording() {
-        dlog("Engine", "pauseRecording: isRecording=\(isRecording), provider=\(currentProviderType().rawValue)")
-        guard isRecording, let audioEngine else {
-            dlog("Engine", "pauseRecording: guard failed (isRecording=\(isRecording), audioEngine=\(self.audioEngine != nil))")
+        dlog("Engine", "pauseRecording: phase=\(phase), provider=\(providerType.rawValue)")
+        guard isRecording, let audioEngine, let session, let configuration else {
+            dlog("Engine", "pauseRecording: guard failed (phase=\(phase), audioEngine=\(self.audioEngine != nil), session=\(self.session != nil))")
             return
         }
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
-        stopAppleChunkTimer()
-        isPaused = true
-        isRecording = false
         barLevels = Array(repeating: 0, count: 12)
 
-        let providerType = currentProviderType()
-
-        if providerType == .apple {
-            let segmentText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let segmentText = session.pause() {
+            // The session already has the text (Apple): hand it over, no transcribing state.
             dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
+            phase = .paused(segmentInFlight: false)
             if !segmentText.isEmpty {
                 pendingInsertionText = segmentText
             }
-        } else {
-            isTranscribing = true
-            let bufferWriter = audioBufferWriter
-            let streamer = streamProvider
-            // This segment's audio is being sent now. Stopping without resuming must not
-            // send it a second time — that produced duplicate requests (and duplicate
-            // history entries, and duplicate billing) for one recording.
-            pausedSegmentTranscribed = true
-            dlog("Engine", "pauseRecording(\(streamer == nil ? "batch" : "stream")): bufferWriter=\(bufferWriter != nil), starting transcription task")
+            return
+        }
 
-            transcriptionTask?.cancel()
-            transcriptionTask = Task { [weak self] in
-                guard let self else { return }
-                let text = await self.transcribeSegment(providerType: providerType,
-                                                        streamer: streamer,
-                                                        bufferWriter: bufferWriter,
-                                                        locale: resolvedLocale())
-                await MainActor.run {
-                    if let text {
-                        self.liveText = text
-                        let segmentText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !segmentText.isEmpty {
-                            self.pendingInsertionText = segmentText
-                        }
+        phase = .paused(segmentInFlight: true)
+        // This segment's audio is being sent now. Stopping without resuming must not
+        // send it a second time — that produced duplicate requests (and duplicate
+        // history entries, and duplicate billing) for one recording.
+        segmentFinishStarted = true
+        let writer = audioBufferWriter
+        let locale = configuration.locale
+        dlog("Engine", "pauseRecording(\(configuration.streams ? "stream" : "batch")): starting transcription task")
+
+        transcriptionTask?.cancel()
+        transcriptionTask = Task { [weak self] in
+            guard let self else { return }
+            let outcome = await session.finish()
+            await MainActor.run {
+                // A stale task must never touch a newer session's state — but the
+                // outcome may still own a segment file (the upload finished before the
+                // cancel landed), and `recordOutcome` will never run to release it.
+                guard !Task.isCancelled else {
+                    if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
+                    return
+                }
+                self.recordOutcome(outcome, writer: writer, locale: locale)
+                if outcome.error == nil {
+                    self.liveText = outcome.text
+                    if !outcome.text.isEmpty {
+                        self.pendingInsertionText = outcome.text
                     }
-                    self.isTranscribing = false
+                }
+                // Still paused (a stop in the meantime moved on to .finishing and its
+                // waiter owns the transition): the segment has landed.
+                if case .paused(segmentInFlight: true) = self.phase {
+                    self.phase = .paused(segmentInFlight: false)
                 }
             }
         }
     }
 
     func resumeRecording(locale: String = "en-US") {
-        dlog("Engine", "resumeRecording: isPaused=\(isPaused), locale=\(locale)")
+        dlog("Engine", "resumeRecording: phase=\(phase), locale=\(locale)")
         guard isPaused else { return }
-        isPaused = false
-        isTranscribing = false
+        configuration?.locale = locale
         transcriptionTask?.cancel()
         transcriptionTask = nil
-        setupRecordingSession(locale: locale)
+        setupRecordingSession()
     }
 
-    /// Common setup for a new recording segment. Creates fresh buffer and recognizer.
-    private func setupRecordingSession(locale: String) {
-        dlog("Engine", "setupRecordingSession: locale=\(locale), provider=\(currentProviderType().rawValue)")
-        isStartingEngine = true
-        currentLocale = locale
+    /// Common setup for a new recording segment. Creates a fresh engine, buffer writer
+    /// and recognition session.
+    private func setupRecordingSession() {
+        guard let configuration else {
+            dlog("Engine", "setupRecordingSession: no configuration — startRecording was never called")
+            return
+        }
+        let locale = configuration.locale
+        dlog("Engine", "setupRecordingSession: locale=\(locale), provider=\(configuration.provider.rawValue)")
+        phase = .starting
         // Fresh segment with a fresh buffer writer — nothing has been sent for it yet.
-        pausedSegmentTranscribed = false
+        segmentFinishStarted = false
         liveText = ""
         finalText = ""
         errorMessage = nil
         barLevels = Array(repeating: 0, count: 12)
 
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
+        session?.cancel()
+        session = nil
 
         // Tear down the old engine entirely. Creating a fresh AVAudioEngine each session
         // guarantees it binds to the *current* default audio device, avoiding stale-format
@@ -204,23 +226,42 @@ final class SpeechEngine {
             self?.handleAudioConfigChange()
         }
 
-        audioBufferWriter = AudioBufferWriter()
+        let writer = AudioBufferWriter()
+        audioBufferWriter = writer
 
-        let providerType = currentProviderType()
-
-        teardownStream()
-        if let streamer = makeStreamingProvider(for: providerType) {
-            startStream(streamer, locale: locale)
-        }
-
-        if providerType == .apple {
+        if configuration.provider == .apple {
             // Reuse the existing recognizer when the locale is unchanged — creating a new
             // SFSpeechRecognizer reloads the speech model (~300-500ms on first use).
             if speechRecognizer?.locale.identifier != locale {
                 speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
             }
-            appleCommittedText = ""
-            guard startAppleRecognitionSession() else { return }
+        }
+
+        let newSession = makeRecognitionSession(configuration: configuration, writer: writer,
+                                                recognizer: speechRecognizer)
+        // `newSession` must be weak: the closure is stored on the session itself, so a
+        // strong capture is a retain cycle that leaks a session (and, for the cloud
+        // tiers, its AudioBufferWriter and AVAudioConverter) per segment. While the
+        // session is current the engine holds it strongly, so the identity guard still
+        // sees every event that should be acted on.
+        newSession.onEvent = { [weak self, weak newSession] event in
+            guard let self, let newSession, self.session === newSession else { return }
+            switch event {
+            case .live(let committed, let partial):
+                self.liveText = joinedTranscript(committed, partial)
+            case .failure(let message):
+                self.errorMessage = message
+            }
+        }
+        session = newSession
+
+        // The session opens first (a stream's TLS handshake overlaps the hardware start),
+        // then the tap, then the engine.
+        do {
+            try newSession.start()
+        } catch {
+            errorMessage = error.localizedDescription
+            return
         }
 
         installAudioTap()
@@ -241,8 +282,8 @@ final class SpeechEngine {
                 DispatchQueue.main.async {
                     guard self?.engineStartToken == token else { return }
                     seLog.error("setupRecordingSession: audio engine failed to start: \(desc, privacy: .public)")
-                    self?.isStartingEngine = false
                     self?.errorMessage = "Audio engine failed to start: \(desc)"
+                    self?.phase = .idle
                     self?.cleanup()
                 }
                 return
@@ -253,8 +294,7 @@ final class SpeechEngine {
                     capturedEngine.stop()
                     return
                 }
-                self?.isStartingEngine = false
-                self?.isRecording = true
+                self?.phase = .recording
                 seLog.info("setupRecordingSession: audio engine started successfully")
             }
         }
@@ -270,18 +310,6 @@ final class SpeechEngine {
         }
     }
 
-    /// Runs a pending Apple stop now instead of at its 0.5s deadline. No-op unless a stop
-    /// is waiting, so isFinal during a chunk rotation or a pause changes nothing.
-    private func finishAppleStopEarly() {
-        guard let work = appleStopWork else { return }
-        dlog("Engine", "stopRecording(apple): final result arrived, finishing early")
-        appleStopWork = nil
-        // Run first, then cancel the queued copy: a cancelled work item may decline to
-        // perform, and the deadline dispatch must not run the tail a second time.
-        work.perform()
-        work.cancel()
-    }
-
     private func resumeTranscriptionWaiters() {
         guard !transcriptionWaiters.isEmpty else { return }
         let waiters = transcriptionWaiters
@@ -292,25 +320,25 @@ final class SpeechEngine {
     }
 
     /// Cancel any in-progress recording or transcription without producing a result.
+    /// `errorMessage` is deliberately left alone.
     func cancelRecording() {
-        dlog("Engine", "cancelRecording: isRecording=\(isRecording), isPaused=\(isPaused), isTranscribing=\(isTranscribing)")
+        dlog("Engine", "cancelRecording: phase=\(phase)")
         transcriptionTask?.cancel()
         transcriptionTask = nil
-        appleStopWork?.cancel()
-        appleStopWork = nil
-        isTranscribing = false
-        isRecording = false
-        isPaused = false
+        phase = .idle
         finalText = ""
         liveText = ""
         barLevels = Array(repeating: 0, count: 12)
-        teardownStream()
         cleanup()
     }
 
     func stopRecording() {
-        dlog("Engine", "stopRecording: isRecording=\(isRecording), isPaused=\(isPaused), provider=\(currentProviderType().rawValue)")
-        guard isRecording || isPaused else {
+        dlog("Engine", "stopRecording: phase=\(phase), provider=\(providerType.rawValue)")
+        switch phase {
+        case .recording, .paused:
+            break
+        default:
+            // `.starting` is deliberately still ignored (the hotkey path cancels instead).
             dlog("Engine", "stopRecording: not recording or paused, ignoring")
             return
         }
@@ -318,376 +346,139 @@ final class SpeechEngine {
             audioEngine?.stop()
             audioEngine?.inputNode.removeTap(onBus: 0)
         }
-        recognitionRequest?.endAudio()
         let wasPaused = isPaused
-        isRecording = false
-        isPaused = false
 
         // Stopping from a paused state where the segment was already sent: the audio is
         // in flight (or done) — finish with that result instead of transcribing it again.
-        if wasPaused && pausedSegmentTranscribed {
+        if wasPaused && segmentFinishStarted {
             dlog("Engine", "stopRecording: segment already transcribed at pause — not resending")
             finalizeAfterPausedTranscription()
             return
         }
 
-        let providerType = currentProviderType()
+        guard let session, let configuration else {
+            dlog("Engine", "stopRecording: no session — cleaning up")
+            phase = .idle
+            cleanup()
+            return
+        }
 
-        if providerType == .apple {
-            isTranscribing = true
-            let bufferWriter = audioBufferWriter
-            let appleLocale = currentLocale
-            dlog("Engine", "stopRecording(apple): waiting ≤0.5s for final result, liveText=\(liveText.count) chars")
-            // 0.5s is the upper bound; the recognition callback runs this early when a
-            // result with `isFinal` arrives, so the user isn't kept waiting on a timer.
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.appleStopWork = nil
-                if self.finalText.isEmpty {
-                    dlog("Engine", "stopRecording(apple): finalText empty, using liveText (\(self.liveText.count) chars)")
-                    self.finalText = self.liveText
+        // Stop feeding synchronously, on the thread the Apple chunk-rotation timer fires
+        // on: `finish()` only stops that timer after an async hop back to main, and a
+        // 50 s rotation firing in the gap would open a fresh, never-fed request whose
+        // "no speech" error the token guard would then accept as the segment's error.
+        // For the other tiers `pause()` is a stateless no-op; the returned text is
+        // recomputed by `finish()`.
+        _ = session.pause()
+
+        phase = .finishing
+        let writer = audioBufferWriter
+        let locale = configuration.locale
+        let tier = configuration.provider == .apple ? "apple" : (configuration.streams ? "stream" : "batch")
+        dlog("Engine", "stopRecording(\(tier)): liveText=\(liveText.count) chars, starting transcription task")
+
+        transcriptionTask = Task { [weak self] in
+            guard let self else { return }
+            let outcome = await session.finish()
+            await MainActor.run {
+                // A stale task must never touch a newer session's state — but the
+                // outcome may still own a segment file (the upload finished before the
+                // cancel landed), and `recordOutcome` will never run to release it.
+                guard !Task.isCancelled else {
+                    if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
+                    return
                 }
-                dlog("Engine", "stopRecording(apple): done, finalText=\(self.finalText.count) chars")
-                self.recordAppleOutcome(bufferWriter: bufferWriter, locale: appleLocale)
-                self.isTranscribing = false
+                self.recordOutcome(outcome, writer: writer, locale: locale)
+                self.finalText = outcome.text
+                self.liveText = outcome.text
+                self.phase = .idle
                 self.cleanup()
-            }
-            appleStopWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
-        } else {
-            isTranscribing = true
-            let locale: String? = resolvedLocale()
-            let bufferWriter = audioBufferWriter
-            let streamer = streamProvider
-            dlog("Engine", "stopRecording(\(streamer == nil ? "batch" : "stream")): bufferWriter=\(bufferWriter != nil), starting transcription task")
-
-            transcriptionTask = Task { [weak self] in
-                guard let self else { return }
-                let text = await self.transcribeSegment(providerType: providerType,
-                                                        streamer: streamer,
-                                                        bufferWriter: bufferWriter,
-                                                        locale: locale)
-                await MainActor.run {
-                    if let text {
-                        self.finalText = text
-                        self.liveText = text
-                    }
-                    self.isTranscribing = false
-                    self.cleanup()
-                }
             }
         }
     }
 
     /// Completes a stop that arrived while paused, reusing the transcription the pause
-    /// already started. Waits for it if it's still running so the caller's
-    /// `isTranscribing` poll doesn't finish before the text lands.
+    /// already started. Waits for it if it's still running so `awaitTranscription()`
+    /// doesn't return before the text lands. The waiter is stored in `transcriptionTask`
+    /// so a cancel in the meantime stops it from running `cleanup()` against a newer session.
     private func finalizeAfterPausedTranscription() {
-        func finish() {
+        if let pending = transcriptionTask, !pending.isCancelled,
+           case .paused(segmentInFlight: true) = phase {
+            // `paused(true) → finishing` keeps `isTranscribing` true throughout, so no
+            // waiter wakes up before the text has landed.
+            phase = .finishing
+            transcriptionTask = Task { [weak self] in
+                // Cancelling the waiter must also cancel the segment task it waits on:
+                // `pending` is no longer reachable from `transcriptionTask`, and left
+                // alive its completion would run against whatever newer session the
+                // engine holds by then (and the abandoned upload would still be billed).
+                await withTaskCancellationHandler {
+                    await pending.value
+                    await MainActor.run {
+                        guard let self, !Task.isCancelled else { return }
+                        if self.finalText.isEmpty {
+                            self.finalText = self.liveText
+                        }
+                        self.phase = .idle
+                        self.cleanup()
+                    }
+                } onCancel: {
+                    pending.cancel()
+                }
+            }
+        } else {
             if finalText.isEmpty {
                 finalText = liveText
             }
-            isTranscribing = false
+            phase = .idle
             cleanup()
         }
+    }
 
-        guard let task = transcriptionTask, !task.isCancelled else {
-            finish()
+    // MARK: - History
+
+    /// Writes the segment's History entry from what the session returned. Non-empty text
+    /// is a success even when an error was also reported (Apple: an error after some
+    /// words). With nothing recognised the audio is archived — the writer has it for every
+    /// tier, so on-device recognition producing nothing still leaves a cloud retry.
+    private func recordOutcome(_ outcome: RecognitionOutcome, writer: AudioBufferWriter?, locale: String) {
+        guard !outcome.cancelled else {
+            if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
             return
         }
-
-        isTranscribing = true
-        Task { [weak self] in
-            await task.value
-            await MainActor.run {
-                guard let self else { return }
-                if self.finalText.isEmpty {
-                    self.finalText = self.liveText
-                }
-                self.isTranscribing = false
-                self.cleanup()
-            }
-        }
-    }
-
-    // MARK: - Apple Recognition Chunking
-
-    /// SFSpeechRecognitionTask stops accepting audio after roughly a minute. Left alone,
-    /// every word spoken past that point is silently dropped. We rotate to a fresh
-    /// recognition task before the limit and stitch the chunks together.
-    private func startAppleRecognitionSession() -> Bool {
-        guard let speechRecognizer, speechRecognizer.isAvailable else {
-            errorMessage = "Speech recognizer not available for \(currentLocale)"
-            return false
-        }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
-        recognitionRequest = request
-
-        appleChunkToken += 1
-        let token = appleChunkToken
-
-        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
-            if let result {
-                let partial = result.bestTranscription.formattedString
-                let isFinal = result.isFinal
-                DispatchQueue.main.async {
-                    // Ignore late callbacks from a chunk we've already rotated away from.
-                    guard self.appleChunkToken == token else { return }
-                    self.liveText = self.appleJoined(partial)
-                    if isFinal {
-                        dlog("Engine", "recognitionTask: isFinal=true, text=\(partial.prefix(80))")
-                        self.finalText = self.liveText
-                        self.finishAppleStopEarly()
-                    }
-                }
-            }
-            if let error {
-                let nsErr = error as NSError
-                dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    guard self.appleChunkToken == token else { return }
-                    if self.finalText.isEmpty {
-                        self.finalText = self.liveText
-                    }
-                    if nsErr.code != 216 {
-                        self.errorMessage = error.localizedDescription
-                    }
-                }
-            }
-        }
-
-        scheduleAppleChunkRotation()
-        return true
-    }
-
-    /// Text committed from previous chunks, joined with the in-progress chunk.
-    private func appleJoined(_ partial: String) -> String {
-        if appleCommittedText.isEmpty { return partial }
-        if partial.isEmpty { return appleCommittedText }
-        return appleCommittedText + " " + partial
-    }
-
-    private func scheduleAppleChunkRotation() {
-        appleChunkTimer?.invalidate()
-        appleChunkTimer = Timer.scheduledTimer(withTimeInterval: appleChunkDuration, repeats: false) { [weak self] _ in
-            self?.rotateAppleRecognition()
-        }
-    }
-
-    private func rotateAppleRecognition() {
-        guard isRecording, currentProviderType() == .apple else { return }
-        dlog("Engine", "rotateAppleRecognition: committing \(liveText.count) chars, starting fresh chunk")
-
-        // Commit the latest partial. Partials arrive continuously, so this captures
-        // essentially everything said in this chunk; at most a word at the boundary
-        // is at risk, which beats losing every word after the one-minute mark.
-        appleCommittedText = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-
-        // The audio tap appends to `recognitionRequest` by reference, so the running
-        // engine feeds the new request automatically — no need to touch the tap.
-        _ = startAppleRecognitionSession()
-    }
-
-    private func stopAppleChunkTimer() {
-        appleChunkTimer?.invalidate()
-        appleChunkTimer = nil
-    }
-
-    /// Records the outcome of an Apple on-device session. The tap feeds the buffer writer
-    /// regardless of provider, so when on-device recognition produces nothing we still have
-    /// the audio and can archive it for a cloud retry instead of discarding the speech.
-    private func recordAppleOutcome(bufferWriter: AudioBufferWriter?, locale: String?) {
-        let text = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let duration = bufferWriter?.bufferedDuration ?? 0
+        let provider = providerType.rawValue
+        let duration = writer?.bufferedDuration ?? 0
         let history = TranscriptionHistory.shared
-
-        guard text.isEmpty else {
-            lastRecordID = history.recordSuccess(text: text, provider: STTProviderType.apple.rawValue,
+        // The session only knows its own errors; engine-level failures (e.g.
+        // `installAudioTap`'s "No audio input device available") live in `errorMessage`.
+        // Any error known when an empty segment lands makes the entry a failure, so the
+        // History row stays explainable after the fact.
+        let failure = outcome.error ?? errorMessage
+        if let error = outcome.error {
+            errorMessage = error
+        }
+        if !outcome.text.isEmpty {
+            if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
+            lastRecordID = history.recordSuccess(text: outcome.text, provider: provider,
                                                  locale: locale, duration: duration)
             return
         }
-
-        // Nothing came back — preserve the audio so it can be retried.
-        let audioURL = try? bufferWriter?.writeAudioFile()
-        if let error = errorMessage {
-            history.recordFailure(error: error, provider: STTProviderType.apple.rawValue,
-                                  locale: locale, duration: duration, audioURL: audioURL ?? nil)
+        // Nothing came back — preserve the audio so it can be retried. A batch session
+        // already wrote it; otherwise archive the writer's buffer now.
+        let audioURL = outcome.audioFileURL ?? (try? writer?.writeAudioFile()) ?? nil
+        if let error = failure {
+            history.recordFailure(error: error, provider: provider, locale: locale,
+                                  duration: duration, audioURL: audioURL)
         } else {
-            history.recordEmpty(provider: STTProviderType.apple.rawValue, locale: locale,
-                                duration: duration, audioURL: audioURL ?? nil)
+            history.recordEmpty(provider: provider, locale: locale,
+                                duration: duration, audioURL: audioURL)
         }
     }
 
-    /// Transcribes the buffered audio with a batch provider and records the outcome in
-    /// history. On failure the audio file is handed to the archive rather than deleted, so the
-    /// user can retry it — a failed upload no longer means the speech is gone.
-    /// Returns the transcribed text, or nil if it failed (`errorMessage` is set).
-    private func transcribeBatch(providerType: STTProviderType,
-                                 bufferWriter: AudioBufferWriter?,
-                                 locale: String?) async -> String? {
-        let duration = bufferWriter?.bufferedDuration ?? 0
-        let providerName = providerType.rawValue
-
-        let fileURL: URL
-        do {
-            guard let url = try bufferWriter?.writeAudioFile() else {
-                throw AudioBufferWriter.AudioBufferWriterError.noAudio
-            }
-            fileURL = url
-        } catch {
-            dlog("Engine", "transcribeBatch: could not write audio file: \(error.localizedDescription)")
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                self.errorMessage = error.localizedDescription
-                TranscriptionHistory.shared.recordFailure(error: error.localizedDescription,
-                                                          provider: providerName, locale: locale,
-                                                          duration: duration, audioURL: nil)
-            }
-            return nil
-        }
-
-        do {
-            dlog("Engine", "transcribeBatch: calling \(providerName), locale=\(locale ?? "nil")…")
-            let provider = makeBatchProvider(for: providerType)
-            let text = try await provider.transcribe(audioFileURL: fileURL, language: locale)
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            dlog("Engine", "transcribeBatch: done, \(trimmed.count) chars")
-
-            await MainActor.run {
-                if trimmed.isEmpty {
-                    // Keep the audio — an empty result is often worth a retry.
-                    TranscriptionHistory.shared.recordEmpty(provider: providerName, locale: locale,
-                                                            duration: duration, audioURL: fileURL)
-                } else {
-                    AudioBufferWriter.cleanup(fileURL: fileURL)
-                    self.lastRecordID = TranscriptionHistory.shared.recordSuccess(
-                        text: trimmed, provider: providerName,
-                        locale: locale, duration: duration
-                    )
-                }
-            }
-            return text
-        } catch {
-            dlog("Engine", "transcribeBatch: error: \(error.localizedDescription)")
-            let cancelled = Task.isCancelled
-            await MainActor.run {
-                if cancelled {
-                    AudioBufferWriter.cleanup(fileURL: fileURL)
-                    return
-                }
-                self.errorMessage = error.localizedDescription
-                TranscriptionHistory.shared.recordFailure(error: error.localizedDescription,
-                                                          provider: providerName, locale: locale,
-                                                          duration: duration, audioURL: fileURL)
-            }
-            return nil
-        }
-    }
-
-    // MARK: - Streaming
-
-    /// Opens the live connection for a new segment and mirrors its events into
-    /// `liveText`. The buffer writer keeps recording alongside, as the archive and the fallback.
-    private func startStream(_ provider: StreamingSTTProvider, locale: String) {
-        streamProvider = provider
-        streamCommittedText = ""
-        streamPartialText = ""
-        streamFailure = nil
-        provider.connect(language: locale)
-
-        streamEventsTask = Task { [weak self] in
-            for await event in provider.events {
-                await MainActor.run {
-                    guard let self, self.streamProvider === provider else { return }
-                    switch event {
-                    case .partial(let text):
-                        self.streamPartialText = text
-                    case .committed(let text):
-                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty {
-                            self.streamCommittedText = Self.joined(self.streamCommittedText, trimmed)
-                        }
-                        self.streamPartialText = ""
-                    case .failed(let error):
-                        self.streamFailure = error.localizedDescription
-                    }
-                    self.liveText = Self.joined(self.streamCommittedText, self.streamPartialText)
-                }
-            }
-        }
-    }
-
-    private func teardownStream() {
-        streamEventsTask?.cancel()
-        streamEventsTask = nil
-        streamProvider?.cancel()
-        streamProvider = nil
-    }
-
-    private static func joined(_ head: String, _ tail: String) -> String {
-        if head.isEmpty { return tail }
-        if tail.isEmpty { return head }
-        return head + " " + tail
-    }
-
-    /// Finishes a segment: closes the stream and takes its text, or — when there was no
-    /// stream, it broke, or it produced nothing — uploads the segment file to the batch provider.
-    private func transcribeSegment(providerType: STTProviderType,
-                                   streamer: StreamingSTTProvider?,
-                                   bufferWriter: AudioBufferWriter?,
-                                   locale: String?) async -> String? {
-        guard let streamer else {
-            return await transcribeBatch(providerType: providerType,
-                                         bufferWriter: bufferWriter, locale: locale)
-        }
-
-        await streamer.finish()
-        guard !Task.isCancelled else { return nil }
-
-        let outcome: (text: String, failure: String?) = await MainActor.run {
-            let text = Self.joined(streamCommittedText, streamPartialText)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let failure = streamFailure
-            if streamProvider === streamer {
-                teardownStream()
-            }
-            return (text, failure)
-        }
-
-        if outcome.failure == nil, !outcome.text.isEmpty {
-            dlog("Engine", "transcribeSegment: stream done, \(outcome.text.count) chars")
-            let duration = bufferWriter?.bufferedDuration ?? 0
-            await MainActor.run {
-                self.lastRecordID = TranscriptionHistory.shared.recordSuccess(
-                    text: outcome.text, provider: providerType.rawValue,
-                    locale: locale, duration: duration
-                )
-            }
-            return outcome.text
-        }
-
-        dlog("Engine", "transcribeSegment: stream \(outcome.failure ?? "returned nothing") — falling back to batch upload")
-        await MainActor.run { liveText = "" }
-        return await transcribeBatch(providerType: providerType,
-                                     bufferWriter: bufferWriter, locale: locale)
-    }
-
-    private func currentProviderType() -> STTProviderType {
-        let raw = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "apple"
-        return STTProviderType(rawValue: raw) ?? .apple
-    }
+    // MARK: - Audio
 
     private func installAudioTap() {
-        guard let audioEngine else {
+        guard let audioEngine, let writer = audioBufferWriter, let session else {
             seLog.error("installAudioTap: no audio engine")
             errorMessage = "Audio engine not initialized"
             return
@@ -708,39 +499,17 @@ final class SpeechEngine {
         seLog.info("installAudioTap: hwFormat=\(hwFormat.description, privacy: .public)")
 
         // One conversion per buffer: the writer converts to 16 kHz mono Int16 as audio
-        // arrives and hands the bytes back, and the stream sends those same bytes. If the
-        // hardware format has no converter the writer keeps native copies instead, and
-        // the stream is skipped so the stop falls back to the batch upload.
-        audioBufferWriter?.prepare(sourceFormat: hwFormat)
-        if let streamProvider {
-            if audioBufferWriter?.isConvertingLive != true {
-                dlog("Engine", "installAudioTap: no live converter for \(hwFormat) — stream will be skipped, batch fallback at stop")
-                streamFailure = "Could not convert audio for streaming"
-            } else if streamProvider.sampleRate != AudioBufferWriter.uploadSampleRate {
-                dlog("Engine", "installAudioTap: stream wants \(streamProvider.sampleRate) Hz, tap converts to \(AudioBufferWriter.uploadSampleRate) — stream will be skipped")
-                streamFailure = "Could not convert audio for streaming"
-            }
-        }
-        let streamEnabled = streamProvider != nil && streamFailure == nil
+        // arrives and hands the bytes back, and the session gets those same bytes (a
+        // stream sends them; Apple takes the native buffer instead). The writer and the
+        // session are per-segment and the tap is removed before either is dropped, so the
+        // tap holds them strongly.
+        writer.prepare(sourceFormat: hwFormat)
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            guard let self else { return }
-            // Apple's recognizer gets the native buffer — it does its own resampling.
-            self.recognitionRequest?.append(buffer)
-            let writer = self.audioBufferWriter
-            let pcm = writer?.append(buffer)
-            if streamEnabled, let pcm, let streamProvider = self.streamProvider {
-                streamProvider.send(pcm16: pcm)
-            } else if streamEnabled, let writer, !writer.isConvertingLive {
-                // The converter died mid-session. The writer keeps the audio natively,
-                // but the stream can no longer be fed, so the stop must upload the file.
-                DispatchQueue.main.async {
-                    guard self.streamFailure == nil else { return }
-                    dlog("Engine", "installAudioTap: live conversion failed — stream will be discarded, batch fallback at stop")
-                    self.streamFailure = "Could not convert audio for streaming"
-                }
-            }
+            let pcm = writer.append(buffer)
+            session.feed(native: buffer, pcm16: pcm)
 
+            guard let self else { return }
             let levels = Self.perSegmentRMS(buffer: buffer, count: 12)
             DispatchQueue.main.async {
                 for i in 0..<self.barLevels.count {
@@ -753,27 +522,24 @@ final class SpeechEngine {
     /// Called when the audio hardware configuration changes (device switch, sample rate change, etc.).
     /// AVAudioEngine stops itself automatically — we tear down and rebuild with a fresh engine.
     private func handleAudioConfigChange() {
-        dlog("Engine", "handleAudioConfigChange: audio device changed, isRecording=\(self.isRecording), isPaused=\(self.isPaused)")
-        seLog.warning("handleAudioConfigChange: audio device changed, isRecording=\(self.isRecording)")
+        dlog("Engine", "handleAudioConfigChange: audio device changed, phase=\(phase)")
+        seLog.warning("handleAudioConfigChange: audio device changed, phase=\(String(describing: self.phase), privacy: .public)")
 
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-
-        guard isRecording || isPaused else {
+        switch phase {
+        case .recording:
+            // Restart recording on the new audio device with a fresh engine and session.
+            setupRecordingSession()
+        case .paused(segmentInFlight: true):
+            // The paused segment is still in flight: let it land, then end the session.
+            finalizeAfterPausedTranscription()
+        case .paused(segmentInFlight: false):
+            // Paused with nothing in flight: back to idle, the engine is discarded on the next start.
+            session?.cancel()
+            phase = .idle
+        case .idle, .starting, .finishing:
             // Not recording — just discard the stale engine so the next session gets a fresh one.
+            // A stop that is mid-wait keeps waiting inside its session.
             tearDownAudioEngine()
-            return
-        }
-
-        // Restart recording on the new audio device with a fresh engine.
-        let wasRecording = isRecording
-        isRecording = false
-        isPaused = false
-
-        if wasRecording {
-            setupRecordingSession(locale: currentLocale)
         }
     }
 
@@ -795,13 +561,11 @@ final class SpeechEngine {
         }
     }
 
+    /// Never writes `phase`: every caller sets `.idle` immediately before calling, after
+    /// its `finalText` / `errorMessage` / `lastRecordID` are in place — so the waiters
+    /// that resume on that edge always see a finished result.
     private func cleanup() {
-        dlog("Engine", "cleanup: isTranscribing=\(isTranscribing), isRecording=\(isRecording)")
-        isStartingEngine = false
-        stopAppleChunkTimer()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
+        dlog("Engine", "cleanup: phase=\(phase)")
         // speechRecognizer is intentionally kept alive between sessions so the speech
         // model stays loaded in memory, making subsequent recordings start much faster.
         //
@@ -811,7 +575,8 @@ final class SpeechEngine {
         tearDownAudioEngine()
         audioBufferWriter?.reset()
         audioBufferWriter = nil
-        teardownStream()
+        session?.cancel()
+        session = nil
         removeConfigChangeObserver()
     }
 
