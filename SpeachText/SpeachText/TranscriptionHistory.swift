@@ -58,7 +58,7 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     let provider: String
     let locale: String?
     let duration: TimeInterval
-    /// Filename (not a full path — the container may move) of the archived WAV kept
+    /// Filename (not a full path — the container may move) of the archived audio kept
     /// so a failed transcription can be retried instead of being lost.
     var audioFileName: String?
     /// Optional, so history written before AI mode existed still decodes.
@@ -200,7 +200,7 @@ final class TranscriptionHistory {
     }
 
     /// Records a failure and *keeps* the audio so the user can retry it. Passing the temp
-    /// WAV here transfers ownership — do not call `AudioBufferWriter.cleanup` on it after.
+    /// audio file here transfers ownership — do not call `AudioBufferWriter.cleanup` on it after.
     func recordFailure(error: String, provider: String, locale: String?,
                        duration: TimeInterval, audioURL: URL?) {
         let archived = archive(audioURL: audioURL)
@@ -274,13 +274,17 @@ final class TranscriptionHistory {
 
     // MARK: Audio archive
 
-    /// Move a temp WAV into the archive. Returns the stored filename, or nil if there
-    /// was no audio or the move failed (in which case the record is still kept).
+    /// Move a temp audio file into the archive. Returns the stored filename, or nil if
+    /// there was no audio or the move failed (in which case the record is still kept).
+    /// The file keeps its extension (`.flac` normally, `.wav` on the writer's fallback
+    /// and for entries archived before FLAC uploads existed): the retry path reads the
+    /// MIME type off it, so the archive must not rename everything to one container.
     private func archive(audioURL: URL?) -> String? {
         guard let audioURL, FileManager.default.fileExists(atPath: audioURL.path) else { return nil }
         ensureDirectories()
 
-        let filename = "\(UUID().uuidString).wav"
+        let ext = audioURL.pathExtension.isEmpty ? "wav" : audioURL.pathExtension
+        let filename = "\(UUID().uuidString).\(ext)"
         let destination = recordingsDirectory.appendingPathComponent(filename)
         do {
             try FileManager.default.moveItem(at: audioURL, to: destination)

@@ -40,10 +40,83 @@ enum STTProviderType: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Tuning
+
+/// Every latency and quality knob the cloud STT providers use, in one place, so a value
+/// measured against the live service is not re-derived by feel in two files. All of
+/// these were verified by probing the ElevenLabs API on 2026-08-29.
+enum STTTuning {
+    /// Seconds of silence after which Scribe Realtime's VAD commits a segment. The
+    /// server default is 1.5 s, sized for conversational turns; a dictation pause is
+    /// shorter, and every tenth of a second here is a tenth the user waits before the
+    /// text can be inserted. Below ~1 s the VAD starts splitting mid-sentence hesitations.
+    static let vadSilenceThresholdSeconds: Double = 1.0
+
+    /// How long `finish()` waits for the transcript of its final commit before pasting
+    /// what it has. Scribe normally answers well inside a second; this only bounds the
+    /// wait when the server is slow or the reply is lost, so the paste can never hang.
+    static let streamFinishTimeoutSeconds: Double = 4
+
+    /// Size of each audio message on the socket. The tap delivers ~20 ms buffers, and a
+    /// WebSocket frame per buffer is mostly overhead; 100 ms keeps the first partial
+    /// arriving quickly without flooding the connection.
+    static let streamChunkSeconds: Double = 0.1
+
+    /// Silence appended to the last chunk sent with `commit: true`. The server ignores
+    /// a commit with under 0.3 s of uncommitted audio (`commit_throttled`), so 0.4 s
+    /// guarantees the commit is honoured and adds nothing to the transcript.
+    static let streamCommitPaddingSeconds: Double = 0.4
+
+    /// Upper bound on audio held client-side while the socket is still handshaking
+    /// (`session_started` not yet seen). Ten seconds is far more than a TLS handshake
+    /// takes; if it fills, the stream gives up (`.failed`) rather than dropping the
+    /// oldest audio and later reporting a transcript with the opening seconds missing
+    /// as a success — the batch fallback has the full recording on disk.
+    static let streamPreSessionBufferSeconds: Double = 10
+
+    /// How long `finish()` keeps listening after a `committed_transcript` arrives before
+    /// treating it as the reply to its own commit. The server answers in order, so if
+    /// the VAD had just closed an earlier segment when the user stopped, that segment's
+    /// transcript lands first and the final one — preceded by its `partial_transcript`s —
+    /// is still on its way; closing on the first would drop the last phrase without any
+    /// failure to trigger the batch fallback. A partial arriving inside this window
+    /// re-arms the wait. Measured replies for a padded commit are well under this.
+    static let streamCommitGraceSeconds: Double = 0.2
+
+    /// Batch upload timeouts. `URLSession.shared` ignores `URLRequest.timeoutInterval`
+    /// and enforces its own 60 s default, which a multi-minute FLAC can exceed. 120 s
+    /// per request covers a stalled response; 300 s for the whole resource covers a
+    /// slow upload of a long recording.
+    static let batchRequestTimeoutSeconds: TimeInterval = 120
+    static let batchResourceTimeoutSeconds: TimeInterval = 300
+
+    /// Quality flags for Scribe. `tag_audio_events` defaults to *true* on the API, which
+    /// would put "(laughs)" and "(door closes)" into pasted text, so it is sent off
+    /// explicitly. `no_verbatim` drops fillers and false starts server-side — the point
+    /// of dictation is the words the user meant, not the ones they stumbled over. The
+    /// docs say it is only honoured by scribe_v2; scribe_v1 accepts and ignores it.
+    static let tagAudioEvents = false
+    static let noVerbatim = true
+}
+
 // MARK: - Batch STT Protocol
 
 protocol BatchSTTProvider {
     func transcribe(audioFileURL: URL, language: String?) async throws -> String
+}
+
+/// The multipart filename and MIME type for an upload, read off the file's extension.
+/// `AudioBufferWriter` decides the container (FLAC normally, WAV as its fallback) and
+/// History keeps whatever it was handed, so the providers must not assume either: a
+/// `.wav` archived before FLAC uploads existed has to retry as a WAV. The filename
+/// matters too — Groq sniffs the extension when the MIME type is ambiguous.
+func multipartAudioPart(for fileURL: URL) -> (filename: String, mimeType: String) {
+    let ext = fileURL.pathExtension.lowercased()
+    switch ext {
+    case "flac": return ("recording.flac", "audio/flac")
+    case "wav", "": return ("recording.wav", "audio/wav")
+    default: return ("recording.\(ext)", "audio/\(ext)")
+    }
 }
 
 /// Builds a batch provider from the user's current settings. Shared by the live
@@ -75,12 +148,11 @@ struct GroqSTTProvider: BatchSTTProvider {
     let apiKey: String
     let model: String
 
-    /// Custom URLSession with a 120s timeout — URLSession.shared ignores
-    /// URLRequest.timeoutInterval and enforces its own 60s default.
+    /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 120
-        config.timeoutIntervalForResource = 300
+        config.timeoutIntervalForRequest = STTTuning.batchRequestTimeoutSeconds
+        config.timeoutIntervalForResource = STTTuning.batchResourceTimeoutSeconds
         return URLSession(configuration: config)
     }()
 
@@ -99,12 +171,13 @@ struct GroqSTTProvider: BatchSTTProvider {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let audioData = try Data(contentsOf: audioFileURL)
-        dlog("Groq", "transcribe: audioSize=\(audioData.count) bytes, model=\(model), language=\(language ?? "nil")")
+        let part = multipartAudioPart(for: audioFileURL)
+        dlog("Groq", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")")
 
         var body = Data()
 
         body.appendMultipartFile(boundary: boundary, name: "file",
-                                 filename: "recording.wav", mimeType: "audio/wav",
+                                 filename: part.filename, mimeType: part.mimeType,
                                  data: audioData)
         body.appendMultipartField(boundary: boundary, name: "model", value: model)
         body.appendMultipartField(boundary: boundary, name: "response_format", value: "json")
@@ -161,12 +234,11 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
     let apiKey: String
     let model: String
 
-    /// Custom URLSession with a 120s timeout — URLSession.shared ignores
-    /// URLRequest.timeoutInterval and enforces its own 60s default.
+    /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 120
-        config.timeoutIntervalForResource = 300
+        config.timeoutIntervalForRequest = STTTuning.batchRequestTimeoutSeconds
+        config.timeoutIntervalForResource = STTTuning.batchResourceTimeoutSeconds
         return URLSession(configuration: config)
     }()
 
@@ -185,14 +257,21 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let audioData = try Data(contentsOf: audioFileURL)
-        dlog("ElevenLabs", "transcribe: audioSize=\(audioData.count) bytes, model=\(model), language=\(language ?? "nil")")
+        let part = multipartAudioPart(for: audioFileURL)
+        dlog("ElevenLabs", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")")
 
         var body = Data()
 
         body.appendMultipartFile(boundary: boundary, name: "file",
-                                 filename: "recording.wav", mimeType: "audio/wav",
+                                 filename: part.filename, mimeType: part.mimeType,
                                  data: audioData)
         body.appendMultipartField(boundary: boundary, name: "model_id", value: model)
+        // Quality flags — see `STTTuning`. Both are accepted by every batch model ID
+        // (verified against scribe_v1 and scribe_v2).
+        body.appendMultipartField(boundary: boundary, name: "tag_audio_events",
+                                  value: STTTuning.tagAudioEvents ? "true" : "false")
+        body.appendMultipartField(boundary: boundary, name: "no_verbatim",
+                                  value: STTTuning.noVerbatim ? "true" : "false")
 
         if let language {
             let iso639 = String(language.prefix(2))

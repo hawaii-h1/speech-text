@@ -31,8 +31,18 @@ final class SpeechEngine {
         }
     }
     var isTranscribing = false {
-        didSet { dlog("Engine", "isTranscribing: \(oldValue) → \(isTranscribing)") }
+        didSet {
+            dlog("Engine", "isTranscribing: \(oldValue) → \(isTranscribing)")
+            if !isTranscribing { resumeTranscriptionWaiters() }
+        }
     }
+    /// Callers parked in `awaitTranscription()`. Resumed from `isTranscribing`'s didSet so
+    /// there is exactly one place the signal fires, and it fires after every path has
+    /// already written its `finalText` / `errorMessage` / `lastRecordID`.
+    private var transcriptionWaiters: [CheckedContinuation<Void, Never>] = []
+    /// The deferred tail of an Apple stop, kept so an early `isFinal` can run it ahead of
+    /// its 0.5s deadline.
+    private var appleStopWork: DispatchWorkItem?
     var barLevels: [CGFloat] = Array(repeating: 0, count: 12)
 
     private var speechRecognizer: SFSpeechRecognizer?
@@ -68,13 +78,12 @@ final class SpeechEngine {
     // MARK: Streaming state
     /// Live provider for the current segment, when the selected model streams.
     private var streamProvider: StreamingSTTProvider?
-    private var streamDownsampler: PCMDownsampler?
     private var streamEventsTask: Task<Void, Never>?
     /// Segments the provider has committed so far in this session.
     private var streamCommittedText = ""
     /// The segment still in progress.
     private var streamPartialText = ""
-    /// Set when the stream broke; the stop then falls back to a batch upload of the WAV.
+    /// Set when the stream broke; the stop then falls back to a batch upload of the segment file.
     private var streamFailure: String?
 
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
@@ -251,11 +260,44 @@ final class SpeechEngine {
         }
     }
 
+    /// Returns once `isTranscribing` is false. Returns immediately when nothing is in
+    /// flight, which is what a stop that never started transcription (or a cancel) needs.
+    @MainActor
+    func awaitTranscription() async {
+        guard isTranscribing else { return }
+        await withCheckedContinuation { continuation in
+            transcriptionWaiters.append(continuation)
+        }
+    }
+
+    /// Runs a pending Apple stop now instead of at its 0.5s deadline. No-op unless a stop
+    /// is waiting, so isFinal during a chunk rotation or a pause changes nothing.
+    private func finishAppleStopEarly() {
+        guard let work = appleStopWork else { return }
+        dlog("Engine", "stopRecording(apple): final result arrived, finishing early")
+        appleStopWork = nil
+        // Run first, then cancel the queued copy: a cancelled work item may decline to
+        // perform, and the deadline dispatch must not run the tail a second time.
+        work.perform()
+        work.cancel()
+    }
+
+    private func resumeTranscriptionWaiters() {
+        guard !transcriptionWaiters.isEmpty else { return }
+        let waiters = transcriptionWaiters
+        transcriptionWaiters.removeAll()
+        // The continuations hop back onto the main actor, so the caller runs after the
+        // current call (including its `cleanup()`) has returned — same as the old poll.
+        waiters.forEach { $0.resume() }
+    }
+
     /// Cancel any in-progress recording or transcription without producing a result.
     func cancelRecording() {
         dlog("Engine", "cancelRecording: isRecording=\(isRecording), isPaused=\(isPaused), isTranscribing=\(isTranscribing)")
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        appleStopWork?.cancel()
+        appleStopWork = nil
         isTranscribing = false
         isRecording = false
         isPaused = false
@@ -295,9 +337,12 @@ final class SpeechEngine {
             isTranscribing = true
             let bufferWriter = audioBufferWriter
             let appleLocale = currentLocale
-            dlog("Engine", "stopRecording(apple): waiting 0.5s for final result, liveText=\(liveText.count) chars")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            dlog("Engine", "stopRecording(apple): waiting ≤0.5s for final result, liveText=\(liveText.count) chars")
+            // 0.5s is the upper bound; the recognition callback runs this early when a
+            // result with `isFinal` arrives, so the user isn't kept waiting on a timer.
+            let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
+                self.appleStopWork = nil
                 if self.finalText.isEmpty {
                     dlog("Engine", "stopRecording(apple): finalText empty, using liveText (\(self.liveText.count) chars)")
                     self.finalText = self.liveText
@@ -307,6 +352,8 @@ final class SpeechEngine {
                 self.isTranscribing = false
                 self.cleanup()
             }
+            appleStopWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
         } else {
             isTranscribing = true
             let locale: String? = resolvedLocale()
@@ -394,6 +441,7 @@ final class SpeechEngine {
                     if isFinal {
                         dlog("Engine", "recognitionTask: isFinal=true, text=\(partial.prefix(80))")
                         self.finalText = self.liveText
+                        self.finishAppleStopEarly()
                     }
                 }
             }
@@ -469,7 +517,7 @@ final class SpeechEngine {
         }
 
         // Nothing came back — preserve the audio so it can be retried.
-        let audioURL = try? bufferWriter?.writeWAV()
+        let audioURL = try? bufferWriter?.writeAudioFile()
         if let error = errorMessage {
             history.recordFailure(error: error, provider: STTProviderType.apple.rawValue,
                                   locale: locale, duration: duration, audioURL: audioURL ?? nil)
@@ -480,7 +528,7 @@ final class SpeechEngine {
     }
 
     /// Transcribes the buffered audio with a batch provider and records the outcome in
-    /// history. On failure the WAV is handed to the archive rather than deleted, so the
+    /// history. On failure the audio file is handed to the archive rather than deleted, so the
     /// user can retry it — a failed upload no longer means the speech is gone.
     /// Returns the transcribed text, or nil if it failed (`errorMessage` is set).
     private func transcribeBatch(providerType: STTProviderType,
@@ -491,12 +539,12 @@ final class SpeechEngine {
 
         let fileURL: URL
         do {
-            guard let url = try bufferWriter?.writeWAV() else {
+            guard let url = try bufferWriter?.writeAudioFile() else {
                 throw AudioBufferWriter.AudioBufferWriterError.noAudio
             }
             fileURL = url
         } catch {
-            dlog("Engine", "transcribeBatch: could not write WAV: \(error.localizedDescription)")
+            dlog("Engine", "transcribeBatch: could not write audio file: \(error.localizedDescription)")
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 self.errorMessage = error.localizedDescription
@@ -548,7 +596,7 @@ final class SpeechEngine {
     // MARK: - Streaming
 
     /// Opens the live connection for a new segment and mirrors its events into
-    /// `liveText`. The WAV keeps recording alongside, as the archive and the fallback.
+    /// `liveText`. The buffer writer keeps recording alongside, as the archive and the fallback.
     private func startStream(_ provider: StreamingSTTProvider, locale: String) {
         streamProvider = provider
         streamCommittedText = ""
@@ -583,7 +631,6 @@ final class SpeechEngine {
         streamEventsTask = nil
         streamProvider?.cancel()
         streamProvider = nil
-        streamDownsampler = nil
     }
 
     private static func joined(_ head: String, _ tail: String) -> String {
@@ -593,7 +640,7 @@ final class SpeechEngine {
     }
 
     /// Finishes a segment: closes the stream and takes its text, or — when there was no
-    /// stream, it broke, or it produced nothing — uploads the WAV to the batch provider.
+    /// stream, it broke, or it produced nothing — uploads the segment file to the batch provider.
     private func transcribeSegment(providerType: STTProviderType,
                                    streamer: StreamingSTTProvider?,
                                    bufferWriter: AudioBufferWriter?,
@@ -660,21 +707,38 @@ final class SpeechEngine {
         // This avoids "format mismatch" ObjC exceptions that Swift can't catch.
         seLog.info("installAudioTap: hwFormat=\(hwFormat.description, privacy: .public)")
 
+        // One conversion per buffer: the writer converts to 16 kHz mono Int16 as audio
+        // arrives and hands the bytes back, and the stream sends those same bytes. If the
+        // hardware format has no converter the writer keeps native copies instead, and
+        // the stream is skipped so the stop falls back to the batch upload.
+        audioBufferWriter?.prepare(sourceFormat: hwFormat)
         if let streamProvider {
-            streamDownsampler = PCMDownsampler(sourceFormat: hwFormat, targetRate: streamProvider.sampleRate)
-            if streamDownsampler == nil {
-                dlog("Engine", "installAudioTap: no downsampler for \(hwFormat) — stream will be skipped, batch fallback at stop")
+            if audioBufferWriter?.isConvertingLive != true {
+                dlog("Engine", "installAudioTap: no live converter for \(hwFormat) — stream will be skipped, batch fallback at stop")
+                streamFailure = "Could not convert audio for streaming"
+            } else if streamProvider.sampleRate != AudioBufferWriter.uploadSampleRate {
+                dlog("Engine", "installAudioTap: stream wants \(streamProvider.sampleRate) Hz, tap converts to \(AudioBufferWriter.uploadSampleRate) — stream will be skipped")
                 streamFailure = "Could not convert audio for streaming"
             }
         }
+        let streamEnabled = streamProvider != nil && streamFailure == nil
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
+            // Apple's recognizer gets the native buffer — it does its own resampling.
             self.recognitionRequest?.append(buffer)
-            self.audioBufferWriter?.append(buffer)
-            if let streamProvider = self.streamProvider,
-               let pcm = self.streamDownsampler?.convert(buffer) {
+            let writer = self.audioBufferWriter
+            let pcm = writer?.append(buffer)
+            if streamEnabled, let pcm, let streamProvider = self.streamProvider {
                 streamProvider.send(pcm16: pcm)
+            } else if streamEnabled, let writer, !writer.isConvertingLive {
+                // The converter died mid-session. The writer keeps the audio natively,
+                // but the stream can no longer be fed, so the stop must upload the file.
+                DispatchQueue.main.async {
+                    guard self.streamFailure == nil else { return }
+                    dlog("Engine", "installAudioTap: live conversion failed — stream will be discarded, batch fallback at stop")
+                    self.streamFailure = "Could not convert audio for streaming"
+                }
             }
 
             let levels = Self.perSegmentRMS(buffer: buffer, count: 12)
@@ -740,10 +804,14 @@ final class SpeechEngine {
         recognitionRequest = nil
         // speechRecognizer is intentionally kept alive between sessions so the speech
         // model stays loaded in memory, making subsequent recordings start much faster.
+        //
+        // The engine (and so the tap) goes first: cancel and a failed start reach here
+        // with the tap still firing, and the writer's converter is only safe to drop
+        // once no callback can be inside `append`.
+        tearDownAudioEngine()
         audioBufferWriter?.reset()
         audioBufferWriter = nil
         teardownStream()
-        tearDownAudioEngine()
         removeConfigChangeObserver()
     }
 

@@ -112,13 +112,17 @@ let groqModels: [(id: String, name: String)] = [
     ("whisper-large-v3", "Whisper Large V3"),
 ]
 
-/// Scribe's streaming model. Picking it switches ElevenLabs from a WAV upload after
+/// Scribe's streaming model. Picking it switches ElevenLabs from a file upload after
 /// the recording to a WebSocket that returns text while the user is still speaking.
 let elevenLabsRealtimeModel = "scribe_v2_realtime"
 
+/// The batch (upload) model IDs are exactly what the API's `unsupported_model` error
+/// lists — scribe_v1, scribe_v1_experimental, scribe_v2 — plus the realtime model, which
+/// only exists behind the WebSocket.
 let elevenLabsModels: [(id: String, name: String)] = [
     ("scribe_v1", "Scribe v1"),
     ("scribe_v1_experimental", "Scribe v1 Experimental"),
+    ("scribe_v2", "Scribe v2"),
     (elevenLabsRealtimeModel, "Scribe v2 Realtime — live text"),
 ]
 

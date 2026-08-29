@@ -5,12 +5,8 @@ struct PasteService {
     /// Pastes text at the current cursor position, preserving the user's clipboard.
     /// Saves clipboard contents, pastes via ⌘V, then restores the original clipboard.
     static func pasteAtCursor(_ text: String) {
-        print("[PasteService] === pasteAtCursor called ===")
-        print("[PasteService] Text (\(text.count) chars): \(text.prefix(80))...")
-        print("[PasteService] AXIsProcessTrusted: \(AXIsProcessTrusted())")
-
         let frontApp = NSWorkspace.shared.frontmostApplication
-        print("[PasteService] Frontmost app: \(frontApp?.localizedName ?? "nil") (\(frontApp?.bundleIdentifier ?? "nil"))")
+        dlog("Paste", "pasteAtCursor: \(text.count) chars \"\(text.prefix(80))\", trusted=\(AXIsProcessTrusted()), front=\(frontApp?.localizedName ?? "nil") (\(frontApp?.bundleIdentifier ?? "nil"))")
 
         let pasteboard = NSPasteboard.general
         let savedItems = saveClipboard(pasteboard)
@@ -25,9 +21,12 @@ struct PasteService {
 
         // Restore the original clipboard after a generous delay to ensure the target app
         // has fully processed the paste command and read from the clipboard.
+        // This is a blind wait on purpose: the ⌘V lands in *another* process, and there
+        // is no signal from it telling us when it has read the pasteboard. No completion
+        // can replace this delay, so leave it at 1.0s.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             restoreClipboard(pasteboard, items: savedItems)
-            print("[PasteService] Clipboard restored")
+            dlog("Paste", "Clipboard restored")
         }
     }
 
@@ -56,11 +55,11 @@ struct PasteService {
 
     /// Activate a specific app (used to switch back to user's app before pasting)
     static func activateApp(_ app: NSRunningApplication) {
-        print("[PasteService] Activating: \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?"))")
+        dlog("Paste", "Activating: \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?"))")
 
         // Try NSRunningApplication.activate first
         let result = app.activate()
-        print("[PasteService] NSRunningApplication.activate: \(result)")
+        dlog("Paste", "NSRunningApplication.activate: \(result)")
 
         if !result, let bundleID = app.bundleIdentifier {
             // Fallback to AppleScript only if direct activation failed
@@ -70,9 +69,9 @@ struct PasteService {
             var err: NSDictionary?
             script?.executeAndReturnError(&err)
             if let err {
-                print("[PasteService] AppleScript activate failed: \(err)")
+                dlog("Paste", "AppleScript activate failed: \(err)")
             } else {
-                print("[PasteService] AppleScript activate succeeded")
+                dlog("Paste", "AppleScript activate succeeded")
             }
         }
     }
@@ -172,6 +171,6 @@ struct PasteService {
 
         keyDown?.post(tap: .cgSessionEventTap)
         keyUp?.post(tap: .cgSessionEventTap)
-        print("[PasteService] CGEvent ⌘V posted")
+        dlog("Paste", "CGEvent ⌘V posted")
     }
 }

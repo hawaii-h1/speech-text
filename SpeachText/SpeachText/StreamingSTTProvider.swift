@@ -59,6 +59,12 @@ func makeStreamingProvider(for type: STTProviderType) -> StreamingSTTProvider? {
 /// `committed_transcript` when it closes. `finish()` sends a last chunk with
 /// `commit: true` so the tail of the dictation is committed without waiting for the
 /// VAD's silence threshold.
+///
+/// The engine calls `connect` before it starts `AVAudioEngine`, so the TLS handshake
+/// overlaps the 100–300 ms the hardware takes to come up. Audio that arrives before
+/// the server's `session_started` is held in `preSessionAudio` and flushed the moment
+/// it does: the server does not promise to keep audio sent ahead of that message, and
+/// the first syllable of a dictation is exactly what must not be lost.
 final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
     let sampleRate: Double = 16_000
     let events: AsyncStream<StreamingSTTEvent>
@@ -71,6 +77,14 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     private var task: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
     private var pendingAudio = Data()
+    /// Chunks ready to send but held until `session_started`, already encoded as the
+    /// socket messages they will become, so the flush under the lock is nothing but
+    /// `task.send` calls (the base64/JSON work is done on the audio thread as the chunk
+    /// is buffered, which is where it would have been done anyway). Bounded by
+    /// `STTTuning.streamPreSessionBufferSeconds`: if it fills, the stream fails over.
+    private var preSessionMessages: [String] = []
+    private var preSessionBytes = 0
+    private var sessionStarted = false
     private var isClosed = false
     /// Resumed by the first `committed_transcript` that arrives after `finish()` asked
     /// for a commit, so the caller does not have to guess how long to wait.
@@ -79,10 +93,15 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     /// transcript arrives — which can happen before the wait is even installed.
     private var awaitingCommit = false
     private var commitArrived = false
+    /// Counts down `STTTuning.streamCommitGraceSeconds` after a `committed_transcript`
+    /// seen while awaiting the commit; cancelled by a partial that shows more is coming.
+    private var commitGrace: Task<Void, Never>?
 
-    /// Send audio in ~100 ms messages. The tap delivers ~20 ms buffers, and a WebSocket
-    /// frame per buffer is mostly overhead.
-    private var minimumChunkBytes: Int { Int(sampleRate) * 2 / 10 }
+    /// Bytes of 16-bit mono PCM for a given duration at `sampleRate`.
+    private func bytes(forSeconds seconds: Double) -> Int { Int(sampleRate * seconds) * 2 }
+    /// Send audio in `STTTuning.streamChunkSeconds` messages rather than one per tap buffer.
+    private var minimumChunkBytes: Int { bytes(forSeconds: STTTuning.streamChunkSeconds) }
+    private var maxPreSessionBytes: Int { bytes(forSeconds: STTTuning.streamPreSessionBufferSeconds) }
 
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -106,6 +125,12 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
             URLQueryItem(name: "model_id", value: model),
             URLQueryItem(name: "audio_format", value: "pcm_16000"),
             URLQueryItem(name: "commit_strategy", value: "vad"),
+            // Tunables and quality flags — see `STTTuning`. The server echoes both in
+            // `session_started.config` (verified live), so a typo here would be visible
+            // in the debug log rather than silently ignored.
+            URLQueryItem(name: "vad_silence_threshold_secs",
+                         value: String(STTTuning.vadSilenceThresholdSeconds)),
+            URLQueryItem(name: "no_verbatim", value: STTTuning.noVerbatim ? "true" : "false"),
         ]
         if let language {
             items.append(URLQueryItem(name: "language_code", value: String(language.prefix(2))))
@@ -140,19 +165,58 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         }
         let chunk = pendingAudio
         pendingAudio = Data()
+        guard sessionStarted else {
+            // Handshake still in flight: hold the chunk. If the bound is hit the server
+            // is not coming; rather than drop audio and later call a transcript missing
+            // its opening seconds a success, fail so the stop takes the batch upload.
+            guard preSessionBytes + chunk.count <= maxPreSessionBytes else {
+                lock.unlock()
+                fail(ElevenLabsError.realtime("no_session",
+                    "no session_started within \(STTTuning.streamPreSessionBufferSeconds)s of audio"))
+                return
+            }
+            if let message = Self.encodeChunk(chunk, commit: false, sampleRate: sampleRate) {
+                preSessionMessages.append(message)
+                preSessionBytes += chunk.count
+            }
+            lock.unlock()
+            return
+        }
         lock.unlock()
 
         sendChunk(chunk, commit: false, over: task)
     }
 
-    func finish() async {
-        guard let (chunk, task) = takePendingForFinish() else { return }
+    /// `session_started` arrived: release everything held for it, in order, ahead of
+    /// any chunk `send` produces from now on (it still holds the lock while we drain).
+    private func flushPreSessionAudio() {
+        lock.lock()
+        sessionStarted = true
+        let held = preSessionMessages
+        preSessionMessages = []
+        preSessionBytes = 0
+        // Drain under the lock: `task.send` only enqueues (the messages were encoded
+        // when they were buffered), and releasing first would let a chunk from the
+        // audio thread overtake the audio recorded before it.
+        if let task, !held.isEmpty {
+            dlog("ElevenLabs", "realtime: flushing \(held.count) chunk(s) buffered before session_started")
+            for message in held {
+                sendMessage(message, over: task)
+            }
+        }
+        lock.unlock()
+    }
 
-        // The server ignores a commit with under 0.3 s of uncommitted audio
-        // (`commit_throttled`), so pad the tail with 0.4 s of silence — harmless to
-        // the transcript, and it guarantees the commit is honoured.
+    func finish() async {
+        guard let (held, chunk, task) = takePendingForFinish() else { return }
+        for message in held {
+            sendMessage(message, over: task)
+        }
+
+        // Pad the tail with silence so the commit is not throttled — see
+        // `STTTuning.streamCommitPaddingSeconds`.
         var tail = chunk
-        tail.append(Data(count: Int(sampleRate) * 2 * 4 / 10))
+        tail.append(Data(count: bytes(forSeconds: STTTuning.streamCommitPaddingSeconds)))
         dlog("ElevenLabs", "realtime: finishing, committing \(tail.count) bytes")
         sendChunk(tail, commit: true, over: task)
 
@@ -165,9 +229,9 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
                 }
             }
             group.addTask { [weak self] in
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamFinishTimeoutSeconds * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                dlog("ElevenLabs", "realtime: no commit reply within 4s — using what we have")
+                dlog("ElevenLabs", "realtime: no commit reply within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have")
                 self?.resumeFinish()
             }
             // The group waits for both children on exit; the timeout resumes the
@@ -188,25 +252,39 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     // MARK: Internals
 
     /// Locks can't be taken inside an async function, so `finish()` grabs its state here.
-    private func takePendingForFinish() -> (Data, URLSessionWebSocketTask)? {
+    /// Returns the messages still held for `session_started` (they go out ahead of the
+    /// commit; if the session never started, the commit fails and the batch path takes
+    /// over), the audio to commit, and the socket.
+    private func takePendingForFinish() -> ([String], Data, URLSessionWebSocketTask)? {
         lock.lock()
         defer { lock.unlock() }
         guard !isClosed, let task else { return nil }
+        let held = preSessionMessages
+        preSessionMessages = []
+        preSessionBytes = 0
         let chunk = pendingAudio
         pendingAudio = Data()
         awaitingCommit = true
-        return (chunk, task)
+        return (held, chunk, task)
     }
 
-    private func sendChunk(_ pcm: Data, commit: Bool, over task: URLSessionWebSocketTask) {
+    private static func encodeChunk(_ pcm: Data, commit: Bool, sampleRate: Double) -> String? {
         let payload: [String: Any] = [
             "message_type": "input_audio_chunk",
             "audio_base_64": pcm.base64EncodedString(),
             "commit": commit,
             "sample_rate": Int(sampleRate),
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
-              let text = String(data: data, encoding: .utf8) else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func sendChunk(_ pcm: Data, commit: Bool, over task: URLSessionWebSocketTask) {
+        guard let text = Self.encodeChunk(pcm, commit: commit, sampleRate: sampleRate) else { return }
+        sendMessage(text, over: task)
+    }
+
+    private func sendMessage(_ text: String, over task: URLSessionWebSocketTask) {
         task.send(.string(text)) { [weak self] error in
             if let error {
                 self?.fail(error)
@@ -249,14 +327,18 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
 
         switch type {
         case "session_started":
-            dlog("ElevenLabs", "realtime: session started")
+            let config = json["config"] as? [String: Any] ?? [:]
+            dlog("ElevenLabs", "realtime: session started (vad_silence=\(config["vad_silence_threshold_secs"] ?? "?"), no_verbatim=\(config["no_verbatim"] ?? "?"))")
+            flushPreSessionAudio()
         case "partial_transcript":
-            continuation.yield(.partial(json["text"] as? String ?? ""))
+            let text = json["text"] as? String ?? ""
+            continuation.yield(.partial(text))
+            if !text.isEmpty { partialArrivedDuringGrace() }
         case "committed_transcript":
             let text = json["text"] as? String ?? ""
             dlog("ElevenLabs", "realtime: committed \(text.count) chars")
             continuation.yield(.committed(text))
-            resumeFinish()
+            commitReplyArrived()
         case "committed_transcript_with_timestamps", "committed_transcript_entities":
             break
         case "commit_throttled":
@@ -283,6 +365,38 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         close(with: error)
     }
 
+    /// A `committed_transcript` while `finish()` is waiting. It is probably the reply
+    /// to our commit — but it may be an earlier VAD segment's, with ours still queued
+    /// behind it, so release the wait only after `STTTuning.streamCommitGraceSeconds`
+    /// pass without a partial showing that another segment is open.
+    private func commitReplyArrived() {
+        lock.lock()
+        guard awaitingCommit, !isClosed else {
+            lock.unlock()
+            return
+        }
+        commitGrace?.cancel()
+        commitGrace = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamCommitGraceSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.resumeFinish()
+        }
+        lock.unlock()
+    }
+
+    /// The server is still transcribing after that commit reply: it was not ours. Keep
+    /// waiting for the next one (the `finish()` timeout still bounds the whole wait).
+    private func partialArrivedDuringGrace() {
+        lock.lock()
+        let grace = commitGrace
+        commitGrace = nil
+        lock.unlock()
+        if let grace {
+            dlog("ElevenLabs", "realtime: partial after a commit reply — waiting for the next commit")
+            grace.cancel()
+        }
+    }
+
     private func installFinishWait(_ cont: CheckedContinuation<Void, Never>) {
         lock.lock()
         if isClosed || commitArrived {
@@ -297,6 +411,8 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     private func resumeFinish() {
         lock.lock()
         if awaitingCommit { commitArrived = true }
+        commitGrace?.cancel()
+        commitGrace = nil
         let cont = finishContinuation
         finishContinuation = nil
         lock.unlock()
@@ -318,50 +434,5 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         receiveLoop?.cancel()
         task?.cancel(with: .normalClosure, reason: nil)
         continuation.finish()
-    }
-}
-
-// MARK: - Live Downsampler
-
-/// Converts the microphone's native buffers to mono 16-bit PCM at a fixed rate, one
-/// buffer at a time, keeping the converter's resampling state between calls.
-final class PCMDownsampler {
-    private let converter: AVAudioConverter
-    private let targetFormat: AVAudioFormat
-    private let ratio: Double
-
-    init?(sourceFormat: AVAudioFormat, targetRate: Double) {
-        guard let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: targetRate,
-                                         channels: 1, interleaved: true),
-              let converter = AVAudioConverter(from: sourceFormat, to: target) else {
-            return nil
-        }
-        converter.downmix = true
-        self.converter = converter
-        self.targetFormat = target
-        self.ratio = targetRate / sourceFormat.sampleRate
-    }
-
-    func convert(_ buffer: AVAudioPCMBuffer) -> Data? {
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
-        guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else {
-            return nil
-        }
-
-        var consumed = false
-        var error: NSError?
-        converter.convert(to: out, error: &error) { _, status in
-            if consumed {
-                status.pointee = .noDataNow
-                return nil
-            }
-            consumed = true
-            status.pointee = .haveData
-            return buffer
-        }
-        guard error == nil, out.frameLength > 0, let channel = out.int16ChannelData else {
-            return nil
-        }
-        return Data(bytes: channel[0], count: Int(out.frameLength) * MemoryLayout<Int16>.size)
     }
 }

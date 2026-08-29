@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Request microphone access on first launch
         appState.speechEngine.requestMicrophoneAccess { granted in
             if !granted {
-                print("Microphone access denied!")
+                dlog("App", "Microphone access denied")
             }
         }
 
@@ -367,23 +367,17 @@ final class AppState {
         waitForTranscription()
     }
 
-    private var transcriptionWaitCount = 0
-
+    /// Suspends until the engine reports that transcription has finished, then handles
+    /// the result. The engine resumes us from the same place it flips `isTranscribing`
+    /// off, which is always after `finalText` / `errorMessage` / `lastRecordID` are set,
+    /// so the ordering the old 50ms poll relied on is preserved without the polling.
     private func waitForTranscription() {
-        guard speechEngine.isTranscribing else {
-            dlog("App", "waitForTranscription: done (waited \(transcriptionWaitCount) cycles)")
-            transcriptionWaitCount = 0
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let started = Date()
+            await speechEngine.awaitTranscription()
+            dlog("App", "waitForTranscription: done (\(String(format: "%.2f", Date().timeIntervalSince(started)))s)")
             handleTranscriptionResult()
-            return
-        }
-        transcriptionWaitCount += 1
-        if transcriptionWaitCount == 1 {
-            dlog("App", "waitForTranscription: waiting for isTranscribing to become false…")
-        } else if transcriptionWaitCount % 100 == 0 {
-            dlog("App", "waitForTranscription: still waiting after \(transcriptionWaitCount) cycles (\(Double(transcriptionWaitCount) * 0.05)s)")
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.waitForTranscription()
         }
     }
 
@@ -650,6 +644,8 @@ final class AppState {
             tryPaste()
         } else {
             PasteService.activateApp(app)
+            // Blind wait on purpose: activation completes in the other app, which gives
+            // us no signal for when it can take a ⌘V. Do not replace with a callback.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 tryPaste()
             }
@@ -657,17 +653,18 @@ final class AppState {
     }
 
     func pasteTextToTarget(_ text: String) {
-        print("[AppState] pasteTextToTarget called, text: \(text.prefix(50))...")
-        print("[AppState] previousApp: \(previousApp?.localizedName ?? "nil")")
+        dlog("App", "pasteTextToTarget: \(text.count) chars \"\(text.prefix(50))\", previousApp=\(previousApp?.localizedName ?? "nil")")
 
         // Re-activate the app the user was in before recording
         if let app = previousApp {
             PasteService.activateApp(app)
         } else {
-            print("[AppState] WARNING: no previousApp saved!")
+            dlog("App", "pasteTextToTarget: no previousApp saved")
         }
 
-        // Wait for the app to regain focus, then paste
+        // Wait for the app to regain focus, then paste. A blind wait on purpose: focus
+        // moves in another process and nothing tells us when its text field is ready
+        // for ⌘V. No completion can replace this 0.5s.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             PasteService.pasteAtCursor(text)
         }

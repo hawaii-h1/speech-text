@@ -246,10 +246,13 @@ struct SettingsView: View {
                     }
                 }
                 if elevenLabsModel == elevenLabsRealtimeModel {
-                    Text("Streams audio over a WebSocket, so words appear as you say them and the result lands almost as soon as you stop. If the stream drops, the recording is uploaded to Scribe v1 instead. Realtime is billed per streamed minute — check your plan.")
+                    Text("Streams audio over a WebSocket, so words appear as you say them and the result lands almost as soon as you stop — a 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v1 instead. Realtime is billed per streamed minute — check your plan.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                Text("Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side (Scribe v2 models only).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Picker("Language", selection: $selectedLanguage) {
