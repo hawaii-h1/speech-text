@@ -25,15 +25,17 @@ enum STTProviderType: String, CaseIterable, Identifiable {
         case .groq:
             "Cloud Whisper. Usually more accurate, needs an API key, and text only appears once you stop speaking."
         case .elevenlabs:
-            "Cloud Scribe. Strongest on accents and noisy audio, needs an API key, and text only appears once you stop speaking."
+            "Cloud Scribe. Strongest on accents and noisy audio, needs an API key. Scribe v2 Realtime shows text live while you speak; the v1 models only after you stop."
         }
     }
 
+    /// Whether text appears while the user is still speaking, given the current settings.
     var supportsLiveText: Bool {
         switch self {
         case .apple: true
         case .groq: false
-        case .elevenlabs: false
+        case .elevenlabs:
+            UserDefaults.standard.string(forKey: SettingsKeys.elevenLabsModel) == elevenLabsRealtimeModel
         }
     }
 }
@@ -50,9 +52,13 @@ func makeBatchProvider(for type: STTProviderType) -> BatchSTTProvider {
     let defaults = UserDefaults.standard
     switch type {
     case .elevenlabs:
+        // The realtime model only exists behind the WebSocket; a file upload (the
+        // fallback when the stream drops, and every History retry) goes to Scribe v1.
+        var model = defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? "scribe_v1"
+        if model == elevenLabsRealtimeModel { model = "scribe_v1" }
         return ElevenLabsSTTProvider(
             apiKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
-            model: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? "scribe_v1"
+            model: model
         )
     case .groq, .apple:
         // Apple has no batch API — a retry of an Apple recording goes through Groq.
@@ -225,11 +231,14 @@ private struct ElevenLabsTranscriptionResponse: Decodable {
 enum ElevenLabsError: LocalizedError {
     case invalidResponse
     case httpError(Int, String)
+    /// A `message_type` other than a transcript arrived on the realtime socket.
+    case realtime(String, String)
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse: "Invalid response from ElevenLabs API"
         case .httpError(let code, let body): "ElevenLabs API error HTTP \(code): \(body)"
+        case .realtime(let type, let detail): "ElevenLabs realtime \(type): \(detail)"
         }
     }
 }

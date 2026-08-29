@@ -65,6 +65,18 @@ final class SpeechEngine {
     /// Used by the overlay to show a "preparing" animation before the mic is live.
     var isStartingEngine = false
 
+    // MARK: Streaming state
+    /// Live provider for the current segment, when the selected model streams.
+    private var streamProvider: StreamingSTTProvider?
+    private var streamDownsampler: PCMDownsampler?
+    private var streamEventsTask: Task<Void, Never>?
+    /// Segments the provider has committed so far in this session.
+    private var streamCommittedText = ""
+    /// The segment still in progress.
+    private var streamPartialText = ""
+    /// Set when the stream broke; the stop then falls back to a batch upload of the WAV.
+    private var streamFailure: String?
+
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             DispatchQueue.main.async {
@@ -113,18 +125,20 @@ final class SpeechEngine {
         } else {
             isTranscribing = true
             let bufferWriter = audioBufferWriter
+            let streamer = streamProvider
             // This segment's audio is being sent now. Stopping without resuming must not
             // send it a second time — that produced duplicate requests (and duplicate
             // history entries, and duplicate billing) for one recording.
             pausedSegmentTranscribed = true
-            dlog("Engine", "pauseRecording(batch): bufferWriter=\(bufferWriter != nil), starting transcription task")
+            dlog("Engine", "pauseRecording(\(streamer == nil ? "batch" : "stream")): bufferWriter=\(bufferWriter != nil), starting transcription task")
 
             transcriptionTask?.cancel()
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
-                let text = await self.transcribeBatch(providerType: providerType,
-                                                      bufferWriter: bufferWriter,
-                                                      locale: resolvedLocale())
+                let text = await self.transcribeSegment(providerType: providerType,
+                                                        streamer: streamer,
+                                                        bufferWriter: bufferWriter,
+                                                        locale: resolvedLocale())
                 await MainActor.run {
                     if let text {
                         self.liveText = text
@@ -185,6 +199,11 @@ final class SpeechEngine {
 
         let providerType = currentProviderType()
 
+        teardownStream()
+        if let streamer = makeStreamingProvider(for: providerType) {
+            startStream(streamer, locale: locale)
+        }
+
         if providerType == .apple {
             // Reuse the existing recognizer when the locale is unchanged — creating a new
             // SFSpeechRecognizer reloads the speech model (~300-500ms on first use).
@@ -243,6 +262,7 @@ final class SpeechEngine {
         finalText = ""
         liveText = ""
         barLevels = Array(repeating: 0, count: 12)
+        teardownStream()
         cleanup()
     }
 
@@ -291,13 +311,15 @@ final class SpeechEngine {
             isTranscribing = true
             let locale: String? = resolvedLocale()
             let bufferWriter = audioBufferWriter
-            dlog("Engine", "stopRecording(batch): bufferWriter=\(bufferWriter != nil), starting transcription task")
+            let streamer = streamProvider
+            dlog("Engine", "stopRecording(\(streamer == nil ? "batch" : "stream")): bufferWriter=\(bufferWriter != nil), starting transcription task")
 
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
-                let text = await self.transcribeBatch(providerType: providerType,
-                                                      bufferWriter: bufferWriter,
-                                                      locale: locale)
+                let text = await self.transcribeSegment(providerType: providerType,
+                                                        streamer: streamer,
+                                                        bufferWriter: bufferWriter,
+                                                        locale: locale)
                 await MainActor.run {
                     if let text {
                         self.finalText = text
@@ -523,6 +545,95 @@ final class SpeechEngine {
         }
     }
 
+    // MARK: - Streaming
+
+    /// Opens the live connection for a new segment and mirrors its events into
+    /// `liveText`. The WAV keeps recording alongside, as the archive and the fallback.
+    private func startStream(_ provider: StreamingSTTProvider, locale: String) {
+        streamProvider = provider
+        streamCommittedText = ""
+        streamPartialText = ""
+        streamFailure = nil
+        provider.connect(language: locale)
+
+        streamEventsTask = Task { [weak self] in
+            for await event in provider.events {
+                await MainActor.run {
+                    guard let self, self.streamProvider === provider else { return }
+                    switch event {
+                    case .partial(let text):
+                        self.streamPartialText = text
+                    case .committed(let text):
+                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            self.streamCommittedText = Self.joined(self.streamCommittedText, trimmed)
+                        }
+                        self.streamPartialText = ""
+                    case .failed(let error):
+                        self.streamFailure = error.localizedDescription
+                    }
+                    self.liveText = Self.joined(self.streamCommittedText, self.streamPartialText)
+                }
+            }
+        }
+    }
+
+    private func teardownStream() {
+        streamEventsTask?.cancel()
+        streamEventsTask = nil
+        streamProvider?.cancel()
+        streamProvider = nil
+        streamDownsampler = nil
+    }
+
+    private static func joined(_ head: String, _ tail: String) -> String {
+        if head.isEmpty { return tail }
+        if tail.isEmpty { return head }
+        return head + " " + tail
+    }
+
+    /// Finishes a segment: closes the stream and takes its text, or — when there was no
+    /// stream, it broke, or it produced nothing — uploads the WAV to the batch provider.
+    private func transcribeSegment(providerType: STTProviderType,
+                                   streamer: StreamingSTTProvider?,
+                                   bufferWriter: AudioBufferWriter?,
+                                   locale: String?) async -> String? {
+        guard let streamer else {
+            return await transcribeBatch(providerType: providerType,
+                                         bufferWriter: bufferWriter, locale: locale)
+        }
+
+        await streamer.finish()
+        guard !Task.isCancelled else { return nil }
+
+        let outcome: (text: String, failure: String?) = await MainActor.run {
+            let text = Self.joined(streamCommittedText, streamPartialText)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let failure = streamFailure
+            if streamProvider === streamer {
+                teardownStream()
+            }
+            return (text, failure)
+        }
+
+        if outcome.failure == nil, !outcome.text.isEmpty {
+            dlog("Engine", "transcribeSegment: stream done, \(outcome.text.count) chars")
+            let duration = bufferWriter?.bufferedDuration ?? 0
+            await MainActor.run {
+                self.lastRecordID = TranscriptionHistory.shared.recordSuccess(
+                    text: outcome.text, provider: providerType.rawValue,
+                    locale: locale, duration: duration
+                )
+            }
+            return outcome.text
+        }
+
+        dlog("Engine", "transcribeSegment: stream \(outcome.failure ?? "returned nothing") — falling back to batch upload")
+        await MainActor.run { liveText = "" }
+        return await transcribeBatch(providerType: providerType,
+                                     bufferWriter: bufferWriter, locale: locale)
+    }
+
     private func currentProviderType() -> STTProviderType {
         let raw = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "apple"
         return STTProviderType(rawValue: raw) ?? .apple
@@ -549,10 +660,22 @@ final class SpeechEngine {
         // This avoids "format mismatch" ObjC exceptions that Swift can't catch.
         seLog.info("installAudioTap: hwFormat=\(hwFormat.description, privacy: .public)")
 
+        if let streamProvider {
+            streamDownsampler = PCMDownsampler(sourceFormat: hwFormat, targetRate: streamProvider.sampleRate)
+            if streamDownsampler == nil {
+                dlog("Engine", "installAudioTap: no downsampler for \(hwFormat) — stream will be skipped, batch fallback at stop")
+                streamFailure = "Could not convert audio for streaming"
+            }
+        }
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             self.recognitionRequest?.append(buffer)
             self.audioBufferWriter?.append(buffer)
+            if let streamProvider = self.streamProvider,
+               let pcm = self.streamDownsampler?.convert(buffer) {
+                streamProvider.send(pcm16: pcm)
+            }
 
             let levels = Self.perSegmentRMS(buffer: buffer, count: 12)
             DispatchQueue.main.async {
@@ -619,6 +742,7 @@ final class SpeechEngine {
         // model stays loaded in memory, making subsequent recordings start much faster.
         audioBufferWriter?.reset()
         audioBufferWriter = nil
+        teardownStream()
         tearDownAudioEngine()
         removeConfigChangeObserver()
     }
