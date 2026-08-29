@@ -38,6 +38,10 @@ enum SettingsKeys {
     /// Whether the Record Window's ✨ toggle is on.
     static let aiModeInRecordWindow = "aiModeInRecordWindow"
 
+    // Message delivery
+    /// Whether an AI dictation may be routed to a messaging app instead of the cursor.
+    static let messageSendingEnabled = "messageSendingEnabled"
+
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
 
@@ -71,6 +75,7 @@ enum SettingsKeys {
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
+        messageSendingEnabled,
         appSkin, accentColor,
         hotkeyLayoutVersion, debugMode,
     ]

@@ -31,6 +31,25 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
         var succeeded: Bool { errorMessage == nil && !outputText.isEmpty }
     }
 
+    /// Where a dictation was delivered, when it went somewhere other than the cursor.
+    /// Recorded on failure too: a message the user believes they sent and did not is
+    /// exactly the thing that has to be explainable afterwards.
+    struct Delivery: Codable, Equatable {
+        enum Outcome: String, Codable {
+            /// The app completed the send itself (scripted channels).
+            case sent
+            /// The chat was opened with the text staged; the user finishes it.
+            case composed
+            case failed
+        }
+
+        var channel: String
+        var recipientName: String
+        var address: String
+        var outcome: Outcome
+        var errorMessage: String?
+    }
+
     let id: UUID
     let date: Date
     var text: String
@@ -44,6 +63,8 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     var audioFileName: String?
     /// Optional, so history written before AI mode existed still decodes.
     var refinement: Refinement?
+    /// Optional, so history written before message delivery existed still decodes.
+    var delivery: Delivery?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
 
@@ -151,6 +172,22 @@ final class TranscriptionHistory {
             inputText: input, outputText: "", presetName: nil,
             provider: provider, model: model, errorMessage: error
         ))
+    }
+
+    func recordDelivery(id: UUID, channel: DeliveryChannel, recipient: RecipientCandidate,
+                        outcome: TranscriptionRecord.Delivery.Outcome, error: String? = nil) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else {
+            histLog.info("delivery for unknown record \(id.uuidString, privacy: .public) — dropped")
+            return
+        }
+        records[index].delivery = TranscriptionRecord.Delivery(
+            channel: channel.displayName,
+            recipientName: recipient.displayName,
+            address: recipient.address,
+            outcome: outcome,
+            errorMessage: error
+        )
+        save()
     }
 
     private func updateRefinement(id: UUID, _ refinement: TranscriptionRecord.Refinement) {

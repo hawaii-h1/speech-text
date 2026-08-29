@@ -19,6 +19,9 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIAPIKey) private var openAIAPIKey = ""
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
 
+    @AppStorage(SettingsKeys.messageSendingEnabled) private var messageSendingEnabled = false
+    @State private var contactsAuthorized = ContactResolver.isAuthorized
+
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
 
@@ -59,6 +62,7 @@ struct SettingsView: View {
                             }
                         } catch {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
+            contactsAuthorized = ContactResolver.isAuthorized
                         }
                     }
             }
@@ -66,6 +70,7 @@ struct SettingsView: View {
             appearanceSection
             speechToTextSection
             aiProcessingSection
+            messageDeliverySection
             apiKeysSection
 
             Section("Keyboard Shortcuts") {
@@ -112,6 +117,22 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                HStack {
+                    Text("Contacts")
+                    Spacer()
+                    if contactsAuthorized {
+                        Text("Granted")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button("Grant Access") {
+                            Task {
+                                try? await ContactResolver.ensureAccess()
+                                contactsAuthorized = ContactResolver.isAuthorized
+                            }
+                        }
+                    }
+                }
             }
         }
         .formStyle(.grouped)
@@ -119,6 +140,7 @@ struct SettingsView: View {
         .padding()
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
+            contactsAuthorized = ContactResolver.isAuthorized
             // A value left behind by a removed engine would render the picker blank.
             normalizeStoredProviders()
         }
@@ -293,6 +315,51 @@ struct SettingsView: View {
             sectionHeader(
                 "Step 2 · Text → Text (AI)",
                 "Optional. Runs only for the AI Recording shortcut and the ✨ toggle in the Record Window. What you dictate is the prompt — the model picks the matching preset and rewrites the text."
+            )
+        }
+    }
+
+    // MARK: - Message delivery
+
+    private var messageDeliverySection: some View {
+        Section {
+            Toggle("Let dictations be sent as messages", isOn: $messageSendingEnabled)
+
+            if messageSendingEnabled {
+                let available = MessageDelivery.availableChannels
+                if available.isEmpty {
+                    Label("No supported messaging app found on this Mac.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    HStack(spacing: 10) {
+                        ForEach(available) { channel in
+                            Label(channel.displayName, systemImage: channel.symbolName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                }
+
+                // The channels split into two behaviours and the difference matters
+                // before the first send, not after it.
+                Text("Messages and Apple Mail are sent for you. Telegram and WhatsApp refuse to send from a link, so they open the chat with the text ready and you press ⏎. Nothing is ever sent without the confirmation panel.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !contactsAuthorized {
+                    Label("Needs Contacts access to look up who you named.",
+                          systemImage: "person.crop.circle.badge.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        } header: {
+            sectionHeader(
+                "Step 3 · Text → Someone (experimental)",
+                "Say who the message is for and where — “send Oksana on Telegram that I'm running late”. The recipient is looked up in your own Contacts; the app never invents an address."
             )
         }
     }

@@ -4,6 +4,10 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>SpeachText asks Messages and Mail to send the message you dictated.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>SpeachText looks up the person you name in a dictation so it can address the message to them.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SpeachText needs microphone access for speech recognition</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
