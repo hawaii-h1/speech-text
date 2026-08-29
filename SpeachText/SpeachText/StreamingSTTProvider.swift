@@ -52,8 +52,9 @@ func makeStreamingProvider(configuration: RecordingConfiguration) -> StreamingST
 ///
 /// The engine calls `connect` before it starts `AVAudioEngine`, so the TLS handshake
 /// overlaps the 100–300 ms the hardware takes to come up. Audio that arrives before
-/// the server's `session_started` is held in `preSessionAudio` and flushed the moment
-/// it does: the server does not promise to keep audio sent ahead of that message, and
+/// the server's `session_started` is held in `preSessionMessages` — already encoded as
+/// the socket messages it will become, on the audio thread — and flushed the moment it
+/// does: the server does not promise to keep audio sent ahead of that message, and
 /// the first syllable of a dictation is exactly what must not be lost.
 final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
     let sampleRate: Double = 16_000
@@ -336,12 +337,21 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
             // further is coming for it, so stop waiting; the stream itself is fine.
             dlog("ElevenLabs", "realtime: \(json["error"] as? String ?? "commit throttled")")
             resumeFinish()
-        default:
-            // Everything else the server sends is an error variant (auth_error,
-            // quota_exceeded, rate_limited, session_time_limit_exceeded, …).
+        case "auth_error", "quota_exceeded", "rate_limited", "session_time_limit_exceeded",
+             "error", "invalid_request":
+            // The documented error variants. Only these end the stream: failing on
+            // anything unrecognised would turn a future informational message (a
+            // keepalive, a VAD state change, …) into a silent degrade where every
+            // recording pays for the streamed minutes *and* a batch re-upload.
             let detail = json["error"] as? String ?? raw
             dlog("ElevenLabs", "realtime: \(type): \(detail.prefix(200))")
             fail(ElevenLabsError.realtime(type, detail))
+        default:
+            // Unknown but well-formed — the server's vocabulary is open (three purely
+            // informational types are already special-cased above). A socket that
+            // genuinely breaks still reaches `fail` through `runReceiveLoop`'s catch,
+            // so ignoring this never loses the batch fallback.
+            dlog("ElevenLabs", "realtime: ignoring unknown message_type \(type)")
         }
     }
 

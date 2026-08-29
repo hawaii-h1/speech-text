@@ -41,6 +41,18 @@
 		A10000010000000000000023 /* AppleRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000026 /* AppleRecognitionSession.swift */; };
 		A10000010000000000000024 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
 		A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
+		B10000010000000000000001 /* PureLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000001 /* PureLogicTests.swift */; };
+		B10000010000000000000002 /* AudioPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000002 /* AudioPipelineTests.swift */; };
+		B10000010000000000000010 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000009 /* Settings.swift */; };
+		B10000010000000000000011 /* STTProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000000E /* STTProvider.swift */; };
+		B10000010000000000000012 /* AudioBufferWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000000F /* AudioBufferWriter.swift */; };
+		B10000010000000000000013 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000012 /* DebugLog.swift */; };
+		B10000010000000000000014 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000018 /* LLMProvider.swift */; };
+		B10000010000000000000015 /* PromptPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000019 /* PromptPresets.swift */; };
+		B10000010000000000000016 /* TextRefinementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001A /* TextRefinementService.swift */; };
+		B10000010000000000000017 /* StreamingSTTProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000023 /* StreamingSTTProvider.swift */; };
+		B10000010000000000000018 /* RecordingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000024 /* RecordingConfiguration.swift */; };
+		B10000010000000000000019 /* MessageDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000020 /* MessageDelivery.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -81,10 +93,20 @@
 		A20000010000000000000026 /* AppleRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleRecognitionSession.swift; sourceTree = "<group>"; };
 		A20000010000000000000027 /* BatchRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchRecognitionSession.swift; sourceTree = "<group>"; };
 		A20000010000000000000028 /* StreamingRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingRecognitionSession.swift; sourceTree = "<group>"; };
+		B20000010000000000000001 /* PureLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PureLogicTests.swift; sourceTree = "<group>"; };
+		B20000010000000000000002 /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
+		B2000001000000000000000C /* SpeachTextTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpeachTextTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A30000010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B30000010000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -98,6 +120,7 @@
 			isa = PBXGroup;
 			children = (
 				A40000010000000000000002 /* SpeachText */,
+				B40000010000000000000001 /* SpeachTextTests */,
 				A40000010000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -149,8 +172,18 @@
 			isa = PBXGroup;
 			children = (
 				A2000001000000000000000C /* SpeachText.app */,
+				B2000001000000000000000C /* SpeachTextTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B40000010000000000000001 /* SpeachTextTests */ = {
+			isa = PBXGroup;
+			children = (
+				B20000010000000000000001 /* PureLogicTests.swift */,
+				B20000010000000000000002 /* AudioPipelineTests.swift */,
+			);
+			path = SpeachTextTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -172,6 +205,22 @@
 			productName = SpeachText;
 			productReference = A2000001000000000000000C /* SpeachText.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B50000010000000000000001 /* SpeachTextTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeachTextTests" */;
+			buildPhases = (
+				B60000010000000000000001 /* Sources */,
+				B30000010000000000000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SpeachTextTests;
+			productName = SpeachTextTests;
+			productReference = B2000001000000000000000C /* SpeachTextTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -197,6 +246,7 @@
 			projectRoot = "";
 			targets = (
 				A50000010000000000000001 /* SpeachText */,
+				B50000010000000000000001 /* SpeachTextTests */,
 			);
 		};
 /* End PBXProject section */
@@ -250,6 +300,25 @@
 				A10000010000000000000024 /* BatchRecognitionSession.swift in Sources */,
 				A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B60000010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000010000000000000001 /* PureLogicTests.swift in Sources */,
+				B10000010000000000000002 /* AudioPipelineTests.swift in Sources */,
+				B10000010000000000000010 /* Settings.swift in Sources */,
+				B10000010000000000000011 /* STTProvider.swift in Sources */,
+				B10000010000000000000012 /* AudioBufferWriter.swift in Sources */,
+				B10000010000000000000013 /* DebugLog.swift in Sources */,
+				B10000010000000000000014 /* LLMProvider.swift in Sources */,
+				B10000010000000000000015 /* PromptPresets.swift in Sources */,
+				B10000010000000000000016 /* TextRefinementService.swift in Sources */,
+				B10000010000000000000017 /* StreamingSTTProvider.swift in Sources */,
+				B10000010000000000000018 /* RecordingConfiguration.swift in Sources */,
+				B10000010000000000000019 /* MessageDelivery.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -415,6 +484,38 @@
 			};
 			name = Release;
 		};
+		B90000010000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = J4QFMWMZ48;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.speachtext.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B90000010000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = J4QFMWMZ48;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.speachtext.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -432,6 +533,15 @@
 			buildConfigurations = (
 				A90000010000000000000003 /* Debug */,
 				A90000010000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeachTextTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B90000010000000000000003 /* Debug */,
+				B90000010000000000000004 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

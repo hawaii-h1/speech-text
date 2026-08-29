@@ -260,7 +260,14 @@ final class SpeechEngine {
         do {
             try newSession.start()
         } catch {
+            // Same terminal shape as every other failure path: the result fields first,
+            // then `.idle` (so `isStartingEngine` doesn't stay true forever and parked
+            // `awaitTranscription()` callers see a finished result), then `cleanup()` —
+            // which also drops the fresh AVAudioEngine, its config-change observer and
+            // the half-built session that would otherwise leak until the next start.
             errorMessage = error.localizedDescription
+            phase = .idle
+            cleanup()
             return
         }
 

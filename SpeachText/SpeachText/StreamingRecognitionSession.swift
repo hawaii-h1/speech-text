@@ -106,11 +106,11 @@ final class StreamingRecognitionSession: RecognitionSession {
         }
 
         if failure == nil, !text.isEmpty {
-            dlog("Engine", "transcribeSegment: stream done, \(text.count) chars")
+            dlog("Engine", "StreamingRecognitionSession.finish: stream done, \(text.count) chars")
             return RecognitionOutcome(text: text, error: nil, audioFileURL: nil, cancelled: false)
         }
 
-        dlog("Engine", "transcribeSegment: stream \(failure ?? "returned nothing") — falling back to batch upload")
+        dlog("Engine", "StreamingRecognitionSession.finish: stream \(failure ?? "returned nothing") — falling back to batch upload")
         // The partial text on screen described a stream that is being discarded.
         await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
         return await fallback.finish()

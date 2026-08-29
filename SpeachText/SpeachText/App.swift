@@ -314,6 +314,11 @@ final class AppState {
     /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
     private(set) var isRefining = false
     private var refinementTask: Task<Void, Never>?
+    /// The task parked in `waitForTranscription()`. Cancelling the inline flow cancels
+    /// it too: `cancelRecording()` moves the engine off `.finishing`, which resumes the
+    /// waiter, and without the cancel it would run `handleTranscriptionResult()` over
+    /// the cleared texts and pop "No speech detected" for an action the user asked for.
+    private var transcriptionWaitTask: Task<Void, Never>?
 
     /// The pending "send this to X" confirmation, if one is on screen.
     private var confirmationPanel: SendConfirmationPanelWindow?
@@ -334,6 +339,8 @@ final class AppState {
 
     /// Aborts recording, transcription and any in-flight LLM call, and drops the overlay.
     func cancelInlineFlow() {
+        transcriptionWaitTask?.cancel()
+        transcriptionWaitTask = nil
         refinementTask?.cancel()
         refinementTask = nil
         recipientTask?.cancel()
@@ -372,10 +379,14 @@ final class AppState {
     /// off, which is always after `finalText` / `errorMessage` / `lastRecordID` are set,
     /// so the ordering the old 50ms poll relied on is preserved without the polling.
     private func waitForTranscription() {
-        Task { @MainActor [weak self] in
+        transcriptionWaitTask?.cancel()
+        transcriptionWaitTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let started = Date()
             await speechEngine.awaitTranscription()
+            // A cancel resumed us by moving the engine to `.idle` — there is no result
+            // to handle, and reporting the cleared texts would claim "No speech detected".
+            guard !Task.isCancelled else { return }
             dlog("App", "waitForTranscription: done (\(String(format: "%.2f", Date().timeIntervalSince(started)))s)")
             handleTranscriptionResult()
         }
@@ -676,6 +687,8 @@ final class AppState {
 
         let panel = RecordingOverlayPanel()
         let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, appState: self, onCancel: { [weak self, weak panel] in
+            self?.transcriptionWaitTask?.cancel()
+            self?.transcriptionWaitTask = nil
             self?.refinementTask?.cancel()
             self?.refinementTask = nil
             self?.isRefining = false

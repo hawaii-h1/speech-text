@@ -210,16 +210,29 @@ final class AudioBufferWriter {
                     }
                 }
             } catch {
-                // Falls back to the native format (always a WAV — the encoder was never
-                // the problem here) if the converter can't be built, so a conversion
-                // problem degrades to a big file rather than losing the recording entirely.
-                // Only possible when nothing was converted live: a native WAV cannot
-                // also hold the 16 kHz bytes.
-                guard capturedFrames == 0, let capturedFormat else { throw error }
-                dlog("Audio", "writeAudioFile: downsample failed (\(error.localizedDescription)) — falling back to native format")
-                let nativeURL = Self.makeTempURL(codec: .wav)
-                try Self.writeNative(buffers: capturedBuffers, format: capturedFormat, to: nativeURL)
-                tempURL = nativeURL
+                if capturedFrames > 0, hasNative {
+                    // The mixed path exists because the live converter already errored
+                    // mid-session, so the fresh converter over the same native tail
+                    // erroring again is the likely case — and the converted bytes are
+                    // fine. Rewrite the file from them alone: losing the tail beats
+                    // losing the recording.
+                    dlog("Audio", "writeAudioFile: native tail failed to downsample (\(error.localizedDescription)) — dropping it, keeping \(capturedFrames) converted frames")
+                    tempURL = try Self.writeWithCodecFallback { codec, url in
+                        let outputFile = try Self.makeOutputFile(codec: codec, at: url)
+                        try Self.writeConverted(pcm16: capturedPCM, frames: capturedFrames, to: outputFile)
+                    }
+                } else {
+                    // Falls back to the native format (always a WAV — the encoder was never
+                    // the problem here) if the converter can't be built, so a conversion
+                    // problem degrades to a big file rather than losing the recording entirely.
+                    // Only reachable when nothing was converted live: a native WAV cannot
+                    // also hold the 16 kHz bytes.
+                    guard capturedFrames == 0, let capturedFormat else { throw error }
+                    dlog("Audio", "writeAudioFile: downsample failed (\(error.localizedDescription)) — falling back to native format")
+                    let nativeURL = Self.makeTempURL(codec: .wav)
+                    try Self.writeNative(buffers: capturedBuffers, format: capturedFormat, to: nativeURL)
+                    tempURL = nativeURL
+                }
             }
         } else {
             dlog("Audio", "writeAudioFile: nothing buffered — throwing noAudio")

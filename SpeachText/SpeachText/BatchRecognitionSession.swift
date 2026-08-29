@@ -33,18 +33,18 @@ final class BatchRecognitionSession: RecognitionSession {
         do {
             fileURL = try writer.writeAudioFile()
         } catch {
-            dlog("Engine", "transcribeBatch: could not write audio file: \(error.localizedDescription)")
+            dlog("Engine", "BatchRecognitionSession.finish: could not write audio file: \(error.localizedDescription)")
             return RecognitionOutcome(text: "", error: error.localizedDescription,
                                       audioFileURL: nil, cancelled: Task.isCancelled)
         }
 
         do {
-            dlog("Engine", "transcribeBatch: calling provider, locale=\(locale)…")
+            dlog("Engine", "BatchRecognitionSession.finish: calling provider, locale=\(locale)…")
             let text = try await provider.transcribe(audioFileURL: fileURL, language: locale).trimmingCharacters(in: .whitespacesAndNewlines)
-            dlog("Engine", "transcribeBatch: done, \(text.count) chars")
+            dlog("Engine", "BatchRecognitionSession.finish: done, \(text.count) chars")
             return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false)
         } catch {
-            dlog("Engine", "transcribeBatch: error: \(error.localizedDescription)")
+            dlog("Engine", "BatchRecognitionSession.finish: error: \(error.localizedDescription)")
             if Task.isCancelled {
                 AudioBufferWriter.cleanup(fileURL: fileURL)
                 return .cancelled

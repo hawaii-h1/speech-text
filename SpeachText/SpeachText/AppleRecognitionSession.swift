@@ -109,7 +109,7 @@ final class AppleRecognitionSession: RecognitionSession {
     private func rotate() {
         guard isFeeding, let recognizer else { return }
         let live = joinedTranscript(committedText, partialText)
-        dlog("Engine", "rotateAppleRecognition: committing \(live.count) chars, starting fresh chunk")
+        dlog("Engine", "AppleRecognitionSession.rotate: committing \(live.count) chars, starting fresh chunk")
 
         // Commit the latest partial. Partials arrive continuously, so this captures
         // essentially everything said in this chunk; at most a word at the boundary
