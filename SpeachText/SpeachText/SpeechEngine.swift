@@ -157,15 +157,16 @@ final class SpeechEngine {
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
             let outcome = await session.finish()
+            // A resume can cancel this task while the upload is still in flight. The
+            // segment was still transcribed, so it is still written to History (that is
+            // not "a newer session's state", and dropping it silently lost a completed
+            // upload whenever a resume raced the reply) — but nothing that belongs to
+            // the session now running is touched.
+            let superseded = Task.isCancelled
             await MainActor.run {
-                // A stale task must never touch a newer session's state — but the
-                // outcome may still own a segment file (the upload finished before the
-                // cancel landed), and `recordOutcome` will never run to release it.
-                guard !Task.isCancelled else {
-                    if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
-                    return
-                }
-                self.recordOutcome(outcome, writer: writer, locale: locale)
+                self.recordOutcome(outcome, writer: writer, locale: locale,
+                                   superseded: superseded)
+                guard !superseded else { return }
                 if outcome.error == nil {
                     self.liveText = outcome.text
                     if !outcome.text.isEmpty {
@@ -448,7 +449,11 @@ final class SpeechEngine {
     /// is a success even when an error was also reported (Apple: an error after some
     /// words). With nothing recognised the audio is archived — the writer has it for every
     /// tier, so on-device recognition producing nothing still leaves a cloud retry.
-    private func recordOutcome(_ outcome: RecognitionOutcome, writer: AudioBufferWriter?, locale: String) {
+    /// `superseded`: the segment landed after its task was cancelled by a resume. It
+    /// still belongs in History, but the engine's live state is the *new* session's, so
+    /// its failure must neither be shown as the current error nor be inferred from one.
+    private func recordOutcome(_ outcome: RecognitionOutcome, writer: AudioBufferWriter?,
+                               locale: String, superseded: Bool = false) {
         guard !outcome.cancelled else {
             if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
             return
@@ -460,8 +465,8 @@ final class SpeechEngine {
         // `installAudioTap`'s "No audio input device available") live in `errorMessage`.
         // Any error known when an empty segment lands makes the entry a failure, so the
         // History row stays explainable after the fact.
-        let failure = outcome.error ?? errorMessage
-        if let error = outcome.error {
+        let failure = outcome.error ?? (superseded ? nil : errorMessage)
+        if let error = outcome.error, !superseded {
             errorMessage = error
         }
         if !outcome.text.isEmpty {

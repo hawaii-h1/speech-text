@@ -65,13 +65,19 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
 
     private let lock = NSLock()
+    /// Serialises the socket's `send` calls, so a batch (the pre-session flush, or the
+    /// messages `finish()` releases ahead of its commit) cannot be interleaved by a
+    /// chunk from the audio thread. Deliberately *not* `lock`: a `send` completion that
+    /// URLSession runs synchronously re-enters `fail` → `close`, which take `lock`.
+    /// Always acquired before `lock`, never while holding it.
+    private let sendLock = NSLock()
     private var task: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
     private var pendingAudio = Data()
     /// Chunks ready to send but held until `session_started`, already encoded as the
-    /// socket messages they will become, so the flush under the lock is nothing but
-    /// `task.send` calls (the base64/JSON work is done on the audio thread as the chunk
-    /// is buffered, which is where it would have been done anyway). Bounded by
+    /// socket messages they will become, so the flush is nothing but `task.send` calls
+    /// (the base64/JSON work is done on the audio thread as the chunk is buffered,
+    /// which is where it would have been done anyway). Bounded by
     /// `STTTuning.streamPreSessionBufferSeconds`: if it fills, the stream fails over.
     private var preSessionMessages: [String] = []
     private var preSessionBytes = 0
@@ -179,37 +185,46 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     }
 
     /// `session_started` arrived: release everything held for it, in order, ahead of
-    /// any chunk `send` produces from now on (it still holds the lock while we drain).
+    /// any chunk `send` produces from now on.
     private func flushPreSessionAudio() {
+        // `sendLock` is taken first and held across the drain, so a chunk the audio
+        // thread produces the moment `sessionStarted` flips waits behind the audio that
+        // was recorded before it. `lock` is released before the sends: holding it across
+        // `task.send` deadlocks the moment URLSession runs a completion synchronously,
+        // because that completion path (`fail` → `close`) takes `lock` too.
+        sendLock.lock()
+        defer { sendLock.unlock() }
+
         lock.lock()
         sessionStarted = true
         let held = preSessionMessages
         preSessionMessages = []
         preSessionBytes = 0
-        // Drain under the lock: `task.send` only enqueues (the messages were encoded
-        // when they were buffered), and releasing first would let a chunk from the
-        // audio thread overtake the audio recorded before it.
-        if let task, !held.isEmpty {
-            dlog("ElevenLabs", "realtime: flushing \(held.count) chunk(s) buffered before session_started")
-            for message in held {
-                sendMessage(message, over: task)
-            }
-        }
+        let task = self.task
         lock.unlock()
+
+        guard let task, !held.isEmpty else { return }
+        dlog("ElevenLabs", "realtime: flushing \(held.count) chunk(s) buffered before session_started")
+        for message in held {
+            enqueue(message, over: task)
+        }
     }
 
     func finish() async {
         guard let (held, chunk, task) = takePendingForFinish() else { return }
-        for message in held {
-            sendMessage(message, over: task)
-        }
 
         // Pad the tail with silence so the commit is not throttled — see
         // `STTTuning.streamCommitPaddingSeconds`.
         var tail = chunk
         tail.append(Data(count: bytes(forSeconds: STTTuning.streamCommitPaddingSeconds)))
         dlog("ElevenLabs", "realtime: finishing, committing \(tail.count) bytes")
-        sendChunk(tail, commit: true, over: task)
+        // One batch: anything still held for `session_started` has to reach the server
+        // ahead of the commit, or the commit closes a segment missing its own audio.
+        var messages = held
+        if let commit = Self.encodeChunk(tail, commit: true, sampleRate: sampleRate) {
+            messages.append(commit)
+        }
+        sendMessages(messages, over: task)
 
         // Wait for the commit's transcript, but never hang the paste on it.
         await withTaskGroup(of: Void.self) { group in
@@ -276,6 +291,21 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     }
 
     private func sendMessage(_ text: String, over task: URLSessionWebSocketTask) {
+        sendMessages([text], over: task)
+    }
+
+    /// Puts the whole batch on the socket with nothing of another thread's in between.
+    private func sendMessages(_ messages: [String], over task: URLSessionWebSocketTask) {
+        sendLock.lock()
+        defer { sendLock.unlock() }
+        for message in messages {
+            enqueue(message, over: task)
+        }
+    }
+
+    /// The raw send. Callers hold `sendLock`; `task.send` only enqueues, so the hold is
+    /// short even for a flush of the whole pre-session buffer.
+    private func enqueue(_ text: String, over task: URLSessionWebSocketTask) {
         task.send(.string(text)) { [weak self] error in
             if let error {
                 self?.fail(error)
