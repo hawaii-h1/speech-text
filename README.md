@@ -2,6 +2,8 @@
 
 **Voice-to-text for macOS. Press a hotkey, speak, and the text appears where your cursor is.**
 
+![CI](https://github.com/yavno/speech-text/actions/workflows/ci.yml/badge.svg)
+
 Open source, bring your own API keys. A month of heavy dictation costs cents instead of a $15 subscription.
 
 ![SpeechText](speech-text.png)
@@ -104,7 +106,7 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Start with issues labelled [`good first issue`](https://github.com/yavno/speech-text/labels/good%20first%20issue). For anything larger, open an issue first so we can agree on the approach before you write code.
 
-[ROADMAP.md](ROADMAP.md) describes where the project is heading.
+[ROADMAP.md](ROADMAP.md) describes where the project is heading, [CHANGELOG.md](CHANGELOG.md) what has already shipped, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) how we treat each other here.
 
 ---
 

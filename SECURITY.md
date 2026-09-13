@@ -4,7 +4,7 @@
 
 **Do not open a public issue for security problems.**
 
-Report privately via [GitHub Security Advisories](https://github.com/yavno/speech-text/security/advisories/new), or email the maintainer.
+Report privately via [GitHub Security Advisories](https://github.com/yavno/speech-text/security/advisories/new). That is the only reporting channel.
 
 Expect a first response within 72 hours. Please include what you found, how to reproduce it, and what an attacker could do with it.
 

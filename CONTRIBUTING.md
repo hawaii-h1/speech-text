@@ -51,6 +51,8 @@ If you forget, `git commit --amend -s` fixes the last commit.
 - New source files carry the two-line SPDX header (see [License](#license)).
 - The description says what changed and why.
 
+CI runs the tests and the DCO sign-off check on every pull request.
+
 ## Setting up
 
 [docs/development.md](docs/development.md) covers building, testing and the project layout. [`CLAUDE.md`](CLAUDE.md) is the full architecture reference — read the relevant section before changing the recording pipeline.
