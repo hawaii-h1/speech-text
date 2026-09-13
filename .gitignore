@@ -13,3 +13,10 @@ menubar-icon.svg
 
 # Skill build output
 build/
+
+# Marketing / business strategy — never publish
+docs/marketing/
+NOTE.md
+
+# Local Claude settings
+.claude/settings.local.json
