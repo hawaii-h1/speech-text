@@ -5,12 +5,12 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>SpeachText asks Messages and Mail to send the message you dictated.</string>
+	<string>SpeechText asks Messages and Mail to send the message you dictated.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>SpeachText looks up the person you name in a dictation so it can address the message to them.</string>
+	<string>SpeechText looks up the person you name in a dictation so it can address the message to them.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>SpeachText needs microphone access for speech recognition</string>
+	<string>SpeechText needs microphone access for speech recognition</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>SpeachText uses on-device speech recognition to convert your voice to text</string>
+	<string>SpeechText uses on-device speech recognition to convert your voice to text</string>
 </dict>
 </plist>

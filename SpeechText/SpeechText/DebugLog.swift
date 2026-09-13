@@ -14,7 +14,7 @@ final class DebugLog {
 
     private(set) var entries: [Entry] = []
     private let maxEntries = 1000
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeachText",
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                                 category: "Debug")
 
     private static let dateFormatter: DateFormatter = {

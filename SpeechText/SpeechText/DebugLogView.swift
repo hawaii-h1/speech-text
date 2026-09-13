@@ -140,7 +140,7 @@ final class DebugLogWindow: NSWindow {
             backing: .buffered,
             defer: false
         )
-        title = "SpeachText Debug Log"
+        title = "SpeechText Debug Log"
         contentView = NSHostingView(rootView: DebugLogView())
         isReleasedWhenClosed = false
         center()

@@ -433,7 +433,7 @@ final class HistoryWindow: NSWindow {
             backing: .buffered,
             defer: false
         )
-        title = "SpeachText History"
+        title = "SpeechText History"
         contentView = NSHostingView(rootView: HistoryView())
         isReleasedWhenClosed = false
         center()

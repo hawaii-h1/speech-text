@@ -1,7 +1,7 @@
 import AVFoundation
 import os.log
 
-private let abwLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeachText",
+private let abwLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                              category: "AudioBufferWriter")
 
 /// Collects the segment's audio for the batch STT providers and writes it out as a file

@@ -1,7 +1,7 @@
 import XCTest
 
 // These tests compile the app's source files directly into the test bundle (see the
-// SpeachTextTests target's Sources phase) — there is no `@testable import`, because the
+// SpeechTextTests target's Sources phase) — there is no `@testable import`, because the
 // app is an LSUIElement agent that prompts for microphone access at launch, and hosting
 // tests inside it would hang a headless run. Everything exercised here must therefore
 // be constructible without UserDefaults: the user's real API keys live in the

@@ -65,8 +65,8 @@
 		A20000010000000000000008 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		A20000010000000000000009 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		A2000001000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A2000001000000000000000B /* SpeachText.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpeachText.entitlements; sourceTree = "<group>"; };
-		A2000001000000000000000C /* SpeachText.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpeachText.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2000001000000000000000B /* SpeechText.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpeechText.entitlements; sourceTree = "<group>"; };
+		A2000001000000000000000C /* SpeechText.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpeechText.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000001000000000000000D /* DirectRecordingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectRecordingPanel.swift; sourceTree = "<group>"; };
 		A2000001000000000000000E /* STTProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTProvider.swift; sourceTree = "<group>"; };
 		A2000001000000000000000F /* AudioBufferWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioBufferWriter.swift; sourceTree = "<group>"; };
@@ -95,7 +95,7 @@
 		A20000010000000000000028 /* StreamingRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingRecognitionSession.swift; sourceTree = "<group>"; };
 		B20000010000000000000001 /* PureLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PureLogicTests.swift; sourceTree = "<group>"; };
 		B20000010000000000000002 /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
-		B2000001000000000000000C /* SpeachTextTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpeachTextTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000001000000000000000C /* SpeechTextTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpeechTextTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,13 +119,13 @@
 		A40000010000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				A40000010000000000000002 /* SpeachText */,
-				B40000010000000000000001 /* SpeachTextTests */,
+				A40000010000000000000002 /* SpeechText */,
+				B40000010000000000000001 /* SpeechTextTests */,
 				A40000010000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		A40000010000000000000002 /* SpeachText */ = {
+		A40000010000000000000002 /* SpeechText */ = {
 			isa = PBXGroup;
 			children = (
 				A20000010000000000000001 /* App.swift */,
@@ -163,35 +163,35 @@
 				A20000010000000000000028 /* StreamingRecognitionSession.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
 				A2000001000000000000000A /* Info.plist */,
-				A2000001000000000000000B /* SpeachText.entitlements */,
+				A2000001000000000000000B /* SpeechText.entitlements */,
 			);
-			path = SpeachText;
+			path = SpeechText;
 			sourceTree = "<group>";
 		};
 		A40000010000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A2000001000000000000000C /* SpeachText.app */,
-				B2000001000000000000000C /* SpeachTextTests.xctest */,
+				A2000001000000000000000C /* SpeechText.app */,
+				B2000001000000000000000C /* SpeechTextTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		B40000010000000000000001 /* SpeachTextTests */ = {
+		B40000010000000000000001 /* SpeechTextTests */ = {
 			isa = PBXGroup;
 			children = (
 				B20000010000000000000001 /* PureLogicTests.swift */,
 				B20000010000000000000002 /* AudioPipelineTests.swift */,
 			);
-			path = SpeachTextTests;
+			path = SpeechTextTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A50000010000000000000001 /* SpeachText */ = {
+		A50000010000000000000001 /* SpeechText */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeachText" */;
+			buildConfigurationList = A70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeechText" */;
 			buildPhases = (
 				A60000010000000000000001 /* Sources */,
 				A30000010000000000000001 /* Frameworks */,
@@ -201,14 +201,14 @@
 			);
 			dependencies = (
 			);
-			name = SpeachText;
-			productName = SpeachText;
-			productReference = A2000001000000000000000C /* SpeachText.app */;
+			name = SpeechText;
+			productName = SpeechText;
+			productReference = A2000001000000000000000C /* SpeechText.app */;
 			productType = "com.apple.product-type.application";
 		};
-		B50000010000000000000001 /* SpeachTextTests */ = {
+		B50000010000000000000001 /* SpeechTextTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = B70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeachTextTests" */;
+			buildConfigurationList = B70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeechTextTests" */;
 			buildPhases = (
 				B60000010000000000000001 /* Sources */,
 				B30000010000000000000001 /* Frameworks */,
@@ -217,9 +217,9 @@
 			);
 			dependencies = (
 			);
-			name = SpeachTextTests;
-			productName = SpeachTextTests;
-			productReference = B2000001000000000000000C /* SpeachTextTests.xctest */;
+			name = SpeechTextTests;
+			productName = SpeechTextTests;
+			productReference = B2000001000000000000000C /* SpeechTextTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
@@ -232,7 +232,7 @@
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 2620;
 			};
-			buildConfigurationList = A70000010000000000000001 /* Build configuration list for PBXProject "SpeachText" */;
+			buildConfigurationList = A70000010000000000000001 /* Build configuration list for PBXProject "SpeechText" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -245,8 +245,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A50000010000000000000001 /* SpeachText */,
-				B50000010000000000000001 /* SpeachTextTests */,
+				A50000010000000000000001 /* SpeechText */,
+				B50000010000000000000001 /* SpeechTextTests */,
 			);
 		};
 /* End PBXProject section */
@@ -434,17 +434,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = SpeachText/SpeachText.entitlements;
+				CODE_SIGN_ENTITLEMENTS = SpeechText/SpeechText.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = J4QFMWMZ48;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SpeachText/Info.plist;
+				INFOPLIST_FILE = SpeechText/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpeachText needs microphone access for speech recognition";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "SpeachText uses on-device speech recognition to convert your voice to text";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpeechText needs microphone access for speech recognition";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "SpeechText uses on-device speech recognition to convert your voice to text";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -461,17 +461,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = SpeachText/SpeachText.entitlements;
+				CODE_SIGN_ENTITLEMENTS = SpeechText/SpeechText.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = J4QFMWMZ48;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SpeachText/Info.plist;
+				INFOPLIST_FILE = SpeechText/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpeachText needs microphone access for speech recognition";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "SpeachText uses on-device speech recognition to convert your voice to text";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SpeechText needs microphone access for speech recognition";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "SpeechText uses on-device speech recognition to convert your voice to text";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -519,7 +519,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A70000010000000000000001 /* Build configuration list for PBXProject "SpeachText" */ = {
+		A70000010000000000000001 /* Build configuration list for PBXProject "SpeechText" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A90000010000000000000001 /* Debug */,
@@ -528,7 +528,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeachText" */ = {
+		A70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeechText" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A90000010000000000000003 /* Debug */,
@@ -537,7 +537,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		B70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeachTextTests" */ = {
+		B70000010000000000000003 /* Build configuration list for PBXNativeTarget "SpeechTextTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B90000010000000000000003 /* Debug */,

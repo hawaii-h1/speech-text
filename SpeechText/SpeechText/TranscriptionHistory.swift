@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let histLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeachText",
+private let histLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                              category: "History")
 
 // MARK: - Record
@@ -102,7 +102,7 @@ final class TranscriptionHistory {
 
     private var baseDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent("SpeachText", isDirectory: true)
+        return support.appendingPathComponent("SpeechText", isDirectory: true)
     }
 
     /// The app used to be called VoicePeter and kept its history under that name.
@@ -114,7 +114,7 @@ final class TranscriptionHistory {
         guard fm.fileExists(atPath: legacy.path), !fm.fileExists(atPath: baseDirectory.path) else { return }
         do {
             try fm.moveItem(at: legacy, to: baseDirectory)
-            histLog.info("migrated history store from VoicePeter to SpeachText")
+            histLog.info("migrated history store from VoicePeter to SpeechText")
         } catch {
             histLog.error("could not migrate history store: \(error.localizedDescription)")
         }

@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A50000010000000000000001"
-               BuildableName = "SpeachText.app"
-               BlueprintName = "SpeachText"
-               ReferencedContainer = "container:SpeachText.xcodeproj">
+               BuildableName = "SpeechText.app"
+               BlueprintName = "SpeechText"
+               ReferencedContainer = "container:SpeechText.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -36,9 +36,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "B50000010000000000000001"
-               BuildableName = "SpeachTextTests.xctest"
-               BlueprintName = "SpeachTextTests"
-               ReferencedContainer = "container:SpeachText.xcodeproj">
+               BuildableName = "SpeechTextTests.xctest"
+               BlueprintName = "SpeechTextTests"
+               ReferencedContainer = "container:SpeechText.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -58,9 +58,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A50000010000000000000001"
-            BuildableName = "SpeachText.app"
-            BlueprintName = "SpeachText"
-            ReferencedContainer = "container:SpeachText.xcodeproj">
+            BuildableName = "SpeechText.app"
+            BlueprintName = "SpeechText"
+            ReferencedContainer = "container:SpeechText.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -75,9 +75,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A50000010000000000000001"
-            BuildableName = "SpeachText.app"
-            BlueprintName = "SpeachText"
-            ReferencedContainer = "container:SpeachText.xcodeproj">
+            BuildableName = "SpeechText.app"
+            BlueprintName = "SpeechText"
+            ReferencedContainer = "container:SpeechText.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

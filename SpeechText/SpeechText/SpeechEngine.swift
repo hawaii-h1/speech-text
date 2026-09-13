@@ -3,7 +3,7 @@ import Speech
 import AVFoundation
 import os.log
 
-private let seLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeachText",
+private let seLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                             category: "SpeechEngine")
 
 /// The single stored source of truth for the engine's state. The four booleans the

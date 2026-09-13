@@ -129,7 +129,7 @@ enum DeliveryError: LocalizedError {
         case .unusableAddress(let channel, let address):
             return "\(channel.displayName) can't use “\(address)” as an address."
         case .automationDenied(let app):
-            return "SpeachText isn't allowed to control \(app). Grant it in System Settings › Privacy & Security › Automation."
+            return "SpeechText isn't allowed to control \(app). Grant it in System Settings › Privacy & Security › Automation."
         case .scriptFailed(let message):
             return message
         case .couldNotOpen(let channel):
@@ -177,16 +177,16 @@ enum MessageDelivery {
     @MainActor
     private static func sendIMessage(body: String, to address: String) throws -> DeliveryOutcome {
         let source = """
-        on speachtextDeliver(theAddress, theBody)
+        on speechtextDeliver(theAddress, theBody)
             tell application "Messages"
                 set targetService to 1st account whose service type = iMessage
                 set targetParticipant to participant theAddress of targetService
                 send theBody to targetParticipant
             end tell
-        end speachtextDeliver
+        end speechtextDeliver
         """
         try AppleScriptRunner.call(source: source,
-                                   handler: "speachtextdeliver",
+                                   handler: "speechtextdeliver",
                                    arguments: [address, body],
                                    appName: "Messages")
         return .sent
@@ -202,7 +202,7 @@ enum MessageDelivery {
 
         if client.bundleID == "com.apple.mail" {
             let source = """
-            on speachtextDeliver(theAddress, theSubject, theBody)
+            on speechtextDeliver(theAddress, theSubject, theBody)
                 tell application "Mail"
                     set newMessage to make new outgoing message with properties {subject:theSubject, content:theBody, visible:true}
                     tell newMessage
@@ -210,10 +210,10 @@ enum MessageDelivery {
                     end tell
                     send newMessage
                 end tell
-            end speachtextDeliver
+            end speechtextDeliver
             """
             try AppleScriptRunner.call(source: source,
-                                       handler: "speachtextdeliver",
+                                       handler: "speechtextdeliver",
                                        arguments: [address, subject, body],
                                        appName: "Mail")
             return .sent

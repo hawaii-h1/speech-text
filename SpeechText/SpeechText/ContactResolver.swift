@@ -17,7 +17,7 @@ enum ContactResolver {
         var errorDescription: String? {
             switch self {
             case .accessDenied:
-                return "SpeachText can't read Contacts. Allow it in System Settings › Privacy & Security › Contacts."
+                return "SpeechText can't read Contacts. Allow it in System Settings › Privacy & Security › Contacts."
             case .noMatch(let name):
                 return "No contact matching “\(name)”."
             case .noAddressForChannel(let name, let channel):
