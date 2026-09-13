@@ -37,6 +37,8 @@ git commit -s -m "Fix hotkey re-registration after sleep"
 
 This is the [Developer Certificate of Origin](https://developercertificate.org/) — you are stating that you wrote the code, or otherwise have the right to submit it under the project's license. There is no CLA and you keep the copyright to your contribution.
 
+That is a commitment, not a current convenience: no CLA will be introduced later, and the client will not be relicensed under closed terms. Your contribution stays yours, under GPL-3.0-or-later.
+
 If you forget, `git commit --amend -s` fixes the last commit.
 
 ## Pull request checklist
