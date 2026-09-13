@@ -129,3 +129,36 @@ final class TextRefinementParseTests: XCTestCase {
         XCTAssertEqual(TextRefinementService.parse(raw).text, raw)
     }
 }
+
+// MARK: - Realtime stream echo suppression (StreamingSTTProvider.swift)
+
+final class RealtimeEchoTests: XCTestCase {
+
+    /// The bug this guards: Scribe follows its own `committed_transcript` with one more
+    /// `partial_transcript` carrying the same words. Joined onto the committed text it
+    /// pastes the dictation twice.
+    func testPartialRepeatingTheCommittedSegmentIsAnEcho() {
+        XCTAssertTrue(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+            partial: "Проаналізуй результати тесту.",
+            lastCommitted: "Проаналізуй результати тесту."))
+    }
+
+    func testEchoComparisonIgnoresSurroundingWhitespace() {
+        XCTAssertTrue(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+            partial: "  Hello there. ", lastCommitted: "Hello there."))
+    }
+
+    func testAGrowingNextSegmentIsNotAnEcho() {
+        // Prefixes of the committed text are how a genuine new segment starts.
+        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+            partial: "Проаналізуй", lastCommitted: "Проаналізуй результати тесту."))
+        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+            partial: "Проаналізуй результати тесту. І ще", lastCommitted: "Проаналізуй результати тесту."))
+    }
+
+    func testEmptyPartialOrNoCommitYetIsNotAnEcho() {
+        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(partial: "", lastCommitted: ""))
+        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(partial: "   ", lastCommitted: "Hello."))
+        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(partial: "Hello.", lastCommitted: ""))
+    }
+}

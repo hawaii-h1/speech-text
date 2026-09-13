@@ -96,6 +96,11 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     /// Counts down `STTTuning.streamCommitGraceSeconds` after a `committed_transcript`
     /// seen while awaiting the commit; cancelled by a partial that shows more is coming.
     private var commitGrace: Task<Void, Never>?
+    /// The text of the most recent `committed_transcript`, kept so the partial that
+    /// echoes it can be recognised. Touched only from `handle`, which runs serially on
+    /// the receive loop, so it needs no lock. Cleared by the first partial that says
+    /// something else — that one belongs to the next segment.
+    private var lastCommittedText = ""
 
     /// Bytes of 16-bit mono PCM for a given duration at `sampleRate`.
     private func bytes(forSeconds seconds: Double) -> Int { Int(sampleRate * seconds) * 2 }
@@ -277,6 +282,17 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         return (held, chunk, task)
     }
 
+    /// Is this `partial_transcript` nothing but the segment the server already
+    /// committed? Compared whole and trimmed rather than by prefix: a genuine next
+    /// segment that opens with the same words is still growing, so it only matches
+    /// once it has said exactly as much — and even then its own commit carries the
+    /// text, so nothing is lost but a moment of ghost text.
+    static func isEchoOfCommitted(partial: String, lastCommitted: String) -> Bool {
+        let partial = partial.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !partial.isEmpty else { return false }
+        return partial == lastCommitted.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func encodeChunk(_ pcm: Data, commit: Bool, sampleRate: Double) -> String? {
         let payload: [String: Any] = [
             "message_type": "input_audio_chunk",
@@ -356,11 +372,23 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
             flushPreSessionAudio()
         case "partial_transcript":
             let text = json["text"] as? String ?? ""
+            // Scribe sometimes repeats a segment it has just committed as one more
+            // partial (observed ~60 ms after the commit). Taken at face value it reads
+            // as a fresh segment holding the same words: the caller joins it onto the
+            // committed text — pasting the dictation twice — and `partialArrivedDuringGrace`
+            // makes `finish()` wait out its whole timeout for a segment that will never
+            // be committed. It is an echo of a closed segment, so drop it.
+            guard !Self.isEchoOfCommitted(partial: text, lastCommitted: lastCommittedText) else {
+                dlog("ElevenLabs", "realtime: ignoring partial echoing the committed segment")
+                return
+            }
+            if !text.isEmpty { lastCommittedText = "" }
             continuation.yield(.partial(text))
             if !text.isEmpty { partialArrivedDuringGrace() }
         case "committed_transcript":
             let text = json["text"] as? String ?? ""
             dlog("ElevenLabs", "realtime: committed \(text.count) chars")
+            lastCommittedText = text
             continuation.yield(.committed(text))
             commitReplyArrived()
         case "committed_transcript_with_timestamps", "committed_transcript_entities":

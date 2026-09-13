@@ -55,6 +55,12 @@ final class StreamingRecognitionSession: RecognitionSession {
     private func handle(_ event: StreamingSTTEvent) {
         switch event {
         case .partial(let text):
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Belt and braces for any provider that re-sends a segment it has already
+            // committed as one more partial: joining it back on would paste the same
+            // words twice. The provider is expected to drop its own echo; this catches
+            // what reaches here anyway, at the point where the join happens.
+            guard trimmed.isEmpty || !committedText.hasSuffix(trimmed) else { return }
             partialText = text
         case .committed(let text):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
