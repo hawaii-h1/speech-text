@@ -81,10 +81,17 @@ enum SettingsKeys {
     ]
 }
 
-/// The app shipped as VoicePeter under `com.voicepeter.app`. Preferences are keyed by
-/// bundle identifier, so after the rename every setting — API keys, shortcuts and
-/// prompt presets included — would read as empty and look exactly like a factory
-/// reset. Copy them across once.
+/// Preference domains this app has run under before, newest first.
+///
+/// `com.voicepeter.app` is the original name; `com.speachtext.app` is the rename that
+/// shipped the typo the product name no longer has. Newest first matters: a machine
+/// that saw both should take the *later* value, and the loop below never overwrites a
+/// key it has already adopted.
+private let preRenameDefaultsDomains = ["com.speachtext.app", "com.voicepeter.app"]
+
+/// Preferences are keyed by bundle identifier, so each rename leaves every setting —
+/// API keys, shortcuts and prompt presets included — reading as empty, which looks
+/// exactly like a factory reset. Copy them across once.
 ///
 /// Runs before `normalizeStoredProviders()` so anything stale that comes over is
 /// still checked against the current catalogues.
@@ -93,17 +100,20 @@ func adoptPreRenameDefaults() {
     guard !defaults.bool(forKey: SettingsKeys.didAdoptPreRenameDefaults) else { return }
     defaults.set(true, forKey: SettingsKeys.didAdoptPreRenameDefaults)
 
-    guard let legacy = UserDefaults(suiteName: "com.voicepeter.app") else { return }
-    var adopted = 0
-    for key in SettingsKeys.portable {
-        // Never clobber a value the user has already set under the new name.
-        guard defaults.object(forKey: key) == nil,
-              let value = legacy.object(forKey: key) else { continue }
-        defaults.set(value, forKey: key)
-        adopted += 1
-    }
-    if adopted > 0 {
-        dlog("Settings", "carried \(adopted) setting(s) over from the VoicePeter preferences")
+    for domain in preRenameDefaultsDomains {
+        guard let legacy = UserDefaults(suiteName: domain) else { continue }
+        var adopted = 0
+        for key in SettingsKeys.portable {
+            // Never clobber a value already set under the new name, or adopted from a
+            // newer domain on an earlier pass.
+            guard defaults.object(forKey: key) == nil,
+                  let value = legacy.object(forKey: key) else { continue }
+            defaults.set(value, forKey: key)
+            adopted += 1
+        }
+        if adopted > 0 {
+            dlog("Settings", "carried \(adopted) setting(s) over from the \(domain) preferences")
+        }
     }
 }
 

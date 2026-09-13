@@ -90,7 +90,7 @@ final class TranscriptionHistory {
     /// Archived audio is only useful for a retry; expire it so the disk doesn't grow forever.
     private let audioRetention: TimeInterval = 7 * 24 * 60 * 60
 
-    private let ioQueue = DispatchQueue(label: "com.speachtext.history.io")
+    private let ioQueue = DispatchQueue(label: "com.speechtext.history.io")
 
     private init() {
         adoptPreRenameStore()
@@ -105,18 +105,25 @@ final class TranscriptionHistory {
         return support.appendingPathComponent("SpeechText", isDirectory: true)
     }
 
-    /// The app used to be called VoicePeter and kept its history under that name.
-    /// Move the old store across once, so a rename doesn't silently look like data loss.
+    /// Folder names this app kept its history under before, newest first: it shipped as
+    /// VoicePeter, then under the misspelled SpeachText. Move the newest one that still
+    /// exists across, once, so a rename doesn't silently look like data loss.
+    private static let preRenameStoreNames = ["SpeachText", "VoicePeter"]
+
     private func adoptPreRenameStore() {
         let fm = FileManager.default
+        guard !fm.fileExists(atPath: baseDirectory.path) else { return }
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let legacy = support.appendingPathComponent("VoicePeter", isDirectory: true)
-        guard fm.fileExists(atPath: legacy.path), !fm.fileExists(atPath: baseDirectory.path) else { return }
-        do {
-            try fm.moveItem(at: legacy, to: baseDirectory)
-            histLog.info("migrated history store from VoicePeter to SpeechText")
-        } catch {
-            histLog.error("could not migrate history store: \(error.localizedDescription)")
+        for name in Self.preRenameStoreNames {
+            let legacy = support.appendingPathComponent(name, isDirectory: true)
+            guard fm.fileExists(atPath: legacy.path) else { continue }
+            do {
+                try fm.moveItem(at: legacy, to: baseDirectory)
+                histLog.info("migrated history store from \(name, privacy: .public) to SpeechText")
+            } catch {
+                histLog.error("could not migrate history store: \(error.localizedDescription)")
+            }
+            return
         }
     }
 
