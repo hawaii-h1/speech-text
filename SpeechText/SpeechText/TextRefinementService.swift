@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Foundation
 
 /// Runs a finished transcription through an LLM, which picks the best-matching

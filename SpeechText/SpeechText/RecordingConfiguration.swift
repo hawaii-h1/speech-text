@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Foundation
 
 /// Everything the engine and the provider factories need for one recording session,

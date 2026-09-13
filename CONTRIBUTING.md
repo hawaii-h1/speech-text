@@ -46,6 +46,7 @@ If you forget, `git commit --amend -s` fixes the last commit.
 - New app files needed by tests are added to **both** targets (see [docs/development.md](docs/development.md)).
 - `DEVELOPMENT_TEAM` in `project.pbxproj` is still empty — Xcode likes to put yours back in.
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
+- New source files carry the two-line SPDX header (see [License](#license)).
 - The description says what changed and why.
 
 ## Setting up
@@ -54,4 +55,13 @@ If you forget, `git commit --amend -s` fixes the last commit.
 
 ## License
 
-SpeechText is [GPLv3](LICENSE). By contributing you agree your work is published under it.
+SpeechText is [GPLv3 or later](LICENSE), copyright (C) 2026 Vladyslav Husakov. By contributing you agree your work is published under it. You keep the copyright to your contribution — there is no CLA.
+
+New source files start with the two-line SPDX header the rest of the codebase carries:
+
+```swift
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+Substantial contributions may add their own `SPDX-FileCopyrightText` line below it.

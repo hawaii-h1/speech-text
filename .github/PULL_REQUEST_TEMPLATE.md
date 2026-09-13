@@ -10,6 +10,7 @@ Closes #
 - [ ] `xcodebuild test -project SpeechText/SpeechText.xcodeproj -scheme SpeechText -destination 'platform=macOS'` passes
 - [ ] `DEVELOPMENT_TEAM` in `project.pbxproj` is still empty
 - [ ] New files needed by tests were added to **both** targets
+- [ ] New source files carry the two-line SPDX header
 - [ ] One concern only — no unrelated changes mixed in
 
 ## Screenshots

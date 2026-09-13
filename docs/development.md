@@ -62,6 +62,7 @@ The short version:
 
 Match the surrounding code. A few conventions the codebase holds to:
 
+- Every source file opens with the two-line SPDX header (`SPDX-FileCopyrightText` / `SPDX-License-Identifier: GPL-3.0-or-later`).
 - Comments explain *why*, not *what*. A measured constant gets a comment saying what it was measured against.
 - Latency and quality constants live in `STTTuning`, not scattered across files.
 - Use `dlog(category:message:)` for diagnostics — it goes to both the in-app Debug Log window and `os.Logger`.

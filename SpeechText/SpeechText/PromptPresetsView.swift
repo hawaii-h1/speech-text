@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import SwiftUI
 
 /// Editor for the prompt presets the LLM routes between.

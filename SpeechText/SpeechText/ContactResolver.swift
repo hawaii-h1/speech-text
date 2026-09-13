@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Contacts
 import Foundation
 

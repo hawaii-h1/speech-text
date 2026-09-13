@@ -110,4 +110,10 @@ Start with issues labelled [`good first issue`](https://github.com/yavno/speech-
 
 ## License
 
-[GPLv3](LICENSE). You can use, study, modify and redistribute SpeechText freely. If you distribute a modified version, you must publish your source under the same license.
+Copyright (C) 2026 Vladyslav Husakov
+
+SpeechText is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either **version 3 of the License, or (at your option) any later version** — see [LICENSE](LICENSE).
+
+In short: you can use, study, modify and redistribute SpeechText freely. If you distribute a modified version, you must publish your source under the same license.
+
+Every source file carries an [SPDX](https://spdx.dev) header (`GPL-3.0-or-later`), so a file stays identifiable if it is ever copied out of the repository.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import XCTest
 
 // These tests compile the app's source files directly into the test bundle (see the
