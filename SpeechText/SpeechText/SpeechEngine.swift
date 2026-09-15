@@ -73,6 +73,12 @@ final class SpeechEngine {
     var editedText: String = ""
     /// Set when a segment's transcription is ready to be inserted at cursor
     var pendingInsertionText: String?
+    /// The spans that text is made of, when it can be attributed to them — a sink that
+    /// records ranges (the Record Window's `TextInsertionHandler`) keys its insertions by
+    /// these, so a later pass can find and replace exactly one span. Empty when the text
+    /// cannot be attributed (an Apple pause hands back its own joined string, whose
+    /// partial the layer has not committed yet); the sink then inserts one untracked piece.
+    private(set) var pendingInsertionSpans: [TranscriptSpanID] = []
     var errorMessage: String? {
         didSet {
             if let msg = errorMessage { dlog("Engine", "⚠ errorMessage: \(msg)") }
@@ -129,6 +135,7 @@ final class SpeechEngine {
         dlog("Engine", "startRecording: locale=\(locale), provider=\(providerType.rawValue)")
         editedText = ""
         pendingInsertionText = nil
+        pendingInsertionSpans = []
         lastRecordID = nil
         spanLayer.reset()
         transcriptionTask?.cancel()
@@ -151,7 +158,7 @@ final class SpeechEngine {
             dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
             phase = .paused(segmentInFlight: false)
             if !segmentText.isEmpty {
-                pendingInsertionText = segmentText
+                setPendingInsertion(segmentText)
             }
             return
         }
@@ -183,7 +190,7 @@ final class SpeechEngine {
                     self.spanLayer.commitSegment(outcome.text)
                     self.spanLayer.settleSegment()
                     if !outcome.text.isEmpty {
-                        self.pendingInsertionText = outcome.text
+                        self.setPendingInsertion(outcome.text)
                     }
                 }
                 // Still paused (a stop in the meantime moved on to .finishing and its
@@ -461,6 +468,22 @@ final class SpeechEngine {
             phase = .idle
             cleanup()
         }
+    }
+
+    // MARK: - Insertion
+
+    /// Hands a finished segment to whichever sink is listening, naming the spans it is
+    /// made of when they spell exactly that text. The spans are written *before* the
+    /// text, because the text is what observers key on and they must see both.
+    private func setPendingInsertion(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if spanLayer.segmentStableText == trimmed {
+            pendingInsertionSpans = spanLayer.segmentStableSpans.map(\.id)
+        } else {
+            pendingInsertionSpans = []
+            dlog("Span", "pending insertion is not what the spans spell — inserted untracked")
+        }
+        pendingInsertionText = text
     }
 
     // MARK: - History

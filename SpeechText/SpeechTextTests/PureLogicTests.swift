@@ -459,3 +459,98 @@ final class TranscriptMergeTests: XCTestCase {
         XCTAssertEqual(mergedTranscript("Так, так", "так, добре"), "Так, так так, добре")
     }
 }
+
+// MARK: - Insertion ledger (InsertionLedger.swift)
+
+/// The ledger is what lets a later pass find its own text again. Everything here is
+/// about the guard: it must find the span where it left it, follow it when the document
+/// shifted around it, and refuse — rather than guess — when it cannot be sure.
+final class InsertionLedgerTests: XCTestCase {
+
+    private func span(_ id: UInt64) -> TranscriptSpanID { TranscriptSpanID(rawValue: id) }
+
+    /// The recorded range wins outright when the text there still matches — which is
+    /// also what makes a repeated word resolvable at all: the search fallback would
+    /// refuse this document as ambiguous, and it never has to run.
+    func testTheRecordedRangeIsPreferredOverSearchingForTheText() {
+        var ledger = InsertionLedger()
+        let range = NSRange(location: 0, length: 4)
+        ledger.insert(span: span(1), range: range, text: "світ")
+        XCTAssertEqual(ledger.resolve(span: span(1), in: "світ і світ"), range)
+    }
+
+    /// The user typed above the insertion, so it is no longer where it was recorded —
+    /// but it is still there, untouched, and exactly once.
+    func testASpanThatMovedIsFoundByItsText() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        let resolved = ledger.resolve(span: span(1), in: "Привіт світ")
+        XCTAssertEqual(resolved, NSRange(location: 7, length: 4))
+    }
+
+    /// The whole point of the guard: the user edited over it, so nothing may be replaced.
+    func testASpanTheUserEditedOverIsNotResolved() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        XCTAssertNil(ledger.resolve(span: span(1), in: "Привіт усім"))
+    }
+
+    /// Two identical occurrences make "the last one" a guess, and a guess is not
+    /// allowed to rewrite the user's document.
+    func testAnAmbiguousSpanIsRefusedRatherThanGuessed() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 99, length: 4), text: "світ")
+        XCTAssertNil(ledger.resolve(span: span(1), in: "світ і ще раз світ"))
+    }
+
+    func testAnUnknownSpanResolvesToNothing() {
+        let ledger = InsertionLedger()
+        XCTAssertNil(ledger.resolve(span: span(7), in: "Привіт"))
+    }
+
+    /// An insertion before an earlier one pushes it along, so its recorded range keeps
+    /// describing where its text actually is.
+    func testAnEarlierRecordShiftsWhenTextIsInsertedAboveIt() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        ledger.insert(span: span(2), range: NSRange(location: 0, length: 7), text: "Привіт ")
+        XCTAssertEqual(ledger.record(for: span(1))?.range, NSRange(location: 7, length: 4))
+    }
+
+    /// A replacement of a different length moves everything after it, and only that.
+    func testAReplacementShiftsWhatFollowsButNotWhatPrecedes() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 3), text: "Два")
+        ledger.insert(span: span(2), range: NSRange(location: 4, length: 3), text: "три")
+        ledger.insert(span: span(3), range: NSRange(location: 8, length: 7), text: "чотири!")
+        ledger.replaced(span: span(2), at: NSRange(location: 4, length: 3), with: "тринадцять")
+        XCTAssertEqual(ledger.record(for: span(1))?.range, NSRange(location: 0, length: 3))
+        XCTAssertEqual(ledger.record(for: span(2))?.text, "тринадцять")
+        XCTAssertEqual(ledger.record(for: span(3))?.range.location, 15)
+    }
+
+    func testDeliveredTextJoinsTheRecordsTheWaySpansJoin() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 6), text: "Привіт")
+        ledger.insert(span: span(2), range: NSRange(location: 7, length: 4), text: "світ")
+        XCTAssertEqual(ledger.deliveredText, "Привіт світ")
+    }
+
+    func testClearingLeavesNothingToResolve() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 6), text: "Привіт")
+        ledger.clear()
+        XCTAssertTrue(ledger.isEmpty)
+        XCTAssertNil(ledger.resolve(span: span(1), in: "Привіт"))
+    }
+
+    /// Untracked text (an Apple pause hands back its own joined string) still occupies
+    /// room in the document, so it must still move the records that follow it.
+    func testUntrackedTextStillShiftsTheRecordsAroundIt() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        ledger.insert(span: nil, range: NSRange(location: 0, length: 7), text: "Привіт ")
+        XCTAssertEqual(ledger.record(for: span(1))?.range.location, 7)
+        XCTAssertEqual(ledger.deliveredText, "світ Привіт ")
+    }
+}
