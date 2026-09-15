@@ -76,6 +76,25 @@ struct InsertionLedger {
 
     // MARK: Reading
 
+    /// What is left of `authoritative` once everything already delivered is taken off
+    /// the front — what a stop still has to hand over.
+    ///
+    /// Nil means "deliver nothing more": the authoritative text does not extend what the
+    /// sink already holds, it disagrees with it. The realistic cause is a streaming
+    /// segment that fell back to a batch upload and came back worded differently. Until
+    /// there is a finalizing pass that can replace what a foreign app already holds,
+    /// pasting the second wording underneath the first is worse than leaving the first
+    /// standing — a dictation the user has to re-read and de-duplicate by hand.
+    func remainder(of authoritative: String) -> String? {
+        let delivered = deliveredText
+        guard !delivered.isEmpty else { return authoritative }
+
+        let overlap = transcriptOverlap(head: transcriptWords(delivered),
+                                        tail: transcriptWords(authoritative))
+        guard overlap.words > 0 else { return nil }
+        return transcriptContinuation(of: delivered, in: authoritative)
+    }
+
     /// Where this span's text is in `document` *right now*, or nil if it is not there
     /// untouched. Three steps, in the order phase C's spec asks for them: the recorded
     /// range if the substring still matches exactly; otherwise the last occurrence of
