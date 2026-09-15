@@ -1,0 +1,311 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+
+// MARK: - Span
+
+/// Identity of a span. A counter rather than a UUID: the layer is pure logic and its
+/// tests read better when the third span is `#3`, and the debug log's span timeline is
+/// the thing these numbers exist for.
+struct TranscriptSpanID: Hashable, CustomStringConvertible {
+    let rawValue: UInt64
+    var description: String { "#\(rawValue)" }
+}
+
+/// One piece of issued text with an identity and a state. A span is *not* a phase:
+/// `RecordingPhase` describes the engine, a span describes a piece of text, and inside
+/// one `.recording` there can be ten settled spans and one still moving.
+struct TranscriptSpan: Identifiable, Equatable {
+    enum State: Equatable {
+        /// Shown, but the recogniser may still replace it.
+        case provisional
+        /// Final as far as the provider is concerned. May still be rewritten by the
+        /// finalizing pass (phase C).
+        case committed
+        /// The finalizing pass changed it.
+        case revised
+        /// Nothing will touch it again.
+        case settled
+        /// The user edited it by hand. Never rewritten, by anything.
+        case frozen
+        /// Cancelled before it was ever committed. Kept in the timeline, excluded from text.
+        case dropped
+
+        /// Everything the provider considers final — the text a Tier B sink may receive.
+        var isStable: Bool {
+            switch self {
+            case .committed, .revised, .settled, .frozen: return true
+            case .provisional, .dropped: return false
+            }
+        }
+
+        /// Whether the span contributes to the visible text.
+        var isVisible: Bool { self != .dropped }
+
+        /// Whether a rewrite (a new committed string, an authoritative segment text, the
+        /// finalizing pass) is allowed to change this span. `settled` is terminal too:
+        /// a span is settled only once the engine has decided nothing else is coming.
+        var isRewritable: Bool {
+            switch self {
+            case .provisional, .committed, .revised: return true
+            case .settled, .frozen, .dropped: return false
+            }
+        }
+    }
+
+    let id: TranscriptSpanID
+    /// Which recording segment produced it. A pause/resume opens the next one.
+    let segment: Int
+    /// Trimmed. Spans are joined with single spaces, the way `joinedTranscript` does it.
+    var text: String
+    var state: State
+}
+
+// MARK: - Layer
+
+/// The layer between the recognition sessions and the sinks. Sessions report a
+/// *cumulative* `committed` / `partial` pair (`RecognitionEvent.live`); the layer turns
+/// that into spans with identity and state, so a sink can tell what has settled from
+/// what is still moving instead of receiving one re-joined string per frame.
+///
+/// Pure logic on purpose: no engine, no view, no clock. Everything that depends on the
+/// microphone stays in `SpeechEngine`, and this is covered by `PureLogicTests`.
+struct TranscriptSpanLayer {
+    private(set) var spans: [TranscriptSpan] = []
+    /// Index of the segment being recorded. `beginSegment()` opens the next one.
+    private(set) var segment: Int = 0
+
+    private var nextID: UInt64 = 1
+    /// The cumulative `committed` string this segment's session last reported, so the
+    /// next one can be reduced to its increment.
+    private var lastCommitted: String = ""
+    /// The span this segment's `partial` is being written into, if there is one.
+    private var provisionalID: TranscriptSpanID?
+
+    init() {}
+
+    // MARK: Reading
+
+    var visibleSpans: [TranscriptSpan] { spans.filter { $0.state.isVisible } }
+
+    /// Everything issued in this recording, all segments.
+    var text: String { join(visibleSpans) }
+
+    /// The current segment only — what `SpeechEngine.liveText` has always meant: a pause
+    /// hands its segment's text over for insertion, and the ghost text starts again.
+    var segmentText: String { join(visibleSpans.filter { $0.segment == segment }) }
+
+    /// The current segment's settled half: what a sink that cannot take back what it was
+    /// given (Tier B) is allowed to receive.
+    var segmentStableText: String {
+        join(visibleSpans.filter { $0.segment == segment && $0.state.isStable })
+    }
+
+    /// The current segment's moving half. At most one span, but joined the same way.
+    var segmentProvisionalText: String {
+        join(visibleSpans.filter { $0.segment == segment && $0.state == .provisional })
+    }
+
+    func span(_ id: TranscriptSpanID) -> TranscriptSpan? { spans.first { $0.id == id } }
+
+    // MARK: Lifecycle
+
+    /// A new recording. Everything from the previous one is gone.
+    mutating func reset() {
+        spans = []
+        segment = 0
+        nextID = 1
+        lastCommitted = ""
+        provisionalID = nil
+    }
+
+    /// The next segment (a resume, or a restart after an audio device change). The
+    /// previous segment's still-provisional span is committed rather than dropped: its
+    /// session is gone, so nothing will ever confirm those words, but they were spoken
+    /// and the engine has already handed them on for insertion.
+    mutating func beginSegment() {
+        if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
+            spans[index].state = .committed
+            log("commit \(id) (segment closed) \"\(preview(spans[index].text))\"")
+        }
+        segment += 1
+        lastCommitted = ""
+        provisionalID = nil
+    }
+
+    // MARK: Ingesting a session's events
+
+    /// One `RecognitionEvent.live(committed:partial:)`. Both strings are cumulative for
+    /// the segment, which is why the increment — not the string — becomes the span.
+    mutating func ingest(committed: String, partial: String) {
+        ingestCommitted(committed)
+        ingestPartial(partial)
+    }
+
+    private mutating func ingestCommitted(_ committed: String) {
+        guard committed != lastCommitted else { return }
+        defer { lastCommitted = committed }
+
+        guard committed.hasPrefix(lastCommitted) else {
+            // The provider rewrote what it had already committed (Apple's chunk rotation
+            // can, after an early `isFinal`). Nothing was promised to a sink about the
+            // shape of the split, so the segment's committed text collapses into one span.
+            rewriteSegmentStable(to: trimmed(committed), reason: "committed rewritten")
+            return
+        }
+
+        let delta = trimmed(String(committed.dropFirst(lastCommitted.count)))
+        guard !delta.isEmpty else { return }
+
+        // The partial that was showing these words *is* this commit: keeping its id lets
+        // a sink that already drew it replace it in place instead of appending a second copy.
+        if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
+            spans[index].text = delta
+            spans[index].state = .committed
+            provisionalID = nil
+            log("commit \(id) \"\(preview(delta))\"")
+        } else {
+            let span = append(text: delta, state: .committed)
+            log("commit \(span.id) \"\(preview(delta))\"")
+        }
+    }
+
+    private mutating func ingestPartial(_ partial: String) {
+        let text = trimmed(partial)
+
+        guard !text.isEmpty else {
+            if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
+                spans[index].state = .dropped
+                log("drop \(id) (partial cleared)")
+            }
+            provisionalID = nil
+            return
+        }
+
+        if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
+            guard spans[index].text != text else { return }
+            spans[index].text = text
+            log("partial \(id) \"\(preview(text))\"")
+        } else {
+            let span = append(text: text, state: .provisional)
+            provisionalID = span.id
+            log("partial \(span.id) \"\(preview(text))\"")
+        }
+    }
+
+    /// The segment's authoritative text — a batch upload's result, or what a stream hands
+    /// back at `finish()`. Replaces only what differs: when the spans already spell it,
+    /// they are left where they stand, so a sink is not asked to redraw text that did not
+    /// change. Settling is a separate call, because phase C's finalizing pass belongs
+    /// between the two.
+    mutating func commitSegment(_ text: String) {
+        let authoritative = trimmed(text)
+
+        // An empty result against non-empty spans is not a correction into nothing: the
+        // live text stands (a stream that committed words and then failed its final call).
+        guard !authoritative.isEmpty else { return }
+
+        if segmentStableText != authoritative {
+            rewriteSegmentStable(to: authoritative, reason: "segment result")
+        }
+        // Whatever the ghost text was still showing, the authoritative result is not it.
+        dropProvisional()
+    }
+
+    /// Nothing else will change this segment's text.
+    mutating func settleSegment() {
+        for index in spans.indices where spans[index].segment == segment {
+            if spans[index].state == .committed || spans[index].state == .revised {
+                spans[index].state = .settled
+            }
+        }
+    }
+
+    /// The recording was cancelled, or an authoritative result superseded the ghost text:
+    /// what was never committed disappears. Text already handed to a sink is not taken
+    /// back — un-inserting into a foreign app is not possible.
+    mutating func dropProvisional() {
+        for index in spans.indices where spans[index].state == .provisional {
+            spans[index].state = .dropped
+            log("drop \(spans[index].id)")
+        }
+        provisionalID = nil
+    }
+
+    // MARK: Later phases
+
+    /// The finalizing pass changed a committed span (phase C). Frozen spans are refused.
+    @discardableResult
+    mutating func revise(_ id: TranscriptSpanID, text: String) -> Bool {
+        guard let index = index(of: id), spans[index].state.isRewritable else { return false }
+        let new = trimmed(text)
+        guard spans[index].text != new else {
+            spans[index].state = .settled
+            return false
+        }
+        spans[index].text = new
+        spans[index].state = .revised
+        log("revise \(id) \"\(preview(new))\"")
+        return true
+    }
+
+    /// The user edited this span by hand. From here nothing rewrites it — not the
+    /// finalizing pass, not a provider that changed its mind.
+    mutating func freeze(_ id: TranscriptSpanID) {
+        guard let index = index(of: id), spans[index].state.isVisible else { return }
+        spans[index].state = .frozen
+        if provisionalID == id { provisionalID = nil }
+        log("freeze \(id)")
+    }
+
+    // MARK: Internals
+
+    private mutating func rewriteSegmentStable(to text: String, reason: String) {
+        let stable = spans.indices.filter { spans[$0].segment == segment && spans[$0].state.isStable }
+        var replaced = false
+        for index in stable where spans[index].state.isRewritable {
+            if replaced {
+                spans[index].state = .dropped
+            } else {
+                spans[index].text = text
+                spans[index].state = .committed
+                replaced = true
+                log("rewrite \(spans[index].id) (\(reason)) \"\(preview(text))\"")
+            }
+        }
+        guard !replaced else { return }
+        // Nothing stable to rewrite: the authoritative text is this segment's first
+        // committed span (the batch tier's ordinary path — it has no live text at all).
+        // But if the segment *does* have stable spans and every one of them is frozen,
+        // the user has edited this text by hand and a second copy is not a correction.
+        guard stable.isEmpty else {
+            log("skip rewrite (\(reason)): segment is frozen")
+            return
+        }
+        let span = append(text: text, state: .committed)
+        log("commit \(span.id) (\(reason)) \"\(preview(text))\"")
+    }
+
+    private mutating func append(text: String, state: TranscriptSpan.State) -> TranscriptSpan {
+        let span = TranscriptSpan(id: TranscriptSpanID(rawValue: nextID), segment: segment,
+                                  text: text, state: state)
+        nextID += 1
+        spans.append(span)
+        return span
+    }
+
+    private func index(of id: TranscriptSpanID) -> Int? { spans.firstIndex { $0.id == id } }
+
+    private func join(_ spans: [TranscriptSpan]) -> String {
+        spans.map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    private func trimmed(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func preview(_ text: String) -> String { String(text.prefix(40)) }
+
+    private func log(_ message: String) { dlog("Span", message) }
+}

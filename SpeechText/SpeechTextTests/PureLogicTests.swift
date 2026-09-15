@@ -162,3 +162,214 @@ final class RealtimeEchoTests: XCTestCase {
         XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(partial: "Hello.", lastCommitted: ""))
     }
 }
+
+// MARK: - Transcript span layer (TranscriptSpan.swift)
+
+/// The layer is pure logic — no engine, no clock, no defaults — so the whole state
+/// machine is exercised here: ordering, a partial being superseded, and the one rule
+/// nothing may break, that a span the user touched is never rewritten.
+final class TranscriptSpanLayerTests: XCTestCase {
+
+    func testPartialIsOneSpanThatKeepsItsIdentityWhileItGrows() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "", partial: "Привіт")
+        let first = layer.visibleSpans.first?.id
+        layer.ingest(committed: "", partial: "Привіт, як")
+
+        XCTAssertEqual(layer.visibleSpans.count, 1)
+        XCTAssertEqual(layer.visibleSpans.first?.id, first)
+        XCTAssertEqual(layer.segmentText, "Привіт, як")
+        // Nothing has settled yet: a Tier B sink would receive nothing at all.
+        XCTAssertEqual(layer.segmentStableText, "")
+        XCTAssertEqual(layer.segmentProvisionalText, "Привіт, як")
+    }
+
+    /// The commit that follows a partial is *that* partial, so the span keeps its id —
+    /// a sink that already drew it can replace it instead of appending a second copy.
+    func testCommitAdoptsThePartialSpan() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "", partial: "Привіт, як справи")
+        let id = layer.visibleSpans.first!.id
+        layer.ingest(committed: "Привіт, як справи?", partial: "")
+
+        XCTAssertEqual(layer.visibleSpans.count, 1)
+        XCTAssertEqual(layer.visibleSpans.first?.id, id)
+        XCTAssertEqual(layer.visibleSpans.first?.state, .committed)
+        XCTAssertEqual(layer.segmentStableText, "Привіт, як справи?")
+    }
+
+    /// Sessions report the *cumulative* committed string; only the increment is a span.
+    func testOnlyTheIncrementOfCommittedBecomesANewSpan() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "One.", partial: "")
+        layer.ingest(committed: "One. Two.", partial: "")
+        layer.ingest(committed: "One. Two. Three.", partial: "thr")
+
+        XCTAssertEqual(layer.visibleSpans.map(\.text), ["One.", "Two.", "Three.", "thr"])
+        XCTAssertEqual(layer.visibleSpans.map(\.state),
+                       [.committed, .committed, .committed, .provisional])
+        XCTAssertEqual(layer.segmentText, "One. Two. Three. thr")
+        XCTAssertEqual(layer.segmentStableText, "One. Two. Three.")
+    }
+
+    func testClearedPartialIsDroppedAndLeavesNoText() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Committed.", partial: "ghost")
+        layer.ingest(committed: "Committed.", partial: "")
+
+        XCTAssertEqual(layer.spans.count, 2)
+        XCTAssertEqual(layer.spans.last?.state, .dropped)
+        XCTAssertEqual(layer.segmentText, "Committed.")
+    }
+
+    /// Apple's chunk rotation can restate what it had already committed. The split was
+    /// never promised to anyone, so the segment's committed text collapses into one span.
+    func testCommittedTextThatIsNotAnExtensionRewritesTheSegment() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Раз. Два.", partial: "")
+        layer.ingest(committed: "Раз, два, три.", partial: "")
+
+        XCTAssertEqual(layer.segmentStableText, "Раз, два, три.")
+        XCTAssertEqual(layer.visibleSpans.count, 1)
+    }
+
+    /// The batch tier has no live text at all: the whole segment arrives at once.
+    func testSegmentResultBecomesTheFirstSpanWhenThereWasNoLiveText() {
+        var layer = TranscriptSpanLayer()
+        layer.commitSegment("Цілий сегмент з батча.")
+
+        XCTAssertEqual(layer.visibleSpans.map(\.text), ["Цілий сегмент з батча."])
+        XCTAssertEqual(layer.visibleSpans.first?.state, .committed)
+    }
+
+    /// A stream's `finish()` hands back exactly what it already committed — so nothing is
+    /// redrawn, the spans keep their identities, and the ghost text goes.
+    func testSegmentResultEqualToTheSpansLeavesThemInPlace() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "One. Two.", partial: "thr")
+        let ids = layer.visibleSpans.filter { $0.state.isStable }.map(\.id)
+
+        layer.commitSegment("One. Two.")
+
+        XCTAssertEqual(layer.visibleSpans.map(\.id), ids)
+        XCTAssertEqual(layer.segmentText, "One. Two.")
+        XCTAssertEqual(layer.segmentProvisionalText, "")
+    }
+
+    /// The streaming fallback's shape: the socket committed words and then died, and the
+    /// batch upload of the same audio spells them differently. The upload wins.
+    func testSegmentResultThatDiffersReplacesTheLiveText() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Раз два", partial: "три")
+        layer.commitSegment("Раз, два, три.")
+
+        XCTAssertEqual(layer.segmentText, "Раз, два, три.")
+        XCTAssertEqual(layer.segmentStableText, "Раз, два, три.")
+    }
+
+    /// An empty result against non-empty spans is not a correction into nothing.
+    func testEmptySegmentResultLeavesTheSpansAlone() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Something was said.", partial: "")
+        layer.commitSegment("   ")
+
+        XCTAssertEqual(layer.segmentText, "Something was said.")
+    }
+
+    func testSettledSpansAreTerminal() {
+        var layer = TranscriptSpanLayer()
+        layer.commitSegment("Final.")
+        layer.settleSegment()
+        let id = layer.visibleSpans.first!.id
+
+        XCTAssertEqual(layer.span(id)?.state, .settled)
+        XCTAssertFalse(layer.revise(id, text: "Something else."))
+        XCTAssertEqual(layer.segmentText, "Final.")
+    }
+
+    func testRevisedSpanKeepsItsPlaceInTheOrder() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "One.", partial: "")
+        layer.ingest(committed: "One. Two.", partial: "")
+        layer.ingest(committed: "One. Two. Three.", partial: "")
+        let second = layer.visibleSpans[1].id
+
+        XCTAssertTrue(layer.revise(second, text: "Zwei."))
+        XCTAssertEqual(layer.span(second)?.state, .revised)
+        XCTAssertEqual(layer.segmentText, "One. Zwei. Three.")
+    }
+
+    /// The invariant the whole state machine exists for: what the user typed over stays.
+    func testFrozenSpanIsNeverRewritten() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Моя правка.", partial: "")
+        let id = layer.visibleSpans.first!.id
+        layer.freeze(id)
+
+        XCTAssertFalse(layer.revise(id, text: "Чужа правка."))
+        layer.commitSegment("Зовсім інший текст.")
+        layer.ingest(committed: "І ще інший.", partial: "")
+
+        XCTAssertEqual(layer.span(id)?.text, "Моя правка.")
+        XCTAssertEqual(layer.span(id)?.state, .frozen)
+        XCTAssertEqual(layer.segmentText, "Моя правка.")
+    }
+
+    /// A pause/resume: `segmentText` (what the engine exposes as `liveText`) starts over,
+    /// the recording's text does not.
+    func testNewSegmentStartsTheLiveTextOverWithoutLosingTheRecording() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Перший сегмент.", partial: "")
+        layer.settleSegment()
+        layer.beginSegment()
+
+        XCTAssertEqual(layer.segmentText, "")
+        XCTAssertEqual(layer.text, "Перший сегмент.")
+
+        layer.ingest(committed: "Другий сегмент.", partial: "")
+        XCTAssertEqual(layer.segmentText, "Другий сегмент.")
+        XCTAssertEqual(layer.text, "Перший сегмент. Другий сегмент.")
+    }
+
+    /// The words were spoken and the session that would have confirmed them is gone.
+    func testClosingASegmentCommitsItsLeftoverPartial() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "", partial: "недоговорене")
+        layer.beginSegment()
+
+        XCTAssertEqual(layer.spans.first?.state, .committed)
+        XCTAssertEqual(layer.text, "недоговорене")
+    }
+
+    /// The second segment's cumulative committed string starts from zero again — it must
+    /// not be diffed against the first segment's.
+    func testCommittedTrackerResetsWithTheSegment() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Один два три.", partial: "")
+        layer.beginSegment()
+        layer.ingest(committed: "Чотири.", partial: "")
+
+        XCTAssertEqual(layer.text, "Один два три. Чотири.")
+        XCTAssertEqual(layer.visibleSpans.count, 2)
+    }
+
+    func testCancelledRecordingDropsEverythingProvisional() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Сіло.", partial: "рухається")
+        layer.dropProvisional()
+
+        XCTAssertEqual(layer.segmentText, "Сіло.")
+        XCTAssertNil(layer.visibleSpans.first { $0.state == .provisional })
+    }
+
+    func testResetClearsTheTimeline() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Щось.", partial: "ще")
+        layer.beginSegment()
+        layer.reset()
+
+        XCTAssertTrue(layer.spans.isEmpty)
+        XCTAssertEqual(layer.text, "")
+        XCTAssertEqual(layer.segment, 0)
+    }
+}

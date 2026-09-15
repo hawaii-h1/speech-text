@@ -54,7 +54,15 @@ final class SpeechEngine {
     /// Used by the overlay to show a "preparing" animation before the mic is live.
     var isStartingEngine: Bool { phase.isStartingEngine }
 
-    var liveText = ""
+    /// Every piece of text this recording has issued, with identity and state. The
+    /// sessions report cumulative `committed` / `partial` strings; the layer turns them
+    /// into spans, so a surface can draw the boundary between what has settled and what
+    /// is still moving instead of receiving one re-joined string.
+    private(set) var spanLayer = TranscriptSpanLayer()
+    /// The current segment's text, settled and moving joined — what it has always been.
+    /// Computed from the span layer now, so there is one source of truth; `@Observable`
+    /// tracks it through `spanLayer`.
+    var liveText: String { spanLayer.segmentText }
     var finalText = "" {
         didSet {
             if oldValue != finalText {
@@ -122,6 +130,7 @@ final class SpeechEngine {
         editedText = ""
         pendingInsertionText = nil
         lastRecordID = nil
+        spanLayer.reset()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         setupRecordingSession()
@@ -171,7 +180,8 @@ final class SpeechEngine {
                                    superseded: superseded)
                 guard !superseded else { return }
                 if outcome.error == nil {
-                    self.liveText = outcome.text
+                    self.spanLayer.commitSegment(outcome.text)
+                    self.spanLayer.settleSegment()
                     if !outcome.text.isEmpty {
                         self.pendingInsertionText = outcome.text
                     }
@@ -206,7 +216,10 @@ final class SpeechEngine {
         phase = .starting
         // Fresh segment with a fresh buffer writer — nothing has been sent for it yet.
         segmentFinishStarted = false
-        liveText = ""
+        // A resume (or a restart after a device change) opens the next segment rather
+        // than wiping the timeline: `liveText` reads the current segment, so the ghost
+        // text starts empty exactly as it did when it was a stored string.
+        spanLayer.beginSegment()
         finalText = ""
         errorMessage = nil
         barLevels = Array(repeating: 0, count: 12)
@@ -252,7 +265,7 @@ final class SpeechEngine {
             guard let self, let newSession, self.session === newSession else { return }
             switch event {
             case .live(let committed, let partial):
-                self.liveText = joinedTranscript(committed, partial)
+                self.spanLayer.ingest(committed: committed, partial: partial)
             case .failure(let message):
                 self.errorMessage = message
             }
@@ -338,7 +351,10 @@ final class SpeechEngine {
         transcriptionTask = nil
         phase = .idle
         finalText = ""
-        liveText = ""
+        // The whole timeline goes: nothing from a cancelled recording is issued to
+        // anyone. (Text already inserted at the cursor stays — un-inserting it into a
+        // foreign app is not possible — but that is the sink's ledger, not the layer's.)
+        spanLayer.reset()
         barLevels = Array(repeating: 0, count: 12)
         cleanup()
     }
@@ -401,7 +417,8 @@ final class SpeechEngine {
                 }
                 self.recordOutcome(outcome, writer: writer, locale: locale)
                 self.finalText = outcome.text
-                self.liveText = outcome.text
+                self.spanLayer.commitSegment(outcome.text)
+                self.spanLayer.settleSegment()
                 self.phase = .idle
                 self.cleanup()
             }

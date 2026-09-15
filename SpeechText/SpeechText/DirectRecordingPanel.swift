@@ -392,10 +392,9 @@ struct DirectRecordingPanelView: View {
                     onCancel: onDismiss
                 )
                 .overlay(alignment: .topLeading) {
-                    if !hasText, let ghost = ghostText {
-                        Text(ghost)
+                    if !hasText, let ghost = ghostView(base: .secondary) {
+                        ghost
                             .font(.system(size: 14))
-                            .foregroundStyle(.secondary.opacity(0.6))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 8)
                             .allowsHitTesting(false)
@@ -500,11 +499,10 @@ struct DirectRecordingPanelView: View {
             // While the first segment is still being spoken there is nothing in the
             // editor yet; showing the partial transcript here is the only feedback
             // that the words are landing.
-            if !hasText, let ghost = ghostText {
-                Text(ghost)
+            if !hasText, let ghost = ghostView(base: aiMode ? TechnoSkin.aiText : TechnoSkin.phosphorText) {
+                ghost
                     .font(Font(LCDTextEditor.font))
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle((aiMode ? TechnoSkin.aiText : TechnoSkin.phosphorText).opacity(0.45))
                     .allowsHitTesting(false)
             }
         }
@@ -516,9 +514,32 @@ struct DirectRecordingPanelView: View {
         .offset(x: Layout.textOrigin.x, y: Layout.textOrigin.y)
     }
 
-    private var ghostText: String? {
-        let live = speechEngine.liveText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !live.isEmpty { return live }
+    /// The transcript in progress, printed where the editor is still empty. Settled text
+    /// and the partial the recogniser may still take back are drawn at different
+    /// brightnesses: on a surface we own, the boundary between what has landed and what
+    /// is still moving is drawn rather than implied (the span layer's invariant).
+    private func ghostView(base: Color) -> Text? {
+        let settled = speechEngine.spanLayer.segmentStableText
+        let moving = speechEngine.spanLayer.segmentProvisionalText
+
+        guard !settled.isEmpty || !moving.isEmpty else {
+            guard let placeholder = placeholderText else { return nil }
+            return Text(placeholder).foregroundStyle(base.opacity(0.45))
+        }
+
+        var text = Text(verbatim: "")
+        if !settled.isEmpty {
+            text = text + Text(settled).foregroundStyle(base.opacity(0.8))
+        }
+        if !moving.isEmpty {
+            let lead = settled.isEmpty ? "" : " "
+            text = text + Text(lead + moving).foregroundStyle(base.opacity(0.35))
+        }
+        return text
+    }
+
+    /// What the glass says before the first word lands.
+    private var placeholderText: String? {
         if speechEngine.isRecording { return "Listening…" }
         if speechEngine.isStartingEngine { return "Starting…" }
         if speechEngine.isTranscribing { return "Transcribing…" }
