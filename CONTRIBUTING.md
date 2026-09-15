@@ -27,9 +27,22 @@ Issues labelled [`good first issue`](../../labels/good%20first%20issue) and [`he
 - Features that expand the product's scope without a prior discussion
 - Anything that sends user data somewhere new
 
+## Hooks
+
+One command turns on the repo's git hooks, and the two mechanical parts of the checklist below stop being things you have to remember:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+- `prepare-commit-msg` adds the DCO `Signed-off-by` line to every commit, so `-s` is no longer something to forget.
+- `pre-commit` refuses a commit that puts a `DEVELOPMENT_TEAM` back into `project.pbxproj`, adds a source file without the SPDX header, or adds a source file that is in no target. It reads the *staged* content and takes a fraction of a second; `--no-verify` bypasses it.
+
+The test suite is deliberately not in a hook — CI runs it on every pull request, and a hook slow enough to avoid is a hook that gets bypassed.
+
 ## Signing your commits (DCO)
 
-Every commit must carry a `Signed-off-by` line. Git adds it for you:
+Every commit must carry a `Signed-off-by` line. Turn the hooks on (above) and it is added for you; otherwise Git adds it when asked:
 
 ```bash
 git commit -s -m "Fix hotkey re-registration after sleep"
@@ -43,15 +56,14 @@ If you forget, `git commit --amend -s` fixes the last commit.
 
 ## Pull request checklist
 
+Short on purpose. Anything a machine can refuse for you is not on it:
+
 - One concern per PR. Don't mix an unrelated fix into a feature.
-- `xcodebuild test -project SpeechText/SpeechText.xcodeproj -scheme SpeechText -destination 'platform=macOS'` passes.
-- New app files needed by tests are added to **both** targets (see [docs/development.md](docs/development.md)).
-- `DEVELOPMENT_TEAM` in `project.pbxproj` is still empty — Xcode likes to put yours back in.
+- A new app file the tests need is in **both** targets' Sources phases (see [docs/development.md](docs/development.md)). CI does catch this, but as `cannot find 'X' in scope` in a test file — which reads like a missing import, not like a project file that was never told about your file.
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
-- New source files carry the two-line SPDX header (see [License](#license)).
 - The description says what changed and why.
 
-CI runs the tests and the DCO sign-off check on every pull request.
+Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, and requires a `Signed-off-by` on every commit. The hooks above catch the same things before you push, and add the sign-off itself.
 
 ## Setting up
 

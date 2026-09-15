@@ -86,19 +86,11 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
         return AppleRecognitionSession(recognizer: recognizer, locale: configuration.locale)
     case .groq, .elevenlabs:
         let batch = BatchRecognitionSession(provider: makeBatchProvider(configuration: configuration),
-                                            writer: writer, locale: configuration.locale)
+                                            writer: writer, language: configuration.cloudLanguage)
         if let streamer = makeStreamingProvider(configuration: configuration) {
             return StreamingRecognitionSession(provider: streamer, writer: writer,
-                                               locale: configuration.locale, fallback: batch)
+                                               language: configuration.cloudLanguage, fallback: batch)
         }
         return batch
     }
-}
-
-/// `head + " " + tail`, skipping the space when either side is empty. Both tiers stitch
-/// their committed and in-progress text the same way.
-func joinedTranscript(_ head: String, _ tail: String) -> String {
-    if head.isEmpty { return tail }
-    if tail.isEmpty { return head }
-    return head + " " + tail
 }

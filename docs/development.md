@@ -21,6 +21,14 @@ xcodebuild -project SpeechText/SpeechText.xcodeproj -scheme SpeechText \
   -configuration Release DEVELOPMENT_TEAM=XXXXXXXXXX build
 ```
 
+## Hooks
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Adds the DCO sign-off to every commit, and refuses one that carries a `DEVELOPMENT_TEAM`, a source file without the SPDX header, or a source file that is in no target. See [CONTRIBUTING.md](../CONTRIBUTING.md#hooks).
+
 ## Tests
 
 ```bash
