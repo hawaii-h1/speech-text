@@ -1,0 +1,70 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The three items of the pull-request checklist a commit can be checked against
+# on its own, in the fraction of a second before it is written. Everything slower
+# (the test suite) stays in CI, so committing never becomes something to avoid.
+#
+# Checks run against the *staged* content, not the working tree, so a half-finished
+# edit sitting next to a clean commit cannot fail it.
+#
+# Enable: git config core.hooksPath .githooks
+# Bypass once: git commit --no-verify
+
+pbxproj=SpeechText/SpeechText.xcodeproj/project.pbxproj
+failed=0
+
+note() {
+    printf '%s\n' "$1" >&2
+    failed=1
+}
+
+staged_content() { git show ":$1" 2>/dev/null; }
+is_staged() { git diff --cached --name-only | grep -Fxq "$1"; }
+
+# 1. Xcode puts the signing team back into project.pbxproj whenever a build
+#    setting changes, and the repo has to build for anyone who clones it.
+if is_staged "$pbxproj"; then
+    team=$(staged_content "$pbxproj" | grep -n 'DEVELOPMENT_TEAM = "[A-Z0-9]')
+    if [ -n "$team" ]; then
+        note "project.pbxproj carries a DEVELOPMENT_TEAM:"
+        printf '%s\n' "$team" >&2
+        note "Revert that hunk — the tracked project keeps it empty on purpose."
+    fi
+fi
+
+added_swift=$(git diff --cached --name-only --diff-filter=A | grep '\.swift$')
+
+for file in $added_swift; do
+    # 2. Every source file opens with the two-line SPDX header.
+    header=$(staged_content "$file" | head -2)
+    case $header in
+        *SPDX-FileCopyrightText*)
+            case $header in
+                *SPDX-License-Identifier*) ;;
+                *) note "$file is missing the SPDX-License-Identifier line." ;;
+            esac
+            ;;
+        *) note "$file is missing the two-line SPDX header." ;;
+    esac
+
+    # 3. A new app source file that is in no target builds for nobody. The test
+    #    bundle compiles a curated subset of app sources directly (no TEST_HOST),
+    #    so a file the tests need belongs to *both* Sources phases — which this
+    #    cannot know, hence the reminder rather than a second failure.
+    case $file in
+        SpeechText/SpeechText/*.swift|SpeechText/SpeechTextTests/*.swift)
+            name=${file##*/}
+            if ! staged_content "$pbxproj" | grep -Fq "$name"; then
+                note "$name is in no target: add it to the Sources phase in $pbxproj"
+                note "(and to *both* targets if the tests compile it — see docs/development.md)."
+            fi
+            ;;
+    esac
+done
+
+if [ "$failed" -ne 0 ]; then
+    printf '\nCommit refused by .githooks/pre-commit. Bypass with --no-verify.\n' >&2
+    exit 1
+fi

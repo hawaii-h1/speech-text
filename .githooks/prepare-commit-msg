@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Adds the DCO `Signed-off-by` line every commit in this project must carry, so
+# forgetting `git commit -s` is not a thing that can happen — from the terminal,
+# from Xcode, or from an agent. The trailer names the *author*, which is what the
+# DCO check on a pull request compares against.
+#
+# Enable: git config core.hooksPath .githooks
+
+message_file=$1
+
+ident=$(git var GIT_AUTHOR_IDENT) || exit 0
+author=$(printf '%s\n' "$ident" | sed -n 's/^\(.*>\).*$/\1/p')
+[ -n "$author" ] || exit 0
+
+# `--if-exists doNothing` keeps `--amend` and a hand-written sign-off from
+# collecting a second copy.
+git interpret-trailers --in-place --if-exists doNothing \
+    --trailer "Signed-off-by: $author" "$message_file"
