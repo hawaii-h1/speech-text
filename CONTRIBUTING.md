@@ -62,7 +62,6 @@ If you forget, `git commit --amend -s` fixes the last commit.
 - `DEVELOPMENT_TEAM` in `project.pbxproj` is still empty — Xcode likes to put yours back in.
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
 - New source files carry the two-line SPDX header (see [License](#license)).
-- The hooks above are enabled — they check the three items a commit can be checked against on its own.
 - The description says what changed and why.
 
 CI runs the tests and the DCO sign-off check on every pull request.
