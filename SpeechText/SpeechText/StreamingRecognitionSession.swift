@@ -14,7 +14,8 @@ final class StreamingRecognitionSession: RecognitionSession {
 
     private let provider: StreamingSTTProvider
     private let writer: AudioBufferWriter
-    private let locale: String
+    /// nil leaves the language to the model — see `RecordingConfiguration.cloudLanguage`.
+    private let language: String?
     private let fallback: BatchRecognitionSession
 
     // Main-thread state.
@@ -28,11 +29,11 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// is pushed into a stream that will be discarded.
     private var sendEnabled = true
 
-    init(provider: StreamingSTTProvider, writer: AudioBufferWriter, locale: String,
+    init(provider: StreamingSTTProvider, writer: AudioBufferWriter, language: String?,
          fallback: BatchRecognitionSession) {
         self.provider = provider
         self.writer = writer
-        self.locale = locale
+        self.language = language
         self.fallback = fallback
     }
 
@@ -43,7 +44,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             return
         }
         connected = true
-        provider.connect(language: locale)
+        provider.connect(language: language)
         let provider = self.provider
         eventsTask = Task { [weak self] in
             for await event in provider.events {
@@ -55,17 +56,17 @@ final class StreamingRecognitionSession: RecognitionSession {
     private func handle(_ event: StreamingSTTEvent) {
         switch event {
         case .partial(let text):
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Belt and braces for any provider that re-sends a segment it has already
-            // committed as one more partial: joining it back on would paste the same
-            // words twice. The provider is expected to drop its own echo; this catches
-            // what reaches here anyway, at the point where the join happens.
-            guard trimmed.isEmpty || !committedText.hasSuffix(trimmed) else { return }
-            partialText = text
+            // The stream re-states what it has already committed — sometimes verbatim,
+            // sometimes grown by the words said since — so the partial is reduced to
+            // what it actually adds. Joining it whole pastes the dictation twice.
+            partialText = transcriptContinuation(of: committedText, in: text)
         case .committed(let text):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                committedText = joinedTranscript(committedText, trimmed)
+                // Merged, not appended: a commit that restates the whole accumulated
+                // transcript replaces what we hold rather than doubling it, and its
+                // version of the overlapping words wins — it was made with more audio.
+                committedText = mergedTranscript(committedText, trimmed)
             }
             partialText = ""
         case .failed(let error):

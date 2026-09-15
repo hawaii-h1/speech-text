@@ -368,12 +368,15 @@ struct HistoryView: View {
 
         retryingIDs.insert(record.id)
         let recordID = record.id
-        let locale = record.locale
+        // The language comes from the current settings too, not from the record: a
+        // retry exists precisely because the first attempt came back wrong, and an
+        // entry recorded under a mis-guessed language would repeat that guess.
+        let language = configuration.cloudLanguage
 
         Task {
             do {
                 let provider = makeBatchProvider(configuration: configuration)
-                let text = try await provider.transcribe(audioFileURL: audioURL, language: locale)
+                let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 await MainActor.run {
                     if trimmed.isEmpty {

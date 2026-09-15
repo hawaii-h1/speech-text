@@ -42,6 +42,7 @@
 		A10000010000000000000024 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
 		A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
 		A10000010000000000000026 /* TranscriptSpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000029 /* TranscriptSpan.swift */; };
+		A10000010000000000000027 /* TranscriptMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002A /* TranscriptMerge.swift */; };
 		B10000010000000000000001 /* PureLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000001 /* PureLogicTests.swift */; };
 		B10000010000000000000002 /* AudioPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000002 /* AudioPipelineTests.swift */; };
 		B10000010000000000000010 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000009 /* Settings.swift */; };
@@ -55,6 +56,7 @@
 		B10000010000000000000018 /* RecordingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000024 /* RecordingConfiguration.swift */; };
 		B10000010000000000000019 /* MessageDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000020 /* MessageDelivery.swift */; };
 		B1000001000000000000001A /* TranscriptSpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000029 /* TranscriptSpan.swift */; };
+		B1000001000000000000001B /* TranscriptMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002A /* TranscriptMerge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -96,6 +98,7 @@
 		A20000010000000000000027 /* BatchRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchRecognitionSession.swift; sourceTree = "<group>"; };
 		A20000010000000000000028 /* StreamingRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingRecognitionSession.swift; sourceTree = "<group>"; };
 		A20000010000000000000029 /* TranscriptSpan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSpan.swift; sourceTree = "<group>"; };
+		A2000001000000000000002A /* TranscriptMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptMerge.swift; sourceTree = "<group>"; };
 		B20000010000000000000001 /* PureLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PureLogicTests.swift; sourceTree = "<group>"; };
 		B20000010000000000000002 /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
 		B2000001000000000000000C /* SpeechTextTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpeechTextTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -165,6 +168,7 @@
 				A20000010000000000000027 /* BatchRecognitionSession.swift */,
 				A20000010000000000000028 /* StreamingRecognitionSession.swift */,
 				A20000010000000000000029 /* TranscriptSpan.swift */,
+				A2000001000000000000002A /* TranscriptMerge.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
 				A2000001000000000000000A /* Info.plist */,
 				A2000001000000000000000B /* SpeechText.entitlements */,
@@ -304,6 +308,7 @@
 				A10000010000000000000024 /* BatchRecognitionSession.swift in Sources */,
 				A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */,
 				A10000010000000000000026 /* TranscriptSpan.swift in Sources */,
+				A10000010000000000000027 /* TranscriptMerge.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -325,6 +330,7 @@
 				B10000010000000000000018 /* RecordingConfiguration.swift in Sources */,
 				B10000010000000000000019 /* MessageDelivery.swift in Sources */,
 				B1000001000000000000001A /* TranscriptSpan.swift in Sources */,
+				B1000001000000000000001B /* TranscriptMerge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

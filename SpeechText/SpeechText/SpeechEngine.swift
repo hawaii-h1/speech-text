@@ -162,7 +162,7 @@ final class SpeechEngine {
         // history entries, and duplicate billing) for one recording.
         segmentFinishStarted = true
         let writer = audioBufferWriter
-        let locale = configuration.locale
+        let locale = configuration.historyLocale
         dlog("Engine", "pauseRecording(\(configuration.streams ? "stream" : "batch")): starting transcription task")
 
         transcriptionTask?.cancel()
@@ -400,7 +400,7 @@ final class SpeechEngine {
 
         phase = .finishing
         let writer = audioBufferWriter
-        let locale = configuration.locale
+        let locale = configuration.historyLocale
         let tier = configuration.provider == .apple ? "apple" : (configuration.streams ? "stream" : "batch")
         dlog("Engine", "stopRecording(\(tier)): liveText=\(liveText.count) chars, starting transcription task")
 

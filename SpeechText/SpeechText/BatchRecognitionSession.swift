@@ -12,12 +12,13 @@ final class BatchRecognitionSession: RecognitionSession {
 
     private let provider: BatchSTTProvider
     private let writer: AudioBufferWriter
-    private let locale: String
+    /// nil leaves the language to the model — see `RecordingConfiguration.cloudLanguage`.
+    private let language: String?
 
-    init(provider: BatchSTTProvider, writer: AudioBufferWriter, locale: String) {
+    init(provider: BatchSTTProvider, writer: AudioBufferWriter, language: String?) {
         self.provider = provider
         self.writer = writer
-        self.locale = locale
+        self.language = language
     }
 
     /// Nothing to open.
@@ -42,8 +43,8 @@ final class BatchRecognitionSession: RecognitionSession {
         }
 
         do {
-            dlog("Engine", "BatchRecognitionSession.finish: calling provider, locale=\(locale)…")
-            let text = try await provider.transcribe(audioFileURL: fileURL, language: locale).trimmingCharacters(in: .whitespacesAndNewlines)
+            dlog("Engine", "BatchRecognitionSession.finish: calling provider, language=\(language ?? "auto")…")
+            let text = try await provider.transcribe(audioFileURL: fileURL, language: language).trimmingCharacters(in: .whitespacesAndNewlines)
             dlog("Engine", "BatchRecognitionSession.finish: done, \(text.count) chars")
             return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false)
         } catch {

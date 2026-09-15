@@ -54,8 +54,10 @@ final class RecordingConfigurationTests: XCTestCase {
 
     /// Constructed directly — never via `current()`, which reads the real defaults.
     private func config(provider: STTProviderType, elevenLabsModel: String = "scribe_v1",
-                        groqModel: String = "whisper-large-v3-turbo") -> RecordingConfiguration {
+                        groqModel: String = "whisper-large-v3-turbo",
+                        localeIsAutomatic: Bool = false) -> RecordingConfiguration {
         RecordingConfiguration(provider: provider, locale: "en-US",
+                               localeIsAutomatic: localeIsAutomatic,
                                groqAPIKey: "gk", groqModel: groqModel,
                                elevenLabsAPIKey: "ek", elevenLabsModel: elevenLabsModel)
     }
@@ -86,6 +88,27 @@ final class RecordingConfigurationTests: XCTestCase {
         XCTAssertEqual(config(provider: .elevenlabs).batchAPIKey, "ek")
         XCTAssertEqual(config(provider: .groq).batchAPIKey, "gk")
         XCTAssertEqual(config(provider: .apple).batchAPIKey, "gk")
+    }
+
+    /// The bug this guards: "Auto" resolved the keyboard layout to a locale and then
+    /// *forced* it on the cloud model. Dictating Ukrainian with a US layout sent
+    /// `language_code=en`, and Scribe answered with a translated fragment of the
+    /// recording instead of what was said.
+    func testAutomaticLocaleSendsNoLanguageToACloudModel() {
+        XCTAssertNil(config(provider: .elevenlabs, localeIsAutomatic: true).cloudLanguage)
+        XCTAssertNil(config(provider: .groq, localeIsAutomatic: true).cloudLanguage)
+    }
+
+    func testAChosenLanguageIsStillSent() {
+        XCTAssertEqual(config(provider: .elevenlabs).cloudLanguage, "en-US")
+    }
+
+    /// Apple's recogniser has no auto mode, so the keyboard-layout guess is all it can
+    /// be given — and History records what was actually requested of each tier.
+    func testHistoryLocaleRecordsWhatWasRequested() {
+        XCTAssertEqual(config(provider: .apple, localeIsAutomatic: true).historyLocale, "en-US")
+        XCTAssertEqual(config(provider: .elevenlabs, localeIsAutomatic: true).historyLocale, autoLanguageID)
+        XCTAssertEqual(config(provider: .elevenlabs).historyLocale, "en-US")
     }
 }
 
@@ -371,5 +394,68 @@ final class TranscriptSpanLayerTests: XCTestCase {
         XCTAssertTrue(layer.spans.isEmpty)
         XCTAssertEqual(layer.text, "")
         XCTAssertEqual(layer.segment, 0)
+    }
+}
+
+// MARK: - Merging a stream's text (TranscriptMerge.swift)
+
+/// The bug these guard: Scribe re-states what it has already committed — the partials
+/// after a commit, and the next commit itself, can carry the whole accumulated
+/// transcript with its tail extended and a word or two revised. Appending that pasted
+/// the dictation twice, in two slightly different versions.
+final class TranscriptMergeTests: XCTestCase {
+
+    private let committed = "Скажи, будь ласка, а цей модуль — парсер, кеш — уже готовий, перевірений? Що там узагалі нового? Це..."
+    private let restated = "Скажи, будь ласка, а цей модуль — парсер, кеш — уже готовий, перевірений? Що там узагалі нового? Це нові задачі?"
+
+    func testACommitRestatingEverythingReplacesItRatherThanDoublingIt() {
+        XCTAssertEqual(mergedTranscript(committed, restated), restated)
+    }
+
+    func testAPartialRestatingEverythingIsReducedToWhatItAdds() {
+        XCTAssertEqual(transcriptContinuation(of: committed, in: restated), "нові задачі?")
+    }
+
+    func testAnExactEchoAddsNothing() {
+        XCTAssertEqual(transcriptContinuation(of: committed, in: committed), "")
+        XCTAssertEqual(mergedTranscript(committed, committed), committed)
+    }
+
+    func testAGenuineNextSegmentIsAppended() {
+        XCTAssertEqual(mergedTranscript("Привіт.", "Як справи?"), "Привіт. Як справи?")
+        XCTAssertEqual(transcriptContinuation(of: "Привіт.", in: "Як справи?"), "Як справи?")
+    }
+
+    func testEmptySidesAreJoinedAsBefore() {
+        XCTAssertEqual(mergedTranscript("", "Привіт"), "Привіт")
+        XCTAssertEqual(mergedTranscript("Привіт", ""), "Привіт")
+        XCTAssertEqual(transcriptContinuation(of: "", in: "Привіт"), "Привіт")
+    }
+
+    /// A restatement is recognised through the revisions the server makes as it gains
+    /// context — the whole point is that an exact prefix test misses them.
+    func testARestatementSurvivesARevisedWord() {
+        let head = "Коли я відкрив свій старий нод"
+        let tail = "Коли я відкрив свій старий ноут удома, я бачу ось таке."
+        XCTAssertEqual(mergedTranscript(head, tail), tail)
+    }
+
+    /// Too different to be a restatement: those are two things the user said.
+    func testATextThatMerelyOpensWithTheSameWordIsNotARestatement() {
+        let head = "Скажи, будь ласка, про що цей код"
+        let tail = "Скажи ще раз, я не почув, і потім продовжимо"
+        XCTAssertEqual(mergedTranscript(head, tail), head + " " + tail)
+    }
+
+    /// The other shape: the stream re-sends only the tail of what is committed.
+    func testARepeatedRunAtTheBoundaryIsDroppedOnce() {
+        let head = "Один два три чотири п\u{2019}ять шість"
+        let tail = "три чотири п\u{2019}ять шість сім вісім"
+        XCTAssertEqual(mergedTranscript(head, tail), "Один два три чотири п\u{2019}ять шість сім вісім")
+    }
+
+    /// A short repeat is speech, not a re-send: people do say a word twice.
+    func testAShortRepeatIsLeftAlone() {
+        XCTAssertEqual(mergedTranscript("Так, так", "так, добре"), "Так, так так, добре")
     }
 }

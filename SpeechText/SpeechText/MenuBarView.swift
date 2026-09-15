@@ -264,7 +264,12 @@ struct SettingsView: View {
                 }
             }
             if selectedLanguage == autoLanguageID {
-                Text("Follows your active keyboard layout — currently \(resolvedLocale()).")
+                // Auto means two different things, and saying so matters: a cloud model
+                // detects the language from the audio, while Apple's recogniser has no
+                // auto mode and has to be handed the keyboard layout's guess.
+                Text(stt == .apple
+                     ? "Follows your active keyboard layout — currently \(resolvedLocale())."
+                     : "Detected from what you say, by the speech model itself.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -9,13 +9,30 @@ import Foundation
 /// change while the mic was live used to switch the provider between pause and stop.
 struct RecordingConfiguration {
     let provider: STTProviderType
-    /// The recognition locale. `var` because `SpeechEngine.resumeRecording(locale:)`
-    /// follows the keyboard layout across segments; everything else is fixed for the session.
+    /// The recognition locale, always a concrete identifier. `var` because
+    /// `SpeechEngine.resumeRecording(locale:)` follows the keyboard layout across
+    /// segments; everything else is fixed for the session.
     var locale: String
+    /// True when the user left Language on "Auto (System)", so `locale` is a guess read
+    /// off the keyboard layout rather than something they chose.
+    let localeIsAutomatic: Bool
     let groqAPIKey: String
     let groqModel: String
     let elevenLabsAPIKey: String
     let elevenLabsModel: String
+
+    /// The language to force on a cloud provider — nil on Auto, which leaves the model
+    /// to detect it. Whisper and Scribe do that far better than a keyboard layout does:
+    /// dictating Ukrainian while the layout was US used to send `language_code=en`, and
+    /// a model told the wrong language does not merely mis-spell — it drops most of the
+    /// recording and *translates* the rest. Apple is the exception (below): its
+    /// recogniser has no auto mode and must be handed a locale.
+    var cloudLanguage: String? { localeIsAutomatic ? nil : locale }
+
+    /// What History records as the segment's language: the locale Apple was given, or
+    /// "auto" when a cloud model was left to detect it — so a record never claims a
+    /// language that was never requested.
+    var historyLocale: String { provider == .apple ? locale : (cloudLanguage ?? autoLanguageID) }
 
     /// True when the selected model is served over the realtime WebSocket.
     var streams: Bool { provider == .elevenlabs && elevenLabsModel == elevenLabsRealtimeModel }
@@ -38,9 +55,11 @@ struct RecordingConfiguration {
     static func current(locale: String = resolvedLocale()) -> RecordingConfiguration {
         let defaults = UserDefaults.standard
         let raw = defaults.string(forKey: SettingsKeys.sttProvider) ?? "apple"
+        let language = defaults.string(forKey: SettingsKeys.selectedLanguage) ?? autoLanguageID
         return RecordingConfiguration(
             provider: STTProviderType(rawValue: raw) ?? .apple,
             locale: locale,
+            localeIsAutomatic: language == autoLanguageID,
             groqAPIKey: defaults.string(forKey: SettingsKeys.groqAPIKey) ?? "",
             groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
             elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
