@@ -554,3 +554,72 @@ final class InsertionLedgerTests: XCTestCase {
         XCTAssertEqual(ledger.deliveredText, "світ Привіт ")
     }
 }
+
+// MARK: - Delivery tiers (DeliveryTier.swift)
+
+/// The tier decides what a recording is allowed to hand over while the user is still
+/// speaking. It is taken once, at the start, from what the Accessibility API proved it
+/// can do — and the proof is the read-back, not the return code.
+final class DeliveryTierTests: XCTestCase {
+
+    private let correctable = AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: true)
+
+    func testOurOwnSurfaceIsTierAWithoutProbingAnything() {
+        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: true, probe: .unavailable)
+        XCTAssertEqual(tier, .a)
+    }
+
+    func testAnAppThatReadsAndReselectsItsTextIsTierA() {
+        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: correctable)
+        XCTAssertEqual(tier, .a)
+    }
+
+    /// The Chromium shape: the range write is accepted and then reads back as something
+    /// else. Trusting the return code alone is what would put VS Code in Tier A.
+    func testAnAppWhoseRangeDoesNotReadBackIsTierB() {
+        var probe = correctable
+        probe.rangeReadsBack = false
+        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
+    }
+
+    /// The Terminal shape: nothing answers at all.
+    func testAnAppThatAnswersNothingIsTierB() {
+        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: .unavailable), .b)
+    }
+
+    func testAnAppThatWillNotGiveUpItsValueIsTierB() {
+        var probe = correctable
+        probe.valueReadable = false
+        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
+    }
+
+    /// A send outranks everything, including a perfectly correctable text field: the
+    /// confirmation panel may only ever show final text.
+    func testAMessageSendIsTierCEvenWhereTheAppIsCorrectable() {
+        let tier = DeliveryTier.resolve(isMessageDelivery: true, isOwnSurface: true, probe: correctable)
+        XCTAssertEqual(tier, .c)
+    }
+
+    func testTierCDeliversNothingDuringRecording() {
+        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: false))
+        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true))
+    }
+
+    func testPlainDictationDeliversDuringRecordingInBothForeignTiers() {
+        XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: false))
+        XCTAssertTrue(DeliveryTier.b.deliversDuringRecording(aiMode: false))
+    }
+
+    /// AI mode rewrites the whole dictation at the stop, so anything issued early would
+    /// have to be taken back — which no tier can do yet.
+    func testAIModeBuffersInEveryTier() {
+        XCTAssertFalse(DeliveryTier.a.deliversDuringRecording(aiMode: true))
+        XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true))
+    }
+
+    func testOnlyTierAIsWorthAnInsertionLedger() {
+        XCTAssertTrue(DeliveryTier.a.recordsRanges)
+        XCTAssertFalse(DeliveryTier.b.recordsRanges)
+        XCTAssertFalse(DeliveryTier.c.recordsRanges)
+    }
+}
