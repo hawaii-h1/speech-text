@@ -50,6 +50,31 @@ jobs:
             exit 1
           fi
 
+  spdx:
+    name: SPDX headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every Swift file opens with the SPDX header
+        run: |
+          set -euo pipefail
+          missing=""
+          for file in $(git ls-files '*.swift'); do
+            header=$(head -2 "$file")
+            if ! printf '%s' "$header" | grep -q 'SPDX-FileCopyrightText' \
+               || ! printf '%s' "$header" | grep -q 'SPDX-License-Identifier'; then
+              missing="$missing  $file"$'\n'
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "These files are missing the two-line SPDX header:"
+            printf '%s' "$missing"
+            echo
+            echo "The header is the file's licence notice, not decoration — see CONTRIBUTING.md."
+            exit 1
+          fi
+
   dco:
     name: DCO sign-off
     runs-on: ubuntu-latest

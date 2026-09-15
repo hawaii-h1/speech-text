@@ -56,15 +56,14 @@ If you forget, `git commit --amend -s` fixes the last commit.
 
 ## Pull request checklist
 
+Short on purpose. Anything a machine can refuse for you is not on it:
+
 - One concern per PR. Don't mix an unrelated fix into a feature.
-- `xcodebuild test -project SpeechText/SpeechText.xcodeproj -scheme SpeechText -destination 'platform=macOS'` passes.
-- New app files needed by tests are added to **both** targets (see [docs/development.md](docs/development.md)).
-- `DEVELOPMENT_TEAM` in `project.pbxproj` is still empty — Xcode likes to put yours back in.
+- A new app file the tests need is in **both** targets' Sources phases (see [docs/development.md](docs/development.md)). CI does catch this, but as `cannot find 'X' in scope` in a test file — which reads like a missing import, not like a project file that was never told about your file.
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
-- New source files carry the two-line SPDX header (see [License](#license)).
 - The description says what changed and why.
 
-CI runs the tests and the DCO sign-off check on every pull request.
+Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, and requires a `Signed-off-by` on every commit. The hooks above catch the same things before you push, and add the sign-off itself.
 
 ## Setting up
 
