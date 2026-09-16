@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The menu bar's first line says which build is running — version, build number, commit and build date — and copies it when clicked.
+
 ### Fixed
 
 - ElevenLabs realtime no longer pastes a dictation twice. The stream re-states text it has already committed — grown by the words said since, and with a word or two revised — and that was being appended instead of merged.

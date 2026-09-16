@@ -16,6 +16,44 @@ struct SpeechTextApp: App {
     }
 }
 
+// MARK: - Build identity
+
+/// What this build is, in one line: the release version, and — when the rebuild
+/// skill produced it — which commit it came from and when.
+///
+/// `CFBundleShortVersionString` is the semver in CHANGELOG.md and moves only on a
+/// release. The rest is stamped at build time: `scripts/rebuild.sh` passes
+/// `CURRENT_PROJECT_VERSION`, `SPT_GIT_COMMIT` and `SPT_BUILD_DATE` on the
+/// `xcodebuild` line, and `Info.plist` carries `$(...)` placeholders for them.
+/// A plain Xcode ⌘R build defines none of those, so the app says "dev" instead —
+/// which is the honest answer, not a missing feature.
+enum AppVersion {
+    static var marketing: String { string(for: "CFBundleShortVersionString") ?? "?" }
+    static var build: String { string(for: "CFBundleVersion") ?? "?" }
+    static var commit: String? { string(for: "SPTGitCommit") }
+    static var builtAt: String? { string(for: "SPTBuildDate") }
+
+    /// e.g. `1.0 (build 47 · a18a7d1 · 2026-09-16 14:20)`, or `1.0 (dev)`.
+    static var displayString: String {
+        guard let commit else { return "\(marketing) (dev)" }
+        var parts = ["build \(build)", commit]
+        if let builtAt { parts.append(builtAt) }
+        return "\(marketing) (\(parts.joined(separator: " · ")))"
+    }
+
+    /// An Info.plist string that is actually a value. Xcode substitutes an *empty*
+    /// string for a build setting it was never given, so the unstamped case is ""
+    /// rather than a missing key; a placeholder left verbatim would mean the key in
+    /// Info.plist and the variable on the build line disagree, and showing the user
+    /// `$(SPT_GIT_COMMIT)` is worse than showing nothing.
+    private static func string(for key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+}
+
 // MARK: - AppDelegate with NSStatusItem
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -137,6 +175,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
 
+        // Which build is this? The app has no window and no About box, so the menu
+        // is the only place the answer can live — and after a rebuild it is the
+        // first thing worth checking.
+        let versionItem = NSMenuItem(title: "SpeechText \(AppVersion.displayString)",
+                                     action: #selector(copyVersion), keyEquivalent: "")
+        versionItem.target = self
+        versionItem.toolTip = "Click to copy this build's version"
+        menu.addItem(versionItem)
+
+        menu.addItem(.separator())
+
         let shortcut = currentShortcutDisplayString()
         if appState.speechEngine.isRecording {
             let stopItem = NSMenuItem(title: "Stop Recording (\(shortcut))", action: #selector(toggleRecording), keyEquivalent: "")
@@ -183,6 +232,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    @objc private func copyVersion() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("SpeechText \(AppVersion.displayString)", forType: .string)
     }
 
     @objc private func toggleRecording() {

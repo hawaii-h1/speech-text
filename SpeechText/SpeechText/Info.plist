@@ -12,5 +12,9 @@
 	<string>SpeechText needs microphone access for speech recognition</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>SpeechText uses on-device speech recognition to convert your voice to text</string>
+	<key>SPTBuildDate</key>
+	<string>$(SPT_BUILD_DATE)</string>
+	<key>SPTGitCommit</key>
+	<string>$(SPT_GIT_COMMIT)</string>
 </dict>
 </plist>
