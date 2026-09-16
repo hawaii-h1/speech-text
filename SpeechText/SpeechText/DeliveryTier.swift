@@ -65,7 +65,8 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
     ///
     /// AI mode buffers in every tier, not just Tier B: the LLM rewrites the whole
     /// dictation, so text issued during the recording would have to be taken back at the
-    /// stop — which is the one thing no tier can do until phase C lands. It is also what
+    /// stop. Phase C's correction could do that in Tier A, but enabling it is a separate
+    /// decision from having it, and it has not been taken. It is also what
     /// makes Tier C correct without knowing the destination at the start: an AI-mode
     /// dictation is the only kind that can become a message, and it delivers nothing
     /// early regardless.

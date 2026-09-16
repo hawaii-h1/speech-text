@@ -81,9 +81,9 @@ struct InsertionLedger {
     ///
     /// Nil means "deliver nothing more": the authoritative text does not extend what the
     /// sink already holds, it disagrees with it. The realistic cause is a streaming
-    /// segment that fell back to a batch upload and came back worded differently. Until
-    /// there is a finalizing pass that can replace what a foreign app already holds,
-    /// pasting the second wording underneath the first is worse than leaving the first
+    /// segment that fell back to a batch upload and came back worded differently. The
+    /// finalizing pass corrects that where the app allows it; where it refused, pasting
+    /// the second wording underneath the first is worse than leaving the first
     /// standing — a dictation the user has to re-read and de-duplicate by hand.
     func remainder(of authoritative: String) -> String? {
         let delivered = deliveredText

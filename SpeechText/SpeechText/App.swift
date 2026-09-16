@@ -340,6 +340,10 @@ final class AppState {
     /// text before the first had been read.
     private var spanQueue: [TranscriptSpan] = []
     private var isDeliveringSpan = false
+    /// The field this recording delivers into, taken when the tier is decided. The stop's
+    /// correction runs only while this is still the focused element of the app in front:
+    /// the tier was decided for this field, not for whatever has focus by the stop.
+    private var deliveryElement: AXUIElement?
 
     func toggleRecording(aiMode: Bool = false) {
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
@@ -412,6 +416,50 @@ final class AppState {
         speechEngine.onSpansCommitted = progressive
             ? { [weak self] spans in self?.enqueueSpans(spans) }
             : nil
+        deliveryElement = progressive && deliveryTier.recordsRanges
+            ? PasteService.focusedElement(of: previousApp)
+            : nil
+        speechEngine.onFinalize = { [weak self] input in self?.finalizeDelivery(input) }
+    }
+
+    /// The finalizing pass: what the app was given during the recording is brought in
+    /// line with the authoritative text by one write, or left exactly as it is. Runs
+    /// before the engine goes idle, so `handleTranscriptionResult` sees the ledger as the
+    /// pass left it — after a correction there is nothing more to paste.
+    private func finalizeDelivery(_ input: SpeechEngine.FinalizeInput) {
+        let decision = FinalizePass.decide(ledger: inlineLedger, authoritative: input.text,
+                                           tier: deliveryTier, hasFrozenSpans: input.hasFrozenSpans)
+        dlog("Span", "finalize: \(decision), tier \(deliveryTier)")
+
+        let applied: Bool
+        switch decision {
+        case .nothingDelivered, .extend:
+            // The stop's ordinary paste is the one write.
+            return
+        case .leave:
+            applied = false
+        case .replace:
+            applied = correctDeliveredText(to: input.text)
+        }
+        if let id = input.recordID {
+            TranscriptionHistory.shared.recordCorrection(id: id, applied: applied)
+        }
+    }
+
+    private func correctDeliveredText(to text: String) -> Bool {
+        // A paste still in flight has not reached the ledger: the plan would replace the
+        // text before it and leave it standing after the correction — the words twice.
+        guard !isDeliveringSpan else {
+            dlog("Span", "finalize: a delivery is still landing — not correcting")
+            return false
+        }
+        // The tier is checked again: it was decided for one field of one app.
+        guard let app = previousApp, let element = deliveryElement,
+              PasteService.isStillFocused(element, in: app) else {
+            dlog("Span", "finalize: the app or the focused field changed since the recording started — not correcting")
+            return false
+        }
+        return PasteService.replaceLastInsertions(ledger: &inlineLedger, with: text, in: app)
     }
 
     /// Stops offering spans. The ledger is kept: the stop still has to know what the
@@ -426,6 +474,8 @@ final class AppState {
     /// un-inserting it into a foreign app is not possible.
     private func endInlineDelivery() {
         stopOfferingSpans()
+        speechEngine.onFinalize = nil
+        deliveryElement = nil
         inlineLedger.clear()
     }
 
@@ -471,9 +521,9 @@ final class AppState {
     }
 
     /// Writes what went out into the ledger. Per span where the app stored exactly what
-    /// it was handed — those ranges are what phase C will replace through — and as one
-    /// untracked piece otherwise, which still answers the only question phase A asks of
-    /// the ledger: what has this app already been given?
+    /// it was handed — those ranges are what the finalizing pass replaces through — and
+    /// as one untracked piece otherwise, which still answers what the stop asks of the
+    /// ledger (what has this app already been given?) but can never be corrected.
     private func recordDelivery(of spans: [TranscriptSpan], texts: [String],
                                 payload: String, landing: PasteService.PasteLanding?) {
         let joined = texts.joined(separator: " ")
@@ -547,8 +597,9 @@ final class AppState {
         dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil"), aiMode=\(isAIMode)")
 
         // Spans pasted while the user was still speaking are already in the document.
-        // Nil means the final text disagrees with them rather than extending them, and
-        // phase A cannot replace what a foreign app already holds.
+        // `finalizeDelivery` has already corrected them where it could, which leaves
+        // nothing here. Nil means the final text still disagrees with them — the
+        // correction was refused — and a second wording is not pasted under the first.
         let remainder = undeliveredRemainder(of: text)
 
         // A failed transcription used to end here silently — the user just saw nothing
