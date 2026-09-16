@@ -386,7 +386,7 @@ struct HistoryView: View {
             do {
                 let provider = makeBatchProvider(configuration: configuration)
                 let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = configuration.cleaned(text.trimmingCharacters(in: .whitespacesAndNewlines))
                 await MainActor.run {
                     if trimmed.isEmpty {
                         history.markRetryFailed(id: recordID, error: "Retry returned no text")

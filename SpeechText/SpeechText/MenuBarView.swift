@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
     @AppStorage(SettingsKeys.elevenLabsAPIKey) private var elevenLabsAPIKey = ""
     @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = "scribe_v1"
+    @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
@@ -274,6 +275,10 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Toggle("Remove hesitation sounds", isOn: $removeDisfluencies)
+            Text("Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         } header: {
             sectionHeader("Step 1 · Speech → Text", "Turns what you say into raw text. Always runs.")
         }

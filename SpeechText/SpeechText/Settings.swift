@@ -14,6 +14,8 @@ enum SettingsKeys {
     static let groqModel = "groqModel"
     static let elevenLabsAPIKey = "elevenLabsAPIKey"
     static let elevenLabsModel = "elevenLabsModel"
+    /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
+    static let removeDisfluencies = "removeDisfluencies"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -74,6 +76,7 @@ enum SettingsKeys {
     static let portable: [String] = [
         webhookURL, authToken, selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel,
+        removeDisfluencies,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
