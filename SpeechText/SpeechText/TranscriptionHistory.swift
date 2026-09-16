@@ -68,6 +68,13 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     var refinement: Refinement?
     /// Optional, so history written before message delivery existed still decodes.
     var delivery: Delivery?
+    /// Whether the stop's correction of text already delivered during the recording
+    /// went through. Nil when there was nothing to correct — nothing was delivered early,
+    /// or the final text only added to it. False explains a dictation whose pasted words
+    /// do not match `text`: the app could not be corrected (Tier B), a paste during the
+    /// recording could not be range-tracked (its landing was unreadable, or the app
+    /// changed the text), the user had edited it, or the focus moved before the stop.
+    var correctionApplied: Bool?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
 
@@ -200,6 +207,15 @@ final class TranscriptionHistory {
         save()
     }
 
+    func recordCorrection(id: UUID, applied: Bool) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else {
+            histLog.info("correction for unknown record \(id.uuidString, privacy: .public) — dropped")
+            return
+        }
+        records[index].correctionApplied = applied
+        save()
+    }
+
     private func updateRefinement(id: UUID, _ refinement: TranscriptionRecord.Refinement) {
         guard let index = records.firstIndex(where: { $0.id == id }) else {
             histLog.info("refinement for unknown record \(id.uuidString, privacy: .public) — dropped")
@@ -240,8 +256,9 @@ final class TranscriptionHistory {
         record.status = .success
         record.errorMessage = nil
         record.audioFileName = nil
-        // The old refinement described text that no longer exists.
+        // The old refinement and correction described text that no longer exists.
         record.refinement = nil
+        record.correctionApplied = nil
         records[index] = record
         save()
     }
