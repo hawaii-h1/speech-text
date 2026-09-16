@@ -23,6 +23,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
 
     @AppStorage(SettingsKeys.messageSendingEnabled) private var messageSendingEnabled = false
+    @AppStorage(SettingsKeys.aiDraftWhileSpeaking) private var aiDraftWhileSpeaking = false
     @State private var contactsAuthorized = ContactResolver.isAuthorized
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
@@ -311,6 +312,13 @@ struct SettingsView: View {
             }
 
             Text("Separate from the speech model above — you can transcribe with one provider and generate with another.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Show the dictation while speaking, then swap in the AI version", isOn: $aiDraftWhileSpeaking)
+            Text(messageSendingEnabled
+                 ? "Has no effect while message sending is on: a dictation that may become a message is never pasted early."
+                 : "Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

@@ -410,7 +410,8 @@ final class AppState {
                                 isOwnSurface: false,
                                 probe: PasteService.probeFocusedText(in: previousApp))
 
-        let progressive = deliveryTier.deliversDuringRecording(aiMode: isAIMode)
+        let aiDraft = UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking)
+        let progressive = deliveryTier.deliversDuringRecording(aiMode: isAIMode, aiDraft: aiDraft)
         dlog("Span", "tier \(deliveryTier) for \(previousApp?.localizedName ?? "nil") — \(progressive ? "delivering during the recording" : "buffering until the stop")")
 
         speechEngine.onSpansCommitted = progressive
@@ -427,6 +428,9 @@ final class AppState {
     /// before the engine goes idle, so `handleTranscriptionResult` sees the ledger as the
     /// pass left it — after a correction there is nothing more to paste.
     private func finalizeDelivery(_ input: SpeechEngine.FinalizeInput) {
+        // An AI draft is not corrected to the raw transcript first: that would be two
+        // writes where one will do. `deliverAIResult` replaces it once the rewrite is in.
+        guard !isAIMode else { return }
         let decision = FinalizePass.decide(ledger: inlineLedger, authoritative: input.text,
                                            tier: deliveryTier, hasFrozenSpans: input.hasFrozenSpans)
         dlog("Span", "finalize: \(decision), tier \(deliveryTier)")
@@ -653,6 +657,11 @@ final class AppState {
             return
         }
 
+        // A draft already in the document covers every segment of the recording, and the
+        // rewrite replaces all of it — so it has to be a rewrite of all of it. `finalText`
+        // holds only the last segment after a device restart.
+        let aiInput = inlineLedger.isEmpty ? text : speechEngine.spanLayer.text
+
         guard TextRefinementService.isConfigured else {
             dlog("App", "handleTranscriptionResult: AI mode but no LLM API key — pasting raw transcript")
             hideOverlay()
@@ -662,7 +671,7 @@ final class AppState {
                 detail: "No API key for \(LLMConfiguration.providerType.displayName). Pasted the raw transcription.",
                 tint: .orange
             )
-            deliver(text)
+            deliverAIResult(aiInput, recordID: speechEngine.lastRecordID)
             return
         }
 
@@ -671,16 +680,16 @@ final class AppState {
         let recordID = speechEngine.lastRecordID
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            var output = text
+            var output = aiInput
             var sendIntent: TextRefinementService.SendIntent?
             do {
-                let result = try await TextRefinementService.refine(text)
+                let result = try await TextRefinementService.refine(aiInput)
                 if Task.isCancelled { return }
                 output = result.text
                 sendIntent = result.sendIntent
                 if let recordID {
                     TranscriptionHistory.shared.recordRefinement(
-                        id: recordID, input: text, output: result.text,
+                        id: recordID, input: aiInput, output: result.text,
                         presetName: result.presetName,
                         provider: result.provider, model: result.model
                     )
@@ -690,7 +699,7 @@ final class AppState {
                 if let recordID {
                     let type = LLMConfiguration.providerType
                     TranscriptionHistory.shared.recordRefinementFailure(
-                        id: recordID, input: text, error: error.localizedDescription,
+                        id: recordID, input: aiInput, error: error.localizedDescription,
                         provider: type.rawValue, model: LLMConfiguration.model(for: type)
                     )
                 }
@@ -713,8 +722,46 @@ final class AppState {
             if let sendIntent {
                 self.beginDelivery(sendIntent, body: output, recordID: recordID)
             } else {
-                self.deliver(output)
+                self.deliverAIResult(output, recordID: recordID)
             }
+        }
+    }
+
+    /// Where an AI dictation's final text goes.
+    ///
+    /// With nothing delivered early, the ordinary paste. With a draft already in the
+    /// document (`aiDraftWhileSpeaking`), the result replaces it in one write — or, when
+    /// the result only adds to the draft (a failed rewrite falls back to the raw
+    /// transcript, which usually does), the rest is pasted after it. A refused
+    /// replacement pastes the result anyway: that is the user's call, getting the
+    /// rewrite in matters more to them than the draft staying out of the way, so the
+    /// document may then hold both.
+    private func deliverAIResult(_ output: String, recordID: UUID?) {
+        guard !inlineLedger.isEmpty else {
+            deliver(output)
+            return
+        }
+
+        let decision = FinalizePass.decide(
+            ledger: inlineLedger, authoritative: output, tier: deliveryTier,
+            hasFrozenSpans: speechEngine.spanLayer.spans.contains { $0.state == .frozen })
+        dlog("Span", "AI draft: \(decision)")
+
+        switch decision {
+        case .nothingDelivered:
+            deliver(output)
+        case .extend:
+            if let rest = inlineLedger.remainder(of: output), !rest.isEmpty {
+                deliver(rest)
+            }
+        case .replace, .leave:
+            let applied = decision == .replace && correctDeliveredText(to: output)
+            if let recordID {
+                TranscriptionHistory.shared.recordCorrection(id: recordID, applied: applied)
+            }
+            guard !applied else { return }
+            dlog("Span", "AI draft could not be replaced — pasting the AI result as well")
+            deliver(output)
         }
     }
 
