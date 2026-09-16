@@ -700,3 +700,99 @@ final class UndeliveredRemainderTests: XCTestCase {
         XCTAssertEqual(ledger.remainder(of: "Один два три чотири п'ять"), "чотири п'ять")
     }
 }
+
+// MARK: - Finalizing pass (FinalizePass.swift)
+
+/// The stop's single write. The plan must find the delivered text as one range and
+/// refuse — leaving the document exactly as it is — whenever it cannot be sure the whole
+/// range is still ours.
+final class FinalizePassTests: XCTestCase {
+
+    private func span(_ id: UInt64) -> TranscriptSpanID { TranscriptSpanID(rawValue: id) }
+
+    /// "Олек" / "сандр прийде" — a cut through the middle of a name, pasted as it committed.
+    private func badlyCut() -> InsertionLedger {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 6, length: 4), text: "Олек")
+        ledger.insert(span: span(2), range: NSRange(location: 11, length: 12), text: "сандр прийде")
+        return ledger
+    }
+    private let cutDocument = "Нотат Олек сандр прийде\nкінець"
+
+    func testABadCutIsReplacedAsOneRangeCoveringEveryRecord() {
+        let plan = FinalizePass.plan(ledger: badlyCut(), document: cutDocument,
+                                     replacement: "Олександр прийде.")
+        XCTAssertEqual(plan, TextReplacement(range: NSRange(location: 6, length: 17), text: "Олександр прийде."))
+    }
+
+    func testTheUserTypingBetweenTwoRecordsRefusesThePass() {
+        let edited = "Нотат Олек, мабуть, сандр прийде"
+        XCTAssertNil(FinalizePass.plan(ledger: badlyCut(), document: edited, replacement: "Олександр прийде."))
+    }
+
+    func testARecordTheUserEditedOverRefusesThePassRatherThanSkippingIt() {
+        let edited = "Нотат Олек Петро прийде"
+        XCTAssertNil(FinalizePass.plan(ledger: badlyCut(), document: edited, replacement: "Олександр прийде."))
+    }
+
+    func testTextThatMovedIsStillFoundAndReplaced() {
+        let moved = "Нове. Нотат Олек сандр прийде"
+        let plan = FinalizePass.plan(ledger: badlyCut(), document: moved, replacement: "Олександр прийде.")
+        XCTAssertEqual(plan?.range, NSRange(location: 12, length: 17))
+    }
+
+    func testAnUntrackedPieceRefusesThePass() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Олек")
+        XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Олек", replacement: "Олександр"))
+    }
+
+    func testNothingToWriteWhenTheDocumentAlreadyHoldsTheFinalText() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 9), text: "Олександр")
+        XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Олександр", replacement: "Олександр"))
+    }
+
+    // MARK: Decision
+
+    func testNothingDeliveredMeansTheOrdinaryPaste() {
+        XCTAssertEqual(FinalizePass.decide(ledger: InsertionLedger(), authoritative: "Привіт",
+                                           tier: .a, hasFrozenSpans: false), .nothingDelivered)
+    }
+
+    func testAFinalTextThatOnlyAddsWordsIsAnExtensionNotACorrection() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олек сандр прийде завтра",
+                                           tier: .a, hasFrozenSpans: false), .extend)
+    }
+
+    func testARevisedWordIsACorrectionInTierA() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
+                                           tier: .a, hasFrozenSpans: false), .replace)
+    }
+
+    /// Terminal: the delivered text stays exactly as it is.
+    func testTierBNeverCorrects() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
+                                           tier: .b, hasFrozenSpans: false), .leave)
+    }
+
+    func testFrozenTextIsNeverCorrected() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
+                                           tier: .a, hasFrozenSpans: true), .leave)
+    }
+
+    func testAnEmptyResultLeavesTheDeliveredTextStanding() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "  ",
+                                           tier: .a, hasFrozenSpans: false), .leave)
+    }
+
+    /// After the write the stop must have nothing left to paste — the anti-duplication
+    /// guard sees the replacement as delivered.
+    func testACollapsedLedgerLeavesNoRemainder() {
+        var ledger = badlyCut()
+        let replacement = TextReplacement(range: NSRange(location: 6, length: 17), text: "Олександр прийде.")
+        ledger.collapse(into: replacement, landed: "Олександр прийде.")
+        XCTAssertEqual(ledger.remainder(of: "Олександр прийде."), "")
+        XCTAssertEqual(ledger.records.count, 1)
+    }
+}
