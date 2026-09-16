@@ -40,6 +40,9 @@ enum SettingsKeys {
     static let defaultPresetID = "defaultPresetID"
     /// Whether the Record Window's ✨ toggle is on.
     static let aiModeInRecordWindow = "aiModeInRecordWindow"
+    /// Whether an AI dictation shows its raw text while the user speaks, replaced by the
+    /// rewrite at the stop. Tier A only; off by default.
+    static let aiDraftWhileSpeaking = "aiDraftWhileSpeaking"
 
     // Message delivery
     /// Whether an AI dictation may be routed to a messaging app instead of the cursor.

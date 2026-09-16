@@ -610,11 +610,18 @@ final class DeliveryTierTests: XCTestCase {
         XCTAssertTrue(DeliveryTier.b.deliversDuringRecording(aiMode: false))
     }
 
-    /// AI mode rewrites the whole dictation at the stop, so anything issued early would
-    /// have to be taken back — which no tier can do yet.
-    func testAIModeBuffersInEveryTier() {
+    /// AI mode rewrites the whole dictation at the stop, so by default nothing is issued
+    /// early in any tier.
+    func testAIModeBuffersInEveryTierByDefault() {
         XCTAssertFalse(DeliveryTier.a.deliversDuringRecording(aiMode: true))
         XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true))
+    }
+
+    /// The opt-in draft goes only where the rewrite can replace it.
+    func testAnAIDraftIsDeliveredOnlyInTierA() {
+        XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: true, aiDraft: true))
+        XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true, aiDraft: true))
+        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true, aiDraft: true))
     }
 
     func testOnlyTierAIsWorthAnInsertionLedger() {
