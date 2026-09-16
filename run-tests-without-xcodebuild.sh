@@ -20,7 +20,7 @@ PLIST
 SRC=(SpeechText/SpeechTextTests/PureLogicTests.swift SpeechText/SpeechTextTests/AudioPipelineTests.swift)
 for f in Settings STTProvider AudioBufferWriter DebugLog LLMProvider PromptPresets \
          TextRefinementService StreamingSTTProvider RecordingConfiguration MessageDelivery \
-         TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier; do
+         TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier TranscriptCleanup; do
   SRC+=("SpeechText/SpeechText/$f.swift")
 done
 "$SWIFTC" -emit-library -o "$OUT/Contents/MacOS/SpeechTextTests" \
