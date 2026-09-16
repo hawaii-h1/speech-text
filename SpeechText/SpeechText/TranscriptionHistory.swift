@@ -30,6 +30,9 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
         var model: String
         /// Set when the LLM step failed; the raw transcription was used instead.
         var errorMessage: String?
+        /// The app, window and field the model was told the text was for. Nil for the
+        /// Record Window, for entries older than the setting, and when it was off.
+        var context: FocusContext? = nil
 
         var succeeded: Bool { errorMessage == nil && !outputText.isEmpty }
     }
@@ -167,20 +170,20 @@ final class TranscriptionHistory {
 
     /// Attaches the result of the AI step to an existing transcription entry.
     func recordRefinement(id: UUID, input: String, output: String, presetName: String?,
-                          provider: String, model: String) {
+                          provider: String, model: String, context: FocusContext? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
             inputText: input, outputText: output, presetName: presetName,
-            provider: provider, model: model, errorMessage: nil
+            provider: provider, model: model, errorMessage: nil, context: context
         ))
     }
 
     /// Records that the AI step was attempted and failed. Worth keeping: the pasted text
     /// silently differs from what the user asked for, and the entry explains why.
     func recordRefinementFailure(id: UUID, input: String, error: String,
-                                 provider: String, model: String) {
+                                 provider: String, model: String, context: FocusContext? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
             inputText: input, outputText: "", presetName: nil,
-            provider: provider, model: model, errorMessage: error
+            provider: provider, model: model, errorMessage: error, context: context
         ))
     }
 
