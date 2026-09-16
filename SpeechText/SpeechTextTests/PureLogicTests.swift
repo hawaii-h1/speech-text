@@ -459,3 +459,244 @@ final class TranscriptMergeTests: XCTestCase {
         XCTAssertEqual(mergedTranscript("Так, так", "так, добре"), "Так, так так, добре")
     }
 }
+
+// MARK: - Insertion ledger (InsertionLedger.swift)
+
+/// The ledger is what lets a later pass find its own text again. Everything here is
+/// about the guard: it must find the span where it left it, follow it when the document
+/// shifted around it, and refuse — rather than guess — when it cannot be sure.
+final class InsertionLedgerTests: XCTestCase {
+
+    private func span(_ id: UInt64) -> TranscriptSpanID { TranscriptSpanID(rawValue: id) }
+
+    /// The recorded range wins outright when the text there still matches — which is
+    /// also what makes a repeated word resolvable at all: the search fallback would
+    /// refuse this document as ambiguous, and it never has to run.
+    func testTheRecordedRangeIsPreferredOverSearchingForTheText() {
+        var ledger = InsertionLedger()
+        let range = NSRange(location: 0, length: 4)
+        ledger.insert(span: span(1), range: range, text: "світ")
+        XCTAssertEqual(ledger.resolve(span: span(1), in: "світ і світ"), range)
+    }
+
+    /// The user typed above the insertion, so it is no longer where it was recorded —
+    /// but it is still there, untouched, and exactly once.
+    func testASpanThatMovedIsFoundByItsText() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        let resolved = ledger.resolve(span: span(1), in: "Привіт світ")
+        XCTAssertEqual(resolved, NSRange(location: 7, length: 4))
+    }
+
+    /// The whole point of the guard: the user edited over it, so nothing may be replaced.
+    func testASpanTheUserEditedOverIsNotResolved() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        XCTAssertNil(ledger.resolve(span: span(1), in: "Привіт усім"))
+    }
+
+    /// Two identical occurrences make "the last one" a guess, and a guess is not
+    /// allowed to rewrite the user's document.
+    func testAnAmbiguousSpanIsRefusedRatherThanGuessed() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 99, length: 4), text: "світ")
+        XCTAssertNil(ledger.resolve(span: span(1), in: "світ і ще раз світ"))
+    }
+
+    func testAnUnknownSpanResolvesToNothing() {
+        let ledger = InsertionLedger()
+        XCTAssertNil(ledger.resolve(span: span(7), in: "Привіт"))
+    }
+
+    /// An insertion before an earlier one pushes it along, so its recorded range keeps
+    /// describing where its text actually is.
+    func testAnEarlierRecordShiftsWhenTextIsInsertedAboveIt() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        ledger.insert(span: span(2), range: NSRange(location: 0, length: 7), text: "Привіт ")
+        XCTAssertEqual(ledger.record(for: span(1))?.range, NSRange(location: 7, length: 4))
+    }
+
+    /// A replacement of a different length moves everything after it, and only that.
+    func testAReplacementShiftsWhatFollowsButNotWhatPrecedes() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 3), text: "Два")
+        ledger.insert(span: span(2), range: NSRange(location: 4, length: 3), text: "три")
+        ledger.insert(span: span(3), range: NSRange(location: 8, length: 7), text: "чотири!")
+        ledger.replaced(span: span(2), at: NSRange(location: 4, length: 3), with: "тринадцять")
+        XCTAssertEqual(ledger.record(for: span(1))?.range, NSRange(location: 0, length: 3))
+        XCTAssertEqual(ledger.record(for: span(2))?.text, "тринадцять")
+        XCTAssertEqual(ledger.record(for: span(3))?.range.location, 15)
+    }
+
+    func testDeliveredTextJoinsTheRecordsTheWaySpansJoin() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 6), text: "Привіт")
+        ledger.insert(span: span(2), range: NSRange(location: 7, length: 4), text: "світ")
+        XCTAssertEqual(ledger.deliveredText, "Привіт світ")
+    }
+
+    func testClearingLeavesNothingToResolve() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 6), text: "Привіт")
+        ledger.clear()
+        XCTAssertTrue(ledger.isEmpty)
+        XCTAssertNil(ledger.resolve(span: span(1), in: "Привіт"))
+    }
+
+    /// Untracked text (an Apple pause hands back its own joined string) still occupies
+    /// room in the document, so it must still move the records that follow it.
+    func testUntrackedTextStillShiftsTheRecordsAroundIt() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
+        ledger.insert(span: nil, range: NSRange(location: 0, length: 7), text: "Привіт ")
+        XCTAssertEqual(ledger.record(for: span(1))?.range.location, 7)
+        XCTAssertEqual(ledger.deliveredText, "світ Привіт ")
+    }
+}
+
+// MARK: - Delivery tiers (DeliveryTier.swift)
+
+/// The tier decides what a recording is allowed to hand over while the user is still
+/// speaking. It is taken once, at the start, from what the Accessibility API proved it
+/// can do — and the proof is the read-back, not the return code.
+final class DeliveryTierTests: XCTestCase {
+
+    private let correctable = AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: true)
+
+    func testOurOwnSurfaceIsTierAWithoutProbingAnything() {
+        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: true, probe: .unavailable)
+        XCTAssertEqual(tier, .a)
+    }
+
+    func testAnAppThatReadsAndReselectsItsTextIsTierA() {
+        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: correctable)
+        XCTAssertEqual(tier, .a)
+    }
+
+    /// The Chromium shape: the range write is accepted and then reads back as something
+    /// else. Trusting the return code alone is what would put VS Code in Tier A.
+    func testAnAppWhoseRangeDoesNotReadBackIsTierB() {
+        var probe = correctable
+        probe.rangeReadsBack = false
+        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
+    }
+
+    /// The Terminal shape: nothing answers at all.
+    func testAnAppThatAnswersNothingIsTierB() {
+        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: .unavailable), .b)
+    }
+
+    func testAnAppThatWillNotGiveUpItsValueIsTierB() {
+        var probe = correctable
+        probe.valueReadable = false
+        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
+    }
+
+    /// A send outranks everything, including a perfectly correctable text field: the
+    /// confirmation panel may only ever show final text.
+    func testAMessageSendIsTierCEvenWhereTheAppIsCorrectable() {
+        let tier = DeliveryTier.resolve(isMessageDelivery: true, isOwnSurface: true, probe: correctable)
+        XCTAssertEqual(tier, .c)
+    }
+
+    func testTierCDeliversNothingDuringRecording() {
+        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: false))
+        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true))
+    }
+
+    func testPlainDictationDeliversDuringRecordingInBothForeignTiers() {
+        XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: false))
+        XCTAssertTrue(DeliveryTier.b.deliversDuringRecording(aiMode: false))
+    }
+
+    /// AI mode rewrites the whole dictation at the stop, so anything issued early would
+    /// have to be taken back — which no tier can do yet.
+    func testAIModeBuffersInEveryTier() {
+        XCTAssertFalse(DeliveryTier.a.deliversDuringRecording(aiMode: true))
+        XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true))
+    }
+
+    func testOnlyTierAIsWorthAnInsertionLedger() {
+        XCTAssertTrue(DeliveryTier.a.recordsRanges)
+        XCTAssertFalse(DeliveryTier.b.recordsRanges)
+        XCTAssertFalse(DeliveryTier.c.recordsRanges)
+    }
+}
+
+// MARK: - What the stop still has to deliver (InsertionLedger.remainder)
+
+/// This repo has shipped a doubled dictation twice. Delivering spans while the user is
+/// still speaking adds a third way to do it — the stop pasting the whole text again over
+/// what the app already has — so the subtraction gets its own tests.
+final class UndeliveredRemainderTests: XCTestCase {
+
+    private func ledger(delivered: [String]) -> InsertionLedger {
+        var ledger = InsertionLedger()
+        var location = 0
+        for (index, text) in delivered.enumerated() {
+            ledger.insert(span: TranscriptSpanID(rawValue: UInt64(index + 1)),
+                          range: NSRange(location: location, length: (text as NSString).length),
+                          text: text)
+            location += (text as NSString).length + 1
+        }
+        return ledger
+    }
+
+    /// Nothing delivered yet: the stop pastes everything, exactly as it always has.
+    func testWithNothingDeliveredTheWholeTextIsStillOwed() {
+        let ledger = InsertionLedger()
+        XCTAssertEqual(ledger.remainder(of: "Привіт, як справи?"), "Привіт, як справи?")
+    }
+
+    /// The ordinary shape: the stream committed the opening while the user spoke, and
+    /// the final text is that plus the tail it never committed.
+    ///
+    /// The subtraction is by word, so punctuation the final text added to a word already
+    /// delivered goes with that word and is not pasted on its own — the "?" here stays
+    /// missing rather than arriving as a fragment. Same trade the streaming merge makes.
+    func testOnlyTheTailTheAppHasNotSeenIsOwed() {
+        let ledger = self.ledger(delivered: ["Привіт, як справи"])
+        let final = "Привіт, як справи? Давно не бачилися."
+        XCTAssertEqual(ledger.remainder(of: final), "Давно не бачилися.")
+    }
+
+    /// Several deliveries join the way spans join, so the subtraction sees all of them.
+    func testEveryDeliveryCountsTowardsWhatTheAppAlreadyHas() {
+        let ledger = self.ledger(delivered: ["Один два три", "чотири п'ять шість"])
+        let final = "Один два три чотири п'ять шість сім вісім"
+        XCTAssertEqual(ledger.remainder(of: final), "сім вісім")
+    }
+
+    /// The whole dictation went out as it was committed. Nothing is owed — and that is
+    /// the feature working, not a failure to deliver.
+    func testATextFullyDeliveredLeavesNothingOwed() {
+        let ledger = self.ledger(delivered: ["Привіт, як справи?"])
+        XCTAssertEqual(ledger.remainder(of: "Привіт, як справи?"), "")
+    }
+
+    /// A word or two revised by a provider that heard more audio is still the same
+    /// dictation, not a new one — the tail is owed, the opening is not re-pasted.
+    func testARevisedWordDoesNotMakeTheOpeningOwedAgain() {
+        let ledger = self.ledger(delivered: ["Що там узагалі нового? Це"])
+        let final = "Що там узагалі нового? Це нові задачі?"
+        XCTAssertEqual(ledger.remainder(of: final), "нові задачі?")
+    }
+
+    /// The batch fallback re-transcribing a segment the stream had already committed:
+    /// the final text disagrees with what the app holds rather than extending it. Nil,
+    /// because phase A cannot replace what is already in a foreign document, and pasting
+    /// the second wording underneath the first is worse than leaving the first standing.
+    func testAFinalTextThatDisagreesIsNotPastedUnderneathWhatIsThere() {
+        let ledger = self.ledger(delivered: ["Сьогодні дуже гарна погода"])
+        XCTAssertNil(ledger.remainder(of: "Завтра буде дощ і сильний вітер"))
+    }
+
+    /// Untracked deliveries (a paste whose landing could not be read) count too — the
+    /// question the ledger answers is what the app was given, not what can be corrected.
+    func testUntrackedDeliveriesAlsoCountAsDelivered() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Один два три")
+        XCTAssertEqual(ledger.remainder(of: "Один два три чотири п'ять"), "чотири п'ять")
+    }
+}

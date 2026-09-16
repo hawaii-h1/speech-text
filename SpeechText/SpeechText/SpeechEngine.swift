@@ -59,6 +59,15 @@ final class SpeechEngine {
     /// into spans, so a surface can draw the boundary between what has settled and what
     /// is still moving instead of receiving one re-joined string.
     private(set) var spanLayer = TranscriptSpanLayer()
+    /// Hands spans to a sink that cannot take text back, as they become stable. Set by
+    /// the inline flow while it is delivering during the recording; the Record Window
+    /// leaves it nil and reads the span layer directly.
+    var onSpansCommitted: (([TranscriptSpan]) -> Void)?
+    /// What has already gone out, by span, as the text it went out as. A span is offered
+    /// exactly once: phase A has no way to take back text that is already in another
+    /// app's document.
+    private var issuedSpans: [TranscriptSpanID: String] = [:]
+
     /// The current segment's text, settled and moving joined — what it has always been.
     /// Computed from the span layer now, so there is one source of truth; `@Observable`
     /// tracks it through `spanLayer`.
@@ -73,6 +82,12 @@ final class SpeechEngine {
     var editedText: String = ""
     /// Set when a segment's transcription is ready to be inserted at cursor
     var pendingInsertionText: String?
+    /// The spans that text is made of, when it can be attributed to them — a sink that
+    /// records ranges (the Record Window's `TextInsertionHandler`) keys its insertions by
+    /// these, so a later pass can find and replace exactly one span. Empty when the text
+    /// cannot be attributed (an Apple pause hands back its own joined string, whose
+    /// partial the layer has not committed yet); the sink then inserts one untracked piece.
+    private(set) var pendingInsertionSpans: [TranscriptSpanID] = []
     var errorMessage: String? {
         didSet {
             if let msg = errorMessage { dlog("Engine", "⚠ errorMessage: \(msg)") }
@@ -129,6 +144,8 @@ final class SpeechEngine {
         dlog("Engine", "startRecording: locale=\(locale), provider=\(providerType.rawValue)")
         editedText = ""
         pendingInsertionText = nil
+        pendingInsertionSpans = []
+        issuedSpans = [:]
         lastRecordID = nil
         spanLayer.reset()
         transcriptionTask?.cancel()
@@ -151,7 +168,7 @@ final class SpeechEngine {
             dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
             phase = .paused(segmentInFlight: false)
             if !segmentText.isEmpty {
-                pendingInsertionText = segmentText
+                setPendingInsertion(segmentText)
             }
             return
         }
@@ -183,7 +200,7 @@ final class SpeechEngine {
                     self.spanLayer.commitSegment(outcome.text)
                     self.spanLayer.settleSegment()
                     if !outcome.text.isEmpty {
-                        self.pendingInsertionText = outcome.text
+                        self.setPendingInsertion(outcome.text)
                     }
                 }
                 // Still paused (a stop in the meantime moved on to .finishing and its
@@ -266,6 +283,7 @@ final class SpeechEngine {
             switch event {
             case .live(let committed, let partial):
                 self.spanLayer.ingest(committed: committed, partial: partial)
+                self.emitCommittedSpans()
             case .failure(let message):
                 self.errorMessage = message
             }
@@ -355,6 +373,7 @@ final class SpeechEngine {
         // anyone. (Text already inserted at the cursor stays — un-inserting it into a
         // foreign app is not possible — but that is the sink's ledger, not the layer's.)
         spanLayer.reset()
+        issuedSpans = [:]
         barLevels = Array(repeating: 0, count: 12)
         cleanup()
     }
@@ -461,6 +480,60 @@ final class SpeechEngine {
             phase = .idle
             cleanup()
         }
+    }
+
+    // MARK: - Insertion
+
+    /// Offers the stable spans a sink has not seen yet, in order.
+    ///
+    /// Only while recording: a stop's authoritative text goes out through the ordinary
+    /// result path, and offering it here as well would deliver the segment twice.
+    ///
+    /// Order is what the `break` is for. A sink handed span #5 before #3 has the
+    /// dictation out of sequence, and nothing can reorder text already pasted into
+    /// another app — so emission stops at the first span that is still moving and waits
+    /// for it.
+    ///
+    /// A span whose text changes after it has been issued is *not* issued again. That is
+    /// the property the Tier B guarantee rests on ("committed only, and never
+    /// rewritten"), and it holds by construction rather than by care:
+    /// `rewriteSegmentStable` reuses the first span's id, and an id already issued is
+    /// never emitted a second time. It is logged, because those are exactly what phase
+    /// C's finalizing pass exists to fix.
+    private func emitCommittedSpans() {
+        guard isRecording, let sink = onSpansCommitted else { return }
+
+        var ready: [TranscriptSpan] = []
+        for span in spanLayer.visibleSpans {
+            if let issued = issuedSpans[span.id] {
+                if issued != span.text {
+                    dlog("Span", "\(span.id) changed after it was issued — not re-issued: \"\(issued.prefix(30))\" → \"\(span.text.prefix(30))\"")
+                    issuedSpans[span.id] = span.text
+                }
+                continue
+            }
+            guard span.state.isStable else { break }
+            ready.append(span)
+        }
+
+        guard !ready.isEmpty else { return }
+        for span in ready { issuedSpans[span.id] = span.text }
+        dlog("Span", "issuing \(ready.map(\.id.description).joined(separator: " ")) to the sink")
+        sink(ready)
+    }
+
+    /// Hands a finished segment to whichever sink is listening, naming the spans it is
+    /// made of when they spell exactly that text. The spans are written *before* the
+    /// text, because the text is what observers key on and they must see both.
+    private func setPendingInsertion(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if spanLayer.segmentStableText == trimmed {
+            pendingInsertionSpans = spanLayer.segmentStableSpans.map(\.id)
+        } else {
+            pendingInsertionSpans = []
+            dlog("Span", "pending insertion is not what the spans spell — inserted untracked")
+        }
+        pendingInsertionText = text
     }
 
     // MARK: - History

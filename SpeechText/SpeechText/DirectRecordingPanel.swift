@@ -91,10 +91,23 @@ final class DirectRecordingPanelWindow: NSPanel {
 
 // MARK: - Text Insertion Handler
 
+/// Inserts transcribed text at the caret and remembers where each span landed.
+///
+/// The Record Window is Tier A by definition — our own surface, the result visible
+/// immediately — so it is where the "remember the range, replace exactly that span"
+/// machinery is kept honest. The ledger is the same pure type inline delivery uses.
 final class TextInsertionHandler {
     weak var textView: NSTextView?
+    /// Where each inserted span sits in the text view. Read by `replaceSpan`; reset
+    /// when a new recording starts, because the old ranges describe old text.
+    private(set) var ledger = InsertionLedger()
 
-    func insert(_ text: String) {
+    func reset() {
+        ledger.clear()
+        dlog("Span", "insertion ledger cleared")
+    }
+
+    func insert(_ text: String, span: TranscriptSpanID? = nil) {
         guard let textView, !text.isEmpty else { return }
         let range = textView.selectedRange()
 
@@ -109,6 +122,37 @@ final class TextInsertionHandler {
         }
 
         textView.insertText(prefix + text, replacementRange: range)
+
+        // What the view holds is what gets recorded, not what we sent: substitutions are
+        // off in both editors, but a record that describes the document rather than our
+        // intent is the one a later guard can actually trust.
+        let landed = NSRange(location: range.location + (prefix as NSString).length,
+                             length: (text as NSString).length)
+        let document = textView.string as NSString
+        guard NSMaxRange(landed) <= document.length else { return }
+        ledger.insert(span: span, range: landed, text: document.substring(with: landed))
+        if let span {
+            dlog("Span", "inserted \(span) at \(landed.location)+\(landed.length)")
+        }
+    }
+
+    /// Replaces one span's text in place, but only where it is provably still the text
+    /// this handler put there. Anything else — the user edited over it, it appears twice,
+    /// it is gone — and the document is left exactly as it is. The hook phase C's
+    /// finalizing pass replaces spans through.
+    @discardableResult
+    func replaceSpan(_ span: TranscriptSpanID, with text: String) -> Bool {
+        guard let textView else { return false }
+        guard let range = ledger.resolve(span: span, in: textView.string) else {
+            dlog("Span", "replaceSpan \(span): refused — the text there is not what we inserted")
+            return false
+        }
+        guard textView.shouldChangeText(in: range, replacementString: text) else { return false }
+        textView.textStorage?.replaceCharacters(in: range, with: text)
+        textView.didChangeText()
+        ledger.replaced(span: span, at: range, with: text)
+        dlog("Span", "replaceSpan \(span) at \(range.location): \"\(text.prefix(40))\"")
+        return true
     }
 }
 
@@ -298,6 +342,7 @@ struct DirectRecordingPanelView: View {
                 // Defer one runloop so the panel renders before the audio engine
                 // initializes (engine.prepare() can block the main thread ~200-500ms).
                 DispatchQueue.main.async {
+                    insertionHandler.reset()
                     speechEngine.startRecording(locale: resolvedLocale())
                 }
             }
@@ -309,7 +354,18 @@ struct DirectRecordingPanelView: View {
         .onChange(of: selectedLanguage) { refreshLangLabel() }
         .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
             if let text = newValue, !text.isEmpty {
-                insertionHandler.insert(text)
+                // One insertion per span where the engine could name them, so each
+                // carries its own range and the finalizing pass can replace one without
+                // touching its neighbours; otherwise one untracked piece.
+                let spans = speechEngine.pendingInsertionSpans
+                if spans.isEmpty {
+                    insertionHandler.insert(text)
+                } else {
+                    for id in spans {
+                        guard let span = speechEngine.spanLayer.span(id) else { continue }
+                        insertionHandler.insert(span.text, span: id)
+                    }
+                }
                 speechEngine.pendingInsertionText = nil
                 if aiMode {
                     // insertText() drives the text view's delegate, which writes back
@@ -592,6 +648,9 @@ struct DirectRecordingPanelView: View {
         } else if speechEngine.isPaused {
             withAnimation(spring) { speechEngine.resumeRecording(locale: resolvedLocale()) }
         } else {
+            // A new recording: the ranges recorded for the old one describe text that is
+            // no longer this recording's to rewrite.
+            insertionHandler.reset()
             withAnimation(spring) { speechEngine.startRecording(locale: resolvedLocale()) }
         }
     }

@@ -96,11 +96,15 @@ struct TranscriptSpanLayer {
     /// hands its segment's text over for insertion, and the ghost text starts again.
     var segmentText: String { join(visibleSpans.filter { $0.segment == segment }) }
 
-    /// The current segment's settled half: what a sink that cannot take back what it was
-    /// given (Tier B) is allowed to receive.
-    var segmentStableText: String {
-        join(visibleSpans.filter { $0.segment == segment && $0.state.isStable })
+    /// The current segment's settled half, in order: what a sink that cannot take back
+    /// what it was given (Tier B) is allowed to receive, and what a sink that records
+    /// ranges keys its insertions by.
+    var segmentStableSpans: [TranscriptSpan] {
+        visibleSpans.filter { $0.segment == segment && $0.state.isStable }
     }
+
+    /// The text of those spans.
+    var segmentStableText: String { join(segmentStableSpans) }
 
     /// The current segment's moving half. At most one span, but joined the same way.
     var segmentProvisionalText: String {
