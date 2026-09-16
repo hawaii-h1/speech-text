@@ -20,6 +20,15 @@ struct RecordingConfiguration {
     let groqModel: String
     let elevenLabsAPIKey: String
     let elevenLabsModel: String
+    /// Drop hesitation sounds, stretched words and trailing-off dots from what the
+    /// recogniser returns — see `cleanedTranscript`. `var` with a default so a value
+    /// built by hand (the tests) gets the setting's default.
+    var removesDisfluencies = true
+
+    /// `cleanedTranscript(text)` when the setting is on, `text` untouched otherwise.
+    func cleaned(_ text: String) -> String {
+        removesDisfluencies ? cleanedTranscript(text) : text
+    }
 
     /// The language to force on a cloud provider — nil on Auto, which leaves the model
     /// to detect it. Whisper and Scribe do that far better than a keyboard layout does:
@@ -63,7 +72,8 @@ struct RecordingConfiguration {
             groqAPIKey: defaults.string(forKey: SettingsKeys.groqAPIKey) ?? "",
             groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
             elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
-            elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? "scribe_v1"
+            elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? "scribe_v1",
+            removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true
         )
     }
 }

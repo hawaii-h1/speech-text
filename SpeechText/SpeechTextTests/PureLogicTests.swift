@@ -700,3 +700,90 @@ final class UndeliveredRemainderTests: XCTestCase {
         XCTAssertEqual(ledger.remainder(of: "Один два три чотири п'ять"), "чотири п'ять")
     }
 }
+
+// MARK: - Transcript cleanup (TranscriptCleanup.swift)
+
+final class TranscriptCleanupTests: XCTestCase {
+
+    /// Taken from History: what Scribe realtime returned with `no_verbatim=true` on.
+    private let recorded = [
+        "Перевірю ще раз, як це працює ввечері. Тому всім пока, е-е-е, бувайте!",
+        "Також скажу привіт. Ой, е-е-е, ні, не привіт, а пока.",
+        "Ну, коротше, щось це таке. Е-е-е...",
+        "Ти не пам’ятаєш, вона казала... Цей магазин чи тооо новий, чи то старий...",
+        "Отже. А-а-а, ну, перше питанняяя: чи потрібно мені брати",
+        "У мене все готово для звіту та, е-е, відправлення на пошту.",
+        "Я нажав на кнопку, і я попав на... отримав доступ до форми",
+    ]
+
+    func testHesitationsGoWithTheirOwnPunctuation() {
+        XCTAssertEqual(cleanedTranscript("Тому всім пока, е-е-е, бувайте!"), "Тому всім пока, бувайте!")
+        XCTAssertEqual(cleanedTranscript("Ой, е-е-е, ні, не привіт"), "Ой, ні, не привіт")
+        XCTAssertEqual(cleanedTranscript("щось це таке. Е-е-е..."), "щось це таке.")
+        XCTAssertEqual(cleanedTranscript("I mean, uh, it's um fine, hmm."), "I mean, it's fine,")
+    }
+
+    func testAFillerThatOpenedASentenceHandsOnItsCapital() {
+        XCTAssertEqual(cleanedTranscript("Отже. А-а-а, ну, перше"), "Отже. Ну, перше")
+        XCTAssertEqual(cleanedTranscript("Еееем, давай"), "Давай")
+    }
+
+    /// Words, not sounds: a single or doubled vowel is a word ("а", "у", Russian "ее"),
+    /// and so are the fillers that carry meaning elsewhere ("ну", "типу" — "цього типу").
+    func testWordsThatLookLikeHesitationsAreKept() {
+        let text = "а у ее ем ну цього типу ООО, 5 мм і 5 mm"
+        XCTAssertEqual(cleanedTranscript(text), text)
+    }
+
+    func testStretchedLettersCollapseButDoublesStay() {
+        XCTAssertEqual(cleanedTranscript("перше питанняяя, чи тооо знання"), "перше питання, чи то знання")
+    }
+
+    func testTrailingEllipsisEndsTheSentence() {
+        XCTAssertEqual(cleanedTranscript("вона казала... Цей"), "вона казала. Цей")
+        XCTAssertEqual(cleanedTranscript("я попав на… отримав"), "я попав на. Отримав")
+        XCTAssertEqual(cleanedTranscript("справді?... так"), "справді? Так")
+        XCTAssertEqual(cleanedTranscript("діапазон 1...5 і далі ... ось"), "діапазон 1...5 і далі ось")
+    }
+
+    func testCleaningIsIdempotent() {
+        for text in recorded {
+            let once = cleanedTranscript(text)
+            XCTAssertEqual(cleanedTranscript(once), once, text)
+        }
+    }
+
+    /// The anti-duplication property: the engine cleans the *cumulative* committed text on
+    /// every event and pastes the increment. If a longer transcript's cleaned form did not
+    /// extend the shorter one's at a word boundary, the text already pasted would stop
+    /// matching and the stop would deliver nothing.
+    func testEveryWordPrefixCleansToAPrefixOfTheWhole() {
+        for text in recorded {
+            let words = text.split(separator: " ")
+            var previous = ""
+            for count in 1...words.count {
+                let cleaned = cleanedTranscript(words.prefix(count).joined(separator: " "))
+                XCTAssertTrue(cleaned == previous || previous.isEmpty || cleaned.hasPrefix(previous + " "),
+                              "\"\(previous)\" is not extended by \"\(cleaned)\"")
+                previous = cleaned
+            }
+        }
+    }
+
+    /// Out of contract, and pinned so it stays a known limit: committed text grows by whole
+    /// segments, so a word is never extended in place. If a provider ever does that, this
+    /// is the test that explains why delivery breaks.
+    func testGrowthInsideAWordIsNotMonotone() {
+        XCTAssertEqual(cleanedTranscript("Ой, е"), "Ой, е")
+        XCTAssertEqual(cleanedTranscript("Ой, е-е"), "Ой,")
+    }
+
+    func testTheSettingCanTurnItOff() {
+        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
+                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
+                                                   elevenLabsModel: "scribe_v2_realtime")
+        XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, ні")
+        configuration.removesDisfluencies = false
+        XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
+    }
+}
