@@ -23,6 +23,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIAPIKey) private var openAIAPIKey = ""
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
 
+    @AppStorage(SettingsKeys.aiFocusContextEnabled) private var aiFocusContextEnabled = true
     @AppStorage(SettingsKeys.messageSendingEnabled) private var messageSendingEnabled = false
     @State private var contactsAuthorized = ContactResolver.isAuthorized
 
@@ -316,6 +317,11 @@ struct SettingsView: View {
             }
 
             Text("Separate from the speech model above — you can transcribe with one provider and generate with another.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Tell the AI which app you're typing in", isOn: $aiFocusContextEnabled)
+            Text("The AI Recording shortcut sends the app's name, its window title and the text field's label along with the dictation, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

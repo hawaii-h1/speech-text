@@ -369,6 +369,9 @@ final class AppState {
     /// True when the current inline session was started with the AI hotkey, so the
     /// transcription gets routed through `TextRefinementService` before pasting.
     private(set) var isAIMode = false
+    /// Where an AI dictation is going, read when its recording started. Nil outside AI
+    /// mode and when the user turned the setting off.
+    private var focusContext: FocusContext?
     /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
     private(set) var isRefining = false
     private var refinementTask: Task<Void, Never>?
@@ -440,6 +443,15 @@ final class AppState {
 
         let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
+
+        // After the engine start, not before: nothing reads it until the stop.
+        focusContext = isAIMode && FocusContext.isEnabled
+            ? PasteService.readFocusContext(in: previousApp)
+            : nil
+        if let focusContext {
+            // The window title stays out of the system log — it can be a mail subject.
+            dlog("Refine", "focus context: \(focusContext.appName ?? "?") (\(focusContext.bundleID ?? "?")), window title \(focusContext.windowTitle == nil ? "absent" : "present")")
+        }
     }
 
     // MARK: - Delivering while the user is still speaking
@@ -673,12 +685,13 @@ final class AppState {
         // Keep the overlay up (now in its loading state) while the LLM rewrites the text.
         isRefining = true
         let recordID = speechEngine.lastRecordID
+        let context = focusContext
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var output = text
             var sendIntent: TextRefinementService.SendIntent?
             do {
-                let result = try await TextRefinementService.refine(text)
+                let result = try await TextRefinementService.refine(text, context: context)
                 if Task.isCancelled { return }
                 output = result.text
                 sendIntent = result.sendIntent
@@ -686,7 +699,8 @@ final class AppState {
                     TranscriptionHistory.shared.recordRefinement(
                         id: recordID, input: text, output: result.text,
                         presetName: result.presetName,
-                        provider: result.provider, model: result.model
+                        provider: result.provider, model: result.model,
+                        context: context
                     )
                 }
             } catch {
@@ -695,7 +709,8 @@ final class AppState {
                     let type = LLMConfiguration.providerType
                     TranscriptionHistory.shared.recordRefinementFailure(
                         id: recordID, input: text, error: error.localizedDescription,
-                        provider: type.rawValue, model: LLMConfiguration.model(for: type)
+                        provider: type.rawValue, model: LLMConfiguration.model(for: type),
+                        context: context
                     )
                 }
                 // Never lose the dictation: fall back to the raw transcript, but say so

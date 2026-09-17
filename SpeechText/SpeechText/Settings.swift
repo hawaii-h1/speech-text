@@ -42,6 +42,8 @@ enum SettingsKeys {
     static let defaultPresetID = "defaultPresetID"
     /// Whether the Record Window's ✨ toggle is on.
     static let aiModeInRecordWindow = "aiModeInRecordWindow"
+    /// Whether an AI dictation tells the model which app, window and field it is for.
+    static let aiFocusContextEnabled = "aiFocusContextEnabled"
 
     // Message delivery
     /// Whether an AI dictation may be routed to a messaging app instead of the cursor.
@@ -80,7 +82,7 @@ enum SettingsKeys {
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel,
-        promptPresets, defaultPresetID, aiModeInRecordWindow,
+        promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
         messageSendingEnabled,
         appSkin, accentColor,
         hotkeyLayoutVersion, debugMode,
