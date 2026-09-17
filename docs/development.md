@@ -28,8 +28,7 @@ The app is built with the **hardened runtime** in both configurations, because n
 | Entitlement | Used by |
 |---|---|
 | `com.apple.security.device.audio-input` | the microphone (`AVAudioEngine`) |
-| `com.apple.security.automation.apple-events` | message delivery through Messages and Mail (`AppleScriptRunner`) |
-| `com.apple.security.personal-information.addressbook` | looking up the recipient (`ContactResolver`) |
+| `com.apple.security.automation.apple-events` | the AppleScript fallback that brings the target app back to the front before a paste (`PasteService.activateApp`) |
 
 Accessibility (the ⌘V paste and reading the focused field) and speech recognition need no entitlement: macOS gates them through its privacy prompts alone. Adding a feature that touches another protected resource — the camera, location, the calendar, JIT-compiled code — means adding its entitlement here, or it fails only in signed builds. See [releasing.md](releasing.md) for how a release is signed and notarized.
 
@@ -76,7 +75,7 @@ The short version:
 - **`SpeechEngine`** owns the microphone and the recording lifecycle. State lives in one `phase` value.
 - **`RecognitionSession`** is the tier abstraction — one session per recorded segment. Three implementations: Apple on-device, batch upload, and realtime streaming (which falls back to batch when the stream breaks).
 - **`AppState`** orchestrates the overlay, tracks the previously focused app, and pastes the result back.
-- **Services** (`PasteService`, `WebhookService`, `MessageDelivery`, `ContactResolver`, `TextRefinementService`) are independent and testable.
+- **Services** (`PasteService`, `WebhookService`, `TextRefinementService`) are independent and testable.
 
 ## Style
 

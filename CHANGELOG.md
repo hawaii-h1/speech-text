@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Model catalogues checked against the vendors on 2026-09-16. Groq's retired Llama 3.3 70B, Llama 3.1 8B, Qwen3 32B and Kimi K2 are replaced by gpt-oss 120B / 20B (plus Qwen3.8 27B and MiniMax M2.7 as labelled previews), and a stored retired model moves to gpt-oss 120B. ElevenLabs Scribe v1 and v1 Experimental are replaced by Scribe v2, which is also what a broken realtime stream now falls back to. New defaults: Claude Sonnet 5 and GPT-5.6 Luna.
 
+### Removed
+
+- Message delivery. An AI dictation can no longer be sent to someone through iMessage, Mail, Telegram or WhatsApp, and the app no longer asks for Contacts access.
+
 ### Fixed
 
 - AI mode on Groq stopped working on the default model for free and developer accounts when Groq retired Llama 3.3 70B in August 2026.

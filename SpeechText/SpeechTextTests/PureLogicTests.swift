@@ -663,12 +663,12 @@ final class DeliveryTierTests: XCTestCase {
     private let correctable = AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: true)
 
     func testOurOwnSurfaceIsTierAWithoutProbingAnything() {
-        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: true, probe: .unavailable)
+        let tier = DeliveryTier.resolve(isOwnSurface: true, probe: .unavailable)
         XCTAssertEqual(tier, .a)
     }
 
     func testAnAppThatReadsAndReselectsItsTextIsTierA() {
-        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: correctable)
+        let tier = DeliveryTier.resolve(isOwnSurface: false, probe: correctable)
         XCTAssertEqual(tier, .a)
     }
 
@@ -677,30 +677,18 @@ final class DeliveryTierTests: XCTestCase {
     func testAnAppWhoseRangeDoesNotReadBackIsTierB() {
         var probe = correctable
         probe.rangeReadsBack = false
-        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
+        XCTAssertEqual(DeliveryTier.resolve(isOwnSurface: false, probe: probe), .b)
     }
 
     /// The Terminal shape: nothing answers at all.
     func testAnAppThatAnswersNothingIsTierB() {
-        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: .unavailable), .b)
+        XCTAssertEqual(DeliveryTier.resolve(isOwnSurface: false, probe: .unavailable), .b)
     }
 
     func testAnAppThatWillNotGiveUpItsValueIsTierB() {
         var probe = correctable
         probe.valueReadable = false
-        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
-    }
-
-    /// A send outranks everything, including a perfectly correctable text field: the
-    /// confirmation panel may only ever show final text.
-    func testAMessageSendIsTierCEvenWhereTheAppIsCorrectable() {
-        let tier = DeliveryTier.resolve(isMessageDelivery: true, isOwnSurface: true, probe: correctable)
-        XCTAssertEqual(tier, .c)
-    }
-
-    func testTierCDeliversNothingDuringRecording() {
-        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: false))
-        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true))
+        XCTAssertEqual(DeliveryTier.resolve(isOwnSurface: false, probe: probe), .b)
     }
 
     func testPlainDictationDeliversDuringRecordingInBothForeignTiers() {
@@ -719,13 +707,11 @@ final class DeliveryTierTests: XCTestCase {
     func testAnAIDraftIsDeliveredOnlyInTierA() {
         XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: true, aiDraft: true))
         XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true, aiDraft: true))
-        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true, aiDraft: true))
     }
 
     func testOnlyTierAIsWorthAnInsertionLedger() {
         XCTAssertTrue(DeliveryTier.a.recordsRanges)
         XCTAssertFalse(DeliveryTier.b.recordsRanges)
-        XCTAssertFalse(DeliveryTier.c.recordsRanges)
     }
 }
 

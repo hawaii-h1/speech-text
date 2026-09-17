@@ -44,7 +44,7 @@ protocol InlineDeliveryTarget: AnyObject {
 final class InlineDelivery {
     /// Decided once, when the recording starts, and never revisited: a tier that changed
     /// halfway would mean text issued under one set of rules being corrected under another.
-    private(set) var tier: DeliveryTier = .c
+    private(set) var tier: DeliveryTier = .b
     /// What has actually been pasted into the target app during this recording — the
     /// sink's own record, not the engine's. The stop subtracts it from the authoritative
     /// text so a dictation is never pasted twice.

@@ -401,10 +401,6 @@ final class AppState {
     /// the cleared texts and pop "No speech detected" for an action the user asked for.
     private var transcriptionWaitTask: Task<Void, Never>?
 
-    /// The pending "send this to X" confirmation, if one is on screen.
-    private var confirmationPanel: SendConfirmationPanelWindow?
-    private var recipientTask: Task<Void, Never>?
-
     /// This recording's delivery into the app it was started in: the tier, the spans
     /// pasted while the user speaks, the ledger, and the stop's correction.
     private let inlineDelivery = InlineDelivery()
@@ -428,21 +424,14 @@ final class AppState {
         transcriptionWaitTask = nil
         refinementTask?.cancel()
         refinementTask = nil
-        recipientTask?.cancel()
-        recipientTask = nil
         isRefining = false
         endInlineDelivery()
         DictationTraceRecorder.current = nil
         speechEngine.cancelRecording()
         hideOverlay()
-        hideSendConfirmation()
     }
 
     private func startRecording() {
-        // A confirmation left over from the previous dictation would sit there holding a
-        // send the user has moved on from.
-        hideSendConfirmation()
-
         let front = NSWorkspace.shared.frontmostApplication
         if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = front
@@ -468,22 +457,13 @@ final class AppState {
     // MARK: - Delivering while the user is still speaking
 
     /// Decides the tier for this recording and wires the engine up to it.
-    ///
-    /// An AI dictation with message sending on is Tier C: it may turn out to be a
-    /// message, and that is only known once the LLM has answered. Nothing is lost by
-    /// assuming it — AI mode buffers in every tier anyway, because the rewrite at the
-    /// stop replaces the whole text.
     private func beginDeliveryPlan() {
-        let mayBecomeMessage = isAIMode
-            && UserDefaults.standard.bool(forKey: SettingsKeys.messageSendingEnabled)
         let probe = PasteService.probeFocusedText(in: previousApp)
-        let tier = DeliveryTier.resolve(isMessageDelivery: mayBecomeMessage,
-                                        isOwnSurface: false,
-                                        probe: probe)
+        let tier = DeliveryTier.resolve(isOwnSurface: false, probe: probe)
         let aiDraft = UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking)
         DictationTraceRecorder.current = DictationTraceRecorder.isEnabled
             ? DictationTraceRecorder(setup: DictationTrace.Setup(
-                aiMode: isAIMode, aiDraft: aiDraft, messageSending: mayBecomeMessage,
+                aiMode: isAIMode, aiDraft: aiDraft,
                 removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
                 app: previousApp?.localizedName,
                 probe: .init(valueReadable: probe.valueReadable, rangeReadable: probe.rangeReadable,
@@ -670,12 +650,10 @@ final class AppState {
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var output = aiInput
-            var sendIntent: TextRefinementService.SendIntent?
             do {
                 let result = try await TextRefinementService.refine(aiInput, context: context)
                 if Task.isCancelled { return }
                 output = result.text
-                sendIntent = result.sendIntent
                 DictationTraceRecorder.record(.refinement, text: result.text)
                 if let recordID {
                     TranscriptionHistory.shared.recordRefinement(
@@ -709,14 +687,7 @@ final class AppState {
             self.isRefining = false
             self.refinementTask = nil
             self.hideOverlay()
-
-            // A dictation that named a recipient goes through the confirmation panel;
-            // everything else keeps the ordinary paste-at-cursor behaviour.
-            if let sendIntent {
-                self.beginDelivery(sendIntent, body: output, recordID: recordID)
-            } else {
-                self.deliverAIResult(output, recordID: recordID)
-            }
+            self.deliverAIResult(output, recordID: recordID)
             self.finishTrace()
         }
     }
@@ -732,131 +703,6 @@ final class AppState {
         if let paste {
             deliver(paste)
         }
-    }
-
-    // MARK: - Message delivery
-
-    /// Resolves the spoken recipient to real addresses and puts the confirmation panel
-    /// up. Any failure here falls back to pasting — a dictation is never lost because
-    /// the address book came up short.
-    private func beginDelivery(_ intent: TextRefinementService.SendIntent,
-                               body: String, recordID: UUID?) {
-        dlog("Send", "intent: \(intent.channel.rawValue) → “\(intent.recipient)”")
-
-        recipientTask?.cancel()
-        recipientTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.recipientTask = nil }
-            do {
-                let candidates = try await ContactResolver.resolve(spoken: intent.recipient,
-                                                                   channel: intent.channel)
-                if Task.isCancelled { return }
-                self.showSendConfirmation(
-                    SendConfirmation(channel: intent.channel,
-                                     candidates: candidates,
-                                     subject: intent.subject ?? "",
-                                     body: body),
-                    recordID: recordID
-                )
-            } catch {
-                if Task.isCancelled { return }
-                dlog("Send", "could not resolve “\(intent.recipient)” — \(error.localizedDescription)")
-                self.showStatus(
-                    icon: "person.crop.circle.badge.questionmark",
-                    title: "Couldn't find that recipient",
-                    detail: "\(error.localizedDescription) Pasted the text instead.",
-                    tint: .orange
-                )
-                self.deliver(body)
-            }
-        }
-    }
-
-    private func showSendConfirmation(_ confirmation: SendConfirmation, recordID: UUID?) {
-        guard !confirmation.candidates.isEmpty else {
-            dlog("Send", "no candidates to confirm — pasting instead")
-            deliver(confirmation.body)
-            return
-        }
-        hideSendConfirmation()
-
-        let channel = confirmation.channel
-        let hosting = NSHostingView(rootView: SendConfirmationView(
-            confirmation: confirmation,
-            onSend: { [weak self] recipient, subject, body in
-                self?.performSend(body: body, subject: subject, to: recipient,
-                                  via: channel, recordID: recordID)
-            },
-            onPasteInstead: { [weak self] body in
-                self?.hideSendConfirmation()
-                self?.deliver(body)
-            },
-            onCancel: { [weak self] in
-                self?.hideSendConfirmation()
-                self?.returnFocusToPreviousApp()
-            }
-        ))
-        hosting.frame.size = hosting.fittingSize
-
-        let panel = SendConfirmationPanelWindow(rootView: hosting)
-        confirmationPanel = panel
-        // The panel is a keyboard decision (⌘⏎ / ⎋), so unlike the recording overlays
-        // it has to take focus.
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    @MainActor
-    private func performSend(body: String, subject: String, to recipient: RecipientCandidate,
-                             via channel: DeliveryChannel, recordID: UUID?) {
-        hideSendConfirmation()
-        do {
-            let outcome = try MessageDelivery.deliver(body: body,
-                                                      subject: subject.isEmpty ? nil : subject,
-                                                      to: recipient, via: channel)
-            if let recordID {
-                TranscriptionHistory.shared.recordDelivery(
-                    id: recordID, channel: channel, recipient: recipient,
-                    outcome: outcome == .sent ? .sent : .composed
-                )
-            }
-            switch outcome {
-            case .sent:
-                showStatus(icon: channel.symbolName,
-                           title: "Sent to \(recipient.displayName)",
-                           detail: "via \(channel.displayName)",
-                           tint: Semantic.confirmation)
-            case .composed(let hint):
-                showStatus(icon: channel.symbolName,
-                           title: "\(channel.displayName) is ready",
-                           detail: hint,
-                           tint: Semantic.ai)
-            }
-        } catch {
-            dlog("Send", "delivery failed — \(error.localizedDescription)")
-            if let recordID {
-                TranscriptionHistory.shared.recordDelivery(
-                    id: recordID, channel: channel, recipient: recipient,
-                    outcome: .failed, error: error.localizedDescription
-                )
-            }
-            showStatus(icon: "exclamationmark.triangle.fill",
-                       title: "Couldn't send",
-                       detail: "\(error.localizedDescription) Pasted the text instead.",
-                       tint: .orange)
-            deliver(body)
-        }
-    }
-
-    private func hideSendConfirmation() {
-        confirmationPanel?.close()
-        confirmationPanel = nil
-    }
-
-    /// Cancelling should leave the user where they started, not in an empty menu-bar app.
-    private func returnFocusToPreviousApp() {
-        guard let app = previousApp else { return }
-        PasteService.activateApp(app)
     }
 
     /// Pastes into the previously focused app, falling back to the Record Window when

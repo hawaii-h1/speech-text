@@ -21,7 +21,7 @@ SRC=(SpeechText/SpeechTextTests/PureLogicTests.swift SpeechText/SpeechTextTests/
      SpeechText/SpeechTextTests/LocalModelsTests.swift SpeechText/SpeechTextTests/DictationReplay.swift
      SpeechText/SpeechTextTests/DictationReplayTests.swift)
 for f in Settings STTProvider AudioBufferWriter DebugLog LLMProvider PromptPresets \
-         TextRefinementService StreamingSTTProvider RecordingConfiguration MessageDelivery \
+         TextRefinementService StreamingSTTProvider RecordingConfiguration \
          TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier FinalizePass TranscriptCleanup \
          FocusContext SystemCapabilities LocalModelCatalog OllamaProvider InlineDelivery \
          RecognitionSession BatchRecognitionSession StreamingRecognitionSession DictationTrace; do

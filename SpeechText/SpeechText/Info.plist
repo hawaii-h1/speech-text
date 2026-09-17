@@ -5,9 +5,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>SpeechText asks Messages and Mail to send the message you dictated.</string>
-	<key>NSContactsUsageDescription</key>
-	<string>SpeechText looks up the person you name in a dictation so it can address the message to them.</string>
+	<string>SpeechText brings the app you were typing in back to the front so it can paste your dictation there.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SpeechText needs microphone access for speech recognition</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

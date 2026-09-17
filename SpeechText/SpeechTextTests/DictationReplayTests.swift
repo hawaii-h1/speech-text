@@ -389,16 +389,6 @@ final class AIReplayTests: XCTestCase {
         XCTAssertTrue(run.logged("buffering until the stop"))
     }
 
-    /// A4: message sending on — any AI dictation may become a message, so no draft.
-    func testA4_NoDraftWhileMessagesMayBeSent() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true, messageSending: true),
-                                            in: FakeApp(.textEdit), dictation, llm: .rewrites(rewrite))
-
-        XCTAssertEqual(run.document, rewrite)
-        XCTAssertTrue(run.logged("tier C (confirmed send)"))
-        XCTAssertTrue(run.logged("buffering until the stop"))
-    }
-
     /// A5: an Electron app that refuses the replacement ends up with both — the user's
     /// choice: the rewrite matters more than the draft staying out of the way.
     func testA5_ARefusedReplacementPastesTheRewriteAfterTheDraft() async {

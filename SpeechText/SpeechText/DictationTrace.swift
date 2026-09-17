@@ -15,7 +15,6 @@ struct DictationTrace: Codable, Equatable {
     struct Setup: Codable, Equatable {
         var aiMode = false
         var aiDraft = false
-        var messageSending = false
         var removesDisfluencies = true
         /// The target app's name — for the reader; the replay goes by `probe`.
         var app: String?

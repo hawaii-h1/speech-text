@@ -253,7 +253,6 @@ final class DictationReplay {
     struct Setup {
         var aiMode = false
         var aiDraft = false
-        var messageSending = false
         var removesDisfluencies = true
     }
 
@@ -357,7 +356,6 @@ final class DictationReplay {
     /// are recorded only once that event has been handled.
     static func run(_ trace: DictationTrace) async -> Result {
         let setup = Setup(aiMode: trace.setup.aiMode, aiDraft: trace.setup.aiDraft,
-                          messageSending: trace.setup.messageSending,
                           removesDisfluencies: trace.setup.removesDisfluencies)
         let probe = AXTextProbe(valueReadable: trace.setup.probe.valueReadable,
                                 rangeReadable: trace.setup.probe.rangeReadable,
@@ -422,8 +420,7 @@ final class DictationReplay {
     /// `AppState.startRecording` → `beginDeliveryPlan`, then `SpeechEngine.startRecording`
     /// → `setupRecordingSession`.
     private func start(fallback: ScriptedSegment) {
-        let tier = DeliveryTier.resolve(isMessageDelivery: setup.aiMode && setup.messageSending,
-                                        isOwnSurface: false,
+        let tier = DeliveryTier.resolve(isOwnSurface: false,
                                         probe: app.accessibilityGranted ? app.behaviour.probe : .unavailable)
         offersSpans = delivery.begin(tier: tier, aiMode: setup.aiMode, aiDraft: setup.aiDraft,
                                      target: app, targetName: "FakeApp")

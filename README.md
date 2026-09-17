@@ -30,12 +30,6 @@ AI mode has no mode picker. You just talk, and the model figures out what you wa
 
 If the LLM fails or refuses, you still get your raw transcript. A dictation is never lost.
 
-### Send it to someone
-
-Optional, off by default. Say *"tell Oksana on Telegram that I'm running late"* and SpeechText resolves the name against your own Contacts and shows you a confirmation panel before anything is sent. Supports iMessage, Mail, Telegram and WhatsApp.
-
-Nothing is ever sent without you confirming it.
-
 ---
 
 ## Speech engines
