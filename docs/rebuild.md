@@ -1,18 +1,10 @@
----
-name: rebuild
-description: Build SpeechText, install it to /Applications and restart it there, keeping the previous build for rollback. Use when the user runs /rebuild, or asks to rebuild, reinstall, relaunch, restart, roll back, check which build is running, or cut a release tag.
-user-invokable: true
-disable-model-invocation: true
-allowed-tools: Bash, Read, Grep
----
-
 # Rebuild and reinstall SpeechText
 
 ```bash
-.claude/skills/rebuild/scripts/rebuild.sh
+scripts/rebuild.sh
 ```
 
-Run it from anywhere; it finds the repository root itself. One command builds the
+A plain shell script — run it from anywhere; it finds the repository root itself. One command builds the
 current source, replaces `/Applications/SpeechText.app`, and starts it.
 
 | Option | Effect |
@@ -30,8 +22,8 @@ The script prints one line per stage and exits non-zero on failure, then ends ev
 build and rollback — successful or not — with a **SUMMARY** block: what happened, the
 version now installed and the one it replaced, the app's path, whether it is running
 and from where (a copy running from anywhere else is called out), the signing, and any
-pre-rename copy still in `/Applications`. That block is the answer; relay it to the
-user in plain words. Open the build log only when the summary points you at one.
+pre-rename copy still in `/Applications`. Open the build log only when the summary
+points you at one.
 
 ## Two things to do once, before the first run
 
@@ -66,11 +58,11 @@ signature; the script then re-signs the finished bundle with this certificate us
 certificate as untrusted. The first time, macOS asks whether `codesign` may use the
 key: choose **Always Allow**. Run with `SPT_SIGN_IDENTITY="Other Name"` if you named
 yours differently. Whichever way it
-went, the last line of a successful run says which you got:
+went, the summary at the end of a run says which you got:
 
 ```
-  sign:  stable (identity-based)
-  sign:  ad-hoc (Accessibility may need re-granting)
+  Signing:    stable — Accessibility permission survives rebuilds
+  Signing:    ad-hoc — if paste stops working, re-enable SpeechText in ...
 ```
 
 It reads that from the built bundle's designated requirement rather than from what
@@ -165,7 +157,7 @@ microphone, paste-back — only appear when it is actually running.
 ## Cutting a release
 
 ```bash
-.claude/skills/rebuild/scripts/rebuild.sh --tag 1.1.0
+scripts/rebuild.sh --tag 1.1.0
 ```
 
 Requires a clean working tree. It sets `MARKETING_VERSION` in `project.pbxproj`, moves
@@ -190,10 +182,8 @@ second run gives you the current errors, and stale diagnostics from a partial bu
 are a common way to chase a bug that is already fixed.
 
 **Built and launched.** There is no window to look at: the app is `LSUIElement`, so it
-lives only in the menu bar. Report the summary's `Replaced` / `Installed` lines and let the user drive it
-— the features are hotkey- and microphone-based, so you cannot exercise them yourself.
-If the change is worth checking, say what to press (`⌃⇧Q` inline, `⌃⇧A` AI, `⌃⇧W`
-record window) and what they should see.
+lives only in the menu bar. The summary's `Replaced` / `Installed` lines say what
+changed; try it with `⌃⇧Q` (inline), `⌃⇧A` (AI) or `⌃⇧W` (record window).
 
 ## When something looks wrong after a successful launch
 
@@ -202,13 +192,13 @@ record window) and what they should see.
   other than `/Applications/SpeechText.app` is running — the launch check should have
   caught the second, so suspect the first.
 - **The hotkeys do nothing, or paste stops working.** Accessibility permission. If
-  the run reported `sign: ad-hoc`, that is the cause and the certificate above is the
+  the summary said `Signing: ad-hoc`, that is the cause and the certificate above is the
   fix. Otherwise toggle SpeechText off and on in System Settings › Privacy & Security
   › Accessibility. It cannot be fixed from code.
 - **Settings look wrong, or a picker is blank.** Provider and model choices live in
   UserDefaults under `com.speechtext.app` and survive reinstalls, so a stale stored
   value can outlive the code that understood it. `defaults read com.speechtext.app`
   shows the state. `defaults delete com.speechtext.app` resets everything **including
-  the user's API keys** — ask before doing that.
+  your API keys**.
 - **Old behaviour persists after a successful launch.** Check `--status`. A second
   copy under a legacy name may still be running and answering the hotkey first.

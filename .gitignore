@@ -11,7 +11,7 @@ DerivedData/
 app-icon.svg
 menubar-icon.svg
 
-# Skill build output
+# rebuild.sh output (DerivedData, backups)
 build/
 
 # Marketing / business strategy — never publish

@@ -4,14 +4,14 @@
 #
 # Build SpeechText, install it to /Applications, and restart it there.
 #
-#   rebuild.sh                  build, install, launch
-#   rebuild.sh --debug          Debug configuration instead of Release
-#   rebuild.sh --no-launch      build and install, leave it stopped
-#   rebuild.sh --status         what is installed, what is running, what HEAD is
-#   rebuild.sh --list           the retained previous builds
-#   rebuild.sh --rollback [ID]  reinstall the previous build (or a named one)
-#   rebuild.sh --remove-legacy  move pre-rename installs to the Trash
-#   rebuild.sh --tag X.Y.Z      cut a release: version, CHANGELOG, commit, tag
+#   scripts/rebuild.sh                  build, install, launch
+#   scripts/rebuild.sh --debug          Debug configuration instead of Release
+#   scripts/rebuild.sh --no-launch      build and install, leave it stopped
+#   scripts/rebuild.sh --status         what is installed, what is running, what HEAD is
+#   scripts/rebuild.sh --list           the retained previous builds
+#   scripts/rebuild.sh --rollback [ID]  reinstall the previous build (or a named one)
+#   scripts/rebuild.sh --remove-legacy  move pre-rename installs to the Trash
+#   scripts/rebuild.sh --tag X.Y.Z      cut a release: version, CHANGELOG, commit, tag
 #
 # The build runs *before* anything is stopped or replaced, so a build that fails
 # leaves the app you are using untouched.
@@ -24,7 +24,7 @@ BUNDLE_ID="com.speechtext.app"
 # its own hotkey registration, so all of them have to be off the field.
 LEGACY_NAMES=("SpeachText" "VoicePeter")
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$REPO_ROOT/$APP_NAME/$APP_NAME.xcodeproj"
 SCHEME="$APP_NAME"
 DERIVED="$REPO_ROOT/build"
@@ -32,7 +32,7 @@ INSTALLED="/Applications/$APP_NAME.app"
 LEDGER="$DERIVED/installed.log"
 
 # A code-signing certificate of this name, if you have made one, is what keeps the
-# Accessibility grant alive across rebuilds. See SKILL.md; override with the env var.
+# Accessibility grant alive across rebuilds. See docs/rebuild.md; override with the env var.
 SIGN_IDENTITY="${SPT_SIGN_IDENTITY:-SpeechText Dev}"
 
 CONFIG="Release"
@@ -219,7 +219,7 @@ print_summary() {
 
     local name
     for name in "${LEGACY_NAMES[@]}"; do
-        [ -d "/Applications/$name.app" ] && echo "  Old copy:   /Applications/$name.app is still there (remove: rebuild.sh --remove-legacy)"
+        [ -d "/Applications/$name.app" ] && echo "  Old copy:   /Applications/$name.app is still there (remove: scripts/rebuild.sh --remove-legacy)"
     done
     echo "═════════════════════════════════════════════════════════════════"
 }
@@ -253,7 +253,7 @@ if [ "$MODE" = "status" ]; then
     git -C "$REPO_ROOT" diff --cached --quiet 2>/dev/null || dirty=" (uncommitted changes)"
     echo "HEAD:       $head_commit$dirty"
     if [ ! -d "$INSTALLED" ]; then
-        echo "            — nothing is installed there yet; run rebuild.sh"
+        echo "            — nothing is installed there yet; run scripts/rebuild.sh"
     else
         installed_commit="$(plist_value "$INSTALLED" SPTGitCommit)"
         case "$installed_commit" in
@@ -296,8 +296,8 @@ if [ "$MODE" = "list" ]; then
         echo "  $stamp$note"
     done
     echo ""
-    echo "Reinstall the newest with:  rebuild.sh --rollback"
-    echo "Or a specific one with:     rebuild.sh --rollback <ID>"
+    echo "Reinstall the newest with:  scripts/rebuild.sh --rollback"
+    echo "Or a specific one with:     scripts/rebuild.sh --rollback <ID>"
     exit 0
 fi
 
@@ -410,7 +410,7 @@ if [ "$MODE" = "tag" ]; then
     echo "Tagged v$ARG ($previous → $ARG). Nothing was pushed."
     echo "  review:  git show v$ARG"
     echo "  publish: git push && git push origin v$ARG"
-    echo "  install: rebuild.sh"
+    echo "  install: scripts/rebuild.sh"
     exit 0
 fi
 
@@ -441,11 +441,13 @@ if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$SIGN_IDENTIT
     echo "Will sign with \"$SIGN_IDENTITY\"."
 else
     echo "Signing ad-hoc — no \"$SIGN_IDENTITY\" certificate in the keychain."
-    echo "  macOS may drop the Accessibility grant after this build; SKILL.md says how to fix that for good."
+    echo "  macOS may drop the Accessibility grant after this build; docs/rebuild.md says how to fix that for good."
 fi
 
 echo "Building $SCHEME ($CONFIG) from $COMMIT..."
 LOG="$(mktemp -t speechtext-build)"
+echo "  (takes a minute or two; to follow along: tail -f $LOG)"
+BUILD_STARTED=$SECONDS
 xcodebuild \
     -project "$PROJECT" \
     -scheme "$SCHEME" \
@@ -456,6 +458,7 @@ xcodebuild \
     SPT_BUILD_DATE="$BUILD_DATE" \
     build > "$LOG" 2>&1
 STATUS=$?
+BUILD_SECONDS=$((SECONDS - BUILD_STARTED))
 
 BUILT="$DERIVED/Build/Products/$CONFIG/$APP_NAME.app"
 
@@ -477,9 +480,9 @@ fi
 
 WARNINGS=$(grep -E "warning:" "$LOG" 2>/dev/null | sort -u | wc -l | tr -d ' ')
 if [ "${WARNINGS:-0}" -gt 0 ]; then
-    echo "Build succeeded ($WARNINGS warning$([ "$WARNINGS" -eq 1 ] || echo s))."
+    echo "Build succeeded in ${BUILD_SECONDS}s ($WARNINGS warning$([ "$WARNINGS" -eq 1 ] || echo s))."
 else
-    echo "Build succeeded."
+    echo "Build succeeded in ${BUILD_SECONDS}s."
 fi
 rm -f "$LOG"
 
@@ -539,7 +542,7 @@ rm -rf "$INSTALLED"
 if ! ditto "$BUILT" "$INSTALLED"; then
     print_summary failed "Install FAILED: could not copy the new build to /Applications" \
         "The new build is at: $BUILT" \
-        "Restore the previous one with: rebuild.sh --rollback"
+        "Restore the previous one with: scripts/rebuild.sh --rollback"
     exit 1
 fi
 NOW="$(stamp_of "$INSTALLED")"
