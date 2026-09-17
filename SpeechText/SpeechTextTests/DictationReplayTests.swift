@@ -129,6 +129,23 @@ final class TierReplayTests: XCTestCase {
         XCTAssertNil(run.stop)
     }
 
+    /// A cancel while a paste is still landing releases anyone waiting for it: the stop's
+    /// wait must not outlive the recording it belonged to.
+    func testT7_ACancelReleasesAWaitForAPasteInFlight() {
+        let app = FakeApp(.textEdit)
+        app.holdsLandings = true
+        let delivery = InlineDelivery()
+        XCTAssertTrue(delivery.begin(tier: .a, aiMode: false, aiDraft: false, target: app, targetName: nil))
+        delivery.enqueue([TranscriptSpan(id: TranscriptSpanID(rawValue: 1), segment: 1, text: "Перше.", state: .committed)])
+        XCTAssertTrue(delivery.isDeliveringSpan)
+
+        var released = false
+        delivery.whenIdle { released = true }
+        XCTAssertFalse(released)
+        delivery.end()
+        XCTAssertTrue(released)
+    }
+
     /// T10: words committed only by the stop are separated from the text before them
     /// ("Поїха. Ііі…", not "Поїха.Ііі…").
     func testT10_TheStopsTailKeepsItsSpace() async {
@@ -281,6 +298,25 @@ final class FinalizeReplayTests: XCTestCase {
         XCTAssertEqual(app.document, "Перше речення.")
         XCTAssertEqual(app.fields["second"]?.text, " Друге речення.")
         XCTAssertNil(run.correctionApplied)
+    }
+
+    /// T5 + F1: away for a sentence, back, then the stream broke and the batch upload
+    /// re-worded the start. The words said while away were never pasted, so the one
+    /// replacement has to bring them in too — once.
+    func testF1_ACorrectionAfterSwitchingAwayPutsEverythingInOnce() async {
+        let app = FakeApp(.textEdit)
+        let run = await DictationReplay.run(in: app, [
+            .committed("Зроблю це ввечері, коли повернусь додому."),
+            .switchAway,
+            .committed("Подзвоню з дороги."),
+            .switchBack,
+            .committed("І ще одне речення."),
+            .streamBreaks,
+        ], fallback: ScriptedSegment(text: "Роблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення."))
+
+        XCTAssertEqual(app.elsewhere, "")
+        XCTAssertEqual(run.document, "Роблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
+        XCTAssertEqual(run.correctionApplied, true)
     }
 
     /// F6 in Tier A with a correction refused: the landing could not be read and the app

@@ -53,7 +53,7 @@ struct DebugLogView: View {
             Toggle("Record traces", isOn: $recordTraces)
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .help("Save each streamed inline dictation to Traces/ so it can be replayed as a test")
+                .help("Save each streamed inline dictation to Traces/ so it can be replayed as a test. The words you dictate are saved there in plain text.")
 
             Button("Traces") {
                 let directory = DictationTraceRecorder.directory

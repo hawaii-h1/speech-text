@@ -92,6 +92,8 @@ final class InlineDelivery {
         stopOffering()
         target?.releaseFocusedField()
         ledger.clear()
+        // Nobody waits on an abandoned recording's paste.
+        resumeIdleWaiters()
     }
 
     // MARK: While the user speaks
