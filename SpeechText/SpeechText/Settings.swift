@@ -66,6 +66,8 @@ enum SettingsKeys {
     static let appSkin = "appSkin"
     /// `#RRGGBB` — only the minimal skin uses it.
     static let accentColor = "accentColor"
+    /// `DockIconMode.rawValue`: never, while a window is open, or always.
+    static let dockIconMode = "dockIconMode"
 
     // Debug
     static let debugMode = "debugMode"
@@ -91,7 +93,7 @@ enum SettingsKeys {
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
-        appSkin, accentColor,
+        appSkin, accentColor, dockIconMode,
         hotkeyLayoutVersion, debugMode,
     ]
 }

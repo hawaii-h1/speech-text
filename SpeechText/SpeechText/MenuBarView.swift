@@ -28,6 +28,7 @@ struct SettingsView: View {
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
+    @AppStorage(SettingsKeys.dockIconMode) private var dockIconRaw = DockIconMode.default.rawValue
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var presetsWindow: PromptPresetsWindow?
@@ -68,6 +69,15 @@ struct SettingsView: View {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
+
+                Picker("Show in Dock", selection: $dockIconRaw) {
+                    ForEach(DockIconMode.allCases) { mode in
+                        Text(mode.label).tag(mode.rawValue)
+                    }
+                }
+                .onChange(of: dockIconRaw) { _, _ in
+                    NotificationCenter.default.post(name: .dockIconModeDidChange, object: nil)
+                }
             }
 
             appearanceSection

@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var debugLogWindow: DebugLogWindow?
     private var historyWindow: HistoryWindow?
+    private var dockIcon: DockIconController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
@@ -108,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         normalizeStoredProviders()
         registerLocalSTT()
         registerSpellCheckedJoins()
+        dockIcon = DockIconController()
         migrateHotkeyLayoutIfNeeded()
 
         // Set up hotkeys
@@ -151,6 +153,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
             try? SMAppService.mainApp.register()
         }
+    }
+
+    /// A click on the Dock icon with nothing on screen opens Settings — otherwise the icon
+    /// the user asked for would do nothing at all when clicked.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !DockIconController.hasOpenWindow() {
+            openSettings()
+        }
+        return true
     }
 
     /// Moves existing installs onto the current shortcut layout (Inline ⌃⇧Q,
