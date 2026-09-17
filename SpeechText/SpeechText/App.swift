@@ -835,7 +835,8 @@ final class AppState {
             }
             guard !applied else { return }
             dlog("Span", "AI draft could not be replaced — pasting the AI result as well")
-            deliver(output)
+            // After the draft, so separated from it like any other delivery.
+            deliver(inlineLedger.separated(output))
         }
     }
 
