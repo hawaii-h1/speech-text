@@ -45,10 +45,13 @@ enum TextRefinementService {
         )
 
         let parsed = parse(raw, presetNames: presets.map(\.name))
-        dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(parsed.text.count) chars")
+        // Models love "—" as much as Scribe does, and the prompt cannot be trusted to stop
+        // them; the paste gets the user's dash either way.
+        let text = DashStyle.current.applied(to: parsed.text)
+        dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(text.count) chars")
 
-        guard !parsed.text.isEmpty else { throw LLMError.emptyResponse }
-        return Result(text: parsed.text, presetName: parsed.presetName,
+        guard !text.isEmpty else { throw LLMError.emptyResponse }
+        return Result(text: text, presetName: parsed.presetName,
                       provider: providerType.rawValue, model: modelID)
     }
 

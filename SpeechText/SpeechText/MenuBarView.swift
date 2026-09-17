@@ -16,6 +16,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
     @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
+    @AppStorage(SettingsKeys.dashStyle) private var dashStyle = DashStyle.default.rawValue
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
@@ -261,6 +262,14 @@ struct SettingsView: View {
             }
             Toggle("Remove hesitation sounds", isOn: $removeDisfluencies)
             Text("Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker("Dashes", selection: $dashStyle) {
+                ForEach(DashStyle.allCases) { style in
+                    Text(style.displayName).tag(style.rawValue)
+                }
+            }
+            Text("Speech models write a long “—” where you paused between phrases. It is redrawn in this style, in dictations and AI output alike, and never removed.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } header: {

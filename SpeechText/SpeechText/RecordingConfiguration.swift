@@ -28,10 +28,14 @@ struct RecordingConfiguration {
     /// recogniser returns — see `cleanedTranscript`. `var` with a default so a value
     /// built by hand (the tests) gets the setting's default.
     var removesDisfluencies = true
+    /// How the recogniser's em dashes are drawn — see `DashStyle`. Independent of
+    /// `removesDisfluencies`: a user who wants every "е-е-е" kept may still not want "—".
+    var dashStyle: DashStyle = .default
 
-    /// `cleanedTranscript(text)` when the setting is on, `text` untouched otherwise.
+    /// `cleanedTranscript(text)` when the setting is on, `text` untouched otherwise, with
+    /// its dashes in the chosen style either way.
     func cleaned(_ text: String) -> String {
-        removesDisfluencies ? cleanedTranscript(text) : text
+        dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
     }
 
     /// The language to force on a cloud provider — nil on Auto, which leaves the model
@@ -102,7 +106,8 @@ struct RecordingConfiguration {
             elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
             elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? defaultElevenLabsModel,
             localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
-            removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true
+            removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
+            dashStyle: .current
         )
     }
 }

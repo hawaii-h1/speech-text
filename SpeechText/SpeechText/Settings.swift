@@ -18,6 +18,8 @@ enum SettingsKeys {
     static let localSTTModel = "localSTTModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
     static let removeDisfluencies = "removeDisfluencies"
+    /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
+    static let dashStyle = "dashStyle"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -85,7 +87,7 @@ enum SettingsKeys {
     static let portable: [String] = [
         webhookURL, authToken, selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
-        removeDisfluencies,
+        removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
