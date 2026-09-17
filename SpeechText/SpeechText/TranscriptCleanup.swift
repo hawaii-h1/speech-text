@@ -1,0 +1,132 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+
+// MARK: - Hesitation sounds, stretched words and trailing-off dots
+
+/// Scribe writes down how something was *said*: "Ой, е-е-е, ні, не привіт", "перше
+/// питанняяя", "вона казала... Цей". `no_verbatim=true` is sent and echoed back by the
+/// server, and the hesitations still arrive — the flag does not know Ukrainian ones. So
+/// the transcript is cleaned on our side, before it becomes a span:
+///
+/// - a hesitation sound is dropped (`е-е-е`, `а-а`, `еее`, `эм`, `м-м`, `хм`, `uh`, `um`),
+///   recognised by its *shape* — one vowel repeated — rather
+///   than from a list of spellings. Words that merely sound hesitant ("ну", "типу") are
+///   left alone: "типу" is also the genitive of "тип", and removing it rewrites speech;
+/// - a word stretched out while thinking is un-stretched: three or more of the same
+///   lowercase Cyrillic letter collapse to one ("тооо" → "то"). Ukrainian and Russian
+///   spell no word with a tripled letter, and "знання" keeps its double;
+/// - a trailing-off `...` / `…` at the end of a word becomes a full stop, and the next
+///   word is capitalised; one standing alone between two words is dropped.
+///
+/// The function is applied to the *cumulative* strings the sessions report, and
+/// `SpeechEngine` pastes committed spans as they arrive. So it must be **monotone**: when
+/// one input extends another by whole words, the cleaned result must extend the cleaned
+/// shorter one by whole words too — the span layer takes the difference as a new span
+/// and joins spans with a space. Otherwise text already in the user's document stops
+/// matching the final transcript, `InsertionLedger.remainder` reads that as disagreement,
+/// and the tail is never pasted. That is why every rule rewrites a word only from the
+/// word itself and what came *before* it, and never touches a word already written:
+/// a filler's full stop is dropped rather than moved back onto the previous word.
+///
+/// Growth *inside* a word is outside that contract — "Ой, е" keeps its "е", "Ой, е-е"
+/// loses it. It holds because committed text only ever grows by whole segments: the
+/// stream merges each VAD-closed `committed_transcript`, and Apple commits at chunk
+/// rotation. Partials do grow mid-word, but a partial is issued to no one.
+func cleanedTranscript(_ text: String) -> String {
+    var output = ""
+    /// Set when the next kept word starts a sentence that a removed word began.
+    var capitalizeNext = false
+
+    for token in text.split(whereSeparator: { $0.isWhitespace }) {
+        var word = String(token)
+
+        // A bare "..." standing between two words goes; any other lone mark ("—") stays.
+        if TranscriptCleanupRules.isEllipsis(word) { continue }
+
+        let core = word.trimmingCharacters(in: TranscriptCleanupRules.edgePunctuation)
+        if !core.isEmpty, TranscriptCleanupRules.isHesitation(core) {
+            // Its punctuation goes with it: "Ой, е-е-е, ні" → "Ой, ні". A full stop it
+            // carried is not moved onto the word before — see the monotonicity note.
+            // A filler that opened a sentence hands its capital on: "А-а-а, ну" → "Ну".
+            if core.first?.isUppercase == true { capitalizeNext = true }
+            continue
+        }
+
+        word = TranscriptCleanupRules.collapsingStretchedLetters(word)
+        if capitalizeNext {
+            word = capitalizingFirstLetter(word)
+            capitalizeNext = false
+        }
+        if let ended = TranscriptCleanupRules.replacingTrailingEllipsis(word) {
+            word = ended
+            capitalizeNext = true
+        }
+        append(word, to: &output)
+    }
+    return output
+}
+
+private func append(_ word: String, to output: inout String) {
+    if !output.isEmpty { output += " " }
+    output += word
+}
+
+private func capitalizingFirstLetter(_ word: String) -> String {
+    guard let index = word.firstIndex(where: { $0.isLetter }), word[index].isLowercase else { return word }
+    return word.replacingCharacters(in: index...index, with: word[index].uppercased())
+}
+
+enum TranscriptCleanupRules {
+    /// Punctuation a transcriber hangs on either side of a word, quotes and brackets
+    /// included. Hyphens are not in it: "е-е" is one hesitation, not "е" twice.
+    static let edgePunctuation: CharacterSet = {
+        var set = CharacterSet.punctuationCharacters
+        set.remove(charactersIn: "-‐‑")
+        return set
+    }()
+
+    /// A hesitation's shape, case-insensitive, on a word with its edge punctuation off:
+    /// one vowel repeated with hyphens (`е-е`, `а-а-а`) or three times without (`еее`),
+    /// optionally trailing into an "m" (`е-м`, `эм`), a hummed `м-м` / `ммм` / `хм`, or an
+    /// English `uh` / `um` / `uhm` / `erm` / `hmm`. A single vowel is never one — "а", "у"
+    /// are words — and neither is a doubled one: Russian writes "её" as "ее". "ем" (Russian
+    /// "I eat") is left alone for the same reason, and so are `мм` / `mm`: millimetres.
+    private static let hesitation = try! NSRegularExpression(
+        pattern: "^(?:(?:([еэаыу])(?:[-‐‑]\\1)+|([еэаыу])\\2{2,})(?:[-‐‑]?м+)?|е[-‐‑]м+|эм+|х?м(?:[-‐‑]м)+|хм+|м{3,}|u+h+|u+h*m+|e+r+m+|h+m+|m{3,})$",
+        options: [.caseInsensitive])
+
+    static func isHesitation(_ core: String) -> Bool {
+        let range = NSRange(core.startIndex..., in: core)
+        return hesitation.firstMatch(in: core, range: range) != nil
+    }
+
+    /// Three or more of the same lowercase Cyrillic letter.
+    private static let stretched = try! NSRegularExpression(pattern: "([а-яёіїєґ])\\1{2,}")
+
+    static func collapsingStretchedLetters(_ word: String) -> String {
+        let range = NSRange(word.startIndex..., in: word)
+        return stretched.stringByReplacingMatches(in: word, range: range, withTemplate: "$1")
+    }
+
+    static func isEllipsis(_ word: String) -> Bool {
+        word == "…" || (word.count >= 3 && word.allSatisfy { $0 == "." })
+    }
+
+    /// An ellipsis ending a word — before any closing quote or bracket — becomes a full
+    /// stop; after "?" or "!" it is simply dropped. `1...5` (not at the end) is untouched.
+    /// nil when there was nothing to replace.
+    private static let trailingEllipsis = try! NSRegularExpression(pattern: "([?!]?)(?:\\.{3,}|…)([\"»”’)\\]]*)$")
+
+    static func replacingTrailingEllipsis(_ word: String) -> String? {
+        let range = NSRange(word.startIndex..., in: word)
+        guard let match = trailingEllipsis.firstMatch(in: word, range: range),
+              let whole = Range(match.range, in: word),
+              let mark = Range(match.range(at: 1), in: word),
+              let closers = Range(match.range(at: 2), in: word),
+              whole.lowerBound > word.startIndex else { return nil }
+        let terminator = word[mark].isEmpty ? "." : String(word[mark])
+        return String(word[..<whole.lowerBound]) + terminator + word[closers]
+    }
+}

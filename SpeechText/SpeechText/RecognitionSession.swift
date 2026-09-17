@@ -84,7 +84,7 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
     switch configuration.provider {
     case .apple:
         return AppleRecognitionSession(recognizer: recognizer, locale: configuration.locale)
-    case .groq, .elevenlabs:
+    case .groq, .elevenlabs, .local:
         let batch = BatchRecognitionSession(provider: makeBatchProvider(configuration: configuration),
                                             writer: writer, language: configuration.cloudLanguage)
         if let streamer = makeStreamingProvider(configuration: configuration) {

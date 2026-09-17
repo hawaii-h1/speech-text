@@ -9,6 +9,7 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
     case groq = "groq"
     case anthropic = "anthropic"
     case openai = "openai"
+    case ollama = "ollama"
 
     var id: String { rawValue }
 
@@ -17,31 +18,45 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
         case .groq: "Groq"
         case .anthropic: "Anthropic (Claude)"
         case .openai: "OpenAI"
+        case .ollama: "Ollama — local"
         }
     }
+
+    /// Local providers run on this Mac and have no key; `LLMConfiguration.isConfigured`
+    /// then means "a model is chosen", and a daemon that is not running surfaces as the
+    /// request's own error, through the same raw-transcript fallback as any other failure.
+    var needsAPIKey: Bool { self != .ollama }
 }
 
 // MARK: - Model Catalogs
 
+/// Checked against Groq's model and deprecation pages on 2026-09-16. Both Llama models,
+/// Qwen3 32B and Kimi K2 were shut down for free and developer accounts between April
+/// and August 2026 — the old default among them, so a stored ID for any of those is
+/// normalised to `defaultGroqLLMModel` at launch. The two preview models are labelled as
+/// such: Groq may withdraw a preview without notice.
 let groqChatModels: [(id: String, name: String)] = [
-    ("llama-3.3-70b-versatile", "Llama 3.3 70B"),
     ("openai/gpt-oss-120b", "GPT-OSS 120B"),
-    ("openai/gpt-oss-20b", "GPT-OSS 20B"),
-    ("moonshotai/kimi-k2-instruct-0905", "Kimi K2"),
-    ("qwen/qwen3-32b", "Qwen3 32B"),
-    ("llama-3.1-8b-instant", "Llama 3.1 8B (fastest)"),
+    ("openai/gpt-oss-20b", "GPT-OSS 20B (fastest)"),
+    ("qwen/qwen3.8-27b", "Qwen3.8 27B (preview)"),
+    ("minimaxai/minimax-m2.7", "MiniMax M2.7 (preview)"),
 ]
 
+/// Fable 5.1 is left out on purpose: it is the slowest and most expensive model, and a
+/// dictation clean-up gains nothing from it. Haiku 4.5 is scheduled for retirement no
+/// sooner than 2026-10-15 — when it goes, dropping it here lets normalisation move users.
 let anthropicChatModels: [(id: String, name: String)] = [
-    ("claude-opus-5", "Claude Opus 5"),
     ("claude-sonnet-5", "Claude Sonnet 5"),
+    ("claude-opus-5", "Claude Opus 5"),
     ("claude-haiku-4-5", "Claude Haiku 4.5 (fastest)"),
 ]
 
+/// GPT-6 Astra is left out: it is built for long agentic work, and a dictation clean-up
+/// would only pay for its latency.
 let openAIChatModels: [(id: String, name: String)] = [
-    ("gpt-5.6-sol", "GPT-5.6 Sol — flagship"),
-    ("gpt-5.6-terra", "GPT-5.6 Terra — balanced"),
     ("gpt-5.6-luna", "GPT-5.6 Luna — fastest"),
+    ("gpt-5.6-terra", "GPT-5.6 Terra — balanced"),
+    ("gpt-5.6-sol", "GPT-5.6 Sol — flagship"),
 ]
 
 // MARK: - Protocol
@@ -57,6 +72,7 @@ enum LLMError: LocalizedError {
     case httpError(Int, String)
     case refused(String?)
     case emptyResponse
+    case noLocalModel
 
     var errorDescription: String? {
         switch self {
@@ -65,6 +81,7 @@ enum LLMError: LocalizedError {
         case .httpError(let code, let body): "LLM API error HTTP \(code): \(body)"
         case .refused(let why): "The model declined the request\(why.map { ": \($0)" } ?? "")"
         case .emptyResponse: "The model returned an empty response"
+        case .noLocalModel: "No Ollama model selected — pick or download one in Settings"
         }
     }
 }
@@ -116,6 +133,17 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
         case .classic:
             payload["max_tokens"] = 8192
             payload["temperature"] = 0.3
+            // Groq's reasoning models take different switches, and the wrong one is an
+            // HTTP 400 rather than something ignored: gpt-oss rejects `reasoning_format`
+            // and has no `none` effort; Qwen defaults to `raw`, which puts `<think>` into
+            // the content ahead of the `<<mode:NAME>>` marker.
+            if model.hasPrefix("openai/gpt-oss") {
+                payload["reasoning_effort"] = "low"
+                payload["include_reasoning"] = false
+            } else if model.hasPrefix("qwen/") {
+                payload["reasoning_effort"] = "none"
+                payload["reasoning_format"] = "hidden"
+            }
         case .reasoning:
             payload["max_completion_tokens"] = 8192
         }
@@ -134,9 +162,11 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
         }
 
         let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
-        guard let text = decoded.choices.first?.message.content, !text.isEmpty else {
-            throw LLMError.emptyResponse
-        }
+        // A model whose reasoning cannot be switched off from here (MiniMax M2.7 on Groq
+        // documents no control) may still put it inline; strip it before parsing.
+        guard let raw = decoded.choices.first?.message.content else { throw LLMError.emptyResponse }
+        let text = strippingReasoning(raw)
+        guard !text.isEmpty else { throw LLMError.emptyResponse }
         dlog("LLM", "\(label): done in \(String(format: "%.2f", elapsed))s, \(text.count) chars")
         return text
     }
@@ -250,6 +280,7 @@ enum LLMConfiguration {
         case .groq: return defaults.string(forKey: SettingsKeys.groqAPIKey) ?? ""
         case .anthropic: return defaults.string(forKey: SettingsKeys.anthropicAPIKey) ?? ""
         case .openai: return defaults.string(forKey: SettingsKeys.openAIAPIKey) ?? ""
+        case .ollama: return ""
         }
     }
 
@@ -262,16 +293,26 @@ enum LLMConfiguration {
             return defaults.string(forKey: SettingsKeys.anthropicModel) ?? defaultAnthropicModel
         case .openai:
             return defaults.string(forKey: SettingsKeys.openAIModel) ?? defaultOpenAIModel
+        case .ollama:
+            return defaults.string(forKey: SettingsKeys.ollamaModel) ?? ""
         }
     }
 
-    /// True when the selected provider has a non-empty API key.
+    /// True when the selected provider can be called: a non-empty API key for the cloud
+    /// providers, a chosen model for Ollama.
     static var isConfigured: Bool {
-        !apiKey(for: providerType).trimmingCharacters(in: .whitespaces).isEmpty
+        let type = providerType
+        let value = type.needsAPIKey ? apiKey(for: type) : model(for: type)
+        return !value.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     static func makeProvider() throws -> LLMChatProvider {
         let type = providerType
+        if type == .ollama {
+            let model = model(for: type)
+            guard !model.isEmpty else { throw LLMError.noLocalModel }
+            return OllamaLLMProvider(model: model)
+        }
         let key = apiKey(for: type).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw LLMError.missingAPIKey(type) }
         let model = model(for: type)
@@ -291,10 +332,14 @@ enum LLMConfiguration {
             )
         case .anthropic:
             return AnthropicLLMProvider(apiKey: key, model: model)
+        case .ollama:
+            preconditionFailure("handled above — Ollama has no key to check")
         }
     }
 }
 
-let defaultGroqLLMModel = "llama-3.3-70b-versatile"
-let defaultAnthropicModel = "claude-opus-5"
-let defaultOpenAIModel = "gpt-5.6-terra"
+/// Defaults are the fast end of each catalogue that still rewrites well: the user is
+/// waiting on the paste. Groq's own replacement for the retired Llama 3.3 70B.
+let defaultGroqLLMModel = "openai/gpt-oss-120b"
+let defaultAnthropicModel = "claude-sonnet-5"
+let defaultOpenAIModel = "gpt-5.6-luna"

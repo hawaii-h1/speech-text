@@ -16,6 +16,44 @@ struct SpeechTextApp: App {
     }
 }
 
+// MARK: - Build identity
+
+/// What this build is, in one line: the release version, and — when the rebuild
+/// skill produced it — which commit it came from and when.
+///
+/// `CFBundleShortVersionString` is the semver in CHANGELOG.md and moves only on a
+/// release. The rest is stamped at build time: `scripts/rebuild.sh` passes
+/// `CURRENT_PROJECT_VERSION`, `SPT_GIT_COMMIT` and `SPT_BUILD_DATE` on the
+/// `xcodebuild` line, and `Info.plist` carries `$(...)` placeholders for them.
+/// A plain Xcode ⌘R build defines none of those, so the app says "dev" instead —
+/// which is the honest answer, not a missing feature.
+enum AppVersion {
+    static var marketing: String { string(for: "CFBundleShortVersionString") ?? "?" }
+    static var build: String { string(for: "CFBundleVersion") ?? "?" }
+    static var commit: String? { string(for: "SPTGitCommit") }
+    static var builtAt: String? { string(for: "SPTBuildDate") }
+
+    /// e.g. `1.0 (build 47 · a18a7d1 · 2026-09-16 14:20)`, or `1.0 (dev)`.
+    static var displayString: String {
+        guard let commit else { return "\(marketing) (dev)" }
+        var parts = ["build \(build)", commit]
+        if let builtAt { parts.append(builtAt) }
+        return "\(marketing) (\(parts.joined(separator: " · ")))"
+    }
+
+    /// An Info.plist string that is actually a value. Xcode substitutes an *empty*
+    /// string for a build setting it was never given, so the unstamped case is ""
+    /// rather than a missing key; a placeholder left verbatim would mean the key in
+    /// Info.plist and the variable on the build line disagree, and showing the user
+    /// `$(SPT_GIT_COMMIT)` is worse than showing nothing.
+    private static func string(for key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+}
+
 // MARK: - AppDelegate with NSStatusItem
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -50,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // removed engines — both before any UI reads them.
         adoptPreRenameDefaults()
         normalizeStoredProviders()
+        registerLocalSTT()
         migrateHotkeyLayoutIfNeeded()
 
         // Set up hotkeys
@@ -137,6 +176,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
 
+        // Which build is this? The app has no window and no About box, so the menu
+        // is the only place the answer can live — and after a rebuild it is the
+        // first thing worth checking.
+        let versionItem = NSMenuItem(title: "SpeechText \(AppVersion.displayString)",
+                                     action: #selector(copyVersion), keyEquivalent: "")
+        versionItem.target = self
+        versionItem.toolTip = "Click to copy this build's version"
+        menu.addItem(versionItem)
+
+        menu.addItem(.separator())
+
         let shortcut = currentShortcutDisplayString()
         if appState.speechEngine.isRecording {
             let stopItem = NSMenuItem(title: "Stop Recording (\(shortcut))", action: #selector(toggleRecording), keyEquivalent: "")
@@ -183,6 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    @objc private func copyVersion() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("SpeechText \(AppVersion.displayString)", forType: .string)
     }
 
     @objc private func toggleRecording() {
@@ -314,6 +370,9 @@ final class AppState {
     /// True when the current inline session was started with the AI hotkey, so the
     /// transcription gets routed through `TextRefinementService` before pasting.
     private(set) var isAIMode = false
+    /// Where an AI dictation is going, read when its recording started. Nil outside AI
+    /// mode and when the user turned the setting off.
+    private var focusContext: FocusContext?
     /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
     private(set) var isRefining = false
     private var refinementTask: Task<Void, Never>?
@@ -389,6 +448,15 @@ final class AppState {
 
         let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
+
+        // After the engine start, not before: nothing reads it until the stop.
+        focusContext = isAIMode && FocusContext.isEnabled
+            ? PasteService.readFocusContext(in: previousApp)
+            : nil
+        if let focusContext {
+            // The window title stays out of the system log — it can be a mail subject.
+            dlog("Refine", "focus context: \(focusContext.appName ?? "?") (\(focusContext.bundleID ?? "?")), window title \(focusContext.windowTitle == nil ? "absent" : "present")")
+        }
     }
 
     // MARK: - Delivering while the user is still speaking
@@ -663,12 +731,15 @@ final class AppState {
         let aiInput = inlineLedger.isEmpty ? text : speechEngine.spanLayer.text
 
         guard TextRefinementService.isConfigured else {
-            dlog("App", "handleTranscriptionResult: AI mode but no LLM API key — pasting raw transcript")
+            dlog("App", "handleTranscriptionResult: AI mode but LLM not configured — pasting raw transcript")
             hideOverlay()
+            let type = LLMConfiguration.providerType
             showStatus(
                 icon: "key.slash",
                 title: "AI processing skipped",
-                detail: "No API key for \(LLMConfiguration.providerType.displayName). Pasted the raw transcription.",
+                detail: type.needsAPIKey
+                    ? "No API key for \(type.displayName). Pasted the raw transcription."
+                    : "No \(type.displayName) model selected. Pasted the raw transcription.",
                 tint: .orange
             )
             deliverAIResult(aiInput, recordID: speechEngine.lastRecordID)
@@ -678,12 +749,13 @@ final class AppState {
         // Keep the overlay up (now in its loading state) while the LLM rewrites the text.
         isRefining = true
         let recordID = speechEngine.lastRecordID
+        let context = focusContext
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var output = aiInput
             var sendIntent: TextRefinementService.SendIntent?
             do {
-                let result = try await TextRefinementService.refine(aiInput)
+                let result = try await TextRefinementService.refine(aiInput, context: context)
                 if Task.isCancelled { return }
                 output = result.text
                 sendIntent = result.sendIntent
@@ -691,7 +763,8 @@ final class AppState {
                     TranscriptionHistory.shared.recordRefinement(
                         id: recordID, input: aiInput, output: result.text,
                         presetName: result.presetName,
-                        provider: result.provider, model: result.model
+                        provider: result.provider, model: result.model,
+                        context: context
                     )
                 }
             } catch {
@@ -700,7 +773,8 @@ final class AppState {
                     let type = LLMConfiguration.providerType
                     TranscriptionHistory.shared.recordRefinementFailure(
                         id: recordID, input: aiInput, error: error.localizedDescription,
-                        provider: type.rawValue, model: LLMConfiguration.model(for: type)
+                        provider: type.rawValue, model: LLMConfiguration.model(for: type),
+                        context: context
                     )
                 }
                 // Never lose the dictation: fall back to the raw transcript, but say so

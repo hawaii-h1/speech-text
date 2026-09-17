@@ -47,8 +47,11 @@ Pick per your priorities — all configurable in Settings:
 | **Apple** (on-device) | free | Nothing leaves your Mac |
 | **Groq** (Whisper) | ~$0.04/hour | Fast, accurate, needs an API key |
 | **ElevenLabs** (Scribe v2) | pay-as-you-go | Realtime streaming, live partial text |
+| **Whisper, local** | free | Open-source model downloaded to your Mac in one click; no key, works offline |
 
-For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** — again, your own key.
+For local models, Settings reads your Mac's chip, memory and free disk, places it in a class from an 8 GB MacBook Neo to a 512 GB Mac Studio, and marks two models for it: a **recommended** one (the fastest of good quality) and a **best quality** one. Heavier models stay available, labelled.
+
+For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** with your own key — or run it locally through [Ollama](https://ollama.com), where Settings offers Qwen3.5 / 3.6 / 3.8, Gemma 4 and gpt-oss models from 1 GB to 81 GB, recommends a pair for your Mac, and downloads them in one click.
 
 ---
 
@@ -57,8 +60,9 @@ For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** — again, you
 - macOS 14 (Sonoma) or later
 - Xcode 15+ to build
 - Optional: API keys for the cloud engines you want to use
+- Optional: [Ollama](https://ollama.com) for local AI processing
 
-No package manager, no third-party dependencies. Everything is Apple frameworks.
+One Swift package — [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift), for local speech models — resolved by Xcode on the first build. Everything else is Apple frameworks.
 
 ---
 

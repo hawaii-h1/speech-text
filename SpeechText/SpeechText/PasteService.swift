@@ -230,6 +230,37 @@ struct PasteService {
         return probe
     }
 
+    /// Where the text is going: the app, its focused window's title and the focused
+    /// field's label, or nil when there is nothing that may be sent (see `FocusContext.capture`).
+    ///
+    /// Only the LLM pass after the stop reads this, so the caller takes it *after* the
+    /// microphone has been asked to start: these are round trips to another process, and
+    /// against a slow app they would otherwise be time the user loses a first syllable to.
+    static func readFocusContext(in app: NSRunningApplication?) -> FocusContext? {
+        guard let target = app ?? NSWorkspace.shared.frontmostApplication,
+              target.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+
+        var windowTitle: String?
+        var fieldLabels: [String?] = []
+        var isSecureField = false
+        if AXIsProcessTrusted() {
+            let appElement = AXUIElementCreateApplication(target.processIdentifier)
+            if let window = elementValue(of: appElement, kAXFocusedWindowAttribute) {
+                windowTitle = attributeString(of: window, kAXTitleAttribute)
+            }
+            if let element = focusedTextElement(of: target) {
+                isSecureField = attributeString(of: element, kAXSubroleAttribute) == kAXSecureTextFieldSubrole
+                fieldLabels = [kAXPlaceholderValueAttribute, kAXDescriptionAttribute, kAXTitleAttribute]
+                    .map { attributeString(of: element, $0) }
+            }
+        }
+        return FocusContext.capture(appName: target.localizedName,
+                                    bundleID: target.bundleIdentifier,
+                                    windowTitle: windowTitle,
+                                    fieldLabels: fieldLabels,
+                                    isSecureField: isSecureField)
+    }
+
     /// The focused element of `app`, or of whatever is frontmost when `app` is nil.
     private static func focusedTextElement(of app: NSRunningApplication?) -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
@@ -241,12 +272,23 @@ struct PasteService {
         return (focused as! AXUIElement)
     }
 
-    private static func stringValue(of element: AXUIElement) -> String? {
+    private static func attributeString(of element: AXUIElement, _ attribute: String) -> String? {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success else {
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
             return nil
         }
         return value as? String
+    }
+
+    private static func elementValue(of element: AXUIElement, _ attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
+    }
+
+    private static func stringValue(of element: AXUIElement) -> String? {
+        attributeString(of: element, kAXValueAttribute)
     }
 
     private static func selectedRange(of element: AXUIElement) -> NSRange? {

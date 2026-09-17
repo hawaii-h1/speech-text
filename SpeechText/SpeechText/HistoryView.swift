@@ -300,6 +300,15 @@ struct HistoryView: View {
             }
             .font(.system(size: 11))
 
+            if let context = refinement.context {
+                Label("For \(context.summary)", systemImage: "macwindow")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .help(context.promptBlock)
+            }
+
             if let error = refinement.errorMessage {
                 Text("Fell back to the dictated text — \(error)")
                     .font(.system(size: 10, design: .monospaced))
@@ -356,13 +365,11 @@ struct HistoryView: View {
         // recording was made with.
         let configuration = RecordingConfiguration.current()
 
-        // Retries always go through a cloud provider — Apple's recognizer has no batch
-        // file API — so the key the upload will actually use must be present (the Groq
-        // key when Apple or Groq is selected, the ElevenLabs key otherwise).
-        if configuration.batchAPIKey.isEmpty {
-            let needed = configuration.provider == .elevenlabs ? "an ElevenLabs" : "a Groq"
-            history.markRetryFailed(id: record.id,
-                                    error: "Retry needs \(needed) API key — add one in Settings.")
+        // Retries always go through a file transcription — Apple's recognizer has no
+        // batch API, so an Apple selection retries through Groq — and that path must be
+        // able to start: a key for the cloud tiers, an installed model for the local one.
+        if let reason = configuration.batchUnavailableReason() {
+            history.markRetryFailed(id: record.id, error: reason)
             return
         }
 
@@ -377,7 +384,7 @@ struct HistoryView: View {
             do {
                 let provider = makeBatchProvider(configuration: configuration)
                 let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = configuration.cleaned(text.trimmingCharacters(in: .whitespacesAndNewlines))
                 await MainActor.run {
                     if trimmed.isEmpty {
                         history.markRetryFailed(id: recordID, error: "Retry returned no text")

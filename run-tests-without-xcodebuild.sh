@@ -17,10 +17,12 @@ cat > "$OUT/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>BNDL</string>
 </dict></plist>
 PLIST
-SRC=(SpeechText/SpeechTextTests/PureLogicTests.swift SpeechText/SpeechTextTests/AudioPipelineTests.swift)
+SRC=(SpeechText/SpeechTextTests/PureLogicTests.swift SpeechText/SpeechTextTests/AudioPipelineTests.swift
+     SpeechText/SpeechTextTests/LocalModelsTests.swift)
 for f in Settings STTProvider AudioBufferWriter DebugLog LLMProvider PromptPresets \
          TextRefinementService StreamingSTTProvider RecordingConfiguration MessageDelivery \
-         TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier FinalizePass; do
+         TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier FinalizePass TranscriptCleanup \
+         FocusContext SystemCapabilities LocalModelCatalog OllamaProvider; do
   SRC+=("SpeechText/SpeechText/$f.swift")
 done
 "$SWIFTC" -emit-library -o "$OUT/Contents/MacOS/SpeechTextTests" \

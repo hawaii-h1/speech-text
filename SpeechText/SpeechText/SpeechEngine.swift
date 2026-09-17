@@ -181,7 +181,7 @@ final class SpeechEngine {
         audioEngine.inputNode.removeTap(onBus: 0)
         barLevels = Array(repeating: 0, count: 12)
 
-        if let segmentText = session.pause() {
+        if let segmentText = session.pause().map(configuration.cleaned) {
             // The session already has the text (Apple): hand it over, no transcribing state.
             dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
             phase = .paused(segmentInFlight: false)
@@ -203,7 +203,9 @@ final class SpeechEngine {
         transcriptionTask?.cancel()
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
-            let outcome = await session.finish()
+            var finished = await session.finish()
+            finished.text = configuration.cleaned(finished.text)
+            let outcome = finished
             // A resume can cancel this task while the upload is still in flight. The
             // segment was still transcribed, so it is still written to History (that is
             // not "a newer session's state", and dropping it silently lost a completed
@@ -300,7 +302,11 @@ final class SpeechEngine {
             guard let self, let newSession, self.session === newSession else { return }
             switch event {
             case .live(let committed, let partial):
-                self.spanLayer.ingest(committed: committed, partial: partial)
+                // Cleaned here, before the text becomes a span, and not at the stop: spans
+                // are pasted while the user speaks, and a stop whose text no longer extends
+                // what was pasted would be read as disagreement and never delivered.
+                self.spanLayer.ingest(committed: configuration.cleaned(committed),
+                                      partial: configuration.cleaned(partial))
                 self.emitCommittedSpans()
             case .failure(let message):
                 self.errorMessage = message
@@ -443,7 +449,9 @@ final class SpeechEngine {
 
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
-            let outcome = await session.finish()
+            var finished = await session.finish()
+            finished.text = configuration.cleaned(finished.text)
+            let outcome = finished
             await MainActor.run {
                 // A stale task must never touch a newer session's state — but the
                 // outcome may still own a segment file (the upload finished before the
