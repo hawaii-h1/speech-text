@@ -721,7 +721,7 @@ final class AppState {
                 dlog("App", "handleTranscriptionResult: nothing left to paste")
                 return
             }
-            deliver(remainder)
+            deliver(inlineLedger.separated(remainder))
             return
         }
 
@@ -826,7 +826,7 @@ final class AppState {
             deliver(output)
         case .extend:
             if let rest = inlineLedger.remainder(of: output), !rest.isEmpty {
-                deliver(rest)
+                deliver(inlineLedger.separated(rest))
             }
         case .replace, .leave:
             let applied = decision == .replace && correctDeliveredText(to: output)

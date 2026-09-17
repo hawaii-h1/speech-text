@@ -95,6 +95,14 @@ struct InsertionLedger {
         return transcriptContinuation(of: delivered, in: authoritative)
     }
 
+    /// `rest` as it has to be pasted after what the sink already holds: opened with the
+    /// space that separates it, the way every delivery during the recording opens with
+    /// one. Without it the stop's tail lands glued to the last span ("Поїха.Ііі…").
+    func separated(_ rest: String) -> String {
+        guard !rest.isEmpty, !deliveredText.isEmpty else { return rest }
+        return " " + rest
+    }
+
     /// Where this span's text is in `document` *right now*, or nil if it is not there
     /// untouched. Three steps, in the order phase C's spec asks for them: the recorded
     /// range if the substring still matches exactly; otherwise the last occurrence of

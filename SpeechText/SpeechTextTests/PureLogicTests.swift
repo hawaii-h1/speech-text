@@ -792,6 +792,26 @@ final class UndeliveredRemainderTests: XCTestCase {
         ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Один два три")
         XCTAssertEqual(ledger.remainder(of: "Один два три чотири п'ять"), "чотири п'ять")
     }
+
+    /// The tail pasted at the stop opens with a space, like every delivery before it —
+    /// found in cmux, where it landed as "Поїха.Ііі як воно…".
+    func testTheTailIsPastedWithTheSpaceThatSeparatesIt() {
+        let ledger = self.ledger(delivered: ["Ще одна перевірка вставлення в термі.", "Поїха."])
+        let final = "Ще одна перевірка вставлення в термі. Поїха. Ііі як воно тут працює в терміналі?"
+        let rest = ledger.remainder(of: final)
+        XCTAssertEqual(rest, "Ііі як воно тут працює в терміналі?")
+        XCTAssertEqual(ledger.separated(rest ?? ""), " Ііі як воно тут працює в терміналі?")
+    }
+
+    /// Nothing delivered: the whole text goes in as it is, with nothing glued on front.
+    func testTheWholeTextIsNotGivenALeadingSpace() {
+        XCTAssertEqual(InsertionLedger().separated("Привіт"), "Привіт")
+    }
+
+    /// Nothing owed: no stray space is pasted either.
+    func testAnEmptyTailStaysEmpty() {
+        XCTAssertEqual(self.ledger(delivered: ["Привіт"]).separated(""), "")
+    }
 }
 
 // MARK: - Finalizing pass (FinalizePass.swift)
