@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // removed engines — both before any UI reads them.
         adoptPreRenameDefaults()
         normalizeStoredProviders()
+        registerLocalSTT()
         migrateHotkeyLayoutIfNeeded()
 
         // Set up hotkeys
@@ -437,12 +438,15 @@ final class AppState {
         }
 
         guard TextRefinementService.isConfigured else {
-            dlog("App", "handleTranscriptionResult: AI mode but no LLM API key — pasting raw transcript")
+            dlog("App", "handleTranscriptionResult: AI mode but LLM not configured — pasting raw transcript")
             hideOverlay()
+            let type = LLMConfiguration.providerType
             showStatus(
                 icon: "key.slash",
                 title: "AI processing skipped",
-                detail: "No API key for \(LLMConfiguration.providerType.displayName). Pasted the raw transcription.",
+                detail: type.needsAPIKey
+                    ? "No API key for \(type.displayName). Pasted the raw transcription."
+                    : "No \(type.displayName) model selected. Pasted the raw transcription.",
                 tint: .orange
             )
             deliver(text)

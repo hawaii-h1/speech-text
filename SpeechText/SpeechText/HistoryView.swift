@@ -356,13 +356,11 @@ struct HistoryView: View {
         // recording was made with.
         let configuration = RecordingConfiguration.current()
 
-        // Retries always go through a cloud provider — Apple's recognizer has no batch
-        // file API — so the key the upload will actually use must be present (the Groq
-        // key when Apple or Groq is selected, the ElevenLabs key otherwise).
-        if configuration.batchAPIKey.isEmpty {
-            let needed = configuration.provider == .elevenlabs ? "an ElevenLabs" : "a Groq"
-            history.markRetryFailed(id: record.id,
-                                    error: "Retry needs \(needed) API key — add one in Settings.")
+        // Retries always go through a file transcription — Apple's recognizer has no
+        // batch API, so an Apple selection retries through Groq — and that path must be
+        // able to start: a key for the cloud tiers, an installed model for the local one.
+        if let reason = configuration.batchUnavailableReason() {
+            history.markRetryFailed(id: record.id, error: reason)
             return
         }
 

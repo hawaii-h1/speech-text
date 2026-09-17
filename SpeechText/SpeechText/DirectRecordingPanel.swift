@@ -747,7 +747,9 @@ struct DirectRecordingPanelView: View {
         let source = speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !source.isEmpty, !isRefining else { return }
         guard TextRefinementService.isConfigured else {
-            refineStatus = "Set an LLM API key in Settings to use AI mode"
+            refineStatus = LLMConfiguration.providerType.needsAPIKey
+                ? "Set an LLM API key in Settings to use AI mode"
+                : "Pick an Ollama model in Settings to use AI mode"
             refineFailed = true
             return
         }
