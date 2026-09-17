@@ -342,3 +342,51 @@ struct TranscriptSpanLayer {
 
     private func log(_ message: String) { dlog("Span", message) }
 }
+
+// MARK: - Issuing spans to a sink
+
+/// Which spans a sink that cannot take text back may be handed now, and which it already
+/// has. Pure logic, in both targets: `SpeechEngine` owns one per recording and calls it on
+/// every live event, and a replay drives the same one without a microphone.
+struct SpanIssuer {
+    /// What has already gone out, by span, as the text it went out as. A span is offered
+    /// exactly once: text already in another app's document is corrected at most once,
+    /// by the finalizing pass at the stop, never re-issued while the user speaks.
+    private var issued: [TranscriptSpanID: String] = [:]
+
+    mutating func reset() { issued = [:] }
+
+    /// The stable spans `layer` holds that have not been issued yet, in order — marked as
+    /// issued as they are returned.
+    ///
+    /// Order is what the `break` is for. A sink handed span #5 before #3 has the
+    /// dictation out of sequence, and nothing can reorder text already pasted into
+    /// another app — so emission stops at the first span that is still moving and waits
+    /// for it.
+    ///
+    /// A span whose text changes after it has been issued is *not* issued again. That is
+    /// the property the Tier B guarantee rests on ("committed only, and never
+    /// rewritten"), and it holds by construction rather than by care:
+    /// `rewriteSegmentStable` reuses the first span's id, and an id already issued is
+    /// never returned a second time. It is logged, because those are exactly what phase
+    /// C's finalizing pass exists to fix.
+    mutating func take(from layer: TranscriptSpanLayer) -> [TranscriptSpan] {
+        var ready: [TranscriptSpan] = []
+        for span in layer.visibleSpans {
+            if let previous = issued[span.id] {
+                if previous != span.text {
+                    dlog("Span", "\(span.id) changed after it was issued — not re-issued: \"\(previous.prefix(30))\" → \"\(span.text.prefix(30))\"")
+                    issued[span.id] = span.text
+                }
+                continue
+            }
+            guard span.state.isStable else { break }
+            ready.append(span)
+        }
+
+        guard !ready.isEmpty else { return [] }
+        for span in ready { issued[span.id] = span.text }
+        dlog("Span", "issuing \(ready.map(\.id.description).joined(separator: " ")) to the sink")
+        return ready
+    }
+}

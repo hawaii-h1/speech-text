@@ -4,17 +4,56 @@
 import Cocoa
 import ApplicationServices
 
-struct PasteService {
-    /// Where a paste landed in the target app: the range the text occupies, and the
-    /// app's own copy of that text. Both are read back out of the Accessibility API
-    /// rather than assumed from what was sent.
-    struct PasteLanding {
-        let range: NSRange
-        /// What the app actually holds there — smart quotes applied, line endings
-        /// normalised, whatever it did. The only version a later guard can compare to.
-        let text: String
+/// `InlineDelivery`'s window onto a real app: the app the recording started in, and the
+/// field that had focus then, reached through `PasteService`.
+final class AccessibilityDeliveryTarget: InlineDeliveryTarget {
+    let app: NSRunningApplication?
+    /// The field this recording delivers into, taken when the tier is decided. The stop's
+    /// correction runs only while this is still the focused element of the app in front:
+    /// the tier was decided for this field, not for whatever has focus by the stop.
+    private var element: AXUIElement?
+
+    init(app: NSRunningApplication?) {
+        self.app = app
     }
 
+    var acceptsDeliveryNow: Bool {
+        guard PasteService.isAccessibilityGranted, let app,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            DictationTraceRecorder.record(.targetNotInFront)
+            return false
+        }
+        return true
+    }
+
+    func paste(_ text: String, completion: @escaping (PasteLanding?) -> Void) {
+        PasteService.pasteAtCursor(text) { landing in
+            DictationTraceRecorder.record(.paste, text: text,
+                                          landing: landing.map { $0.text == text ? .exact : .different } ?? .unknown)
+            completion(landing)
+        }
+    }
+
+    func captureFocusedField() {
+        element = PasteService.focusedElement(of: app)
+    }
+
+    func releaseFocusedField() {
+        element = nil
+    }
+
+    var isStillFocused: Bool {
+        guard let app, let element else { return false }
+        return PasteService.isStillFocused(element, in: app)
+    }
+
+    func replaceDelivered(ledger: inout InsertionLedger, with text: String) -> Bool {
+        guard let app else { return false }
+        return PasteService.replaceLastInsertions(ledger: &ledger, with: text, in: app)
+    }
+}
+
+struct PasteService {
     /// Pastes text at the current cursor position, preserving the user's clipboard.
     /// Saves clipboard contents, pastes via ⌘V, then restores the original clipboard.
     ///

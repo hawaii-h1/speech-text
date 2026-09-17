@@ -401,23 +401,9 @@ final class AppState {
     /// the cleared texts and pop "No speech detected" for an action the user asked for.
     private var transcriptionWaitTask: Task<Void, Never>?
 
-    /// Which sink this recording is delivering into. Decided once, when the recording
-    /// starts, and never revisited: a tier that changed halfway would mean text issued
-    /// under one set of rules being corrected under another.
-    private var deliveryTier: DeliveryTier = .b
-    /// What has actually been pasted into the target app during this recording — the
-    /// sink's own record, not the engine's. The stop subtracts it from the authoritative
-    /// text so a dictation is never pasted twice.
-    private var inlineLedger = InsertionLedger()
-    /// Spans waiting their turn, and whether one is in flight. Pastes are serialised:
-    /// two ⌘V in flight at once race over the pasteboard, and the second would stage its
-    /// text before the first had been read.
-    private var spanQueue: [TranscriptSpan] = []
-    private var isDeliveringSpan = false
-    /// The field this recording delivers into, taken when the tier is decided. The stop's
-    /// correction runs only while this is still the focused element of the app in front:
-    /// the tier was decided for this field, not for whatever has focus by the stop.
-    private var deliveryElement: AXUIElement?
+    /// This recording's delivery into the app it was started in: the tier, the spans
+    /// pasted while the user speaks, the ledger, and the stop's correction.
+    private let inlineDelivery = InlineDelivery()
 
     func toggleRecording(aiMode: Bool = false) {
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
@@ -440,6 +426,7 @@ final class AppState {
         refinementTask = nil
         isRefining = false
         endInlineDelivery()
+        DictationTraceRecorder.current = nil
         speechEngine.cancelRecording()
         hideOverlay()
     }
@@ -471,178 +458,57 @@ final class AppState {
 
     /// Decides the tier for this recording and wires the engine up to it.
     private func beginDeliveryPlan() {
-        spanQueue = []
-        isDeliveringSpan = false
-        inlineLedger.clear()
-
-        deliveryTier = .resolve(isOwnSurface: false,
-                                probe: PasteService.probeFocusedText(in: previousApp))
-
+        let probe = PasteService.probeFocusedText(in: previousApp)
+        let tier = DeliveryTier.resolve(isOwnSurface: false, probe: probe)
         let aiDraft = UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking)
-        let progressive = deliveryTier.deliversDuringRecording(aiMode: isAIMode, aiDraft: aiDraft)
-        dlog("Span", "tier \(deliveryTier) for \(previousApp?.localizedName ?? "nil") — \(progressive ? "delivering during the recording" : "buffering until the stop")")
+        DictationTraceRecorder.current = DictationTraceRecorder.isEnabled
+            ? DictationTraceRecorder(setup: DictationTrace.Setup(
+                aiMode: isAIMode, aiDraft: aiDraft,
+                removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
+                app: previousApp?.localizedName,
+                probe: .init(valueReadable: probe.valueReadable, rangeReadable: probe.rangeReadable,
+                             rangeReadsBack: probe.rangeReadsBack)))
+            : nil
+        let progressive = inlineDelivery.begin(
+            tier: tier, aiMode: isAIMode, aiDraft: aiDraft,
+            target: AccessibilityDeliveryTarget(app: previousApp),
+            targetName: previousApp?.localizedName)
 
         speechEngine.onSpansCommitted = progressive
-            ? { [weak self] spans in self?.enqueueSpans(spans) }
-            : nil
-        deliveryElement = progressive && deliveryTier.recordsRanges
-            ? PasteService.focusedElement(of: previousApp)
+            ? { [weak self] spans in self?.inlineDelivery.enqueue(spans) }
             : nil
         speechEngine.onFinalize = { [weak self] input in self?.finalizeDelivery(input) }
     }
 
-    /// The finalizing pass: what the app was given during the recording is brought in
-    /// line with the authoritative text by one write, or left exactly as it is. Runs
-    /// before the engine goes idle, so `handleTranscriptionResult` sees the ledger as the
-    /// pass left it — after a correction there is nothing more to paste.
+    /// The finalizing pass (`InlineDelivery.finalize`), with its outcome written to History.
     private func finalizeDelivery(_ input: SpeechEngine.FinalizeInput) {
         // An AI draft is not corrected to the raw transcript first: that would be two
         // writes where one will do. `deliverAIResult` replaces it once the rewrite is in.
         guard !isAIMode else { return }
-        let decision = FinalizePass.decide(ledger: inlineLedger, authoritative: input.text,
-                                           tier: deliveryTier, hasFrozenSpans: input.hasFrozenSpans)
-        dlog("Span", "finalize: \(decision), tier \(deliveryTier)")
-
-        let applied: Bool
-        switch decision {
-        case .nothingDelivered, .extend:
-            // The stop's ordinary paste is the one write.
-            return
-        case .leave:
-            applied = false
-        case .replace:
-            applied = correctDeliveredText(to: input.text)
-        }
-        if let id = input.recordID {
+        let applied = inlineDelivery.finalize(text: input.text, hasFrozenSpans: input.hasFrozenSpans)
+        if let applied { DictationTraceRecorder.record(.correction, applied: applied) }
+        if let applied, let id = input.recordID {
             TranscriptionHistory.shared.recordCorrection(id: id, applied: applied)
         }
-    }
-
-    private func correctDeliveredText(to text: String) -> Bool {
-        // A paste still in flight has not reached the ledger: the plan would replace the
-        // text before it and leave it standing after the correction — the words twice.
-        guard !isDeliveringSpan else {
-            dlog("Span", "finalize: a delivery is still landing — not correcting")
-            return false
-        }
-        // The tier is checked again: it was decided for one field of one app.
-        guard let app = previousApp, let element = deliveryElement,
-              PasteService.isStillFocused(element, in: app) else {
-            dlog("Span", "finalize: the app or the focused field changed since the recording started — not correcting")
-            return false
-        }
-        return PasteService.replaceLastInsertions(ledger: &inlineLedger, with: text, in: app)
     }
 
     /// Stops offering spans. The ledger is kept: the stop still has to know what the
     /// app was given so it can hand over the rest and not the whole thing again.
     private func stopOfferingSpans() {
         speechEngine.onSpansCommitted = nil
-        spanQueue = []
+        inlineDelivery.stopOffering()
     }
 
-    /// The recording was abandoned. Nothing more goes out — including anything already
-    /// queued — and the ledger goes with it. Text already pasted stays where it is:
-    /// un-inserting it into a foreign app is not possible.
+    /// The recording was abandoned. Nothing more goes out, and the ledger goes with it.
     private func endInlineDelivery() {
-        stopOfferingSpans()
+        speechEngine.onSpansCommitted = nil
         speechEngine.onFinalize = nil
-        deliveryElement = nil
-        inlineLedger.clear()
-    }
-
-    private func enqueueSpans(_ spans: [TranscriptSpan]) {
-        spanQueue.append(contentsOf: spans)
-        drainSpanQueue()
-    }
-
-    /// Pastes one emission's worth of spans, then the next. Everything ready at once
-    /// goes in a single ⌘V: one paste is one race with the target app instead of
-    /// several, and the ranges still come out per span whenever the app stored the text
-    /// exactly as it was handed it.
-    private func drainSpanQueue() {
-        guard !isDeliveringSpan, !spanQueue.isEmpty else { return }
-
-        let spans = spanQueue
-        spanQueue = []
-
-        // Only into the app the recording was started in, and only while it is still the
-        // one in front: the user may have switched away mid-dictation, and text pasted
-        // into whatever they switched to is worse than text delivered late. Nothing is
-        // recorded in the ledger, so the stop delivers these words itself.
-        guard PasteService.isAccessibilityGranted,
-              let app = previousApp,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
-            dlog("Span", "not delivering now — the target app is not in front; the stop will")
-            return
-        }
-
-        let delivering = spans.filter { !$0.text.isEmpty }
-        guard let first = delivering.first else { return }
-        let joined = joinedSpanTexts(delivering)
-        // What separates this delivery from the last — a space, or nothing when the
-        // provider cut a word across the two.
-        let payload = inlineLedger.isEmpty ? joined : first.separator + joined
-
-        isDeliveringSpan = true
-        PasteService.pasteAtCursor(payload) { [weak self] landing in
-            guard let self else { return }
-            self.isDeliveringSpan = false
-            self.recordDelivery(of: delivering, payload: payload, landing: landing)
-            self.drainSpanQueue()
-        }
-    }
-
-    /// Writes what went out into the ledger. Per span where the app stored exactly what
-    /// it was handed — those ranges are what the finalizing pass replaces through — and
-    /// as one untracked piece otherwise, which still answers what the stop asks of the
-    /// ledger (what has this app already been given?) but can never be corrected.
-    private func recordDelivery(of spans: [TranscriptSpan],
-                                payload: String, landing: PasteService.PasteLanding?) {
-        let joined = joinedSpanTexts(spans)
-        let joinsLedger = !inlineLedger.isEmpty && spans.first?.joinsPrevious == true
-
-        // Per span only when the app stored exactly what it was handed. Anything else —
-        // it normalised the text, or the landing could not be read — and the offsets
-        // would be fiction, so it goes down as one untracked piece instead.
-        guard let landing, deliveryTier.recordsRanges, landing.text == payload else {
-            if landing == nil {
-                dlog("Span", "delivered \(spans.map(\.id.description).joined(separator: " ")), landing unknown")
-            }
-            inlineLedger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0),
-                                text: joined, joinsPrevious: joinsLedger)
-            return
-        }
-
-        // The payload may open with the separator from the last delivery.
-        var location = landing.range.location + (payload as NSString).length - (joined as NSString).length
-        for (index, span) in spans.enumerated() {
-            if index > 0 { location += (span.separator as NSString).length }
-            let length = (span.text as NSString).length
-            inlineLedger.insert(span: span.id,
-                                range: NSRange(location: location, length: length),
-                                text: span.text,
-                                joinsPrevious: index == 0 ? joinsLedger : span.joinsPrevious)
-            location += length
-        }
-    }
-
-    /// What the stop still has to paste, with everything already delivered taken off the
-    /// front. The deciding is `InsertionLedger.remainder`; this logs what it decided.
-    private func undeliveredRemainder(of authoritative: String) -> String? {
-        let delivered = inlineLedger.deliveredText
-        guard !delivered.isEmpty else { return authoritative }
-
-        guard let remainder = inlineLedger.pasteableRemainder(of: authoritative) else {
-            dlog("Span", "final text does not extend the \(delivered.count) chars already delivered — delivering nothing more")
-            return nil
-        }
-        dlog("Span", "already delivered \(delivered.count) chars; \(remainder.count) left to paste\(remainder.first.map { !$0.isWhitespace } == true && !remainder.isEmpty ? " (joins the last word)" : "")")
-        return remainder
+        inlineDelivery.end()
     }
 
     private func stopRecording() {
         dlog("App", "stopRecording")
+        DictationTraceRecorder.record(.stop)
         // From here the authoritative text arrives through the result path, and anything
         // still queued would be delivered twice. The ledger stays — the stop needs it to
         // know what the app has already been given.
@@ -664,6 +530,11 @@ final class AppState {
             // A cancel resumed us by moving the engine to `.idle` — there is no result
             // to handle, and reporting the cleared texts would claim "No speech detected".
             guard !Task.isCancelled else { return }
+            // A span pasted just before the stop reaches the ledger only once it has landed.
+            await withCheckedContinuation { continuation in
+                self.inlineDelivery.whenIdle { continuation.resume() }
+            }
+            guard !Task.isCancelled else { return }
             dlog("App", "waitForTranscription: done (\(String(format: "%.2f", Date().timeIntervalSince(started)))s)")
             handleTranscriptionResult()
         }
@@ -673,15 +544,15 @@ final class AppState {
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil"), aiMode=\(isAIMode)")
 
-        // Spans pasted while the user was still speaking are already in the document.
-        // `finalizeDelivery` has already corrected them where it could, which leaves
-        // nothing here. Nil means the final text still disagrees with them — the
-        // correction was refused — and a second wording is not pasted under the first.
-        let remainder = undeliveredRemainder(of: text)
-
-        // A failed transcription used to end here silently — the user just saw nothing
-        // happen and lost everything they said. Always surface it.
-        if let rawError = speechEngine.errorMessage {
+        let result = inlineDelivery.stopResult(finalText: text,
+                                               failed: speechEngine.errorMessage != nil,
+                                               aiMode: isAIMode,
+                                               recordingText: speechEngine.spanLayer.text)
+        switch result {
+        case .failed(let partial):
+            // A failed transcription used to end here silently — the user just saw nothing
+            // happen and lost everything they said. Always surface it.
+            let rawError = speechEngine.errorMessage ?? ""
             dlog("App", "handleTranscriptionResult: error — \(rawError)")
             hideOverlay()
             showStatus(
@@ -692,62 +563,68 @@ final class AppState {
             )
             // Any partial text is better than nothing — hand it to the Record Window.
             // Refinement is skipped: there is no trustworthy transcript to rewrite.
-            if let remainder, !remainder.isEmpty {
-                showDirectRecordingPanel(withText: remainder.trimmingCharacters(in: .whitespaces))
+            if let partial, !partial.isEmpty {
+                showDirectRecordingPanel(withText: partial.trimmingCharacters(in: .whitespaces))
             }
-            return
-        }
 
-        guard !text.isEmpty else {
+        case .noSpeech:
             dlog("App", "handleTranscriptionResult: empty text")
             hideOverlay()
-            // Unless the recording already delivered: a stream that committed words and
-            // then fell back to a batch upload which came back empty leaves the dictation
-            // sitting in the user's document, and telling them nothing was transcribed
-            // while they are looking at it is worse than saying nothing.
-            guard inlineLedger.deliveredText.isEmpty else {
-                dlog("App", "handleTranscriptionResult: empty final text, but the dictation was already delivered")
-                return
-            }
             showStatus(
                 icon: "waveform.slash",
                 title: "No speech detected",
                 detail: "Nothing was transcribed from that recording.",
                 tint: .secondary
             )
-            return
-        }
 
-        guard isAIMode else {
+        case .alreadyDelivered:
+            dlog("App", "handleTranscriptionResult: empty text")
             hideOverlay()
-            guard let remainder else {
-                // The final text re-words what is already in the document too much to
-                // tell where it ends, so nothing more was pasted rather than a second
-                // copy. The words are in History; say so instead of dropping them silently.
-                showStatus(
-                    icon: "text.badge.xmark",
-                    title: "Part of the dictation wasn't pasted",
-                    detail: "The final transcript differs from what was already typed. Click to see it in History.",
-                    tint: .orange,
-                    duration: 8
-                )
-                return
-            }
+            dlog("App", "handleTranscriptionResult: empty final text, but the dictation was already delivered")
+
+        case .notPasted:
+            hideOverlay()
+            // The final text re-words what is already in the document too much to tell
+            // where it ends, so nothing more was pasted rather than a second copy. The
+            // words are in History; say so instead of dropping them silently.
+            showStatus(
+                icon: "text.badge.xmark",
+                title: "Part of the dictation wasn't pasted",
+                detail: "The final transcript differs from what was already typed. Click to see it in History.",
+                tint: .orange,
+                duration: 8
+            )
+
+        case .nothingLeft:
+            hideOverlay()
             // Everything was already pasted as it was committed — which is the point of
             // the exercise, not a failure of it.
-            guard !remainder.isEmpty else {
-                dlog("App", "handleTranscriptionResult: nothing left to paste")
-                return
-            }
+            dlog("App", "handleTranscriptionResult: nothing left to paste")
+
+        case .paste(let remainder):
+            hideOverlay()
             deliver(remainder)
+
+        case .refine(let aiInput):
+            // The trace is finished once the rewrite has been delivered.
+            refine(aiInput)
             return
         }
+        finishTrace()
+    }
 
-        // A draft already in the document covers every segment of the recording, and the
-        // rewrite replaces all of it — so it has to be a rewrite of all of it. `finalText`
-        // holds only the last segment after a device restart.
-        let aiInput = inlineLedger.isEmpty ? text : speechEngine.spanLayer.text
+    /// Writes the dictation's trace, when one is being recorded.
+    private func finishTrace() {
+        guard let recorder = DictationTraceRecorder.current else { return }
+        DictationTraceRecorder.current = nil
+        if let url = recorder.write(into: DictationTraceRecorder.directory) {
+            dlog("Trace", "trace written: \(url.lastPathComponent)")
+        }
+    }
 
+    /// AI mode's half of the stop: the LLM rewrites `aiInput`, and the result is pasted,
+    /// sent, or — on any failure — replaced by the raw transcript.
+    private func refine(_ aiInput: String) {
         guard TextRefinementService.isConfigured else {
             dlog("App", "handleTranscriptionResult: AI mode but LLM not configured — pasting raw transcript")
             hideOverlay()
@@ -760,7 +637,9 @@ final class AppState {
                     : "No \(type.displayName) model selected. Pasted the raw transcription.",
                 tint: .orange
             )
+            DictationTraceRecorder.record(.refinement, error: "not configured")
             deliverAIResult(aiInput, recordID: speechEngine.lastRecordID)
+            finishTrace()
             return
         }
 
@@ -775,6 +654,7 @@ final class AppState {
                 let result = try await TextRefinementService.refine(aiInput, context: context)
                 if Task.isCancelled { return }
                 output = result.text
+                DictationTraceRecorder.record(.refinement, text: result.text)
                 if let recordID {
                     TranscriptionHistory.shared.recordRefinement(
                         id: recordID, input: aiInput, output: result.text,
@@ -793,6 +673,7 @@ final class AppState {
                         context: context
                     )
                 }
+                DictationTraceRecorder.record(.refinement, error: error.localizedDescription)
                 // Never lose the dictation: fall back to the raw transcript, but say so
                 // rather than pasting unrewritten text with no explanation.
                 dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript")
@@ -807,51 +688,27 @@ final class AppState {
             self.refinementTask = nil
             self.hideOverlay()
             self.deliverAIResult(output, recordID: recordID)
+            self.finishTrace()
         }
     }
 
-    /// Where an AI dictation's final text goes.
-    ///
-    /// With nothing delivered early, the ordinary paste. With a draft already in the
-    /// document (`aiDraftWhileSpeaking`), the result replaces it in one write — or, when
-    /// the result only adds to the draft (a failed rewrite falls back to the raw
-    /// transcript, which usually does), the rest is pasted after it. A refused
-    /// replacement pastes the result anyway: that is the user's call, getting the
-    /// rewrite in matters more to them than the draft staying out of the way, so the
-    /// document may then hold both.
+    /// Where an AI dictation's final text goes — see `InlineDelivery.deliverAIResult`.
     private func deliverAIResult(_ output: String, recordID: UUID?) {
-        guard !inlineLedger.isEmpty else {
-            deliver(output)
-            return
+        let hasFrozenSpans = speechEngine.spanLayer.spans.contains { $0.state == .frozen }
+        let (paste, applied) = inlineDelivery.deliverAIResult(output, hasFrozenSpans: hasFrozenSpans)
+        if let applied { DictationTraceRecorder.record(.correction, applied: applied) }
+        if let applied, let recordID {
+            TranscriptionHistory.shared.recordCorrection(id: recordID, applied: applied)
         }
-
-        let decision = FinalizePass.decide(
-            ledger: inlineLedger, authoritative: output, tier: deliveryTier,
-            hasFrozenSpans: speechEngine.spanLayer.spans.contains { $0.state == .frozen })
-        dlog("Span", "AI draft: \(decision)")
-
-        switch decision {
-        case .nothingDelivered:
-            deliver(output)
-        case .extend:
-            if let rest = inlineLedger.pasteableRemainder(of: output), !rest.isEmpty {
-                deliver(rest)
-            }
-        case .replace, .leave:
-            let applied = decision == .replace && correctDeliveredText(to: output)
-            if let recordID {
-                TranscriptionHistory.shared.recordCorrection(id: recordID, applied: applied)
-            }
-            guard !applied else { return }
-            dlog("Span", "AI draft could not be replaced — pasting the AI result as well")
-            // After the draft, so separated from it like any other delivery.
-            deliver(inlineLedger.separated(output))
+        if let paste {
+            deliver(paste)
         }
     }
 
     /// Pastes into the previously focused app, falling back to the Record Window when
     /// that isn't possible.
     private func deliver(_ text: String) {
+        DictationTraceRecorder.record(.stopPaste, text: text)
         if !PasteService.isAccessibilityGranted {
             dlog("App", "deliver: no accessibility, showing record panel")
             PasteService.promptAccessibility()

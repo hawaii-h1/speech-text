@@ -3,7 +3,6 @@
 
 import Foundation
 import AVFoundation
-import Speech
 
 // MARK: - Protocol
 
@@ -72,25 +71,5 @@ enum RecognitionSessionError: LocalizedError {
         switch self {
         case .recognizerUnavailable(let locale): return "Speech recognizer not available for \(locale)"
         }
-    }
-}
-
-/// The one place that knows which tier a configuration selects. Streaming is a
-/// composition: `StreamingRecognitionSession` wraps a `BatchRecognitionSession` and
-/// hands over to it when the stream fails or returns nothing.
-func makeRecognitionSession(configuration: RecordingConfiguration,
-                            writer: AudioBufferWriter,
-                            recognizer: SFSpeechRecognizer?) -> RecognitionSession {
-    switch configuration.provider {
-    case .apple:
-        return AppleRecognitionSession(recognizer: recognizer, locale: configuration.locale)
-    case .groq, .elevenlabs, .local:
-        let batch = BatchRecognitionSession(provider: makeBatchProvider(configuration: configuration),
-                                            writer: writer, language: configuration.cloudLanguage)
-        if let streamer = makeStreamingProvider(configuration: configuration) {
-            return StreamingRecognitionSession(provider: streamer, writer: writer,
-                                               language: configuration.cloudLanguage, fallback: batch)
-        }
-        return batch
     }
 }
