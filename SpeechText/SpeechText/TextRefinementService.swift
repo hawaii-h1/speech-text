@@ -33,15 +33,12 @@ enum TextRefinementService {
 
         let provider = try LLMConfiguration.makeProvider()
         let presets = PromptPresetStore.load()
-        // The section describing <context> follows the setting, not whether this one
-        // dictation has a context: the system prompt stays the same from one recording
-        // to the next, and a missing block needs no explanation.
-        let describesContext = FocusContext.isEnabled
-        let system = buildSystemPrompt(presets: presets, describesContext: describesContext)
-
+        // The system prompt describes <context> whether or not this dictation has one:
+        // it stays the same from one recording to the next, and a missing block needs
+        // no explanation.
         let raw = try await provider.complete(
-            system: system,
-            user: userMessage(transcript: source, context: describesContext ? context : nil)
+            system: buildSystemPrompt(presets: presets),
+            user: userMessage(transcript: source, context: context)
         )
 
         let parsed = parse(raw, presetNames: presets.map(\.name))
@@ -65,8 +62,7 @@ enum TextRefinementService {
         return "\(context.promptBlock)\n\n\(body)"
     }
 
-    static func buildSystemPrompt(presets: [PromptPreset],
-                                  describesContext: Bool = false) -> String {
+    static func buildSystemPrompt(presets: [PromptPreset]) -> String {
         let fallback = PromptPresetStore.defaultPreset(in: presets)
 
         let modes = presets.map { preset -> String in
@@ -111,7 +107,7 @@ enum TextRefinementService {
 
         Available modes:
 
-        \(modes)\(describesContext ? contextSection : "")
+        \(modes)\(contextSection)
 
         Response format:
         Line 1 must be exactly `<<mode:NAME>>` where NAME is the mode you chose.

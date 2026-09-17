@@ -53,7 +53,6 @@ enum SettingsKeys {
     /// rewrite at the stop. Tier A only; off by default.
     static let aiDraftWhileSpeaking = "aiDraftWhileSpeaking"
     /// Whether an AI dictation tells the model which app, window and field it is for.
-    static let aiFocusContextEnabled = "aiFocusContextEnabled"
 
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
@@ -91,7 +90,7 @@ enum SettingsKeys {
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
-        promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
+        promptPresets, defaultPresetID, aiModeInRecordWindow,
         appSkin, accentColor,
         hotkeyLayoutVersion, debugMode,
     ]
@@ -221,8 +220,9 @@ private func currentInputSourceLanguage() -> String? {
 func normalizeStoredProviders() {
     let defaults = UserDefaults.standard
 
-    // The webhook is gone; its bearer token should not outlive it in the preferences.
-    for key in ["webhookURL", "authToken"] {
+    // Settings for removed features: the webhook (whose bearer token should not outlive
+    // it) and the switch that used to keep the focus context out of AI dictations.
+    for key in ["webhookURL", "authToken", "aiFocusContextEnabled"] {
         defaults.removeObject(forKey: key)
     }
 
