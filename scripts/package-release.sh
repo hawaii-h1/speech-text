@@ -144,8 +144,14 @@ TIMESTAMP=(--timestamp)
 
 # Inside out: anything nested is signed before the bundle that contains it, or the
 # outer signature seals a nested one that is about to change.
+# Sparkle brings helpers of its own inside its framework — Updater.app, the Autoupdate
+# binary and, depending on the build, XPC services. A framework's signature only *seals*
+# those; each one is code in its own right and notarization refuses the submission unless
+# every one of them carries our signature and the hardened runtime.
 if [ -d "$APP/Contents/Frameworks" ]; then
-    find "$APP/Contents/Frameworks" -depth \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' \) -print0 |
+    find "$APP/Contents/Frameworks" -depth \
+        \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' -o -name '*.app' \
+           -o -name '*.xpc' -o -name 'Autoupdate' \) -print0 |
         while IFS= read -r -d '' nested; do
             codesign --force --options runtime "${TIMESTAMP[@]}" --sign "$SIGN_AS" "$nested"
         done
@@ -160,6 +166,23 @@ if codesign -d --entitlements - "$APP" 2>/dev/null | grep -q 'get-task-allow'; t
     die "the signed app carries get-task-allow, which notarization rejects"
 fi
 codesign -dv "$APP" 2>&1 | grep -q 'flags=.*runtime' || die "the signed app is missing the hardened runtime flag"
+
+# The same question, asked of everything nested: a helper signed without the flag is
+# found by the notary service and not by `codesign --verify`.
+while IFS= read -r -d '' nested; do
+    codesign -dv "$nested" 2>&1 | grep -q 'flags=.*runtime' ||
+        die "${nested#"$APP/"} is missing the hardened runtime flag"
+done < <(find "$APP/Contents/Frameworks" -depth \
+    \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' -o -name '*.app' \
+       -o -name '*.xpc' -o -name 'Autoupdate' \) -print0 2>/dev/null)
+
+# An image whose app has no update key is an app that can never be updated, and nothing
+# about it looks wrong until the next release fails to reach anyone. The key is public —
+# it belongs in Info.plist; docs/releasing.md says where it comes from.
+if [ "$DISTRIBUTABLE" -eq 1 ]; then
+    /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist" > /dev/null 2>&1 ||
+        die "Info.plist has no SUPublicEDKey, so this build could not be updated (see docs/releasing.md)"
+fi
 
 # --- notarize -----------------------------------------------------------------------
 

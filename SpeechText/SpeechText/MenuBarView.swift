@@ -32,6 +32,9 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    // Sparkle keeps this in its own defaults key, so it is read from the updater rather
+    // than through @AppStorage.
+    @State private var checksForUpdates = false
     @State private var presetsWindow: PromptPresetsWindow?
 
     // MARK: - Resolved selections
@@ -70,6 +73,15 @@ struct SettingsView: View {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
+
+                // Absent in a build with no signing key, where the updater never starts.
+                if UpdateChecker.shared.isConfigured {
+                    Toggle("Check for Updates Automatically", isOn: $checksForUpdates)
+                        .onChange(of: checksForUpdates) { _, newValue in
+                            UpdateChecker.shared.checksAutomatically = newValue
+                        }
+                    Button("Check Now...") { UpdateChecker.shared.checkForUpdates() }
+                }
             }
 
             appearanceSection
@@ -128,6 +140,7 @@ struct SettingsView: View {
         .padding()
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
+            checksForUpdates = UpdateChecker.shared.checksAutomatically
             // A value left behind by a removed engine would render the picker blank.
             normalizeStoredProviders()
         }

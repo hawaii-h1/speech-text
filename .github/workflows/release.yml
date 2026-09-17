@@ -12,6 +12,7 @@ name: Release
 #   NOTARY_KEY_P8_BASE64, NOTARY_KEY_ID, NOTARY_ISSUER_ID (issuer empty for an individual key)
 #   or an Apple ID —
 #   NOTARY_APPLE_ID, NOTARY_APP_PASSWORD, NOTARY_TEAM_ID
+#   SPARKLE_ED_PRIVATE_KEY                               the update-signing key
 
 on:
   push:
@@ -19,6 +20,7 @@ on:
   pull_request:
     paths:
       - scripts/package-release.sh
+      - scripts/make-appcast.sh
       - .github/workflows/release.yml
       - SpeechText/SpeechText/SpeechText.entitlements
       - SpeechText/SpeechText.xcodeproj/project.pbxproj
@@ -125,6 +127,37 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      - name: The release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # This version's CHANGELOG section, written by hand as the work happened —
+          # not a list of commit subjects. The GitHub release and the update window
+          # inside the app show the same text.
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+
+      - name: Write the appcast
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          SPT_SPARKLE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SPT_SPARKLE_KEY" ]; then
+            echo "::error::No SPARKLE_ED_PRIVATE_KEY secret, so this release could not be offered as an update. See docs/releasing.md."
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          scripts/make-appcast.sh \
+            --dmg "$RUNNER_TEMP/release/SpeechText-$version.dmg" \
+            --tag "$GITHUB_REF_NAME" \
+            --notes "$RUNNER_TEMP/notes.md" \
+            --out "$RUNNER_TEMP/release"
+
       - name: Open a draft release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -132,16 +165,12 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          # The notes are this version's CHANGELOG section, written by hand as the
-          # work happened — not a list of commit subjects.
-          awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { on = 1; next }
-            on && /^## \[/ { exit }
-            on { print }
-          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          # appcast.xml is what installed copies of the app read: publishing the draft is
+          # what makes this version the answer at .../releases/latest/download/appcast.xml.
           gh release create "$GITHUB_REF_NAME" \
             "$RUNNER_TEMP/release/SpeechText-$version.dmg" \
             "$RUNNER_TEMP/release/SpeechText-$version.dmg.sha256" \
+            "$RUNNER_TEMP/release/appcast.xml" \
             --draft --verify-tag \
             --title "SpeechText $version" \
             --notes-file "$RUNNER_TEMP/notes.md"

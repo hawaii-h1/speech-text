@@ -110,6 +110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerSpellCheckedJoins()
         migrateHotkeyLayoutIfNeeded()
 
+        // Starts Sparkle's background schedule. Nothing happens in a build with no
+        // signing key, or in a development build — see UpdateChecker.
+        _ = UpdateChecker.shared
+
         // Set up hotkeys
         appState.hotkeyManager.onInlineToggle = { [weak self] in
             DispatchQueue.main.async {
@@ -246,12 +250,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         debugItem.target = self
         menu.addItem(debugItem)
 
+        // Only where an update could actually be found: a build with no signing key has
+        // no feed to check, and an item that always answers "no updates" is a lie.
+        if UpdateChecker.shared.isConfigured {
+            let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+            updateItem.target = self
+            menu.addItem(updateItem)
+        }
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit SpeechText", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    @objc private func checkForUpdates() {
+        UpdateChecker.shared.checkForUpdates()
     }
 
     @objc private func copyVersion() {
