@@ -6,6 +6,7 @@
 # version exists, and to prove the download is ours.
 #
 #   make-appcast.sh --dmg PATH --tag vX.Y.Z [--notes PATH] [--out DIR]
+#   make-appcast.sh --fetch-tools          only fetch Sparkle's tools and say where
 #
 # The signing key is an EdDSA key pair that has nothing to do with Apple's: the public
 # half is `SUPublicEDKey` in Info.plist, the private half signs every release. It comes
@@ -34,6 +35,7 @@ DMG=""
 TAG=""
 NOTES=""
 OUT=""
+FETCH_ONLY=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -41,6 +43,7 @@ while [ $# -gt 0 ]; do
         --tag)   TAG="$2"; shift ;;
         --notes) NOTES="$2"; shift ;;
         --out)   OUT="$2"; shift ;;
+        --fetch-tools) FETCH_ONLY=1 ;;
         -h|--help)
             awk '/^# Write the appcast/,0 { if (!/^#/) exit; sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
             exit 0 ;;
@@ -52,10 +55,12 @@ done
 die() { printf 'FAILED: %s\n' "$*" >&2; exit 1; }
 step() { printf '\n== %s\n' "$*"; }
 
-[ -f "$DMG" ] || die "--dmg needs the disk image this release ships"
-[ -n "$TAG" ] || die "--tag needs the release tag, e.g. --tag v1.1.0"
-OUT="${OUT:-$(cd "$(dirname "$DMG")" && pwd)}"
-mkdir -p "$OUT"
+if [ "$FETCH_ONLY" -eq 0 ]; then
+    [ -f "$DMG" ] || die "--dmg needs the disk image this release ships"
+    [ -n "$TAG" ] || die "--tag needs the release tag, e.g. --tag v1.1.0"
+    OUT="${OUT:-$(cd "$(dirname "$DMG")" && pwd)}"
+    mkdir -p "$OUT"
+fi
 
 # --- the signing tools ---------------------------------------------------------------
 #
@@ -76,6 +81,14 @@ if [ ! -x "$TOOLS/bin/generate_appcast" ]; then
         die "the Sparkle download has checksum $actual, not the pinned $SPARKLE_SHA256"
     tar -xf "$archive" -C "$TOOLS"
     rm -f "$archive"
+fi
+
+# `--fetch-tools` exists for one step in docs/releasing.md: generating the signing key
+# needs generate_keys, which lives in this same download, and there is no disk image yet
+# the first time anyone needs it.
+if [ "$FETCH_ONLY" -eq 1 ]; then
+    printf 'Sparkle %s tools are in %s/bin\n' "$SPARKLE_VERSION" "$TOOLS"
+    exit 0
 fi
 
 # --- the key --------------------------------------------------------------------------

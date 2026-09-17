@@ -31,14 +31,16 @@ final class UpdateChecker {
     /// Whether this build can check for updates at all. False in a source checkout that
     /// has no signing key yet: Sparkle's own answer to a missing key is a modal alert a
     /// second after launch, on every launch, which is worse than a menu item that isn't
-    /// there. See `docs/releasing.md` for generating the key.
+    /// there. See `docs/releasing.md` for generating the key. Also false in a
+    /// development build — see `isDevelopmentBuild`.
     var isConfigured: Bool { controller != nil }
 
     /// The feed the app follows, for the Debug Log and for the settings row's subtitle.
     var feedURL: String? { Self.infoValue("SUFeedURL") }
 
-    /// Sparkle checks once a day on its own. Off in a development build — see
-    /// `isDevelopmentBuild` — and the user can switch it off in Settings.
+    /// Sparkle checks once a day on its own; the user can switch that off in Settings.
+    /// Writing it goes into the app's own defaults domain, which is why a development
+    /// build never touches it — see `isDevelopmentBuild`.
     var checksAutomatically: Bool {
         get { controller?.updater.automaticallyChecksForUpdates ?? false }
         set { controller?.updater.automaticallyChecksForUpdates = newValue }
@@ -50,9 +52,15 @@ final class UpdateChecker {
 
     /// A build that was not made by `scripts/rebuild.sh` or the release workflow: no
     /// commit stamped into `Info.plist`, and the build number Xcode leaves behind is 1.
-    /// Such a build would see *every* release as newer than itself, and letting Sparkle
-    /// replace a bundle sitting in DerivedData is not a thing anyone wants to debug.
-    /// The menu item still works, so an update can be exercised deliberately.
+    /// Such a build sees *every* release as newer than itself, and letting Sparkle
+    /// replace a bundle sitting in DerivedData is not a thing anyone wants to debug — so
+    /// no updater is started at all.
+    ///
+    /// Not merely "schedule off": every Sparkle setting is stored in the *host bundle's*
+    /// defaults, and a ⌘R build and the installed copy share the bundle identifier. One
+    /// Xcode run that wrote `SUEnableAutomaticChecks = false` would switch updates off
+    /// for the app in `/Applications`, permanently and invisibly. Updates are exercised
+    /// from a `rebuild.sh` install, which carries a commit and a real build number.
     static var isDevelopmentBuild: Bool { AppVersion.commit == nil || AppVersion.build == "1" }
 
     private init() {
@@ -61,14 +69,16 @@ final class UpdateChecker {
             dlog("Update", "no SUFeedURL/SUPublicEDKey in Info.plist — updates are off in this build")
             return
         }
+        guard !Self.isDevelopmentBuild else {
+            controller = nil
+            dlog("Update", "development build — no updater started")
+            return
+        }
         // Sparkle's standard controller owns the updater, the update windows and the
         // background schedule; starting it here means the first check happens on its own.
         controller = SPUStandardUpdaterController(startingUpdater: true,
                                                   updaterDelegate: nil,
                                                   userDriverDelegate: nil)
-        if Self.isDevelopmentBuild {
-            controller?.updater.automaticallyChecksForUpdates = false
-        }
         dlog("Update", "updater started (feed \(feedURL ?? "?"), automatic \(checksAutomatically))")
     }
 

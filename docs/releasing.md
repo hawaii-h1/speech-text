@@ -68,7 +68,7 @@ signed with the same EdDSA key still installs.
 Generate it once, on the maintainer's Mac. The private half stays in that Mac's Keychain:
 
 ```bash
-scripts/make-appcast.sh --help           # fetches Sparkle's tools into build/tools/
+scripts/make-appcast.sh --fetch-tools    # downloads Sparkle's tools into build/tools/
 build/tools/sparkle-2.10.0/bin/generate_keys
 ```
 
@@ -82,6 +82,11 @@ It prints the **public** key. Put it in `SpeechText/SpeechText/Info.plist`:
 Until that key is there the app simply has no updater: no menu item, no settings row,
 nothing started at launch — and `scripts/package-release.sh` refuses to build a
 distributable image at all, because an app that cannot be updated is not one to hand out.
+
+A build from Xcode (⌘R) has no updater either, key or no key: it carries no commit and
+build number 1, so it is older than every release, and every Sparkle setting lives in the
+app's *own* defaults domain — which a ⌘R build shares with the copy in `/Applications`.
+Updates are exercised from a `scripts/rebuild.sh` install.
 
 The private half never goes in the repository. Export it for the CI secret and for a
 password manager, then delete the file:
