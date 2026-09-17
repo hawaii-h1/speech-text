@@ -100,9 +100,22 @@ final class TierReplayTests: XCTestCase {
         ])
 
         XCTAssertEqual(app.elsewhere, "")
-        XCTExpectFailure("The sentence said while away is dropped from the queue, the next one is pasted after the gap, and the stop's remainder finds nothing missing at the end") {
-            XCTAssertEqual(run.document, "Перше речення. Друге, поки я деінде. Третє вже тут.")
-        }
+        XCTAssertEqual(run.document, "Перше речення. Друге, поки я деінде. Третє вже тут.")
+    }
+
+    /// T5, never coming back before the stop: what was said while away goes in at the
+    /// stop, after what was pasted before.
+    func testT5_WordsSaidWhileAwayArriveAtTheStop() async {
+        let app = FakeApp(.terminal)
+        let run = await DictationReplay.run(in: app, [
+            .committed("Перше речення."),
+            .switchAway,
+            .committed("Друге, поки я деінде."),
+            .committed("І третє."),
+        ])
+
+        XCTAssertEqual(app.elsewhere, "")
+        XCTAssertEqual(run.document, "Перше речення. Друге, поки я деінде. І третє.")
     }
 
     /// T7: a cancel keeps what was pasted and pastes nothing more.

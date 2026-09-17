@@ -105,17 +105,20 @@ final class InlineDelivery {
     private func drain() {
         guard !isDeliveringSpan, !queue.isEmpty, let target else { return }
 
-        let spans = queue
-        queue = []
-
         // Only into the app the recording was started in, and only while it is still the
         // one in front: the user may have switched away mid-dictation, and text pasted
-        // into whatever they switched to is worse than text delivered late. Nothing is
-        // recorded in the ledger, so the stop delivers these words itself.
+        // into whatever they switched to is worse than text delivered late. The spans stay
+        // queued, in order, and go out with the next ones once the app is back in front —
+        // or, if it never is, the stop delivers them itself. Dropping them instead pasted
+        // the next sentence straight after the gap, and a stop that only looks at the end
+        // of what was delivered found nothing missing: the words were in History alone.
         guard target.acceptsDeliveryNow else {
             dlog("Span", "not delivering now — the target app is not in front; the stop will")
             return
         }
+
+        let spans = queue
+        queue = []
 
         let delivering = spans.filter { !$0.text.isEmpty }
         guard let first = delivering.first else { return }
