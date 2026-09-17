@@ -63,14 +63,19 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
 
     /// Whether committed spans are handed over while the user is still speaking.
     ///
-    /// AI mode buffers in every tier, not just Tier B: the LLM rewrites the whole
-    /// dictation, so text issued during the recording would have to be taken back at the
-    /// stop — which is the one thing no tier can do until phase C lands. It is also what
-    /// makes Tier C correct without knowing the destination at the start: an AI-mode
-    /// dictation is the only kind that can become a message, and it delivers nothing
-    /// early regardless.
-    func deliversDuringRecording(aiMode: Bool) -> Bool {
-        self != .c && !aiMode
+    /// AI mode buffers by default: the LLM rewrites the whole dictation, so text issued
+    /// during the recording has to be taken back at the stop. `aiDraft` (the user's
+    /// opt-in) lifts that in Tier A only, the one tier where the raw draft can be replaced
+    /// by the rewrite; in Tier B the draft would stay under the rewrite, two versions of
+    /// one dictation. Tier C never delivers early — and an AI dictation with message
+    /// sending on is always Tier C, so a draft is never pasted for text that may yet turn
+    /// out to be a message.
+    func deliversDuringRecording(aiMode: Bool, aiDraft: Bool = false) -> Bool {
+        switch self {
+        case .a: return !aiMode || aiDraft
+        case .b: return !aiMode
+        case .c: return false
+        }
     }
 
     /// Whether the sink is worth keeping an `InsertionLedger` for. Tier B cannot be

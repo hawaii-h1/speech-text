@@ -27,6 +27,7 @@ struct SettingsView: View {
 
     @AppStorage(SettingsKeys.aiFocusContextEnabled) private var aiFocusContextEnabled = true
     @AppStorage(SettingsKeys.messageSendingEnabled) private var messageSendingEnabled = false
+    @AppStorage(SettingsKeys.aiDraftWhileSpeaking) private var aiDraftWhileSpeaking = false
     @State private var contactsAuthorized = ContactResolver.isAuthorized
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
@@ -328,6 +329,11 @@ struct SettingsView: View {
 
             Toggle("Tell the AI which app you're typing in", isOn: $aiFocusContextEnabled)
             Text("The AI Recording shortcut sends the app's name, its window title and the text field's label along with the dictation, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
+
+            Toggle("Show the dictation while speaking, then swap in the AI version", isOn: $aiDraftWhileSpeaking)
+            Text(messageSendingEnabled
+                 ? "Has no effect while message sending is on: a dictation that may become a message is never pasted early."
+                 : "Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

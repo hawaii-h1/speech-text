@@ -101,6 +101,100 @@ struct PasteService {
         completion(PasteLanding(range: range, text: landed))
     }
 
+    // MARK: - The finalizing pass
+
+    /// The focused text element of `app` — kept at the start of a recording so the stop
+    /// can tell whether it is still writing into the same field.
+    static func focusedElement(of app: NSRunningApplication?) -> AXUIElement? {
+        focusedTextElement(of: app)
+    }
+
+    /// Whether `app` is still in front with `element` still focused — the tier decided at
+    /// the start still describes where a write would go. Anything else (the user switched
+    /// apps, clicked into another field, closed the document) and the pass does not run.
+    static func isStillFocused(_ element: AXUIElement, in app: NSRunningApplication) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier,
+              let now = focusedTextElement(of: app) else { return false }
+        return CFEqual(now, element)
+    }
+
+    /// Replaces everything `ledger` recorded in `app`'s focused field with `text`, in one
+    /// write, and records it. Every step checks before it changes anything; any refusal
+    /// returns false with the document untouched. Never simulates a backspace.
+    ///
+    /// 1. The focused element belongs to `app` and answers `kAXValueAttribute`.
+    /// 2. `FinalizePass.plan` finds all of the recorded text, untouched, as one range.
+    /// 3. That range is selected, and reading the selection back confirms it.
+    /// 4. The selection is written through `kAXSelectedTextAttribute`; an element that
+    ///    will not take that write gets a ⌘V over the confirmed selection instead, with
+    ///    the clipboard preserved as for every paste.
+    /// 5. The caret goes to the end of the new text.
+    static func replaceLastInsertions(ledger: inout InsertionLedger, with text: String,
+                                      in app: NSRunningApplication) -> Bool {
+        guard AXIsProcessTrusted(), let element = focusedTextElement(of: app) else {
+            dlog("Span", "correction refused: no focused element")
+            return false
+        }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success, pid == app.processIdentifier,
+              let document = stringValue(of: element) else {
+            dlog("Span", "correction refused: the focused element is not \(app.localizedName ?? "the target")'s, or has no value")
+            return false
+        }
+
+        guard let plan = FinalizePass.plan(ledger: ledger, document: document, replacement: text) else {
+            dlog("Span", "correction refused: the delivered text is not all there, untouched, in one place")
+            return false
+        }
+
+        guard setSelectedRange(plan.range, of: element), selectedRange(of: element) == plan.range else {
+            dlog("Span", "correction refused: selecting \(plan.range.location)+\(plan.range.length) did not read back")
+            return false
+        }
+
+        var settable = DarwinBoolean(false)
+        let canWrite = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success
+            && settable.boolValue
+        let wroteThroughAX = canWrite
+            && AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, plan.text as CFString) == .success
+        if wroteThroughAX {
+            dlog("Span", "correction: replaced \(plan.range.location)+\(plan.range.length) through AX")
+        } else {
+            // The selection is confirmed, so ⌘V replaces exactly it.
+            dlog("Span", "correction: selected-text write refused — pasting over the confirmed selection")
+            pasteAtCursor(plan.text)
+        }
+
+        let length = (plan.text as NSString).length
+        // Only after an AX write. The ⌘V is handled by the app after this returns, so a
+        // caret move here would land first, collapse the confirmed selection, and the
+        // paste would put the corrected text *after* the old text instead of over it.
+        // The paste leaves the caret at the end of what it inserted on its own.
+        if wroteThroughAX {
+            _ = setSelectedRange(NSRange(location: plan.range.location + length, length: 0), of: element)
+        }
+
+        // What the app now holds there, when it can be read already. The ⌘V fallback has
+        // not landed yet when this runs, so its record is optimistic: the text as sent,
+        // at the confirmed selection.
+        var landed = plan.text
+        if wroteThroughAX, let value = stringValue(of: element) as NSString?,
+           plan.range.location + length <= value.length {
+            let read = value.substring(with: NSRange(location: plan.range.location, length: length))
+            if read != plan.text { dlog("Span", "correction: the app holds \"\(read.prefix(40))\", not what was written") }
+            landed = read
+        }
+        ledger.collapse(into: plan, landed: landed)
+        dlog("Span", "correction applied: \"\(plan.text.prefix(60))\"")
+        return true
+    }
+
+    private static func setSelectedRange(_ range: NSRange, of element: AXUIElement) -> Bool {
+        var value = CFRange(location: range.location, length: range.length)
+        guard let axValue = AXValueCreate(.cfRange, &value) else { return false }
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
+    }
+
     // MARK: - Tier probe
 
     /// What the Accessibility API will let us do to this app's focused text element.

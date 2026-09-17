@@ -13,6 +13,58 @@ func joinedTranscript(_ head: String, _ tail: String) -> String {
     return head + " " + tail
 }
 
+// MARK: - Joining segments
+
+/// The dictionary a segment boundary is checked against. Pure logic cannot reach
+/// `NSSpellChecker`, so the app registers it at launch; unregistered (the test target's
+/// state, or a Mac with no dictionary for the language) nothing is a word and every
+/// boundary keeps its space — exactly the behaviour before this existed.
+enum TranscriptJoin {
+    static var isWord: (String) -> Bool = { _ in false }
+
+    /// One-letter words, which a spell checker accepts for *every* letter — so "х" would
+    /// otherwise pass as a word and a cut "дани|х" would never be glued back. Ukrainian,
+    /// the Russian ones a model slips into mid-dictation, and English. "я" was missing on
+    /// the first run over History, which would have glued "Чи | я" into "Чия".
+    static let oneLetterWords: Set<String> = [
+        "а", "б", "в", "ж", "з", "і", "й", "о", "у", "я",
+        "и", "к", "с",
+        "a", "i", "o",
+    ]
+}
+
+/// What goes between two committed segments: a space, or nothing when the provider cut
+/// a word in two.
+///
+/// Scribe's realtime VAD closes a segment on a moment's silence, and a speaker who
+/// stumbles inside a word ("дани… х") gets it split — 17.09, "база дани" | "х, звідки".
+/// Every boundary used to get a space, so the document and History read "дани х". A
+/// boundary is glued only when all of it points that way: the first segment ends in a
+/// letter (no punctuation closed it), the next opens with a lowercase letter, the two
+/// halves together make a word, and the second half alone does not.
+func segmentSeparator(_ previous: String, _ next: String,
+                      isWord: (String) -> Bool = TranscriptJoin.isWord) -> String {
+    guard let last = previous.last, last.isLetter,
+          let first = next.first, first.isLetter, first.isLowercase else { return " " }
+
+    let fragment = String(next.prefix { $0.isLetter || $0 == "'" || $0 == "’" })
+    let stem = String(previous.reversed().prefix { $0.isLetter || $0 == "'" || $0 == "’" }.reversed())
+    guard !fragment.isEmpty, !stem.isEmpty else { return " " }
+
+    let fragmentIsWord = fragment.count == 1
+        ? TranscriptJoin.oneLetterWords.contains(fragment.lowercased())
+        : isWord(fragment)
+    guard !fragmentIsWord, isWord(stem + fragment) else { return " " }
+    return ""
+}
+
+/// `head` and the next segment `tail`, joined by `segmentSeparator`.
+func joinedSegments(_ head: String, _ tail: String) -> String {
+    if head.isEmpty { return tail }
+    if tail.isEmpty { return head }
+    return head + segmentSeparator(head, tail) + tail
+}
+
 // MARK: - Merging a realtime transcript onto what is already committed
 
 /// Scribe's realtime stream does not always start a clean slate after a commit: the
@@ -92,7 +144,7 @@ func mergedTranscript(_ head: String, _ tail: String) -> String {
     let tailWords = transcriptWords(tail)
     let overlap = transcriptOverlap(head: headWords, tail: tailWords)
     if overlap.restatesHead { return tail }
-    return joinedTranscript(head, dropping(overlap.words, from: tail, words: tailWords))
+    return joinedSegments(head, dropping(overlap.words, from: tail, words: tailWords))
 }
 
 /// The part of `text` that is not already in `committed` — what a partial adds to the

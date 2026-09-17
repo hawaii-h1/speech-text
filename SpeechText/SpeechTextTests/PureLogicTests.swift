@@ -696,11 +696,18 @@ final class DeliveryTierTests: XCTestCase {
         XCTAssertTrue(DeliveryTier.b.deliversDuringRecording(aiMode: false))
     }
 
-    /// AI mode rewrites the whole dictation at the stop, so anything issued early would
-    /// have to be taken back — which no tier can do yet.
-    func testAIModeBuffersInEveryTier() {
+    /// AI mode rewrites the whole dictation at the stop, so by default nothing is issued
+    /// early in any tier.
+    func testAIModeBuffersInEveryTierByDefault() {
         XCTAssertFalse(DeliveryTier.a.deliversDuringRecording(aiMode: true))
         XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true))
+    }
+
+    /// The opt-in draft goes only where the rewrite can replace it.
+    func testAnAIDraftIsDeliveredOnlyInTierA() {
+        XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: true, aiDraft: true))
+        XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true, aiDraft: true))
+        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true, aiDraft: true))
     }
 
     func testOnlyTierAIsWorthAnInsertionLedger() {
@@ -784,6 +791,182 @@ final class UndeliveredRemainderTests: XCTestCase {
         var ledger = InsertionLedger()
         ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Один два три")
         XCTAssertEqual(ledger.remainder(of: "Один два три чотири п'ять"), "чотири п'ять")
+    }
+
+    /// 17.09, a Wi-Fi cut: the batch fallback re-worded the delivered text from its first
+    /// word, so the restatement test (which needs that word unchanged) saw no overlap and
+    /// the sentence said after the cut was never pasted. The re-wording keeps 27 of its
+    /// 29 words in order, so the tail is found.
+    func testARevisedFirstWordDoesNotLoseTheTail() {
+        let ledger = self.ledger(delivered: [
+            "Почну перевірку нового тесту з назвою «Demo, one replacement». Зараз я ще говорю і продовжую говорити. Хочу зробити невелику паузу, щоб з'явився перший шматок тексту.",
+            "Тепер мережу вимкнено.",
+        ])
+        let final = "Почну перевірку нового тесту з назвою TextEdit Demo Replacement. Зараз я ще говорю і продовжую говорити. Хочу зробити невелику паузу, щоб з'явився перший шматок тексту. Тепер мережу вимкнено. Мережа знову є, фокус у TextEdit, зупиняюсь."
+        XCTAssertEqual(ledger.remainder(of: final), "Мережа знову є, фокус у TextEdit, зупиняюсь.")
+    }
+
+    /// A revised last word is not pasted again as if it were new.
+    func testARevisedLastWordIsNotOwedAgain() {
+        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту з назвою текст і пишу сьогодні"])
+        XCTAssertEqual(ledger.remainder(of: "Почну перевірку нового тесту з назвою текст і пишу зараз. І ще одне речення."),
+                       "І ще одне речення.")
+    }
+
+    /// In a short text two revised words out of five are too many to call it the same
+    /// dictation — refused, as before.
+    func testTwoRevisedWordsInAShortTextAreStillRefused() {
+        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту сьогодні"])
+        XCTAssertNil(ledger.remainder(of: "Почну перевірку нового тесту зараз. І ще одне речення."))
+    }
+
+    /// Nothing new said: a re-wording of everything owes nothing — not the whole text again.
+    func testAReWordingWithNothingNewOwesNothing() {
+        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту з назвою"])
+        XCTAssertEqual(ledger.remainder(of: "Почну перевірку нового тесту з назвою"), "")
+    }
+
+    /// Too few words in common is a different text, and a different text is still not
+    /// pasted under the one already there.
+    func testAFinalTextSharingOnlyAFewWordsIsStillRefused() {
+        let ledger = self.ledger(delivered: ["Я думаю що завтра буде дуже гарна погода"])
+        XCTAssertNil(ledger.remainder(of: "Ти знаєш, завтра буде дощ і вітер, а не погода"))
+    }
+
+    /// The tail pasted at the stop opens with a space, like every delivery before it —
+    /// found in cmux, where it landed as "Поїха.Ііі як воно…".
+    func testTheTailIsPastedWithTheSpaceThatSeparatesIt() {
+        let ledger = self.ledger(delivered: ["Ще одна перевірка вставлення в термі.", "Поїха."])
+        let final = "Ще одна перевірка вставлення в термі. Поїха. Ііі як воно тут працює в терміналі?"
+        let rest = ledger.remainder(of: final)
+        XCTAssertEqual(rest, "Ііі як воно тут працює в терміналі?")
+        XCTAssertEqual(ledger.separated(rest ?? ""), " Ііі як воно тут працює в терміналі?")
+    }
+
+    /// Nothing delivered: the whole text goes in as it is, with nothing glued on front.
+    func testTheWholeTextIsNotGivenALeadingSpace() {
+        XCTAssertEqual(InsertionLedger().separated("Привіт"), "Привіт")
+    }
+
+    /// Nothing owed: no stray space is pasted either.
+    func testAnEmptyTailStaysEmpty() {
+        XCTAssertEqual(self.ledger(delivered: ["Привіт"]).separated(""), "")
+    }
+}
+
+// MARK: - Finalizing pass (FinalizePass.swift)
+
+/// The stop's single write. The plan must find the delivered text as one range and
+/// refuse — leaving the document exactly as it is — whenever it cannot be sure the whole
+/// range is still ours.
+final class FinalizePassTests: XCTestCase {
+
+    private func span(_ id: UInt64) -> TranscriptSpanID { TranscriptSpanID(rawValue: id) }
+
+    /// "Олек" / "сандр прийде" — a cut through the middle of a name, pasted as it committed.
+    private func badlyCut() -> InsertionLedger {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 6, length: 4), text: "Олек")
+        ledger.insert(span: span(2), range: NSRange(location: 11, length: 12), text: "сандр прийде")
+        return ledger
+    }
+    private let cutDocument = "Нотат Олек сандр прийде\nкінець"
+
+    func testABadCutIsReplacedAsOneRangeCoveringEveryRecord() {
+        let plan = FinalizePass.plan(ledger: badlyCut(), document: cutDocument,
+                                     replacement: "Олександр прийде.")
+        XCTAssertEqual(plan, TextReplacement(range: NSRange(location: 6, length: 17), text: "Олександр прийде."))
+    }
+
+    func testTheUserTypingBetweenTwoRecordsRefusesThePass() {
+        let edited = "Нотат Олек, мабуть, сандр прийде"
+        XCTAssertNil(FinalizePass.plan(ledger: badlyCut(), document: edited, replacement: "Олександр прийде."))
+    }
+
+    func testARecordTheUserEditedOverRefusesThePassRatherThanSkippingIt() {
+        let edited = "Нотат Олек Петро прийде"
+        XCTAssertNil(FinalizePass.plan(ledger: badlyCut(), document: edited, replacement: "Олександр прийде."))
+    }
+
+    func testTextThatMovedIsStillFoundAndReplaced() {
+        let moved = "Нове. Нотат Олек сандр прийде"
+        let plan = FinalizePass.plan(ledger: badlyCut(), document: moved, replacement: "Олександр прийде.")
+        XCTAssertEqual(plan?.range, NSRange(location: 12, length: 17))
+    }
+
+    /// A paste whose landing could not be read is found by its text, when it is there
+    /// exactly once — 17.09, a click on the menu bar mid-paste left one piece untracked,
+    /// and that alone refused the whole correction.
+    func testAnUntrackedPieceIsFoundByItsText() {
+        var ledger = badlyCut()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "завтра.")
+        let document = "Нотат Олек сандр прийде завтра.\nкінець"
+        XCTAssertEqual(FinalizePass.plan(ledger: ledger, document: document, replacement: "Олександр прийде завтра."),
+                       TextReplacement(range: NSRange(location: 6, length: 25), text: "Олександр прийде завтра."))
+    }
+
+    /// …and refused when the text appears twice: which one is ours is a guess.
+    func testAnUntrackedPieceThatAppearsTwiceRefusesThePass() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Так.")
+        XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Так. Ні. Так.", replacement: "Так, так."))
+    }
+
+    /// An untracked piece no longer decides against a correction by itself; the plan does.
+    func testAnUntrackedPieceStillAllowsACorrectionInTierA() {
+        var ledger = badlyCut()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "завтра.")
+        XCTAssertEqual(FinalizePass.decide(ledger: ledger, authoritative: "Олександр прийде завтра.",
+                                           tier: .a, hasFrozenSpans: false), .replace)
+    }
+
+    func testNothingToWriteWhenTheDocumentAlreadyHoldsTheFinalText() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: span(1), range: NSRange(location: 0, length: 9), text: "Олександр")
+        XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Олександр", replacement: "Олександр"))
+    }
+
+    // MARK: Decision
+
+    func testNothingDeliveredMeansTheOrdinaryPaste() {
+        XCTAssertEqual(FinalizePass.decide(ledger: InsertionLedger(), authoritative: "Привіт",
+                                           tier: .a, hasFrozenSpans: false), .nothingDelivered)
+    }
+
+    func testAFinalTextThatOnlyAddsWordsIsAnExtensionNotACorrection() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олек сандр прийде завтра",
+                                           tier: .a, hasFrozenSpans: false), .extend)
+    }
+
+    func testARevisedWordIsACorrectionInTierA() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
+                                           tier: .a, hasFrozenSpans: false), .replace)
+    }
+
+    /// Terminal: the delivered text stays exactly as it is.
+    func testTierBNeverCorrects() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
+                                           tier: .b, hasFrozenSpans: false), .leave)
+    }
+
+    func testFrozenTextIsNeverCorrected() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
+                                           tier: .a, hasFrozenSpans: true), .leave)
+    }
+
+    func testAnEmptyResultLeavesTheDeliveredTextStanding() {
+        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "  ",
+                                           tier: .a, hasFrozenSpans: false), .leave)
+    }
+
+    /// After the write the stop must have nothing left to paste — the anti-duplication
+    /// guard sees the replacement as delivered.
+    func testACollapsedLedgerLeavesNoRemainder() {
+        var ledger = badlyCut()
+        let replacement = TextReplacement(range: NSRange(location: 6, length: 17), text: "Олександр прийде.")
+        ledger.collapse(into: replacement, landed: "Олександр прийде.")
+        XCTAssertEqual(ledger.remainder(of: "Олександр прийде."), "")
+        XCTAssertEqual(ledger.records.count, 1)
     }
 }
 
@@ -871,5 +1054,120 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, ні")
         configuration.removesDisfluencies = false
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
+    }
+}
+
+// MARK: - Segment joins (TranscriptMerge.swift, TranscriptSpan.swift, InsertionLedger.swift)
+
+/// 17.09: Scribe closed a segment inside a word — "…база дани" | "х, звідки…".
+/// Every boundary used to get a space, so History read "дани х" and the live paste would
+/// too. A boundary is glued only when a dictionary says the halves are one word.
+final class SegmentJoinTests: XCTestCase {
+
+    /// A stand-in for the spell checker: only these are words.
+    private let dictionary: Set<String> = ["даних", "база", "звідки", "привіт", "віт", "дані", "поки"]
+    private func isWord(_ word: String) -> Bool { dictionary.contains(word.lowercased()) }
+
+    override func tearDown() {
+        TranscriptJoin.isWord = { _ in false }
+        super.tearDown()
+    }
+
+    func testAWordCutInTwoIsGluedBack() {
+        XCTAssertEqual(segmentSeparator("Ось нова база дани", "х, звідки ми", isWord: isWord), "")
+    }
+
+    /// Punctuation closed the first segment: that was a pause between words.
+    func testAPunctuatedBoundaryKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("попадає в...", "main сесію", isWord: isWord), " ")
+        XCTAssertEqual(segmentSeparator("база дани.", "х", isWord: isWord), " ")
+    }
+
+    /// A capital opens a new sentence, not the rest of a word.
+    func testACapitalisedSegmentKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("база дани", "Х звідки", isWord: isWord), " ")
+    }
+
+    /// Both halves standing as words means two words were said.
+    func testASecondHalfThatIsAWordKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("скажу при", "віт усім", isWord: isWord), " ")
+    }
+
+    /// A spell checker accepts every single letter, so real one-letter words are listed —
+    /// "і" is a word, "х" is not.
+    func testOneLetterFragmentsAreJudgedByTheListNotTheChecker() {
+        let acceptsAnything: (String) -> Bool = { _ in true }
+        XCTAssertEqual(segmentSeparator("дані", "і ще щось", isWord: acceptsAnything), " ")
+        // Found running the rule over History: "Чи | я" must not become "Чия".
+        XCTAssertEqual(segmentSeparator("Чи", "я щось не розумію", isWord: acceptsAnything), " ")
+        XCTAssertEqual(segmentSeparator("база дани", "х, звідки", isWord: acceptsAnything), "")
+    }
+
+    /// Nothing registered — the test target, or no dictionary for the language: the old
+    /// behaviour, a space everywhere.
+    func testWithNoDictionaryEveryBoundaryKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("база дани", "х, звідки"), " ")
+    }
+
+    /// The streaming merge uses it, so the cumulative committed text — and History — read
+    /// the word whole.
+    func testTheStreamingMergeGluesACutWord() {
+        TranscriptJoin.isWord = isWord
+        XCTAssertEqual(mergedTranscript("Ось нова база дани", "х, звідки ми"),
+                       "Ось нова база даних, звідки ми")
+    }
+
+    /// The span layer reads the glue off the cumulative text: the second span continues
+    /// the first, and the layer's text keeps the word whole.
+    func testTheSpanLayerMarksASpanThatContinuesAWord() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Ось нова база дани", partial: "")
+        layer.ingest(committed: "Ось нова база даних, звідки ми", partial: "")
+        XCTAssertEqual(layer.visibleSpans.map(\.text), ["Ось нова база дани", "х, звідки ми"])
+        XCTAssertEqual(layer.visibleSpans.map(\.joinsPrevious), [false, true])
+        XCTAssertEqual(layer.text, "Ось нова база даних, звідки ми")
+    }
+
+    /// An ordinary boundary is not mistaken for a glued one.
+    func testTheSpanLayerKeepsAnOrdinaryBoundarySpaced() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Привіт.", partial: "")
+        layer.ingest(committed: "Привіт. Як справи?", partial: "")
+        XCTAssertEqual(layer.visibleSpans.map(\.joinsPrevious), [false, false])
+        XCTAssertEqual(layer.text, "Привіт. Як справи?")
+    }
+
+    /// The stop's tail after a cut word goes on with no space — what the old build did by
+    /// accident, now on purpose.
+    func testTheStopTailFinishesACutWordWithoutASpace() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 20), text: "Ось нова база дани")
+        XCTAssertEqual(ledger.pasteableRemainder(of: "Ось нова база даних, звідки ми все читаємо."),
+                       "х, звідки ми все читаємо.")
+    }
+
+    /// …and after an ordinary boundary, with one.
+    func testTheStopTailAfterAWholeWordOpensWithASpace() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 6), text: "Поїха.")
+        XCTAssertEqual(ledger.pasteableRemainder(of: "Поїха. Ііі як воно тут працює?"), " Ііі як воно тут працює?")
+        XCTAssertEqual(ledger.pasteableRemainder(of: "Поїха."), "")
+    }
+
+    /// A glued record joins what the ledger reports as delivered, so the stop's
+    /// subtraction lines up with the document.
+    func testDeliveredTextHonoursAGluedRecord() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 9), text: "база дани")
+        ledger.insert(span: TranscriptSpanID(rawValue: 2), range: NSRange(location: 9, length: 12), text: "х, звідки", joinsPrevious: true)
+        XCTAssertEqual(ledger.deliveredText, "база даних, звідки")
+    }
+
+    /// Completing a cut word is an extension, not a revision to correct.
+    func testCompletingACutWordIsAnExtension() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 20), text: "Ось нова база дани")
+        XCTAssertEqual(FinalizePass.decide(ledger: ledger, authoritative: "Ось нова база даних, звідки",
+                                           tier: .a, hasFrozenSpans: false), .extend)
     }
 }

@@ -64,9 +64,27 @@ final class SpeechEngine {
     /// leaves it nil and reads the span layer directly.
     var onSpansCommitted: (([TranscriptSpan]) -> Void)?
     /// What has already gone out, by span, as the text it went out as. A span is offered
-    /// exactly once: phase A has no way to take back text that is already in another
-    /// app's document.
+    /// exactly once: text already in another app's document is corrected at most once,
+    /// by the finalizing pass at the stop, never re-issued while the user speaks.
     private var issuedSpans: [TranscriptSpanID: String] = [:]
+    /// The finalizing pass (D12): the sink's one chance to bring what it already holds in
+    /// line with the authoritative text. Called synchronously once a stop's text has
+    /// landed in the span layer and *before* `.idle`, because `.idle` is what wakes
+    /// `awaitTranscription()` — the stop's paste must see a ledger the pass has already
+    /// updated, or it pastes over a correction it does not know happened. Never called
+    /// on a cancel, which does not pass through `.finishing`.
+    var onFinalize: ((FinalizeInput) -> Void)?
+
+    struct FinalizeInput {
+        /// The whole recording's text, every segment — not `finalText`, which a device
+        /// restart leaves holding only the last segment. Correcting the delivered text to
+        /// that would delete everything said before the restart.
+        let text: String
+        /// The user edited some of this recording's text by hand.
+        let hasFrozenSpans: Bool
+        /// The History entry the stop wrote, for `correctionApplied`.
+        let recordID: UUID?
+    }
 
     /// The current segment's text, settled and moving joined — what it has always been.
     /// Computed from the span layer now, so there is one source of truth; `@Observable`
@@ -446,6 +464,7 @@ final class SpeechEngine {
                 self.finalText = outcome.text
                 self.spanLayer.commitSegment(outcome.text)
                 self.spanLayer.settleSegment()
+                self.runFinalizePass()
                 self.phase = .idle
                 self.cleanup()
             }
@@ -474,6 +493,7 @@ final class SpeechEngine {
                         if self.finalText.isEmpty {
                             self.finalText = self.liveText
                         }
+                        self.runFinalizePass()
                         self.phase = .idle
                         self.cleanup()
                     }
@@ -485,12 +505,20 @@ final class SpeechEngine {
             if finalText.isEmpty {
                 finalText = liveText
             }
+            runFinalizePass()
             phase = .idle
             cleanup()
         }
     }
 
     // MARK: - Insertion
+
+    private func runFinalizePass() {
+        guard let onFinalize else { return }
+        onFinalize(FinalizeInput(text: spanLayer.text,
+                                 hasFrozenSpans: spanLayer.spans.contains { $0.state == .frozen },
+                                 recordID: lastRecordID))
+    }
 
     /// Offers the stable spans a sink has not seen yet, in order.
     ///

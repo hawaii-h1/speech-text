@@ -138,8 +138,9 @@ final class TextInsertionHandler {
 
     /// Replaces one span's text in place, but only where it is provably still the text
     /// this handler put there. Anything else — the user edited over it, it appears twice,
-    /// it is gone — and the document is left exactly as it is. The hook phase C's
-    /// finalizing pass replaces spans through.
+    /// it is gone — and the document is left exactly as it is. Still uncalled: the
+    /// Record Window inserts a segment only once its text is final, so its finalizing
+    /// pass has nothing to correct. It is here for the day it inserts earlier.
     @discardableResult
     func replaceSpan(_ span: TranscriptSpanID, with text: String) -> Bool {
         guard let textView else { return false }
