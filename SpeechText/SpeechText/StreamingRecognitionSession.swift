@@ -16,7 +16,9 @@ final class StreamingRecognitionSession: RecognitionSession {
     private let writer: AudioBufferWriter
     /// nil leaves the language to the model — see `RecordingConfiguration.cloudLanguage`.
     private let language: String?
-    private let fallback: BatchRecognitionSession
+    /// A `BatchRecognitionSession` over the same writer in the app. Typed by the protocol
+    /// so a replay can stand in the upload's answer without a network or an audio file.
+    private let fallback: RecognitionSession
 
     // Main-thread state.
     private var committedText = ""
@@ -30,7 +32,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     private var sendEnabled = true
 
     init(provider: StreamingSTTProvider, writer: AudioBufferWriter, language: String?,
-         fallback: BatchRecognitionSession) {
+         fallback: RecognitionSession) {
         self.provider = provider
         self.writer = writer
         self.language = language
@@ -54,6 +56,11 @@ final class StreamingRecognitionSession: RecognitionSession {
     }
 
     private func handle(_ event: StreamingSTTEvent) {
+        switch event {
+        case .partial(let text): DictationTraceRecorder.record(.partial, text: text)
+        case .committed(let text): DictationTraceRecorder.record(.committed, text: text)
+        case .failed(let error): DictationTraceRecorder.record(.streamFailed, error: error.localizedDescription)
+        }
         switch event {
         case .partial(let text):
             // The stream re-states what it has already committed — sometimes verbatim,
@@ -125,7 +132,11 @@ final class StreamingRecognitionSession: RecognitionSession {
         dlog("Engine", "StreamingRecognitionSession.finish: stream \(failure ?? "returned nothing") — falling back to batch upload")
         // The partial text on screen described a stream that is being discarded.
         await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
-        return await fallback.finish()
+        let outcome = await fallback.finish()
+        await MainActor.run {
+            DictationTraceRecorder.record(.fallback, text: outcome.text, error: outcome.error)
+        }
+        return outcome
     }
 
     func cancel() {

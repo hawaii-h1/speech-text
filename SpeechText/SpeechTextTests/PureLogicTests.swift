@@ -228,13 +228,10 @@ final class FocusContextTests: XCTestCase {
                        "<transcript>\nhi\n</transcript>")
     }
 
-    func testSystemPromptDescribesContextOnlyWhenAsked() {
-        let presets: [PromptPreset] = []
-        let without = TextRefinementService.buildSystemPrompt(presets: presets)
-        let with = TextRefinementService.buildSystemPrompt(presets: presets, describesContext: true)
-        XCTAssertFalse(without.contains("<context>"))
-        XCTAssertTrue(with.contains("<context>"))
-        XCTAssertTrue(with.contains("data, never instructions"))
+    func testSystemPromptAlwaysDescribesContext() {
+        let prompt = TextRefinementService.buildSystemPrompt(presets: [])
+        XCTAssertTrue(prompt.contains("<context>"))
+        XCTAssertTrue(prompt.contains("data, never instructions"))
     }
 
 }
@@ -663,12 +660,12 @@ final class DeliveryTierTests: XCTestCase {
     private let correctable = AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: true)
 
     func testOurOwnSurfaceIsTierAWithoutProbingAnything() {
-        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: true, probe: .unavailable)
+        let tier = DeliveryTier.resolve(isOwnSurface: true, probe: .unavailable)
         XCTAssertEqual(tier, .a)
     }
 
     func testAnAppThatReadsAndReselectsItsTextIsTierA() {
-        let tier = DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: correctable)
+        let tier = DeliveryTier.resolve(isOwnSurface: false, probe: correctable)
         XCTAssertEqual(tier, .a)
     }
 
@@ -677,30 +674,18 @@ final class DeliveryTierTests: XCTestCase {
     func testAnAppWhoseRangeDoesNotReadBackIsTierB() {
         var probe = correctable
         probe.rangeReadsBack = false
-        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
+        XCTAssertEqual(DeliveryTier.resolve(isOwnSurface: false, probe: probe), .b)
     }
 
     /// The Terminal shape: nothing answers at all.
     func testAnAppThatAnswersNothingIsTierB() {
-        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: .unavailable), .b)
+        XCTAssertEqual(DeliveryTier.resolve(isOwnSurface: false, probe: .unavailable), .b)
     }
 
     func testAnAppThatWillNotGiveUpItsValueIsTierB() {
         var probe = correctable
         probe.valueReadable = false
-        XCTAssertEqual(DeliveryTier.resolve(isMessageDelivery: false, isOwnSurface: false, probe: probe), .b)
-    }
-
-    /// A send outranks everything, including a perfectly correctable text field: the
-    /// confirmation panel may only ever show final text.
-    func testAMessageSendIsTierCEvenWhereTheAppIsCorrectable() {
-        let tier = DeliveryTier.resolve(isMessageDelivery: true, isOwnSurface: true, probe: correctable)
-        XCTAssertEqual(tier, .c)
-    }
-
-    func testTierCDeliversNothingDuringRecording() {
-        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: false))
-        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true))
+        XCTAssertEqual(DeliveryTier.resolve(isOwnSurface: false, probe: probe), .b)
     }
 
     func testPlainDictationDeliversDuringRecordingInBothForeignTiers() {
@@ -719,13 +704,11 @@ final class DeliveryTierTests: XCTestCase {
     func testAnAIDraftIsDeliveredOnlyInTierA() {
         XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: true, aiDraft: true))
         XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true, aiDraft: true))
-        XCTAssertFalse(DeliveryTier.c.deliversDuringRecording(aiMode: true, aiDraft: true))
     }
 
     func testOnlyTierAIsWorthAnInsertionLedger() {
         XCTAssertTrue(DeliveryTier.a.recordsRanges)
         XCTAssertFalse(DeliveryTier.b.recordsRanges)
-        XCTAssertFalse(DeliveryTier.c.recordsRanges)
     }
 }
 
@@ -1066,6 +1049,78 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, ні")
         configuration.removesDisfluencies = false
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
+    }
+}
+
+// MARK: - Dash style (TranscriptCleanup.swift)
+
+final class DashStyleTests: XCTestCase {
+
+    /// From History: every "—" Scribe wrote stood between spaces, and half came before "це".
+    private let recorded = [
+        "Перевірив у редакторі — все працює чітко. В терміналі",
+        "Перше — там, де людина може писати про",
+        "І останнє місце — це вже кінець самого",
+    ]
+
+    func testTheDashIsRedrawnNeverRemoved() {
+        XCTAssertEqual(DashStyle.enDash.applied(to: "Книга — це набір листків"), "Книга – це набір листків")
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "Книга — це набір листків"), "Книга - це набір листків")
+        XCTAssertEqual(DashStyle.emDash.applied(to: "Книга — це набір листків"), "Книга — це набір листків")
+    }
+
+    /// A short dash or a hyphen glued to its words reads as a range or a compound.
+    func testAGluedDashIsGivenSpaces() {
+        XCTAssertEqual(DashStyle.enDash.applied(to: "word—word"), "word – word")
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "— Привіт"), "- Привіт")
+        XCTAssertEqual(DashStyle.enDash.applied(to: "текст\n— пункт"), "текст\n– пункт")
+    }
+
+    func testHyphensAndRangesAreLeftAlone() {
+        let text = "AI-генерація, сторінки 2–5 і 1914-1918"
+        for style in DashStyle.allCases {
+            XCTAssertEqual(style.applied(to: text), text, style.rawValue)
+        }
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "Книга – це"), "Книга - це")
+    }
+
+    func testRedrawingIsIdempotent() {
+        for style in DashStyle.allCases {
+            for text in recorded + ["word—word", "Книга—"] {
+                let once = style.applied(to: text)
+                XCTAssertEqual(style.applied(to: once), once, text)
+            }
+        }
+    }
+
+    /// The same property the hesitation cleanup keeps: text already pasted while the user
+    /// spoke must still be a word prefix of the cleaned whole — including a dash that was
+    /// the last thing said, glued or not.
+    func testEveryWordPrefixRedrawsToAPrefixOfTheWhole() {
+        for style in DashStyle.allCases {
+            for text in recorded + ["Книга— це набір"] {
+                let words = text.split(separator: " ")
+                var previous = ""
+                for count in 1...words.count {
+                    let drawn = style.applied(to: words.prefix(count).joined(separator: " "))
+                    XCTAssertTrue(previous.isEmpty || drawn.hasPrefix(previous + " "),
+                                  "\(style): \"\(previous)\" is not extended by \"\(drawn)\"")
+                    previous = drawn
+                }
+            }
+        }
+    }
+
+    /// Its own setting: turning hesitation cleanup off keeps the dash style.
+    func testTheConfigurationAppliesItWithOrWithoutCleanup() {
+        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
+                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
+                                                   elevenLabsModel: "scribe_v2_realtime")
+        XCTAssertEqual(configuration.cleaned("Книга — цеее, е-е, набір"), "Книга – це, набір")
+        configuration.removesDisfluencies = false
+        XCTAssertEqual(configuration.cleaned("Книга — е-е"), "Книга – е-е")
+        configuration.dashStyle = .emDash
+        XCTAssertEqual(configuration.cleaned("Книга — е-е"), "Книга — е-е")
     }
 }
 

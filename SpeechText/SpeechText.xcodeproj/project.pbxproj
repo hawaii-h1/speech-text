@@ -7,6 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D10000010000000000000005 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
+		D30000010000000000000008 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
+		D10000010000000000000001 /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
+		D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000002 /* RecognitionSessionFactory.swift */; };
+		D30000010000000000000001 /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
+		D30000010000000000000003 /* RecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000025 /* RecognitionSession.swift */; };
+		D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
+		D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
+		D30000010000000000000006 /* DictationReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000003 /* DictationReplay.swift */; };
+		D30000010000000000000007 /* DictationReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000004 /* DictationReplayTests.swift */; };
 		C30000010000000000000100 /* LocalModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000100 /* LocalModelsTests.swift */; };
 		C10000010000000000000001 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
 		C30000010000000000000001 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
@@ -17,13 +27,13 @@
 		C10000010000000000000004 /* LocalModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000004 /* LocalModelStore.swift */; };
 		C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000005 /* LocalWhisperRuntime.swift */; };
 		C10000010000000000000006 /* LocalModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000006 /* LocalModelsView.swift */; };
+		C10000010000000000000007 /* DockIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000007 /* DockIcon.swift */; };
 		C40000010000000000000001 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = C60000010000000000000001 /* WhisperKit */; };
 		A10000010000000000000001 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001 /* App.swift */; };
 		A10000010000000000000002 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000002 /* MenuBarView.swift */; };
 		A10000010000000000000003 /* RecordingOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000003 /* RecordingOverlay.swift */; };
 		A10000010000000000000005 /* SpeechEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000005 /* SpeechEngine.swift */; };
 		A10000010000000000000006 /* PasteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000006 /* PasteService.swift */; };
-		A10000010000000000000007 /* WebhookService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000007 /* WebhookService.swift */; };
 		A10000010000000000000008 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000008 /* HotkeyManager.swift */; };
 		A10000010000000000000009 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000009 /* Settings.swift */; };
 		A1000001000000000000000A /* DirectRecordingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000000D /* DirectRecordingPanel.swift */; };
@@ -43,9 +53,6 @@
 		A1000001000000000000001A /* PixelDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001D /* PixelDisplay.swift */; };
 		A1000001000000000000001B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001E /* Theme.swift */; };
 		A1000001000000000000001C /* MinimalChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001F /* MinimalChrome.swift */; };
-		A1000001000000000000001D /* MessageDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000020 /* MessageDelivery.swift */; };
-		A1000001000000000000001E /* ContactResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000021 /* ContactResolver.swift */; };
-		A1000001000000000000001F /* SendConfirmationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000022 /* SendConfirmationPanel.swift */; };
 		A10000010000000000000020 /* StreamingSTTProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000023 /* StreamingSTTProvider.swift */; };
 		A10000010000000000000021 /* RecordingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000024 /* RecordingConfiguration.swift */; };
 		A10000010000000000000022 /* RecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000025 /* RecognitionSession.swift */; };
@@ -70,7 +77,6 @@
 		B10000010000000000000016 /* TextRefinementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001A /* TextRefinementService.swift */; };
 		B10000010000000000000017 /* StreamingSTTProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000023 /* StreamingSTTProvider.swift */; };
 		B10000010000000000000018 /* RecordingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000024 /* RecordingConfiguration.swift */; };
-		B10000010000000000000019 /* MessageDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000020 /* MessageDelivery.swift */; };
 		B1000001000000000000001A /* TranscriptSpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000029 /* TranscriptSpan.swift */; };
 		B1000001000000000000001B /* TranscriptMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002A /* TranscriptMerge.swift */; };
 		B1000001000000000000001C /* InsertionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002B /* InsertionLedger.swift */; };
@@ -81,6 +87,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		D20000010000000000000005 /* DictationTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationTrace.swift; sourceTree = "<group>"; };
+		D20000010000000000000001 /* InlineDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineDelivery.swift; sourceTree = "<group>"; };
+		D20000010000000000000002 /* RecognitionSessionFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionSessionFactory.swift; sourceTree = "<group>"; };
+		D20000010000000000000003 /* DictationReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationReplay.swift; sourceTree = "<group>"; };
+		D20000010000000000000004 /* DictationReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationReplayTests.swift; sourceTree = "<group>"; };
 		C20000010000000000000100 /* LocalModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsTests.swift; sourceTree = "<group>"; };
 		C20000010000000000000001 /* SystemCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCapabilities.swift; sourceTree = "<group>"; };
 		C20000010000000000000002 /* LocalModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelCatalog.swift; sourceTree = "<group>"; };
@@ -88,12 +99,12 @@
 		C20000010000000000000004 /* LocalModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelStore.swift; sourceTree = "<group>"; };
 		C20000010000000000000005 /* LocalWhisperRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperRuntime.swift; sourceTree = "<group>"; };
 		C20000010000000000000006 /* LocalModelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsView.swift; sourceTree = "<group>"; };
+		C20000010000000000000007 /* DockIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockIcon.swift; sourceTree = "<group>"; };
 		A20000010000000000000001 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		A20000010000000000000002 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A20000010000000000000003 /* RecordingOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingOverlay.swift; sourceTree = "<group>"; };
 		A20000010000000000000005 /* SpeechEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechEngine.swift; sourceTree = "<group>"; };
 		A20000010000000000000006 /* PasteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteService.swift; sourceTree = "<group>"; };
-		A20000010000000000000007 /* WebhookService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebhookService.swift; sourceTree = "<group>"; };
 		A20000010000000000000008 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		A20000010000000000000009 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		A2000001000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -116,9 +127,6 @@
 		A2000001000000000000001D /* PixelDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelDisplay.swift; sourceTree = "<group>"; };
 		A2000001000000000000001E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		A2000001000000000000001F /* MinimalChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalChrome.swift; sourceTree = "<group>"; };
-		A20000010000000000000020 /* MessageDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDelivery.swift; sourceTree = "<group>"; };
-		A20000010000000000000021 /* ContactResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactResolver.swift; sourceTree = "<group>"; };
-		A20000010000000000000022 /* SendConfirmationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendConfirmationPanel.swift; sourceTree = "<group>"; };
 		A20000010000000000000023 /* StreamingSTTProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingSTTProvider.swift; sourceTree = "<group>"; };
 		A20000010000000000000024 /* RecordingConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingConfiguration.swift; sourceTree = "<group>"; };
 		A20000010000000000000025 /* RecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionSession.swift; sourceTree = "<group>"; };
@@ -173,7 +181,6 @@
 				A20000010000000000000003 /* RecordingOverlay.swift */,
 				A20000010000000000000005 /* SpeechEngine.swift */,
 				A20000010000000000000006 /* PasteService.swift */,
-				A20000010000000000000007 /* WebhookService.swift */,
 				A20000010000000000000008 /* HotkeyManager.swift */,
 				A20000010000000000000009 /* Settings.swift */,
 				A2000001000000000000000D /* DirectRecordingPanel.swift */,
@@ -192,9 +199,6 @@
 				A2000001000000000000001D /* PixelDisplay.swift */,
 				A2000001000000000000001E /* Theme.swift */,
 				A2000001000000000000001F /* MinimalChrome.swift */,
-				A20000010000000000000020 /* MessageDelivery.swift */,
-				A20000010000000000000021 /* ContactResolver.swift */,
-				A20000010000000000000022 /* SendConfirmationPanel.swift */,
 				A20000010000000000000023 /* StreamingSTTProvider.swift */,
 				A20000010000000000000024 /* RecordingConfiguration.swift */,
 				A20000010000000000000025 /* RecognitionSession.swift */,
@@ -209,11 +213,15 @@
 				C20000010000000000000004 /* LocalModelStore.swift */,
 				C20000010000000000000005 /* LocalWhisperRuntime.swift */,
 				C20000010000000000000006 /* LocalModelsView.swift */,
+				C20000010000000000000007 /* DockIcon.swift */,
 				A2000001000000000000002B /* InsertionLedger.swift */,
 				A2000001000000000000002C /* DeliveryTier.swift */,
 				A2000001000000000000002F /* FinalizePass.swift */,
 				A2000001000000000000002D /* TranscriptCleanup.swift */,
 				A2000001000000000000002E /* FocusContext.swift */,
+				D20000010000000000000001 /* InlineDelivery.swift */,
+				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
+				D20000010000000000000005 /* DictationTrace.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
 				A2000001000000000000000A /* Info.plist */,
 				A2000001000000000000000B /* SpeechText.entitlements */,
@@ -236,6 +244,8 @@
 				B20000010000000000000001 /* PureLogicTests.swift */,
 				C20000010000000000000100 /* LocalModelsTests.swift */,
 				B20000010000000000000002 /* AudioPipelineTests.swift */,
+				D20000010000000000000003 /* DictationReplay.swift */,
+				D20000010000000000000004 /* DictationReplayTests.swift */,
 			);
 			path = SpeechTextTests;
 			sourceTree = "<group>";
@@ -332,7 +342,6 @@
 				A10000010000000000000003 /* RecordingOverlay.swift in Sources */,
 				A10000010000000000000005 /* SpeechEngine.swift in Sources */,
 				A10000010000000000000006 /* PasteService.swift in Sources */,
-				A10000010000000000000007 /* WebhookService.swift in Sources */,
 				A10000010000000000000008 /* HotkeyManager.swift in Sources */,
 				A10000010000000000000009 /* Settings.swift in Sources */,
 				A1000001000000000000000A /* DirectRecordingPanel.swift in Sources */,
@@ -350,9 +359,6 @@
 				A1000001000000000000001A /* PixelDisplay.swift in Sources */,
 				A1000001000000000000001B /* Theme.swift in Sources */,
 				A1000001000000000000001C /* MinimalChrome.swift in Sources */,
-				A1000001000000000000001D /* MessageDelivery.swift in Sources */,
-				A1000001000000000000001E /* ContactResolver.swift in Sources */,
-				A1000001000000000000001F /* SendConfirmationPanel.swift in Sources */,
 				A10000010000000000000020 /* StreamingSTTProvider.swift in Sources */,
 				A10000010000000000000021 /* RecordingConfiguration.swift in Sources */,
 				A10000010000000000000022 /* RecognitionSession.swift in Sources */,
@@ -367,11 +373,15 @@
 				C10000010000000000000004 /* LocalModelStore.swift in Sources */,
 				C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */,
 				C10000010000000000000006 /* LocalModelsView.swift in Sources */,
+				C10000010000000000000007 /* DockIcon.swift in Sources */,
 				A10000010000000000000028 /* InsertionLedger.swift in Sources */,
 				A10000010000000000000029 /* DeliveryTier.swift in Sources */,
 				A1000001000000000000002C /* FinalizePass.swift in Sources */,
 				A1000001000000000000002A /* TranscriptCleanup.swift in Sources */,
 				A1000001000000000000002B /* FocusContext.swift in Sources */,
+				D10000010000000000000001 /* InlineDelivery.swift in Sources */,
+				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
+				D10000010000000000000005 /* DictationTrace.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -391,7 +401,6 @@
 				B10000010000000000000016 /* TextRefinementService.swift in Sources */,
 				B10000010000000000000017 /* StreamingSTTProvider.swift in Sources */,
 				B10000010000000000000018 /* RecordingConfiguration.swift in Sources */,
-				B10000010000000000000019 /* MessageDelivery.swift in Sources */,
 				B1000001000000000000001A /* TranscriptSpan.swift in Sources */,
 				B1000001000000000000001B /* TranscriptMerge.swift in Sources */,
 				C30000010000000000000100 /* LocalModelsTests.swift in Sources */,
@@ -403,6 +412,13 @@
 				B10000010000000000000020 /* FinalizePass.swift in Sources */,
 				B1000001000000000000001E /* TranscriptCleanup.swift in Sources */,
 				B1000001000000000000001F /* FocusContext.swift in Sources */,
+				D30000010000000000000001 /* InlineDelivery.swift in Sources */,
+				D30000010000000000000003 /* RecognitionSession.swift in Sources */,
+				D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */,
+				D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */,
+				D30000010000000000000006 /* DictationReplay.swift in Sources */,
+				D30000010000000000000007 /* DictationReplayTests.swift in Sources */,
+				D30000010000000000000008 /* DictationTrace.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

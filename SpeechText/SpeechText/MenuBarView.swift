@@ -6,8 +6,6 @@ import ServiceManagement
 import AppKit
 
 struct SettingsView: View {
-    @AppStorage(SettingsKeys.webhookURL) private var webhookURL = ""
-    @AppStorage(SettingsKeys.authToken) private var authToken = ""
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
@@ -16,6 +14,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
     @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
+    @AppStorage(SettingsKeys.dashStyle) private var dashStyle = DashStyle.default.rawValue
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
@@ -25,13 +24,11 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
-    @AppStorage(SettingsKeys.aiFocusContextEnabled) private var aiFocusContextEnabled = true
-    @AppStorage(SettingsKeys.messageSendingEnabled) private var messageSendingEnabled = false
     @AppStorage(SettingsKeys.aiDraftWhileSpeaking) private var aiDraftWhileSpeaking = false
-    @State private var contactsAuthorized = ContactResolver.isAuthorized
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
+    @AppStorage(SettingsKeys.dockIconMode) private var dockIconRaw = DockIconMode.default.rawValue
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var presetsWindow: PromptPresetsWindow?
@@ -70,15 +67,22 @@ struct SettingsView: View {
                             }
                         } catch {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
-            contactsAuthorized = ContactResolver.isAuthorized
                         }
                     }
+
+                Picker("Show in Dock", selection: $dockIconRaw) {
+                    ForEach(DockIconMode.allCases) { mode in
+                        Text(mode.label).tag(mode.rawValue)
+                    }
+                }
+                .onChange(of: dockIconRaw) { _, _ in
+                    NotificationCenter.default.post(name: .dockIconModeDidChange, object: nil)
+                }
             }
 
             appearanceSection
             speechToTextSection
             aiProcessingSection
-            messageDeliverySection
             apiKeysSection
 
             Section("Keyboard Shortcuts") {
@@ -105,13 +109,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Webhook") {
-                TextField("Webhook URL", text: $webhookURL)
-                    .textFieldStyle(.roundedBorder)
-                SecureField("Auth Token", text: $authToken)
-                    .textFieldStyle(.roundedBorder)
-            }
-
             Section("Permissions") {
                 HStack {
                     Text("Accessibility")
@@ -125,22 +122,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-
-                HStack {
-                    Text("Contacts")
-                    Spacer()
-                    if contactsAuthorized {
-                        Text("Granted")
-                            .foregroundStyle(.green)
-                    } else {
-                        Button("Grant Access") {
-                            Task {
-                                try? await ContactResolver.ensureAccess()
-                                contactsAuthorized = ContactResolver.isAuthorized
-                            }
-                        }
-                    }
-                }
             }
         }
         .formStyle(.grouped)
@@ -148,7 +129,6 @@ struct SettingsView: View {
         .padding()
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            contactsAuthorized = ContactResolver.isAuthorized
             // A value left behind by a removed engine would render the picker blank.
             normalizeStoredProviders()
         }
@@ -284,6 +264,14 @@ struct SettingsView: View {
             Text("Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Picker("Dashes", selection: $dashStyle) {
+                ForEach(DashStyle.allCases) { style in
+                    Text(style.displayName).tag(style.rawValue)
+                }
+            }
+            Text("Speech models write a long “—” where you paused between phrases. It is redrawn in this style, in dictations and AI output alike, and never removed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         } header: {
             sectionHeader("Step 1 · Speech → Text", "Turns what you say into raw text. Always runs.")
         }
@@ -327,13 +315,12 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Tell the AI which app you're typing in", isOn: $aiFocusContextEnabled)
-            Text("The AI Recording shortcut sends the app's name, its window title and the text field's label along with the dictation, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
+            Text("The AI Recording shortcut also sends the app's name, its window title and the text field's label, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Toggle("Show the dictation while speaking, then swap in the AI version", isOn: $aiDraftWhileSpeaking)
-            Text(messageSendingEnabled
-                 ? "Has no effect while message sending is on: a dictation that may become a message is never pasted early."
-                 : "Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")
+            Text("Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -358,51 +345,6 @@ struct SettingsView: View {
             sectionHeader(
                 "Step 2 · Text → Text (AI)",
                 "Optional. Runs only for the AI Recording shortcut and the ✨ toggle in the Record Window. What you dictate is the prompt — the model picks the matching preset and rewrites the text."
-            )
-        }
-    }
-
-    // MARK: - Message delivery
-
-    private var messageDeliverySection: some View {
-        Section {
-            Toggle("Let dictations be sent as messages", isOn: $messageSendingEnabled)
-
-            if messageSendingEnabled {
-                let available = MessageDelivery.availableChannels
-                if available.isEmpty {
-                    Label("No supported messaging app found on this Mac.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
-                    HStack(spacing: 10) {
-                        ForEach(available) { channel in
-                            Label(channel.displayName, systemImage: channel.symbolName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                }
-
-                // The channels split into two behaviours and the difference matters
-                // before the first send, not after it.
-                Text("Messages and Apple Mail are sent for you. Telegram and WhatsApp refuse to send from a link, so they open the chat with the text ready and you press ⏎. Nothing is ever sent without the confirmation panel.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if !contactsAuthorized {
-                    Label("Needs Contacts access to look up who you named.",
-                          systemImage: "person.crop.circle.badge.exclamationmark")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-        } header: {
-            sectionHeader(
-                "Step 3 · Text → Someone (experimental)",
-                "Say who the message is for and where — “send Oksana on Telegram that I'm running late”. The recipient is looked up in your own Contacts; the app never invents an address."
             )
         }
     }

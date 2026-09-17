@@ -141,11 +141,6 @@ struct HistoryView: View {
                         )
                         .foregroundStyle(refinement.succeeded ? Color.purple : Color.orange)
                     }
-                    if let delivery = record.delivery {
-                        Text("·")
-                        Label(delivery.recipientName, systemImage: deliveryIcon(delivery))
-                            .foregroundStyle(deliveryTint(delivery))
-                    }
                 }
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
@@ -205,10 +200,6 @@ struct HistoryView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let delivery = record.delivery {
-                deliveryHeader(delivery)
-            }
-
             if let refinement = record.refinement {
                 refinementHeader(refinement)
 
@@ -234,55 +225,6 @@ struct HistoryView: View {
             }
         }
         .padding(12)
-    }
-
-    private func deliveryIcon(_ delivery: TranscriptionRecord.Delivery) -> String {
-        switch delivery.outcome {
-        case .sent: "paperplane.fill"
-        case .composed: "square.and.pencil"
-        case .failed: "exclamationmark.triangle.fill"
-        }
-    }
-
-    private func deliveryTint(_ delivery: TranscriptionRecord.Delivery) -> Color {
-        switch delivery.outcome {
-        case .sent: .green
-        case .composed: .blue
-        case .failed: .orange
-        }
-    }
-
-    /// A message the user believes went out is the one thing history has to be able to
-    /// answer for, so the address is shown verbatim — not just the name it matched.
-    @ViewBuilder
-    private func deliveryHeader(_ delivery: TranscriptionRecord.Delivery) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Label(deliveryTitle(delivery), systemImage: deliveryIcon(delivery))
-                    .foregroundStyle(deliveryTint(delivery))
-                Text("·")
-                Text(delivery.address)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            .font(.system(size: 11))
-
-            if let error = delivery.errorMessage {
-                Text("Pasted at the cursor instead — \(error)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.orange)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private func deliveryTitle(_ delivery: TranscriptionRecord.Delivery) -> String {
-        switch delivery.outcome {
-        case .sent: "Sent to \(delivery.recipientName) on \(delivery.channel)"
-        case .composed: "Staged for \(delivery.recipientName) in \(delivery.channel)"
-        case .failed: "Could not send to \(delivery.recipientName) on \(delivery.channel)"
-        }
     }
 
     @ViewBuilder

@@ -4,8 +4,6 @@
 import Foundation
 
 enum SettingsKeys {
-    static let webhookURL = "webhookURL"
-    static let authToken = "authToken"
     static let selectedLanguage = "selectedLanguage"
 
     // STT Provider
@@ -18,6 +16,8 @@ enum SettingsKeys {
     static let localSTTModel = "localSTTModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
     static let removeDisfluencies = "removeDisfluencies"
+    /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
+    static let dashStyle = "dashStyle"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -53,11 +53,6 @@ enum SettingsKeys {
     /// rewrite at the stop. Tier A only; off by default.
     static let aiDraftWhileSpeaking = "aiDraftWhileSpeaking"
     /// Whether an AI dictation tells the model which app, window and field it is for.
-    static let aiFocusContextEnabled = "aiFocusContextEnabled"
-
-    // Message delivery
-    /// Whether an AI dictation may be routed to a messaging app instead of the cursor.
-    static let messageSendingEnabled = "messageSendingEnabled"
 
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
@@ -71,9 +66,14 @@ enum SettingsKeys {
     static let appSkin = "appSkin"
     /// `#RRGGBB` — only the minimal skin uses it.
     static let accentColor = "accentColor"
+    /// `DockIconMode.rawValue`: never, while a window is open, or always.
+    static let dockIconMode = "dockIconMode"
 
     // Debug
     static let debugMode = "debugMode"
+    /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-
+    /// local, like the traces themselves, so not in `portable`.
+    static let recordDictationTraces = "recordDictationTraces"
 
     /// Marks that settings were carried over from the pre-rename preference domain.
     static let didAdoptPreRenameDefaults = "didAdoptPreRenameDefaults"
@@ -84,17 +84,16 @@ enum SettingsKeys {
     /// accessibility prompt flag describe grants made to the *old* bundle identifier,
     /// and copying them would leave the new app unregistered and unprompted.
     static let portable: [String] = [
-        webhookURL, authToken, selectedLanguage,
+        selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
-        removeDisfluencies,
+        removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
-        promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
-        messageSendingEnabled,
-        appSkin, accentColor,
+        promptPresets, defaultPresetID, aiModeInRecordWindow,
+        appSkin, accentColor, dockIconMode,
         hotkeyLayoutVersion, debugMode,
     ]
 }
@@ -222,6 +221,12 @@ private func currentInputSourceLanguage() -> String? {
 /// default — so the UI shows nothing and the app runs something the user did not pick.
 func normalizeStoredProviders() {
     let defaults = UserDefaults.standard
+
+    // Settings for removed features: the webhook (whose bearer token should not outlive
+    // it) and the switch that used to keep the focus context out of AI dictations.
+    for key in ["webhookURL", "authToken", "aiFocusContextEnabled"] {
+        defaults.removeObject(forKey: key)
+    }
 
     if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
        STTProviderType(rawValue: raw) == nil {

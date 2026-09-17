@@ -4,17 +4,56 @@
 import Cocoa
 import ApplicationServices
 
-struct PasteService {
-    /// Where a paste landed in the target app: the range the text occupies, and the
-    /// app's own copy of that text. Both are read back out of the Accessibility API
-    /// rather than assumed from what was sent.
-    struct PasteLanding {
-        let range: NSRange
-        /// What the app actually holds there — smart quotes applied, line endings
-        /// normalised, whatever it did. The only version a later guard can compare to.
-        let text: String
+/// `InlineDelivery`'s window onto a real app: the app the recording started in, and the
+/// field that had focus then, reached through `PasteService`.
+final class AccessibilityDeliveryTarget: InlineDeliveryTarget {
+    let app: NSRunningApplication?
+    /// The field this recording delivers into, taken when the tier is decided. The stop's
+    /// correction runs only while this is still the focused element of the app in front:
+    /// the tier was decided for this field, not for whatever has focus by the stop.
+    private var element: AXUIElement?
+
+    init(app: NSRunningApplication?) {
+        self.app = app
     }
 
+    var acceptsDeliveryNow: Bool {
+        guard PasteService.isAccessibilityGranted, let app,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            DictationTraceRecorder.record(.targetNotInFront)
+            return false
+        }
+        return true
+    }
+
+    func paste(_ text: String, completion: @escaping (PasteLanding?) -> Void) {
+        PasteService.pasteAtCursor(text) { landing in
+            DictationTraceRecorder.record(.paste, text: text,
+                                          landing: landing.map { $0.text == text ? .exact : .different } ?? .unknown)
+            completion(landing)
+        }
+    }
+
+    func captureFocusedField() {
+        element = PasteService.focusedElement(of: app)
+    }
+
+    func releaseFocusedField() {
+        element = nil
+    }
+
+    var isStillFocused: Bool {
+        guard let app, let element else { return false }
+        return PasteService.isStillFocused(element, in: app)
+    }
+
+    func replaceDelivered(ledger: inout InsertionLedger, with text: String) -> Bool {
+        guard let app else { return false }
+        return PasteService.replaceLastInsertions(ledger: &ledger, with: text, in: app)
+    }
+}
+
+struct PasteService {
     /// Pastes text at the current cursor position, preserving the user's clipboard.
     /// Saves clipboard contents, pastes via ⌘V, then restores the original clipboard.
     ///
@@ -203,13 +242,23 @@ struct PasteService {
     /// write and then reports a different range, so only writing the range the element
     /// already has — a no-op for the user — and comparing what comes back separates an
     /// app we can correct from one we would be scribbling into blind.
+    ///
+    /// That write is only a no-op if the range we read is where the caret really is. A
+    /// web or Electron field whose accessibility tree has just been woken by our first
+    /// query answers `{0, 0}` whatever the caret's position, and writing that back moved
+    /// the caret to the start of the field — the dictation then landed *before* the text
+    /// already there. So a range that cannot be the caret's (`{0, 0}` in a non-empty
+    /// field, or one past the end of the value) is never written, and the element probes
+    /// as Tier B. A field whose caret genuinely sits at the very start loses its
+    /// correction for that recording; that is the side to fail on.
     static func probeFocusedText(in app: NSRunningApplication?) -> AXTextProbe {
         guard AXIsProcessTrusted(), let element = focusedTextElement(of: app) else {
             return .unavailable
         }
 
         var probe = AXTextProbe()
-        probe.valueReadable = stringValue(of: element) != nil
+        let document = stringValue(of: element)
+        probe.valueReadable = document != nil
 
         guard let range = selectedRange(of: element) else { return probe }
         probe.rangeReadable = true
@@ -217,6 +266,13 @@ struct PasteService {
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextRangeAttribute as CFString, &settable) == .success,
               settable.boolValue else {
+            return probe
+        }
+
+        let length = (document as NSString?)?.length ?? 0
+        guard range.location + range.length <= length,
+              !(range.location == 0 && range.length == 0 && length > 0) else {
+            dlog("Span", "probe: selection \(range.location)+\(range.length) in \(length) characters is not trusted — not written back")
             return probe
         }
 
