@@ -112,7 +112,9 @@ final class StreamingRecognitionSession: RecognitionSession {
         guard !Task.isCancelled else { return .cancelled }
 
         let (text, failure) = await MainActor.run {
-            (joinedTranscript(committedText, partialText).trimmingCharacters(in: .whitespacesAndNewlines), self.failure)
+            // A partial still pending at the stop is the next segment, and may finish a
+            // word the last commit cut — joined like any other segment.
+            (joinedSegments(committedText, partialText).trimmingCharacters(in: .whitespacesAndNewlines), self.failure)
         }
 
         if failure == nil, !text.isEmpty {

@@ -1056,3 +1056,118 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
     }
 }
+
+// MARK: - Segment joins (TranscriptMerge.swift, TranscriptSpan.swift, InsertionLedger.swift)
+
+/// 17.09: Scribe closed a segment inside a word — "…база дани" | "х, звідки…".
+/// Every boundary used to get a space, so History read "дани х" and the live paste would
+/// too. A boundary is glued only when a dictionary says the halves are one word.
+final class SegmentJoinTests: XCTestCase {
+
+    /// A stand-in for the spell checker: only these are words.
+    private let dictionary: Set<String> = ["даних", "база", "звідки", "привіт", "віт", "дані", "поки"]
+    private func isWord(_ word: String) -> Bool { dictionary.contains(word.lowercased()) }
+
+    override func tearDown() {
+        TranscriptJoin.isWord = { _ in false }
+        super.tearDown()
+    }
+
+    func testAWordCutInTwoIsGluedBack() {
+        XCTAssertEqual(segmentSeparator("Ось нова база дани", "х, звідки ми", isWord: isWord), "")
+    }
+
+    /// Punctuation closed the first segment: that was a pause between words.
+    func testAPunctuatedBoundaryKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("попадає в...", "main сесію", isWord: isWord), " ")
+        XCTAssertEqual(segmentSeparator("база дани.", "х", isWord: isWord), " ")
+    }
+
+    /// A capital opens a new sentence, not the rest of a word.
+    func testACapitalisedSegmentKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("база дани", "Х звідки", isWord: isWord), " ")
+    }
+
+    /// Both halves standing as words means two words were said.
+    func testASecondHalfThatIsAWordKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("скажу при", "віт усім", isWord: isWord), " ")
+    }
+
+    /// A spell checker accepts every single letter, so real one-letter words are listed —
+    /// "і" is a word, "х" is not.
+    func testOneLetterFragmentsAreJudgedByTheListNotTheChecker() {
+        let acceptsAnything: (String) -> Bool = { _ in true }
+        XCTAssertEqual(segmentSeparator("дані", "і ще щось", isWord: acceptsAnything), " ")
+        // Found running the rule over History: "Чи | я" must not become "Чия".
+        XCTAssertEqual(segmentSeparator("Чи", "я щось не розумію", isWord: acceptsAnything), " ")
+        XCTAssertEqual(segmentSeparator("база дани", "х, звідки", isWord: acceptsAnything), "")
+    }
+
+    /// Nothing registered — the test target, or no dictionary for the language: the old
+    /// behaviour, a space everywhere.
+    func testWithNoDictionaryEveryBoundaryKeepsItsSpace() {
+        XCTAssertEqual(segmentSeparator("база дани", "х, звідки"), " ")
+    }
+
+    /// The streaming merge uses it, so the cumulative committed text — and History — read
+    /// the word whole.
+    func testTheStreamingMergeGluesACutWord() {
+        TranscriptJoin.isWord = isWord
+        XCTAssertEqual(mergedTranscript("Ось нова база дани", "х, звідки ми"),
+                       "Ось нова база даних, звідки ми")
+    }
+
+    /// The span layer reads the glue off the cumulative text: the second span continues
+    /// the first, and the layer's text keeps the word whole.
+    func testTheSpanLayerMarksASpanThatContinuesAWord() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Ось нова база дани", partial: "")
+        layer.ingest(committed: "Ось нова база даних, звідки ми", partial: "")
+        XCTAssertEqual(layer.visibleSpans.map(\.text), ["Ось нова база дани", "х, звідки ми"])
+        XCTAssertEqual(layer.visibleSpans.map(\.joinsPrevious), [false, true])
+        XCTAssertEqual(layer.text, "Ось нова база даних, звідки ми")
+    }
+
+    /// An ordinary boundary is not mistaken for a glued one.
+    func testTheSpanLayerKeepsAnOrdinaryBoundarySpaced() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Привіт.", partial: "")
+        layer.ingest(committed: "Привіт. Як справи?", partial: "")
+        XCTAssertEqual(layer.visibleSpans.map(\.joinsPrevious), [false, false])
+        XCTAssertEqual(layer.text, "Привіт. Як справи?")
+    }
+
+    /// The stop's tail after a cut word goes on with no space — what the old build did by
+    /// accident, now on purpose.
+    func testTheStopTailFinishesACutWordWithoutASpace() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 20), text: "Ось нова база дани")
+        XCTAssertEqual(ledger.pasteableRemainder(of: "Ось нова база даних, звідки ми все читаємо."),
+                       "х, звідки ми все читаємо.")
+    }
+
+    /// …and after an ordinary boundary, with one.
+    func testTheStopTailAfterAWholeWordOpensWithASpace() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 6), text: "Поїха.")
+        XCTAssertEqual(ledger.pasteableRemainder(of: "Поїха. Ііі як воно тут працює?"), " Ііі як воно тут працює?")
+        XCTAssertEqual(ledger.pasteableRemainder(of: "Поїха."), "")
+    }
+
+    /// A glued record joins what the ledger reports as delivered, so the stop's
+    /// subtraction lines up with the document.
+    func testDeliveredTextHonoursAGluedRecord() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 9), text: "база дани")
+        ledger.insert(span: TranscriptSpanID(rawValue: 2), range: NSRange(location: 9, length: 12), text: "х, звідки", joinsPrevious: true)
+        XCTAssertEqual(ledger.deliveredText, "база даних, звідки")
+    }
+
+    /// Completing a cut word is an extension, not a revision to correct.
+    func testCompletingACutWordIsAnExtension() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 20), text: "Ось нова база дани")
+        XCTAssertEqual(FinalizePass.decide(ledger: ledger, authoritative: "Ось нова база даних, звідки",
+                                           tier: .a, hasFrozenSpans: false), .extend)
+    }
+}

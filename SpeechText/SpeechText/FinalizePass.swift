@@ -96,6 +96,9 @@ enum FinalizePass {
     /// it. Exact, unlike `transcriptOverlap`: a word the provider revised is precisely
     /// what a correction exists for, so it must not pass as agreement.
     static func extendsExactly(_ delivered: String, _ final: String) -> Bool {
+        // Character for character first: a word the provider cut and the stop completes
+        // ("дани" → "даних,") is an extension, not a revision to replace.
+        if final.hasPrefix(delivered) { return true }
         let head = words(delivered), all = words(final)
         return all.count >= head.count && Array(all.prefix(head.count)) == head
     }

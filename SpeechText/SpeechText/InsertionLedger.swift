@@ -18,6 +18,8 @@ struct InsertionRecord: Equatable {
     /// UTF-16 indexed.
     var range: NSRange
     var text: String
+    /// Pasted straight onto the previous record, with no space — the provider cut a word.
+    var joinsPrevious = false
 }
 
 /// The record of what has already been handed to one sink during a recording, so a
@@ -36,7 +38,11 @@ struct InsertionLedger {
     /// Everything handed to the sink so far, joined the way spans join. What a stop-time
     /// delivery has to subtract before it hands over the authoritative text.
     var deliveredText: String {
-        records.map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+        var text = ""
+        for record in records where !record.text.isEmpty {
+            text += text.isEmpty ? record.text : (record.joinsPrevious ? "" : " ") + record.text
+        }
+        return text
     }
 
     func record(for span: TranscriptSpanID) -> InsertionRecord? {
@@ -47,9 +53,9 @@ struct InsertionLedger {
 
     /// Text landed at `range`. Records made earlier that sit at or after it move by its
     /// length — the user can put the caret anywhere between two insertions.
-    mutating func insert(span: TranscriptSpanID?, range: NSRange, text: String) {
+    mutating func insert(span: TranscriptSpanID?, range: NSRange, text: String, joinsPrevious: Bool = false) {
         shift(from: range.location, by: range.length)
-        records.append(InsertionRecord(span: span, range: range, text: text))
+        records.append(InsertionRecord(span: span, range: range, text: text, joinsPrevious: joinsPrevious))
     }
 
     /// A span's text was replaced in the sink. Its own record takes the new text, and
@@ -147,6 +153,28 @@ struct InsertionLedger {
 
         guard end < columns else { return "" }
         return String(text[tail[end].start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Exactly what the stop still pastes: `remainder(of:)` with its separator in front,
+    /// or nil for "nothing — the final text disagrees".
+    ///
+    /// When the final text starts with the delivered text character for character, the
+    /// rest is cut off it as it stands, so the separator is the provider's own — a space,
+    /// or none after a word it cut ("…база дани" + "х, звідки…"). Only a re-worded
+    /// final text goes through the word-level `remainder`, and that always takes a space.
+    func pasteableRemainder(of authoritative: String) -> String? {
+        let delivered = deliveredText
+        guard !delivered.isEmpty else { return authoritative }
+
+        let final = authoritative.trimmingCharacters(in: .whitespacesAndNewlines)
+        if final.hasPrefix(delivered) {
+            let rest = final.dropFirst(delivered.count)
+            guard let first = rest.first else { return "" }
+            return first.isWhitespace
+                ? " " + rest.trimmingCharacters(in: .whitespacesAndNewlines)
+                : String(rest)
+        }
+        return remainder(of: authoritative).map(separated)
     }
 
     /// `rest` as it has to be pasted after what the sink already holds: opened with the

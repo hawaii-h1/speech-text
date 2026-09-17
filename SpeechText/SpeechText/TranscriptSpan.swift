@@ -57,9 +57,28 @@ struct TranscriptSpan: Identifiable, Equatable {
     let id: TranscriptSpanID
     /// Which recording segment produced it. A pause/resume opens the next one.
     let segment: Int
-    /// Trimmed. Spans are joined with single spaces, the way `joinedTranscript` does it.
+    /// Trimmed. Spans are joined with single spaces, the way `joinedTranscript` does it —
+    /// except after a span the provider cut mid-word, see `joinsPrevious`.
     var text: String
     var state: State
+    /// This span continues the previous one's last word ("дани" | "х, звідки"), so
+    /// nothing goes between them. Read off the provider's cumulative committed text,
+    /// which `joinedSegments` already glued.
+    var joinsPrevious = false
+
+    /// What goes in front of this span when it follows another.
+    var separator: String { joinsPrevious ? "" : " " }
+}
+
+/// Span texts joined the way the provider joined them: a space, or nothing after a word
+/// it cut in two. The first span's own `joinsPrevious` is ignored — it has nothing here
+/// to join.
+func joinedSpanTexts(_ spans: [TranscriptSpan]) -> String {
+    var text = ""
+    for (index, span) in spans.enumerated() {
+        text += index == 0 ? span.text : span.separator + span.text
+    }
+    return text
 }
 
 // MARK: - Layer
@@ -159,19 +178,29 @@ struct TranscriptSpanLayer {
             return
         }
 
-        let delta = trimmed(String(committed.dropFirst(lastCommitted.count)))
+        let raw = String(committed.dropFirst(lastCommitted.count))
+        let delta = trimmed(raw)
         guard !delta.isEmpty else { return }
+        // The cumulative text carries no space here: the provider cut a word.
+        let glued = !lastCommitted.isEmpty
+            && raw.first.map { !$0.isWhitespace } == true
+            && lastCommitted.last.map { !$0.isWhitespace } == true
 
         // The partial that was showing these words *is* this commit: keeping its id lets
         // a sink that already drew it replace it in place instead of appending a second copy.
         if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
             spans[index].text = delta
             spans[index].state = .committed
+            spans[index].joinsPrevious = glued
             provisionalID = nil
-            log("commit \(id) \"\(preview(delta))\"")
+            log("commit \(id)\(glued ? " (joins previous)" : "") \"\(preview(delta))\"")
         } else {
-            let span = append(text: delta, state: .committed)
-            log("commit \(span.id) \"\(preview(delta))\"")
+            var span = append(text: delta, state: .committed)
+            if glued, let index = index(of: span.id) {
+                spans[index].joinsPrevious = true
+                span.joinsPrevious = true
+            }
+            log("commit \(span.id)\(glued ? " (joins previous)" : "") \"\(preview(delta))\"")
         }
     }
 
@@ -302,7 +331,7 @@ struct TranscriptSpanLayer {
     private func index(of id: TranscriptSpanID) -> Int? { spans.firstIndex { $0.id == id } }
 
     private func join(_ spans: [TranscriptSpan]) -> String {
-        spans.map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+        joinedSpanTexts(spans.filter { !$0.text.isEmpty })
     }
 
     private func trimmed(_ text: String) -> String {

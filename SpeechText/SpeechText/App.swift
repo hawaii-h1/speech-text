@@ -54,6 +54,24 @@ enum AppVersion {
     }
 }
 
+/// Points `TranscriptJoin.isWord` at the macOS spell checker, so a segment boundary the
+/// provider cut mid-word can be glued back. The language follows the script: the English
+/// checker waves every Cyrillic word through, so it would call any fragment a word.
+func registerSpellCheckedJoins() {
+    let lock = NSLock()
+    let uk = NSSpellChecker.shared.availableLanguages.contains("uk")
+    TranscriptJoin.isWord = { word in
+        let latin = word.unicodeScalars.allSatisfy { $0.isASCII }
+        let cyrillic = word.unicodeScalars.allSatisfy { ("\u{0400}"..."\u{04FF}").contains($0) || $0 == "'" || $0 == "’" }
+        let language: String
+        if latin { language = "en" } else if cyrillic, uk { language = "uk" } else { return false }
+        lock.lock(); defer { lock.unlock() }
+        return NSSpellChecker.shared.checkSpelling(of: word, startingAt: 0, language: language, wrap: false,
+                                                    inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
+    }
+    dlog("App", "segment joins: spell checker registered (uk \(uk ? "available" : "missing"))")
+}
+
 // MARK: - AppDelegate with NSStatusItem
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -89,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         adoptPreRenameDefaults()
         normalizeStoredProviders()
         registerLocalSTT()
+        registerSpellCheckedJoins()
         migrateHotkeyLayoutIfNeeded()
 
         // Set up hotkeys
@@ -577,17 +596,18 @@ final class AppState {
             return
         }
 
-        let texts = spans.map(\.text).filter { !$0.isEmpty }
-        guard !texts.isEmpty else { return }
-        let joined = texts.joined(separator: " ")
-        // A space between this delivery and the last, the way the spans join.
-        let payload = inlineLedger.isEmpty ? joined : " " + joined
+        let delivering = spans.filter { !$0.text.isEmpty }
+        guard let first = delivering.first else { return }
+        let joined = joinedSpanTexts(delivering)
+        // What separates this delivery from the last — a space, or nothing when the
+        // provider cut a word across the two.
+        let payload = inlineLedger.isEmpty ? joined : first.separator + joined
 
         isDeliveringSpan = true
         PasteService.pasteAtCursor(payload) { [weak self] landing in
             guard let self else { return }
             self.isDeliveringSpan = false
-            self.recordDelivery(of: spans, texts: texts, payload: payload, landing: landing)
+            self.recordDelivery(of: delivering, payload: payload, landing: landing)
             self.drainSpanQueue()
         }
     }
@@ -596,9 +616,10 @@ final class AppState {
     /// it was handed — those ranges are what the finalizing pass replaces through — and
     /// as one untracked piece otherwise, which still answers what the stop asks of the
     /// ledger (what has this app already been given?) but can never be corrected.
-    private func recordDelivery(of spans: [TranscriptSpan], texts: [String],
+    private func recordDelivery(of spans: [TranscriptSpan],
                                 payload: String, landing: PasteService.PasteLanding?) {
-        let joined = texts.joined(separator: " ")
+        let joined = joinedSpanTexts(spans)
+        let joinsLedger = !inlineLedger.isEmpty && spans.first?.joinsPrevious == true
 
         // Per span only when the app stored exactly what it was handed. Anything else —
         // it normalised the text, or the landing could not be read — and the offsets
@@ -607,18 +628,21 @@ final class AppState {
             if landing == nil {
                 dlog("Span", "delivered \(spans.map(\.id.description).joined(separator: " ")), landing unknown")
             }
-            inlineLedger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: joined)
+            inlineLedger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0),
+                                text: joined, joinsPrevious: joinsLedger)
             return
         }
 
-        // The payload may open with the space that separates this delivery from the last.
+        // The payload may open with the separator from the last delivery.
         var location = landing.range.location + (payload as NSString).length - (joined as NSString).length
-        for (span, text) in zip(spans, texts) {
-            let length = (text as NSString).length
+        for (index, span) in spans.enumerated() {
+            if index > 0 { location += (span.separator as NSString).length }
+            let length = (span.text as NSString).length
             inlineLedger.insert(span: span.id,
                                 range: NSRange(location: location, length: length),
-                                text: text)
-            location += length + 1 // the separating space
+                                text: span.text,
+                                joinsPrevious: index == 0 ? joinsLedger : span.joinsPrevious)
+            location += length
         }
     }
 
@@ -628,11 +652,11 @@ final class AppState {
         let delivered = inlineLedger.deliveredText
         guard !delivered.isEmpty else { return authoritative }
 
-        guard let remainder = inlineLedger.remainder(of: authoritative) else {
+        guard let remainder = inlineLedger.pasteableRemainder(of: authoritative) else {
             dlog("Span", "final text does not extend the \(delivered.count) chars already delivered — delivering nothing more")
             return nil
         }
-        dlog("Span", "already delivered \(delivered.count) chars; \(remainder.count) left to paste")
+        dlog("Span", "already delivered \(delivered.count) chars; \(remainder.count) left to paste\(remainder.first.map { !$0.isWhitespace } == true && !remainder.isEmpty ? " (joins the last word)" : "")")
         return remainder
     }
 
@@ -688,7 +712,7 @@ final class AppState {
             // Any partial text is better than nothing — hand it to the Record Window.
             // Refinement is skipped: there is no trustworthy transcript to rewrite.
             if let remainder, !remainder.isEmpty {
-                showDirectRecordingPanel(withText: remainder)
+                showDirectRecordingPanel(withText: remainder.trimmingCharacters(in: .whitespaces))
             }
             return
         }
@@ -734,7 +758,7 @@ final class AppState {
                 dlog("App", "handleTranscriptionResult: nothing left to paste")
                 return
             }
-            deliver(inlineLedger.separated(remainder))
+            deliver(remainder)
             return
         }
 
@@ -838,8 +862,8 @@ final class AppState {
         case .nothingDelivered:
             deliver(output)
         case .extend:
-            if let rest = inlineLedger.remainder(of: output), !rest.isEmpty {
-                deliver(inlineLedger.separated(rest))
+            if let rest = inlineLedger.pasteableRemainder(of: output), !rest.isEmpty {
+                deliver(rest)
             }
         case .replace, .leave:
             let applied = decision == .replace && correctDeliveredText(to: output)
