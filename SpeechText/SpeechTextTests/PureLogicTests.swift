@@ -589,6 +589,18 @@ final class InsertionLedgerTests: XCTestCase {
         XCTAssertNil(ledger.resolve(span: span(1), in: "світ і ще раз світ"))
     }
 
+    /// A paste whose landing could not be read is recorded at `NSNotFound` (`Int.max`).
+    /// The next paste that does land used to shift it along with everything else and
+    /// trap on the overflow — the crash after a pause in inline dictation (17.09).
+    func testARecordWithNoRangeIsNotShiftedByALaterInsertion() {
+        var ledger = InsertionLedger()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Один")
+        ledger.insert(span: span(2), range: NSRange(location: 5, length: 3), text: "два")
+        ledger.replaced(span: span(2), at: NSRange(location: 5, length: 3), with: "двоє")
+        XCTAssertEqual(ledger.records.first?.range.location, NSNotFound)
+        XCTAssertEqual(ledger.deliveredText, "Один двоє")
+    }
+
     func testAnUnknownSpanResolvesToNothing() {
         let ledger = InsertionLedger()
         XCTAssertNil(ledger.resolve(span: span(7), in: "Привіт"))
