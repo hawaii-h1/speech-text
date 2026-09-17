@@ -4,14 +4,7 @@
 
 Closes #
 
-## Checklist
-
-- [ ] Commits are signed off (`git commit -s`) — see [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md)
-- [ ] `xcodebuild test -project SpeechText/SpeechText.xcodeproj -scheme SpeechText -destination 'platform=macOS'` passes
-- [ ] `DEVELOPMENT_TEAM` in `project.pbxproj` is still empty
-- [ ] New files needed by tests were added to **both** targets
-- [ ] New source files carry the two-line SPDX header
-- [ ] One concern only — no unrelated changes mixed in
+<!-- Before opening: one concern per PR — see [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md). Tests, sign-off, SPDX headers and DEVELOPMENT_TEAM are checked by CI. -->
 
 ## Screenshots
 
