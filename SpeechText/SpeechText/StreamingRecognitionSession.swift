@@ -57,6 +57,11 @@ final class StreamingRecognitionSession: RecognitionSession {
 
     private func handle(_ event: StreamingSTTEvent) {
         switch event {
+        case .partial(let text): DictationTraceRecorder.record(.partial, text: text)
+        case .committed(let text): DictationTraceRecorder.record(.committed, text: text)
+        case .failed(let error): DictationTraceRecorder.record(.streamFailed, error: error.localizedDescription)
+        }
+        switch event {
         case .partial(let text):
             // The stream re-states what it has already committed — sometimes verbatim,
             // sometimes grown by the words said since — so the partial is reduced to
@@ -127,7 +132,11 @@ final class StreamingRecognitionSession: RecognitionSession {
         dlog("Engine", "StreamingRecognitionSession.finish: stream \(failure ?? "returned nothing") — falling back to batch upload")
         // The partial text on screen described a stream that is being discarded.
         await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
-        return await fallback.finish()
+        let outcome = await fallback.finish()
+        await MainActor.run {
+            DictationTraceRecorder.record(.fallback, text: outcome.text, error: outcome.error)
+        }
+        return outcome
     }
 
     func cancel() {

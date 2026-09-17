@@ -10,6 +10,7 @@ struct DebugLogView: View {
     @State private var debugLog = DebugLog.shared
     @State private var autoScroll = true
     @State private var filterText = ""
+    @AppStorage(SettingsKeys.recordDictationTraces) private var recordTraces = false
 
     private var filteredEntries: [DebugLog.Entry] {
         if filterText.isEmpty { return debugLog.entries }
@@ -48,6 +49,17 @@ struct DebugLogView: View {
             Text("\(filteredEntries.count) entries")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Toggle("Record traces", isOn: $recordTraces)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help("Save each streamed inline dictation to Traces/ so it can be replayed as a test")
+
+            Button("Traces") {
+                let directory = DictationTraceRecorder.directory
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                NSWorkspace.shared.open(directory)
+            }
 
             Toggle("Auto-scroll", isOn: $autoScroll)
                 .toggleStyle(.switch)
@@ -130,6 +142,23 @@ struct DebugLogView: View {
         case "Paste":    .pink
         default:         .secondary
         }
+    }
+}
+
+// MARK: - Dictation traces
+
+extension DictationTraceRecorder {
+    static var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: SettingsKeys.recordDictationTraces)
+    }
+
+    /// `Application Support/SpeechText/Traces`. History is touched first: its rename
+    /// migration moves a pre-rename folder into `SpeechText/` only while that does not
+    /// exist yet, and creating `Traces/` would create it.
+    static var directory: URL {
+        _ = TranscriptionHistory.shared
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SpeechText/Traces", isDirectory: true)
     }
 }
 

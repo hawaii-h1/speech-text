@@ -432,6 +432,7 @@ final class AppState {
         recipientTask = nil
         isRefining = false
         endInlineDelivery()
+        DictationTraceRecorder.current = nil
         speechEngine.cancelRecording()
         hideOverlay()
         hideSendConfirmation()
@@ -475,12 +476,21 @@ final class AppState {
     private func beginDeliveryPlan() {
         let mayBecomeMessage = isAIMode
             && UserDefaults.standard.bool(forKey: SettingsKeys.messageSendingEnabled)
+        let probe = PasteService.probeFocusedText(in: previousApp)
         let tier = DeliveryTier.resolve(isMessageDelivery: mayBecomeMessage,
                                         isOwnSurface: false,
-                                        probe: PasteService.probeFocusedText(in: previousApp))
+                                        probe: probe)
+        let aiDraft = UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking)
+        DictationTraceRecorder.current = DictationTraceRecorder.isEnabled
+            ? DictationTraceRecorder(setup: DictationTrace.Setup(
+                aiMode: isAIMode, aiDraft: aiDraft, messageSending: mayBecomeMessage,
+                removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
+                app: previousApp?.localizedName,
+                probe: .init(valueReadable: probe.valueReadable, rangeReadable: probe.rangeReadable,
+                             rangeReadsBack: probe.rangeReadsBack)))
+            : nil
         let progressive = inlineDelivery.begin(
-            tier: tier, aiMode: isAIMode,
-            aiDraft: UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking),
+            tier: tier, aiMode: isAIMode, aiDraft: aiDraft,
             target: AccessibilityDeliveryTarget(app: previousApp),
             targetName: previousApp?.localizedName)
 
@@ -496,6 +506,7 @@ final class AppState {
         // writes where one will do. `deliverAIResult` replaces it once the rewrite is in.
         guard !isAIMode else { return }
         let applied = inlineDelivery.finalize(text: input.text, hasFrozenSpans: input.hasFrozenSpans)
+        if let applied { DictationTraceRecorder.record(.correction, applied: applied) }
         if let applied, let id = input.recordID {
             TranscriptionHistory.shared.recordCorrection(id: id, applied: applied)
         }
@@ -517,6 +528,7 @@ final class AppState {
 
     private func stopRecording() {
         dlog("App", "stopRecording")
+        DictationTraceRecorder.record(.stop)
         // From here the authoritative text arrives through the result path, and anything
         // still queued would be delivered twice. The ledger stays — the stop needs it to
         // know what the app has already been given.
@@ -614,7 +626,19 @@ final class AppState {
             deliver(remainder)
 
         case .refine(let aiInput):
+            // The trace is finished once the rewrite has been delivered.
             refine(aiInput)
+            return
+        }
+        finishTrace()
+    }
+
+    /// Writes the dictation's trace, when one is being recorded.
+    private func finishTrace() {
+        guard let recorder = DictationTraceRecorder.current else { return }
+        DictationTraceRecorder.current = nil
+        if let url = recorder.write(into: DictationTraceRecorder.directory) {
+            dlog("Trace", "trace written: \(url.lastPathComponent)")
         }
     }
 
@@ -633,7 +657,9 @@ final class AppState {
                     : "No \(type.displayName) model selected. Pasted the raw transcription.",
                 tint: .orange
             )
+            DictationTraceRecorder.record(.refinement, error: "not configured")
             deliverAIResult(aiInput, recordID: speechEngine.lastRecordID)
+            finishTrace()
             return
         }
 
@@ -650,6 +676,7 @@ final class AppState {
                 if Task.isCancelled { return }
                 output = result.text
                 sendIntent = result.sendIntent
+                DictationTraceRecorder.record(.refinement, text: result.text)
                 if let recordID {
                     TranscriptionHistory.shared.recordRefinement(
                         id: recordID, input: aiInput, output: result.text,
@@ -668,6 +695,7 @@ final class AppState {
                         context: context
                     )
                 }
+                DictationTraceRecorder.record(.refinement, error: error.localizedDescription)
                 // Never lose the dictation: fall back to the raw transcript, but say so
                 // rather than pasting unrewritten text with no explanation.
                 dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript")
@@ -689,6 +717,7 @@ final class AppState {
             } else {
                 self.deliverAIResult(output, recordID: recordID)
             }
+            self.finishTrace()
         }
     }
 
@@ -696,6 +725,7 @@ final class AppState {
     private func deliverAIResult(_ output: String, recordID: UUID?) {
         let hasFrozenSpans = speechEngine.spanLayer.spans.contains { $0.state == .frozen }
         let (paste, applied) = inlineDelivery.deliverAIResult(output, hasFrozenSpans: hasFrozenSpans)
+        if let applied { DictationTraceRecorder.record(.correction, applied: applied) }
         if let applied, let recordID {
             TranscriptionHistory.shared.recordCorrection(id: recordID, applied: applied)
         }
@@ -832,6 +862,7 @@ final class AppState {
     /// Pastes into the previously focused app, falling back to the Record Window when
     /// that isn't possible.
     private func deliver(_ text: String) {
+        DictationTraceRecorder.record(.stopPaste, text: text)
         if !PasteService.isAccessibilityGranted {
             dlog("App", "deliver: no accessibility, showing record panel")
             PasteService.promptAccessibility()

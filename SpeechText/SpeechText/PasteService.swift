@@ -18,12 +18,20 @@ final class AccessibilityDeliveryTarget: InlineDeliveryTarget {
     }
 
     var acceptsDeliveryNow: Bool {
-        guard PasteService.isAccessibilityGranted, let app else { return false }
-        return NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+        guard PasteService.isAccessibilityGranted, let app,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            DictationTraceRecorder.record(.targetNotInFront)
+            return false
+        }
+        return true
     }
 
     func paste(_ text: String, completion: @escaping (PasteLanding?) -> Void) {
-        PasteService.pasteAtCursor(text, completion: completion)
+        PasteService.pasteAtCursor(text) { landing in
+            DictationTraceRecorder.record(.paste, text: text,
+                                          landing: landing.map { $0.text == text ? .exact : .different } ?? .unknown)
+            completion(landing)
+        }
     }
 
     func captureFocusedField() {

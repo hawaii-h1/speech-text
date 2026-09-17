@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D10000010000000000000005 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
+		D30000010000000000000008 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
 		D10000010000000000000001 /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
 		D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000002 /* RecognitionSessionFactory.swift */; };
 		D30000010000000000000001 /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
@@ -89,6 +91,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		D20000010000000000000005 /* DictationTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationTrace.swift; sourceTree = "<group>"; };
 		D20000010000000000000001 /* InlineDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineDelivery.swift; sourceTree = "<group>"; };
 		D20000010000000000000002 /* RecognitionSessionFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionSessionFactory.swift; sourceTree = "<group>"; };
 		D20000010000000000000003 /* DictationReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationReplay.swift; sourceTree = "<group>"; };
@@ -228,6 +231,7 @@
 				A2000001000000000000002E /* FocusContext.swift */,
 				D20000010000000000000001 /* InlineDelivery.swift */,
 				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
+				D20000010000000000000005 /* DictationTrace.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
 				A2000001000000000000000A /* Info.plist */,
 				A2000001000000000000000B /* SpeechText.entitlements */,
@@ -390,6 +394,7 @@
 				A1000001000000000000002B /* FocusContext.swift in Sources */,
 				D10000010000000000000001 /* InlineDelivery.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
+				D10000010000000000000005 /* DictationTrace.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -427,6 +432,7 @@
 				D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */,
 				D30000010000000000000006 /* DictationReplay.swift in Sources */,
 				D30000010000000000000007 /* DictationReplayTests.swift in Sources */,
+				D30000010000000000000008 /* DictationTrace.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

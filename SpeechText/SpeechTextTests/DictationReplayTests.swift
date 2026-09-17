@@ -394,3 +394,69 @@ final class AIReplayTests: XCTestCase {
         XCTAssertTrue(run.logged("AI draft: extend"))
     }
 }
+
+// MARK: - Recorded traces
+
+/// Every trace in `SpeechTextTests/Traces/`, recorded by the app with Debug Log › Record
+/// traces on and copied here by `scripts/import-trace.sh`. Each one must still paste what
+/// the app pasted when it was recorded — or, once someone has reviewed it and written
+/// `expectedDocument`, leave the document holding exactly that.
+@MainActor
+final class RecordedTraceTests: XCTestCase {
+
+    private static var tracesDirectory: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Traces")
+    }
+
+    func testEveryRecordedTraceStillReplaysAsRecorded() async throws {
+        let files = (try? FileManager.default.contentsOfDirectory(at: Self.tracesDirectory,
+                                                                  includingPropertiesForKeys: nil)) ?? []
+        let traces = files.filter { $0.pathExtension == "json" }.sorted { $0.path < $1.path }
+        try XCTSkipIf(traces.isEmpty, "no recorded traces in \(Self.tracesDirectory.path)")
+
+        for file in traces {
+            let trace = try DictationTrace.decode(Data(contentsOf: file))
+            let run = await DictationReplay.run(trace)
+            let name = file.lastPathComponent
+            if let expected = trace.expectedDocument {
+                XCTAssertEqual(run.document, expected, "\(name): the document")
+            } else {
+                XCTAssertEqual(run.app.pastes, DictationReplay.recordedPastes(trace),
+                               "\(name): the pastes differ from the recording — if the change is intended, review the trace and set expectedDocument")
+            }
+        }
+    }
+
+    /// The recorder's output reads back, and replays into the pastes it recorded.
+    func testATraceRoundTripsAndReplays() async throws {
+        let recorder = DictationTraceRecorder(setup: DictationTrace.Setup(
+            app: "TextEdit", probe: .init(valueReadable: true, rangeReadable: true, rangeReadsBack: true)))
+        recorder.record(.partial, text: "Зроблю це")
+        recorder.record(.committed, text: "Зроблю це ввечері, коли повернусь додому.")
+        recorder.record(.paste, text: "Зроблю це ввечері, коли повернусь додому.", landing: .exact)
+        recorder.record(.committed, text: "Подзвоню з дороги.")
+        recorder.record(.targetNotInFront)
+        recorder.record(.stop)
+        recorder.record(.committed, text: "І ще одне речення.")
+        recorder.record(.stopPaste, text: " Подзвоню з дороги. І ще одне речення.")
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = try XCTUnwrap(recorder.write(into: directory))
+        let trace = try DictationTrace.decode(Data(contentsOf: url))
+        XCTAssertEqual(trace.events.map(\.kind),
+                       [.partial, .committed, .paste, .committed, .targetNotInFront, .stop, .committed, .stopPaste])
+
+        let run = await DictationReplay.run(trace)
+        XCTAssertEqual(run.app.pastes, DictationReplay.recordedPastes(trace))
+        XCTAssertEqual(run.document, "Зроблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
+    }
+
+    /// Apple and plain batch dictations have no events to replay, and are not written.
+    func testANonStreamedDictationIsNotWritten() {
+        let recorder = DictationTraceRecorder(setup: DictationTrace.Setup())
+        recorder.record(.stop)
+        recorder.record(.stopPaste, text: "Привіт.")
+        XCTAssertNil(recorder.write(into: FileManager.default.temporaryDirectory))
+    }
+}

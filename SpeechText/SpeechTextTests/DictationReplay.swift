@@ -67,6 +67,8 @@ final class FakeApp: InlineDeliveryTarget {
     private(set) var focusedField = "document"
     /// Text pasted while another app was in front.
     private(set) var elsewhere = ""
+    /// Every paste, in order — the spans' and the stop's.
+    private(set) var pastes: [String] = []
     var isInFront = true
     var accessibilityGranted = true
     /// Paste completions are held until `landPendingPastes()` instead of running at once:
@@ -176,6 +178,7 @@ final class FakeApp: InlineDeliveryTarget {
     }
 
     private func insertAtCaret(_ text: String) -> PasteLanding? {
+        pastes.append(text)
         guard isInFront else {
             elsewhere += text
             return nil
@@ -341,6 +344,79 @@ final class DictationReplay {
 
     private func cleaned(_ text: String) -> String {
         setup.removesDisfluencies ? cleanedTranscript(text) : text
+    }
+
+    /// A recorded `DictationTrace`, replayed into an app that answers the probe the way the
+    /// recorded one did.
+    ///
+    /// The recording is coarser than a script, so three things are inferred: the app lies
+    /// about selections exactly when it probed as correctable but a correction was
+    /// refused; the landing is exact only if every recorded paste landed exactly; and the
+    /// user was away from the moment a span found the app not in front until the next
+    /// paste — moved to just before the provider event that triggered each, since both
+    /// are recorded only once that event has been handled.
+    static func run(_ trace: DictationTrace) async -> Result {
+        let setup = Setup(aiMode: trace.setup.aiMode, aiDraft: trace.setup.aiDraft,
+                          messageSending: trace.setup.messageSending,
+                          removesDisfluencies: trace.setup.removesDisfluencies)
+        let probe = AXTextProbe(valueReadable: trace.setup.probe.valueReadable,
+                                rangeReadable: trace.setup.probe.rangeReadable,
+                                rangeReadsBack: trace.setup.probe.rangeReadsBack)
+        let pastes = trace.events.filter { $0.kind == .paste }
+        let refused = trace.events.contains { $0.kind == .correction && $0.applied == false }
+        let behaviour = FakeApp.Behaviour(
+            probe: probe,
+            landing: !pastes.isEmpty && pastes.allSatisfy({ $0.landing == .exact }) ? .exact : .unknown,
+            selectionReadsBack: probe.supportsReplacement && !refused)
+
+        var steps: [Step] = []
+        var atStop: [StreamingSTTEvent] = []
+        var fallback = ScriptedSegment(error: "no fallback was recorded")
+        var llm = LLM.fails
+        var stopped = false
+        var away = false
+        /// Where the provider event that led to the latest delivery attempt sits in `steps`.
+        var lastEventIndex = 0
+
+        for event in trace.events {
+            switch event.kind {
+            case .partial, .committed, .streamFailed:
+                let text = event.text ?? ""
+                let (providerEvent, step): (StreamingSTTEvent, Step) = switch event.kind {
+                case .partial: (.partial(text), .partial(text))
+                case .committed: (.committed(text), .committed(text))
+                default: (.failed(StreamBroke()), .streamBreaks)
+                }
+                if stopped {
+                    atStop.append(providerEvent)
+                } else {
+                    lastEventIndex = steps.count
+                    steps.append(step)
+                }
+            case .targetNotInFront where !stopped && !away:
+                steps.insert(.switchAway, at: lastEventIndex)
+                lastEventIndex += 1
+                away = true
+            case .paste where !stopped && away:
+                steps.insert(.switchBack, at: lastEventIndex)
+                lastEventIndex += 1
+                away = false
+            case .stop:
+                stopped = true
+            case .fallback:
+                fallback = event.error.map { ScriptedSegment(error: $0) } ?? ScriptedSegment(text: event.text ?? "")
+            case .refinement:
+                if let text = event.text { llm = .rewrites(text) }
+            default:
+                break
+            }
+        }
+        return await run(setup, in: FakeApp(behaviour), steps, atStop: atStop, fallback: fallback, llm: llm)
+    }
+
+    /// What the app pasted when the trace was recorded, in order.
+    static func recordedPastes(_ trace: DictationTrace) -> [String] {
+        trace.events.filter { $0.kind == .paste || $0.kind == .stopPaste }.compactMap(\.text)
     }
 
     /// `AppState.startRecording` → `beginDeliveryPlan`, then `SpeechEngine.startRecording`

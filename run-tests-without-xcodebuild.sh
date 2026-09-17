@@ -24,7 +24,7 @@ for f in Settings STTProvider AudioBufferWriter DebugLog LLMProvider PromptPrese
          TextRefinementService StreamingSTTProvider RecordingConfiguration MessageDelivery \
          TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier FinalizePass TranscriptCleanup \
          FocusContext SystemCapabilities LocalModelCatalog OllamaProvider InlineDelivery \
-         RecognitionSession BatchRecognitionSession StreamingRecognitionSession; do
+         RecognitionSession BatchRecognitionSession StreamingRecognitionSession DictationTrace; do
   SRC+=("SpeechText/SpeechText/$f.swift")
 done
 "$SWIFTC" -emit-library -o "$OUT/Contents/MacOS/SpeechTextTests" \
