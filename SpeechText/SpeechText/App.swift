@@ -445,7 +445,7 @@ final class AppState {
         speechEngine.startRecording(locale: locale)
 
         // After the engine start, not before: nothing reads it until the stop.
-        focusContext = isAIMode && FocusContext.isEnabled
+        focusContext = isAIMode
             ? PasteService.readFocusContext(in: previousApp)
             : nil
         if let focusContext {

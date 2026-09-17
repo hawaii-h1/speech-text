@@ -4,8 +4,6 @@
 import Foundation
 
 enum SettingsKeys {
-    static let webhookURL = "webhookURL"
-    static let authToken = "authToken"
     static let selectedLanguage = "selectedLanguage"
 
     // STT Provider
@@ -55,7 +53,6 @@ enum SettingsKeys {
     /// rewrite at the stop. Tier A only; off by default.
     static let aiDraftWhileSpeaking = "aiDraftWhileSpeaking"
     /// Whether an AI dictation tells the model which app, window and field it is for.
-    static let aiFocusContextEnabled = "aiFocusContextEnabled"
 
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
@@ -85,7 +82,7 @@ enum SettingsKeys {
     /// accessibility prompt flag describe grants made to the *old* bundle identifier,
     /// and copying them would leave the new app unregistered and unprompted.
     static let portable: [String] = [
-        webhookURL, authToken, selectedLanguage,
+        selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
         removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
@@ -93,7 +90,7 @@ enum SettingsKeys {
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
-        promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
+        promptPresets, defaultPresetID, aiModeInRecordWindow,
         appSkin, accentColor,
         hotkeyLayoutVersion, debugMode,
     ]
@@ -222,6 +219,12 @@ private func currentInputSourceLanguage() -> String? {
 /// default — so the UI shows nothing and the app runs something the user did not pick.
 func normalizeStoredProviders() {
     let defaults = UserDefaults.standard
+
+    // Settings for removed features: the webhook (whose bearer token should not outlive
+    // it) and the switch that used to keep the focus context out of AI dictations.
+    for key in ["webhookURL", "authToken", "aiFocusContextEnabled"] {
+        defaults.removeObject(forKey: key)
+    }
 
     if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
        STTProviderType(rawValue: raw) == nil {

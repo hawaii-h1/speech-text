@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local AI processing through Ollama: Qwen3.5 / 3.6 / 3.8, Gemma 4 and gpt-oss, pulled with one click. Any model you already have in Ollama can be picked too.
 - Model recommendations by Mac class, from an 8 GB MacBook Neo to a 512 GB Mac Studio: each class gets a recommended model (the fastest of good quality) and a best-quality one, and heavier models stay available with a warning.
 - The menu bar's first line says which build is running — version, build number, commit and build date — and copies it when clicked.
+- AI dictations tell the model which app, window and text field they are for, so the same words come out as a chat message in Slack and as a letter in Mail. Nothing is read from password managers, and only the app's name from a password field.
 
 ### Changed
 
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Message delivery. An AI dictation can no longer be sent to someone through iMessage, Mail, Telegram or WhatsApp, and the app no longer asks for Contacts access.
+- Webhook delivery. The Record Window no longer has a send button, and a stored webhook URL and token are deleted at launch.
 
 ### Fixed
 
