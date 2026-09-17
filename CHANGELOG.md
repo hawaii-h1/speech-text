@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Message delivery. An AI dictation can no longer be sent to someone through iMessage, Mail, Telegram or WhatsApp, and the app no longer asks for Contacts access.
+- Webhook delivery. The Record Window no longer has a send button, and a stored webhook URL and token are deleted at launch.
 
 ### Fixed
 

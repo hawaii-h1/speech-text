@@ -21,7 +21,7 @@ enum TextRefinementService {
 
     /// `context` is where the text is going, read when the recording started. The Record
     /// Window passes none: it is our own surface, and its text as often ends up on the
-    /// clipboard or a webhook as in the app that was in front before it opened.
+    /// clipboard as in the app that was in front before it opened.
     static func refine(_ transcript: String, context: FocusContext? = nil) async throws -> Result {
         let source = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let providerType = LLMConfiguration.providerType

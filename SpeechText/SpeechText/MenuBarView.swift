@@ -6,8 +6,6 @@ import ServiceManagement
 import AppKit
 
 struct SettingsView: View {
-    @AppStorage(SettingsKeys.webhookURL) private var webhookURL = ""
-    @AppStorage(SettingsKeys.authToken) private var authToken = ""
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
@@ -100,13 +98,6 @@ struct SettingsView: View {
                 Text("Click a shortcut, then press the new key combination.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section("Webhook") {
-                TextField("Webhook URL", text: $webhookURL)
-                    .textFieldStyle(.roundedBorder)
-                SecureField("Auth Token", text: $authToken)
-                    .textFieldStyle(.roundedBorder)
             }
 
             Section("Permissions") {

@@ -274,7 +274,6 @@ struct DirectRecordingPanelView: View {
     }
 
     @State private var showCopyCheck = false
-    @State private var showSendCheck = false
     @State private var showPasteCheck = false
     @State private var isHoveringTransport = false
     @State private var langLabel = ""
@@ -293,11 +292,6 @@ struct DirectRecordingPanelView: View {
     @State private var refineFailed = false
 
     private let insertionHandler = TextInsertionHandler()
-
-    private var hasWebhook: Bool {
-        guard let url = UserDefaults.standard.string(forKey: SettingsKeys.webhookURL) else { return false }
-        return !url.isEmpty
-    }
 
     private var hasText: Bool {
         !speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -672,7 +666,7 @@ struct DirectRecordingPanelView: View {
     }
 
     private var railActions: [RailAction] {
-        var actions: [RailAction] = [
+        [
             RailAction(
                 id: "ai",
                 systemImage: "sparkles",
@@ -702,20 +696,6 @@ struct DirectRecordingPanelView: View {
                 action: copyToClipboard
             ),
         ]
-        if hasWebhook {
-            actions.append(
-                RailAction(
-                    id: "webhook",
-                    systemImage: showSendCheck ? "checkmark" : "paperplane",
-                    isOn: showSendCheck,
-                    accent: confirmation,
-                    isEnabled: hasText,
-                    help: "Send to your webhook",
-                    action: sendToWebhook
-                )
-            )
-        }
-        return actions
     }
 
     private var railHeight: CGFloat {
@@ -724,9 +704,8 @@ struct DirectRecordingPanelView: View {
     }
 
     /// The rail hangs from its bottom edge, high enough that the close button below it
-    /// still clears the shell's bottom-right corner. A fourth action needs another
-    /// 34pt and borrows them from above, stopping just under the knob.
-    private var railBottom: CGFloat { hasWebhook ? 226 : 213 }
+    /// still clears the shell's bottom-right corner.
+    private let railBottom: CGFloat = 213
 
     private var buttonRail: some View {
         ButtonRail {
@@ -781,11 +760,6 @@ struct DirectRecordingPanelView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(speechEngine.editedText, forType: .string)
         flash($showCopyCheck)
-    }
-
-    private func sendToWebhook() {
-        WebhookService.send(text: speechEngine.editedText) { _ in }
-        flash($showSendCheck)
     }
 
     private func pasteAtCursor() {

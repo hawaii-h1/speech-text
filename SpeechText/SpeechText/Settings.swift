@@ -4,8 +4,6 @@
 import Foundation
 
 enum SettingsKeys {
-    static let webhookURL = "webhookURL"
-    static let authToken = "authToken"
     static let selectedLanguage = "selectedLanguage"
 
     // STT Provider
@@ -85,7 +83,7 @@ enum SettingsKeys {
     /// accessibility prompt flag describe grants made to the *old* bundle identifier,
     /// and copying them would leave the new app unregistered and unprompted.
     static let portable: [String] = [
-        webhookURL, authToken, selectedLanguage,
+        selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
         removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
@@ -222,6 +220,11 @@ private func currentInputSourceLanguage() -> String? {
 /// default — so the UI shows nothing and the app runs something the user did not pick.
 func normalizeStoredProviders() {
     let defaults = UserDefaults.standard
+
+    // The webhook is gone; its bearer token should not outlive it in the preferences.
+    for key in ["webhookURL", "authToken"] {
+        defaults.removeObject(forKey: key)
+    }
 
     if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
        STTProviderType(rawValue: raw) == nil {

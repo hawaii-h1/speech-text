@@ -75,7 +75,7 @@ The short version:
 - **`SpeechEngine`** owns the microphone and the recording lifecycle. State lives in one `phase` value.
 - **`RecognitionSession`** is the tier abstraction — one session per recorded segment. Three implementations: Apple on-device, batch upload, and realtime streaming (which falls back to batch when the stream breaks).
 - **`AppState`** orchestrates the overlay, tracks the previously focused app, and pastes the result back.
-- **Services** (`PasteService`, `WebhookService`, `TextRefinementService`) are independent and testable.
+- **Services** (`PasteService`, `TextRefinementService`) are independent and testable.
 
 ## Style
 
