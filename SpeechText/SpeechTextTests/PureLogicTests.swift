@@ -793,6 +793,46 @@ final class UndeliveredRemainderTests: XCTestCase {
         XCTAssertEqual(ledger.remainder(of: "Один два три чотири п'ять"), "чотири п'ять")
     }
 
+    /// 17.09, a Wi-Fi cut: the batch fallback re-worded the delivered text from its first
+    /// word, so the restatement test (which needs that word unchanged) saw no overlap and
+    /// the sentence said after the cut was never pasted. The re-wording keeps 27 of its
+    /// 29 words in order, so the tail is found.
+    func testARevisedFirstWordDoesNotLoseTheTail() {
+        let ledger = self.ledger(delivered: [
+            "Почну перевірку нового тесту з назвою «Demo, one replacement». Зараз я ще говорю і продовжую говорити. Хочу зробити невелику паузу, щоб з'явився перший шматок тексту.",
+            "Тепер мережу вимкнено.",
+        ])
+        let final = "Почну перевірку нового тесту з назвою TextEdit Demo Replacement. Зараз я ще говорю і продовжую говорити. Хочу зробити невелику паузу, щоб з'явився перший шматок тексту. Тепер мережу вимкнено. Мережа знову є, фокус у TextEdit, зупиняюсь."
+        XCTAssertEqual(ledger.remainder(of: final), "Мережа знову є, фокус у TextEdit, зупиняюсь.")
+    }
+
+    /// A revised last word is not pasted again as if it were new.
+    func testARevisedLastWordIsNotOwedAgain() {
+        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту з назвою текст і пишу сьогодні"])
+        XCTAssertEqual(ledger.remainder(of: "Почну перевірку нового тесту з назвою текст і пишу зараз. І ще одне речення."),
+                       "І ще одне речення.")
+    }
+
+    /// In a short text two revised words out of five are too many to call it the same
+    /// dictation — refused, as before.
+    func testTwoRevisedWordsInAShortTextAreStillRefused() {
+        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту сьогодні"])
+        XCTAssertNil(ledger.remainder(of: "Почну перевірку нового тесту зараз. І ще одне речення."))
+    }
+
+    /// Nothing new said: a re-wording of everything owes nothing — not the whole text again.
+    func testAReWordingWithNothingNewOwesNothing() {
+        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту з назвою"])
+        XCTAssertEqual(ledger.remainder(of: "Почну перевірку нового тесту з назвою"), "")
+    }
+
+    /// Too few words in common is a different text, and a different text is still not
+    /// pasted under the one already there.
+    func testAFinalTextSharingOnlyAFewWordsIsStillRefused() {
+        let ledger = self.ledger(delivered: ["Я думаю що завтра буде дуже гарна погода"])
+        XCTAssertNil(ledger.remainder(of: "Ти знаєш, завтра буде дощ і вітер, а не погода"))
+    }
+
     /// The tail pasted at the stop opens with a space, like every delivery before it —
     /// found in cmux, where it landed as "Поїха.Ііі як воно…".
     func testTheTailIsPastedWithTheSpaceThatSeparatesIt() {
@@ -854,10 +894,30 @@ final class FinalizePassTests: XCTestCase {
         XCTAssertEqual(plan?.range, NSRange(location: 12, length: 17))
     }
 
-    func testAnUntrackedPieceRefusesThePass() {
+    /// A paste whose landing could not be read is found by its text, when it is there
+    /// exactly once — 17.09, a click on the menu bar mid-paste left one piece untracked,
+    /// and that alone refused the whole correction.
+    func testAnUntrackedPieceIsFoundByItsText() {
+        var ledger = badlyCut()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "завтра.")
+        let document = "Нотат Олек сандр прийде завтра.\nкінець"
+        XCTAssertEqual(FinalizePass.plan(ledger: ledger, document: document, replacement: "Олександр прийде завтра."),
+                       TextReplacement(range: NSRange(location: 6, length: 25), text: "Олександр прийде завтра."))
+    }
+
+    /// …and refused when the text appears twice: which one is ours is a guess.
+    func testAnUntrackedPieceThatAppearsTwiceRefusesThePass() {
         var ledger = InsertionLedger()
-        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Олек")
-        XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Олек", replacement: "Олександр"))
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Так.")
+        XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Так. Ні. Так.", replacement: "Так, так."))
+    }
+
+    /// An untracked piece no longer decides against a correction by itself; the plan does.
+    func testAnUntrackedPieceStillAllowsACorrectionInTierA() {
+        var ledger = badlyCut()
+        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "завтра.")
+        XCTAssertEqual(FinalizePass.decide(ledger: ledger, authoritative: "Олександр прийде завтра.",
+                                           tier: .a, hasFrozenSpans: false), .replace)
     }
 
     func testNothingToWriteWhenTheDocumentAlreadyHoldsTheFinalText() {

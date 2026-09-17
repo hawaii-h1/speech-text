@@ -48,10 +48,9 @@ enum FinalizePass {
         guard !final.isEmpty else { return .leave }
         if extendsExactly(delivered, final) { return .extend }
 
-        guard tier.recordsRanges, !hasFrozenSpans,
-              ledger.records.allSatisfy({ $0.span != nil && $0.range.location != NSNotFound }) else {
-            return .leave
-        }
+        // Records without a range are not a refusal here: `plan` looks them up by their
+        // text and refuses there if any is not found exactly once.
+        guard tier.recordsRanges, !hasFrozenSpans else { return .leave }
         return .replace
     }
 
@@ -59,7 +58,8 @@ enum FinalizePass {
     /// there. Nil — leave the document alone — unless every step checks out:
     ///
     /// 1. Every record resolves (`InsertionLedger.resolve`): at its recorded range, or as
-    ///    the one unambiguous occurrence of its text. The spec lets an unresolvable
+    ///    the one unambiguous occurrence of its text — which is also how a paste whose
+    ///    landing could not be read is found. The spec lets an unresolvable
     ///    record be *skipped*; here it refuses the whole pass instead, because the write
     ///    is a single range across all records, and a skipped one inside it is text the
     ///    user changed that the write would overwrite — and a skipped one at an end is
@@ -73,8 +73,7 @@ enum FinalizePass {
 
         var ranges: [NSRange] = []
         for record in ledger.records {
-            guard let span = record.span,
-                  let range = ledger.resolve(span: span, in: document) else { return nil }
+            guard let range = ledger.resolve(record, in: document) else { return nil }
             ranges.append(range)
         }
         ranges.sort { $0.location < $1.location }

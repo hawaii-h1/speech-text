@@ -89,10 +89,64 @@ struct InsertionLedger {
         let delivered = deliveredText
         guard !delivered.isEmpty else { return authoritative }
 
-        let overlap = transcriptOverlap(head: transcriptWords(delivered),
-                                        tail: transcriptWords(authoritative))
-        guard overlap.words > 0 else { return nil }
-        return transcriptContinuation(of: delivered, in: authoritative)
+        let head = transcriptWords(delivered)
+        let tail = transcriptWords(authoritative)
+        let overlap = transcriptOverlap(head: head, tail: tail)
+        if overlap.words > 0 {
+            return transcriptContinuation(of: delivered, in: authoritative)
+        }
+        return revisedContinuation(head: head, tail: tail, in: authoritative)
+    }
+
+    /// The tail of `text` after a re-wording of what was delivered — or nil if it is not
+    /// one.
+    ///
+    /// `transcriptOverlap` recognises a restatement only when it opens with the same
+    /// word, and a provider that heard the whole recording again revises exactly the
+    /// words it was least sure of, the first among them ("Зроблю…" → "Роблю…"). Refusing
+    /// there left the sentence said *after* the delivered text unpasted, in History and
+    /// nowhere else. So this finds where the delivered words end inside `text` by their
+    /// longest common subsequence, and accepts it only when that keeps the same
+    /// `restatementAgreement` share of them in order — a re-wording, not a different
+    /// dictation. The seam can be a word off; a lost sentence cannot be seen at all.
+    private func revisedContinuation(head: [TranscriptWord], tail: [TranscriptWord], in text: String) -> String? {
+        guard !head.isEmpty, !tail.isEmpty else { return nil }
+        let rows = head.count, columns = tail.count
+
+        // lcs[i][j]: common subsequence of head[..<i] and tail[..<j].
+        var lcs = Array(repeating: Array(repeating: 0, count: columns + 1), count: rows + 1)
+        for i in 1...rows {
+            for j in 1...columns {
+                lcs[i][j] = head[i - 1].text == tail[j - 1].text
+                    ? lcs[i - 1][j - 1] + 1
+                    : max(lcs[i - 1][j], lcs[i][j - 1])
+            }
+        }
+
+        let best = lcs[rows][columns]
+        guard best > 0,
+              Double(best) >= Double(rows) * TranscriptMergeTuning.restatementAgreement else { return nil }
+
+        // The shortest prefix of `tail` that already holds every match…
+        var end = (0...columns).first { lcs[rows][$0] == best } ?? columns
+        // …plus the delivered words after the last match, which were revised into the
+        // tail's words that follow it rather than dropped.
+        var i = rows, j = end
+        var lastMatchedHead = -1
+        while i > 0, j > 0 {
+            if head[i - 1].text == tail[j - 1].text {
+                lastMatchedHead = i - 1
+                break
+            } else if lcs[i - 1][j] >= lcs[i][j - 1] {
+                i -= 1
+            } else {
+                j -= 1
+            }
+        }
+        end = min(columns, end + (rows - 1 - lastMatchedHead))
+
+        guard end < columns else { return "" }
+        return String(text[tail[end].start...]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// `rest` as it has to be pasted after what the sink already holds: opened with the
@@ -109,10 +163,19 @@ struct InsertionLedger {
     /// that text anywhere in the document (it moved — the user typed above it);
     /// otherwise nothing at all, and the caller must leave the document alone.
     func resolve(span: TranscriptSpanID, in document: String) -> NSRange? {
-        guard let record = record(for: span), !record.text.isEmpty else { return nil }
+        guard let record = record(for: span) else { return nil }
+        return resolve(record, in: document)
+    }
+
+    /// The same three steps for any record — including one with no span and no range,
+    /// a paste whose landing could not be read. It skips straight to the search, and the
+    /// search still refuses text that is not there exactly once.
+    func resolve(_ record: InsertionRecord, in document: String) -> NSRange? {
+        guard !record.text.isEmpty else { return nil }
         let text = document as NSString
 
-        if NSMaxRange(record.range) <= text.length,
+        if record.range.location != NSNotFound,
+           NSMaxRange(record.range) <= text.length,
            text.substring(with: record.range) == record.text {
             return record.range
         }

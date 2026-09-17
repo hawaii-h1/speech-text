@@ -715,9 +715,22 @@ final class AppState {
 
         guard isAIMode else {
             hideOverlay()
+            guard let remainder else {
+                // The final text re-words what is already in the document too much to
+                // tell where it ends, so nothing more was pasted rather than a second
+                // copy. The words are in History; say so instead of dropping them silently.
+                showStatus(
+                    icon: "text.badge.xmark",
+                    title: "Part of the dictation wasn't pasted",
+                    detail: "The final transcript differs from what was already typed. Click to see it in History.",
+                    tint: .orange,
+                    duration: 8
+                )
+                return
+            }
             // Everything was already pasted as it was committed — which is the point of
             // the exercise, not a failure of it.
-            guard let remainder, !remainder.isEmpty else {
+            guard !remainder.isEmpty else {
                 dlog("App", "handleTranscriptionResult: nothing left to paste")
                 return
             }
