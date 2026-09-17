@@ -53,7 +53,7 @@ final class MultipartTests: XCTestCase {
 final class RecordingConfigurationTests: XCTestCase {
 
     /// Constructed directly — never via `current()`, which reads the real defaults.
-    private func config(provider: STTProviderType, elevenLabsModel: String = "scribe_v1",
+    private func config(provider: STTProviderType, elevenLabsModel: String = "scribe_v2",
                         groqModel: String = "whisper-large-v3-turbo",
                         localeIsAutomatic: Bool = false) -> RecordingConfiguration {
         RecordingConfiguration(provider: provider, locale: "en-US",
@@ -64,15 +64,17 @@ final class RecordingConfigurationTests: XCTestCase {
 
     func testStreamsOnlyForElevenLabsRealtimeModel() {
         XCTAssertTrue(config(provider: .elevenlabs, elevenLabsModel: elevenLabsRealtimeModel).streams)
-        XCTAssertFalse(config(provider: .elevenlabs, elevenLabsModel: "scribe_v1").streams)
+        XCTAssertFalse(config(provider: .elevenlabs, elevenLabsModel: "scribe_v2").streams)
         // The model string alone must not be enough: the provider has to match too.
         XCTAssertFalse(config(provider: .groq, elevenLabsModel: elevenLabsRealtimeModel).streams)
         XCTAssertFalse(config(provider: .apple).streams)
     }
 
-    func testBatchModelMapsRealtimeToScribeV1() {
+    /// scribe_v1 is deprecated, so the stream's fallback — and History retries of a
+    /// realtime recording — upload to scribe_v2.
+    func testBatchModelMapsRealtimeToScribeV2() {
         XCTAssertEqual(config(provider: .elevenlabs, elevenLabsModel: elevenLabsRealtimeModel).batchModel,
-                       "scribe_v1")
+                       "scribe_v2")
         XCTAssertEqual(config(provider: .elevenlabs, elevenLabsModel: "scribe_v2").batchModel,
                        "scribe_v2")
     }

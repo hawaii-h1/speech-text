@@ -7,6 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C30000010000000000000100 /* LocalModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000100 /* LocalModelsTests.swift */; };
+		C10000010000000000000001 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
+		C30000010000000000000001 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
+		C10000010000000000000002 /* LocalModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000002 /* LocalModelCatalog.swift */; };
+		C30000010000000000000002 /* LocalModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000002 /* LocalModelCatalog.swift */; };
+		C10000010000000000000003 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000003 /* OllamaProvider.swift */; };
+		C30000010000000000000003 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000003 /* OllamaProvider.swift */; };
+		C10000010000000000000004 /* LocalModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000004 /* LocalModelStore.swift */; };
+		C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000005 /* LocalWhisperRuntime.swift */; };
+		C10000010000000000000006 /* LocalModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000006 /* LocalModelsView.swift */; };
+		C40000010000000000000001 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = C60000010000000000000001 /* WhisperKit */; };
 		A10000010000000000000001 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001 /* App.swift */; };
 		A10000010000000000000002 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000002 /* MenuBarView.swift */; };
 		A10000010000000000000003 /* RecordingOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000003 /* RecordingOverlay.swift */; };
@@ -68,6 +79,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		C20000010000000000000100 /* LocalModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsTests.swift; sourceTree = "<group>"; };
+		C20000010000000000000001 /* SystemCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCapabilities.swift; sourceTree = "<group>"; };
+		C20000010000000000000002 /* LocalModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelCatalog.swift; sourceTree = "<group>"; };
+		C20000010000000000000003 /* OllamaProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
+		C20000010000000000000004 /* LocalModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelStore.swift; sourceTree = "<group>"; };
+		C20000010000000000000005 /* LocalWhisperRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperRuntime.swift; sourceTree = "<group>"; };
+		C20000010000000000000006 /* LocalModelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsView.swift; sourceTree = "<group>"; };
 		A20000010000000000000001 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		A20000010000000000000002 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A20000010000000000000003 /* RecordingOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingOverlay.swift; sourceTree = "<group>"; };
@@ -121,6 +139,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C40000010000000000000001 /* WhisperKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -181,6 +200,12 @@
 				A20000010000000000000028 /* StreamingRecognitionSession.swift */,
 				A20000010000000000000029 /* TranscriptSpan.swift */,
 				A2000001000000000000002A /* TranscriptMerge.swift */,
+				C20000010000000000000001 /* SystemCapabilities.swift */,
+				C20000010000000000000002 /* LocalModelCatalog.swift */,
+				C20000010000000000000003 /* OllamaProvider.swift */,
+				C20000010000000000000004 /* LocalModelStore.swift */,
+				C20000010000000000000005 /* LocalWhisperRuntime.swift */,
+				C20000010000000000000006 /* LocalModelsView.swift */,
 				A2000001000000000000002B /* InsertionLedger.swift */,
 				A2000001000000000000002C /* DeliveryTier.swift */,
 				A2000001000000000000002D /* TranscriptCleanup.swift */,
@@ -205,6 +230,7 @@
 			isa = PBXGroup;
 			children = (
 				B20000010000000000000001 /* PureLogicTests.swift */,
+				C20000010000000000000100 /* LocalModelsTests.swift */,
 				B20000010000000000000002 /* AudioPipelineTests.swift */,
 			);
 			path = SpeechTextTests;
@@ -226,6 +252,9 @@
 			dependencies = (
 			);
 			name = SpeechText;
+			packageProductDependencies = (
+				C60000010000000000000001 /* WhisperKit */,
+			);
 			productName = SpeechText;
 			productReference = A2000001000000000000000C /* SpeechText.app */;
 			productType = "com.apple.product-type.application";
@@ -265,6 +294,9 @@
 				Base,
 			);
 			mainGroup = A40000010000000000000001;
+			packageReferences = (
+				C50000010000000000000001 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
+			);
 			productRefGroup = A40000010000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -325,6 +357,12 @@
 				A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */,
 				A10000010000000000000026 /* TranscriptSpan.swift in Sources */,
 				A10000010000000000000027 /* TranscriptMerge.swift in Sources */,
+				C10000010000000000000001 /* SystemCapabilities.swift in Sources */,
+				C10000010000000000000002 /* LocalModelCatalog.swift in Sources */,
+				C10000010000000000000003 /* OllamaProvider.swift in Sources */,
+				C10000010000000000000004 /* LocalModelStore.swift in Sources */,
+				C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */,
+				C10000010000000000000006 /* LocalModelsView.swift in Sources */,
 				A10000010000000000000028 /* InsertionLedger.swift in Sources */,
 				A10000010000000000000029 /* DeliveryTier.swift in Sources */,
 				A1000001000000000000002A /* TranscriptCleanup.swift in Sources */,
@@ -351,6 +389,10 @@
 				B10000010000000000000019 /* MessageDelivery.swift in Sources */,
 				B1000001000000000000001A /* TranscriptSpan.swift in Sources */,
 				B1000001000000000000001B /* TranscriptMerge.swift in Sources */,
+				C30000010000000000000100 /* LocalModelsTests.swift in Sources */,
+				C30000010000000000000001 /* SystemCapabilities.swift in Sources */,
+				C30000010000000000000002 /* LocalModelCatalog.swift in Sources */,
+				C30000010000000000000003 /* OllamaProvider.swift in Sources */,
 				B1000001000000000000001C /* InsertionLedger.swift in Sources */,
 				B1000001000000000000001D /* DeliveryTier.swift in Sources */,
 				B1000001000000000000001E /* TranscriptCleanup.swift in Sources */,
@@ -583,6 +625,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C50000010000000000000001 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C60000010000000000000001 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C50000010000000000000001 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A80000010000000000000001 /* Project object */;
 }

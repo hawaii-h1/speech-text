@@ -14,6 +14,8 @@ enum SettingsKeys {
     static let groqModel = "groqModel"
     static let elevenLabsAPIKey = "elevenLabsAPIKey"
     static let elevenLabsModel = "elevenLabsModel"
+    /// `LocalSTTModel.id` (a WhisperKit variant) the local engine transcribes with.
+    static let localSTTModel = "localSTTModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
     static let removeDisfluencies = "removeDisfluencies"
 
@@ -36,6 +38,11 @@ enum SettingsKeys {
     static let anthropicModel = "anthropicModel"
     static let openAIAPIKey = "openAIAPIKey"
     static let openAIModel = "openAIModel"
+    /// Ollama tag for the local rewrite pass — any model the daemon has, not only the
+    /// catalogue's, so it is deliberately not normalised against `localLLMModels`.
+    static let ollamaModel = "ollamaModel"
+    /// Ollama's base URL; empty means `ollamaDefaultBaseURL`.
+    static let ollamaBaseURL = "ollamaBaseURL"
     /// JSON-encoded `[PromptPreset]`.
     static let promptPresets = "promptPresets"
     /// UUID string of the preset used when no other preset matches.
@@ -75,13 +82,13 @@ enum SettingsKeys {
     /// and copying them would leave the new app unregistered and unprompted.
     static let portable: [String] = [
         webhookURL, authToken, selectedLanguage,
-        sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel,
+        sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
         removeDisfluencies,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
-        openAIAPIKey, openAIModel,
+        openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
         messageSendingEnabled,
         appSkin, accentColor,
@@ -134,12 +141,15 @@ let groqModels: [(id: String, name: String)] = [
 /// the recording to a WebSocket that returns text while the user is still speaking.
 let elevenLabsRealtimeModel = "scribe_v2_realtime"
 
+/// The batch model: the default, the stream's fallback and History retries.
+let defaultElevenLabsModel = "scribe_v2"
+
 /// The batch (upload) model IDs are exactly what the API's `unsupported_model` error
-/// lists — scribe_v1, scribe_v1_experimental, scribe_v2 — plus the realtime model, which
+/// lists, minus the two that are gone: scribe_v1 is deprecated in favour of scribe_v2 and
+/// scribe_v1_experimental no longer appears in the documentation (checked 2026-09-16) —
+/// stored values for either are normalised to scribe_v2. Plus the realtime model, which
 /// only exists behind the WebSocket.
 let elevenLabsModels: [(id: String, name: String)] = [
-    ("scribe_v1", "Scribe v1"),
-    ("scribe_v1_experimental", "Scribe v1 Experimental"),
     ("scribe_v2", "Scribe v2"),
     (elevenLabsRealtimeModel, "Scribe v2 Realtime — live text"),
 ]
@@ -225,10 +235,13 @@ func normalizeStoredProviders() {
     // Model catalogues get replaced when a vendor retires a generation; a stored ID
     // that is no longer offered blanks the picker exactly like a stale provider does.
     normalizeStoredModel(SettingsKeys.groqModel, in: groqModels, fallback: "whisper-large-v3-turbo")
-    normalizeStoredModel(SettingsKeys.elevenLabsModel, in: elevenLabsModels, fallback: "scribe_v1")
+    normalizeStoredModel(SettingsKeys.elevenLabsModel, in: elevenLabsModels, fallback: defaultElevenLabsModel)
     normalizeStoredModel(SettingsKeys.groqLLMModel, in: groqChatModels, fallback: defaultGroqLLMModel)
     normalizeStoredModel(SettingsKeys.anthropicModel, in: anthropicChatModels, fallback: defaultAnthropicModel)
     normalizeStoredModel(SettingsKeys.openAIModel, in: openAIChatModels, fallback: defaultOpenAIModel)
+    normalizeStoredModel(SettingsKeys.localSTTModel,
+                         in: localSTTModels.map { (id: $0.id, name: $0.displayName) },
+                         fallback: defaultLocalSTTModel)
 }
 
 private func normalizeStoredModel(

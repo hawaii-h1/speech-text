@@ -58,7 +58,7 @@ enum TextRefinementService {
             user: userMessage(transcript: source, context: describesContext ? context : nil)
         )
 
-        let parsed = parse(raw, allowing: channels)
+        let parsed = parse(raw, allowing: channels, presetNames: presets.map(\.name))
         dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(parsed.text.count) chars, send=\(parsed.sendIntent?.channel.rawValue ?? "—")")
 
         guard !parsed.text.isEmpty else { throw LLMError.emptyResponse }
@@ -194,7 +194,14 @@ enum TextRefinementService {
     /// `channels` is the allow-list: a send marker naming anything else — a channel the
     /// user disabled, or one the model made up — is dropped and the text is pasted as
     /// usual. A misrouted send is worse than a missed one.
-    static func parse(_ raw: String, allowing channels: [DeliveryChannel] = []) -> Result {
+    ///
+    /// `presetNames` enables the loose marker forms small local models write instead of
+    /// the requested one — `<<Email>>`, `<mode:Clean-up>` — measured on Qwen3.5 2B and 4B,
+    /// where the strict parser left the marker in the pasted text. A loose marker is only
+    /// taken when its name is exactly one of the presets (ignoring case), so a reply that
+    /// genuinely starts with something in angle brackets is left alone.
+    static func parse(_ raw: String, allowing channels: [DeliveryChannel] = [],
+                      presetNames: [String] = []) -> Result {
         var body = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         var presetName: String?
         var sendIntent: SendIntent?
@@ -213,10 +220,35 @@ enum TextRefinementService {
             body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        if presetName == nil, let (name, rest) = takeLooseModeMarker(from: body, presetNames: presetNames) {
+            presetName = name
+            body = rest
+        }
+
         body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         body = stripWrappingCodeFence(body)
         return Result(text: body, presetName: presetName?.isEmpty == false ? presetName : nil,
                       provider: "", model: "", sendIntent: sendIntent)
+    }
+
+    /// `<<NAME>>`, `<mode:NAME>`, `<NAME>` on the first line, when NAME is a preset — plus
+    /// the closing `</mode:NAME>` a model sometimes adds at the very end.
+    private static func takeLooseModeMarker(from text: String, presetNames: [String]) -> (String, String)? {
+        guard !presetNames.isEmpty,
+              let match = text.range(of: #"^<{1,2}\s*(?:mode\s*:\s*)?([^<>\n]+?)\s*>{1,2}"#,
+                                     options: .regularExpression)
+        else { return nil }
+        let inner = text[match]
+            .trimmingCharacters(in: CharacterSet(charactersIn: "<> "))
+            .replacingOccurrences(of: #"^mode\s*:\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+        guard let name = presetNames.first(where: { $0.caseInsensitiveCompare(inner) == .orderedSame }) else {
+            return nil
+        }
+        var rest = String(text[match.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let closing = rest.range(of: #"</{1,2}\s*(?:mode\s*:\s*)?[^<>\n]*>{1,2}\s*$"#, options: .regularExpression) {
+            rest = String(rest[..<closing.lowerBound])
+        }
+        return (name, rest)
     }
 
     /// Splits `<<prefix … >>` off the front, returning the marker's contents and the rest.

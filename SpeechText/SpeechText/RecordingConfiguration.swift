@@ -20,6 +20,10 @@ struct RecordingConfiguration {
     let groqModel: String
     let elevenLabsAPIKey: String
     let elevenLabsModel: String
+    /// `LocalSTTModel.id`. Defaulted so a configuration built without it (the tests,
+    /// written before the local tier existed) still describes a valid session.
+    var localModel: String = defaultLocalSTTModel
+
     /// Drop hesitation sounds, stretched words and trailing-off dots from what the
     /// recogniser returns — see `cleanedTranscript`. `var` with a default so a value
     /// built by hand (the tests) gets the setting's default.
@@ -47,17 +51,41 @@ struct RecordingConfiguration {
     var streams: Bool { provider == .elevenlabs && elevenLabsModel == elevenLabsRealtimeModel }
 
     /// Model ID used for any file upload: the stream's fallback, and History retries.
-    /// The realtime model only exists behind the WebSocket, so it maps to scribe_v1;
+    /// The realtime model only exists behind the WebSocket, so it maps to scribe_v2;
     /// Apple has no batch API, so an Apple session's upload goes to Groq.
     var batchModel: String {
         switch provider {
-        case .elevenlabs: elevenLabsModel == elevenLabsRealtimeModel ? "scribe_v1" : elevenLabsModel
+        case .elevenlabs: elevenLabsModel == elevenLabsRealtimeModel ? defaultElevenLabsModel : elevenLabsModel
         case .groq, .apple: groqModel
+        case .local: localModel
         }
     }
 
-    /// The key the batch (upload) path will use. History retry checks it before starting.
-    var batchAPIKey: String { provider == .elevenlabs ? elevenLabsAPIKey : groqAPIKey }
+    /// The key the batch (upload) path will use. Empty for the local tier, which has none.
+    var batchAPIKey: String {
+        switch provider {
+        case .elevenlabs: elevenLabsAPIKey
+        case .groq, .apple: groqAPIKey
+        case .local: ""
+        }
+    }
+
+    /// Why a file transcription with these settings cannot start, or nil when it can.
+    /// History retry asks this instead of testing the key itself: the local tier needs a
+    /// model on disk rather than a key, and "add a Groq key" would be the wrong advice.
+    /// `modelInstalled` is a parameter so the check stays testable without a filesystem.
+    func batchUnavailableReason(modelInstalled: (String) -> Bool = isLocalModelInstalled) -> String? {
+        switch provider {
+        case .local:
+            guard !modelInstalled(localModel) else { return nil }
+            let name = localSTTModel(id: localModel)?.displayName ?? localModel
+            return "\(name) isn't installed — download it in Settings."
+        case .elevenlabs:
+            return elevenLabsAPIKey.isEmpty ? "Retry needs an ElevenLabs API key — add one in Settings." : nil
+        case .groq, .apple:
+            return groqAPIKey.isEmpty ? "Retry needs a Groq API key — add one in Settings." : nil
+        }
+    }
 
     /// One read of UserDefaults. `locale` defaults to `resolvedLocale()` (keyboard-layout
     /// aware) but callers that already resolved it pass it through.
@@ -72,7 +100,8 @@ struct RecordingConfiguration {
             groqAPIKey: defaults.string(forKey: SettingsKeys.groqAPIKey) ?? "",
             groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
             elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
-            elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? "scribe_v1",
+            elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? defaultElevenLabsModel,
+            localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true
         )
     }

@@ -13,7 +13,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
     @AppStorage(SettingsKeys.elevenLabsAPIKey) private var elevenLabsAPIKey = ""
-    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = "scribe_v1"
+    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
+    @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
     @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
@@ -22,6 +23,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.anthropicModel) private var anthropicModel = defaultAnthropicModel
     @AppStorage(SettingsKeys.openAIAPIKey) private var openAIAPIKey = ""
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
+    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
     @AppStorage(SettingsKeys.aiFocusContextEnabled) private var aiFocusContextEnabled = true
     @AppStorage(SettingsKeys.messageSendingEnabled) private var messageSendingEnabled = false
@@ -238,6 +240,8 @@ struct SettingsView: View {
             switch stt {
             case .apple:
                 EmptyView()
+            case .local:
+                LocalSpeechModelsView(selectedModelID: $localSTTModelID)
             case .groq:
                 Picker("Speech Model", selection: $groqModel) {
                     ForEach(groqModels, id: \.id) { model in
@@ -251,11 +255,11 @@ struct SettingsView: View {
                     }
                 }
                 if elevenLabsModel == elevenLabsRealtimeModel {
-                    Text("Streams audio over a WebSocket, so words appear as you say them and the result lands almost as soon as you stop — a 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v1 instead. Realtime is billed per streamed minute — check your plan.")
+                    Text("Streams audio over a WebSocket, so words appear as you say them and the result lands almost as soon as you stop — a 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side (Scribe v2 models only).")
+                Text("Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -314,6 +318,8 @@ struct SettingsView: View {
                         Text(model.name).tag(model.id)
                     }
                 }
+            case .ollama:
+                OllamaModelsView(selectedModelID: $ollamaModel)
             }
 
             Text("Separate from the speech model above — you can transcribe with one provider and generate with another.")
@@ -332,8 +338,12 @@ struct SettingsView: View {
                     Label("Ready", systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
-                } else {
+                } else if llm.needsAPIKey {
                     Label("Needs an API key", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Label("Needs a model", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
@@ -421,6 +431,12 @@ struct SettingsView: View {
                 SecureField("OpenAI", text: $openAIAPIKey)
                     .textFieldStyle(.roundedBorder)
             }
+
+            if groqKeyUses.isEmpty, stt != .elevenlabs, !llm.needsAPIKey {
+                Text("Nothing to enter — everything you've selected runs on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         } header: {
             sectionHeader("API Keys", "Only the keys your current selections actually use are shown.")
         }
@@ -449,6 +465,7 @@ struct SettingsView: View {
         case .groq: key = groqAPIKey
         case .anthropic: key = anthropicAPIKey
         case .openai: key = openAIAPIKey
+        case .ollama: key = ollamaModel
         }
         return !key.trimmingCharacters(in: .whitespaces).isEmpty
     }

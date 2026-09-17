@@ -15,7 +15,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 - **Accuracy for technical speech** — library names, identifiers and mixed-language dictation are where every engine struggles.
 - **More providers** — behind the existing `STTProvider` / `LLMProvider` abstractions. New providers are a good contribution.
 - **Localization** — the UI is English-only. Ukrainian first.
-- **Onboarding** — first-run setup is currently "go create accounts and paste keys".
+- **Onboarding** — first-run setup is currently "go create accounts and paste keys". The building blocks exist: local speech models install in one click with a hardware-based recommendation, and local AI runs through Ollama. What is missing is the first-run flow that asks "local or cloud?" and walks through it.
 
 ## Later
 
@@ -25,7 +25,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 Saying no early saves everyone time:
 
-- **Third-party dependencies.** The app is pure Apple frameworks.
+- **Third-party dependencies, with one exception.** The app is Apple frameworks plus [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) for local speech models — running Whisper needs a tokenizer and a decode loop that Core ML does not provide, and reimplementing them is not a good use of anyone's time. WhisperKit is imported by exactly one file (`LocalWhisperRuntime.swift`); everything else stays Apple-only. A second dependency needs an issue first.
 - **iOS / iPadOS.** The whole design rests on pasting into another app on a desktop.
 - **Windows / Linux.** Different project entirely.
 - **A general audio-file transcription tool.** That is a different kind of app. SpeechText is about dictation into the cursor.

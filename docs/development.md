@@ -8,7 +8,7 @@ cd speech-text
 open SpeechText/SpeechText.xcodeproj
 ```
 
-Build with `Cmd+B`, run with `Cmd+R`. No package manager, no dependencies — everything is Apple frameworks.
+Build with `Cmd+B`, run with `Cmd+R`. The first build resolves one Swift package, [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (pinned in `Package.resolved`), for local speech models; everything else is Apple frameworks.
 
 ### Code signing
 
@@ -74,4 +74,4 @@ Match the surrounding code. A few conventions the codebase holds to:
 - Comments explain *why*, not *what*. A measured constant gets a comment saying what it was measured against.
 - Latency and quality constants live in `STTTuning`, not scattered across files.
 - Use `dlog(category:message:)` for diagnostics — it goes to both the in-app Debug Log window and `os.Logger`.
-- No third-party dependencies. If you think you need one, open an issue first.
+- No new third-party dependencies. WhisperKit is the one exception and is imported only by `LocalWhisperRuntime.swift` — keep it there, because the test bundle compiles app sources directly and cannot resolve packages. If you think you need another dependency, open an issue first.

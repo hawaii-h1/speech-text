@@ -9,6 +9,7 @@ enum STTProviderType: String, CaseIterable, Identifiable {
     case apple = "apple"
     case groq = "groq"
     case elevenlabs = "elevenlabs"
+    case local = "local"
 
     var id: String { rawValue }
 
@@ -17,6 +18,7 @@ enum STTProviderType: String, CaseIterable, Identifiable {
         case .apple: "Apple — on-device"
         case .groq: "Groq Whisper — cloud"
         case .elevenlabs: "ElevenLabs Scribe — cloud"
+        case .local: "Whisper — local model"
         }
     }
 
@@ -28,7 +30,9 @@ enum STTProviderType: String, CaseIterable, Identifiable {
         case .groq:
             "Cloud Whisper. Usually more accurate, needs an API key, and text only appears once you stop speaking."
         case .elevenlabs:
-            "Cloud Scribe. Strongest on accents and noisy audio, needs an API key. Scribe v2 Realtime shows text live while you speak; the v1 models only after you stop."
+            "Cloud Scribe. Strongest on accents and noisy audio, needs an API key. Scribe v2 Realtime shows text live while you speak; Scribe v2 only after you stop."
+        case .local:
+            "An open-source Whisper model downloaded to your Mac. Private, free, no key, works offline; text appears once you stop speaking."
         }
     }
 }
@@ -114,14 +118,17 @@ func multipartAudioPart(for fileURL: URL) -> (filename: String, mimeType: String
 
 /// Builds a batch provider for a session's configuration. Shared by the live
 /// recording path, the streaming fallback and History retries, so all three honour
-/// the same snapshot. The realtime→scribe_v1 and Apple→Groq mappings live on
-/// `RecordingConfiguration.batchModel`.
+/// the same snapshot. The realtime→scribe_v2 and Apple→Groq mappings live on
+/// `RecordingConfiguration.batchModel`. The local tier goes through `LocalSTT` so this
+/// file never names WhisperKit (it is compiled into the standalone test bundle).
 func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvider {
     switch configuration.provider {
     case .elevenlabs:
         ElevenLabsSTTProvider(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel)
     case .groq, .apple:
         GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel)
+    case .local:
+        LocalSTT.providerFactory(configuration.localModel)
     }
 }
 
@@ -225,7 +232,7 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = "scribe_v1") {
+    init(apiKey: String, model: String = defaultElevenLabsModel) {
         self.apiKey = apiKey
         self.model = model
     }

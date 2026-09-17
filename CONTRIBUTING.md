@@ -21,7 +21,7 @@ Issues labelled [`good first issue`](../../labels/good%20first%20issue) and [`he
 
 ## What is unlikely to be accepted
 
-- Third-party dependencies. The app is pure Apple frameworks and stays that way.
+- New third-party dependencies. The app is Apple frameworks plus WhisperKit for local speech models, and that one exception was a deliberate decision — see ROADMAP.md.
 - Large refactors that arrive unannounced
 - Reformatting or restyling existing code
 - Features that expand the product's scope without a prior discussion
