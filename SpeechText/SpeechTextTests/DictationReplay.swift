@@ -430,6 +430,13 @@ final class DictationReplay {
             correctionApplied = delivery.finalize(text: layer.text, hasFrozenSpans: hasFrozenSpans)
         }
 
+        // AppState.waitForTranscription: the result waits for a paste still landing.
+        var idle = false
+        delivery.whenIdle { idle = true }
+        app.holdsLandings = false
+        app.landPendingPastes()
+        if !idle { XCTFail("the stop is still waiting for a paste to land") }
+
         let result = delivery.stopResult(finalText: finalText, failed: outcome.error != nil,
                                          aiMode: setup.aiMode, recordingText: layer.text)
         switch result {
@@ -444,9 +451,6 @@ final class DictationReplay {
         case .failed, .noSpeech, .alreadyDelivered, .notPasted, .nothingLeft:
             break
         }
-        // A paste still landing lands after the stop has been handled.
-        app.holdsLandings = false
-        app.landPendingPastes()
         return (result, correctionApplied)
     }
 

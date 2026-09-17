@@ -54,6 +54,8 @@ final class InlineDelivery {
     /// text before the first had been read.
     private var queue: [TranscriptSpan] = []
     private(set) var isDeliveringSpan = false
+    /// Waiting for the paste in flight to land — see `whenIdle`.
+    private var idleWaiters: [() -> Void] = []
     private var target: InlineDeliveryTarget?
 
     /// Starts a recording's delivery and says whether spans go out while the user is
@@ -62,6 +64,7 @@ final class InlineDelivery {
                target: InlineDeliveryTarget, targetName: String?) -> Bool {
         queue = []
         isDeliveringSpan = false
+        resumeIdleWaiters()
         ledger.clear()
         self.tier = tier
         self.target = target
@@ -133,7 +136,27 @@ final class InlineDelivery {
             self.isDeliveringSpan = false
             self.record(delivering, payload: payload, landing: landing)
             self.drain()
+            if !self.isDeliveringSpan { self.resumeIdleWaiters() }
         }
+    }
+
+    /// Runs `body` once no paste is in flight — at once when none is.
+    ///
+    /// The stop's result waits here. A span pasted just before the stop has not reached
+    /// the ledger until its landing is read back (up to half a second), and a remainder
+    /// computed before then counts those words as not delivered and pastes them again.
+    func whenIdle(_ body: @escaping () -> Void) {
+        guard isDeliveringSpan else {
+            body()
+            return
+        }
+        idleWaiters.append(body)
+    }
+
+    private func resumeIdleWaiters() {
+        let waiters = idleWaiters
+        idleWaiters = []
+        waiters.forEach { $0() }
     }
 
     /// Writes what went out into the ledger. Per span where the app stored exactly what

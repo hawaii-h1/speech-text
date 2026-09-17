@@ -197,9 +197,7 @@ final class TierReplayTests: XCTestCase {
             .committed("Друге речення."),
         ])
 
-        XCTExpectFailure("The stop reads the ledger before the paste in flight has reached it, and pastes those words again") {
-            XCTAssertEqual(run.document, "Перше речення. Друге речення.")
-        }
+        XCTAssertEqual(run.document, "Перше речення. Друге речення.")
     }
 }
 

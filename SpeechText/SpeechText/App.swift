@@ -538,6 +538,11 @@ final class AppState {
             // A cancel resumed us by moving the engine to `.idle` — there is no result
             // to handle, and reporting the cleared texts would claim "No speech detected".
             guard !Task.isCancelled else { return }
+            // A span pasted just before the stop reaches the ledger only once it has landed.
+            await withCheckedContinuation { continuation in
+                self.inlineDelivery.whenIdle { continuation.resume() }
+            }
+            guard !Task.isCancelled else { return }
             dlog("App", "waitForTranscription: done (\(String(format: "%.2f", Date().timeIntervalSince(started)))s)")
             handleTranscriptionResult()
         }
