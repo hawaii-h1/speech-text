@@ -124,22 +124,25 @@ struct InsertionLedger {
         guard !head.isEmpty, !tail.isEmpty else { return nil }
         let rows = head.count, columns = tail.count
 
-        // lcs[i][j]: common subsequence of head[..<i] and tail[..<j].
-        var lcs = Array(repeating: Array(repeating: 0, count: columns + 1), count: rows + 1)
+        // lcs[i, j]: common subsequence of head[..<i] and tail[..<j]. One flat buffer
+        // rather than nested arrays — the backtrace below reads the whole table, so the
+        // rows cannot be dropped, but they need not be (rows + 1) separate allocations.
+        let width = columns + 1
+        var lcs = [Int](repeating: 0, count: (rows + 1) * width)
         for i in 1...rows {
             for j in 1...columns {
-                lcs[i][j] = head[i - 1].text == tail[j - 1].text
-                    ? lcs[i - 1][j - 1] + 1
-                    : max(lcs[i - 1][j], lcs[i][j - 1])
+                lcs[i * width + j] = head[i - 1].text == tail[j - 1].text
+                    ? lcs[(i - 1) * width + (j - 1)] + 1
+                    : max(lcs[(i - 1) * width + j], lcs[i * width + (j - 1)])
             }
         }
 
-        let best = lcs[rows][columns]
+        let best = lcs[rows * width + columns]
         guard best > 0,
               Double(best) >= Double(rows) * TranscriptMergeTuning.restatementAgreement else { return nil }
 
         // The shortest prefix of `tail` that already holds every match…
-        var end = (0...columns).first { lcs[rows][$0] == best } ?? columns
+        var end = (0...columns).first { lcs[rows * width + $0] == best } ?? columns
         // …plus the delivered words after the last match, which were revised into the
         // tail's words that follow it rather than dropped.
         var i = rows, j = end
@@ -148,7 +151,7 @@ struct InsertionLedger {
             if head[i - 1].text == tail[j - 1].text {
                 lastMatchedHead = i - 1
                 break
-            } else if lcs[i - 1][j] >= lcs[i][j - 1] {
+            } else if lcs[(i - 1) * width + j] >= lcs[i * width + (j - 1)] {
                 i -= 1
             } else {
                 j -= 1

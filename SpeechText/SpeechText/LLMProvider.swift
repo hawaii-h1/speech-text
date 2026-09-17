@@ -154,12 +154,9 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
         let (data, response) = try await llmSession.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
-        guard let http = response as? HTTPURLResponse else { throw LLMError.invalidResponse }
-        guard (200 ... 299).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            dlog("LLM", "\(label): HTTP \(http.statusCode): \(body.prefix(300))")
-            throw LLMError.httpError(http.statusCode, body)
-        }
+        try validatedHTTPResponse(response, data: data, log: "LLM", label: label,
+                                  invalidResponse: LLMError.invalidResponse,
+                                  httpError: LLMError.httpError)
 
         let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
         // A model whose reasoning cannot be switched off from here (MiniMax M2.7 on Groq
@@ -170,14 +167,16 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
         dlog("LLM", "\(label): done in \(String(format: "%.2f", elapsed))s, \(text.count) chars")
         return text
     }
+}
 
-    private struct ChatCompletionResponse: Decodable {
-        struct Choice: Decodable {
-            struct Message: Decodable { let content: String? }
-            let message: Message
-        }
-        let choices: [Choice]
+/// The `/chat/completions` reply shape, shared by every provider that speaks the
+/// OpenAI-compatible dialect: Groq, OpenAI and Ollama.
+struct ChatCompletionResponse: Decodable {
+    struct Choice: Decodable {
+        struct Message: Decodable { let content: String? }
+        let message: Message
     }
+    let choices: [Choice]
 }
 
 // MARK: - Anthropic
@@ -227,12 +226,9 @@ struct AnthropicLLMProvider: LLMChatProvider {
         let (data, response) = try await llmSession.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
-        guard let http = response as? HTTPURLResponse else { throw LLMError.invalidResponse }
-        guard (200 ... 299).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            dlog("LLM", "Anthropic: HTTP \(http.statusCode): \(body.prefix(300))")
-            throw LLMError.httpError(http.statusCode, body)
-        }
+        try validatedHTTPResponse(response, data: data, log: "LLM", label: "Anthropic",
+                                  invalidResponse: LLMError.invalidResponse,
+                                  httpError: LLMError.httpError)
 
         let decoded = try JSONDecoder().decode(MessagesResponse.self, from: data)
 

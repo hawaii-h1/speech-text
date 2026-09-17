@@ -91,8 +91,9 @@ final class AudioBufferWriter {
     /// the engine watches for that and lets the batch fallback take the segment.
     private(set) var isConvertingLive = false
 
-    /// Builds the session's converter for the tap's format. Called once, before the tap is
-    /// installed; without it `append` takes the native-copy fallback path.
+    /// Builds the session's converter for the tap's format. Called before the tap is
+    /// installed — and again, with no tap in place, when the engine is rebuilt on a new
+    /// device mid-segment; without it `append` takes the native-copy fallback path.
     func prepare(sourceFormat: AVAudioFormat) {
         downsampler = PCMDownsampler(sourceFormat: sourceFormat, targetRate: Self.uploadSampleRate)
         isConvertingLive = downsampler != nil
@@ -307,21 +308,33 @@ final class AudioBufferWriter {
 
     /// The samples are already in the client format, so this is a single pass through
     /// `AVAudioFile` — no sample-rate converter involved, only the container's encoder.
+    ///
+    /// Written in fixed-size chunks through one reused buffer: a buffer sized to the
+    /// whole recording doubled the audio in memory (≈19 MB more for ten minutes) at the
+    /// stop, which is exactly when the user is waiting for the paste.
     private static func writeConverted(pcm16: Data, frames: Int, to outputFile: AVAudioFile) throws {
         guard let targetFormat = uploadFormat() else {
             throw AudioBufferWriterError.conversionFailed("could not create 16 kHz mono format")
         }
+        let chunkFrames = min(frames, 65_536)
+        guard chunkFrames > 0 else { return }
         guard let outBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat,
-                                               frameCapacity: AVAudioFrameCount(frames)),
+                                               frameCapacity: AVAudioFrameCount(chunkFrames)),
               let channel = outBuffer.int16ChannelData else {
             throw AudioBufferWriterError.conversionFailed("could not allocate output buffer")
         }
-        pcm16.withUnsafeBytes { raw in
+        let bytesPerFrame = MemoryLayout<Int16>.size
+        try pcm16.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
-            memcpy(channel[0], base, frames * MemoryLayout<Int16>.size)
+            var offset = 0
+            while offset < frames {
+                let count = min(chunkFrames, frames - offset)
+                memcpy(channel[0], base + offset * bytesPerFrame, count * bytesPerFrame)
+                outBuffer.frameLength = AVAudioFrameCount(count)
+                try outputFile.write(from: outBuffer)
+                offset += count
+            }
         }
-        outBuffer.frameLength = AVAudioFrameCount(frames)
-        try outputFile.write(from: outBuffer)
     }
 
     private static func writeDownsampled(buffers: [AVAudioPCMBuffer],

@@ -151,13 +151,14 @@ struct DebugLogView: View {
         case "LocalModel", "LocalWhisper", "Ollama": .brown
         // AI text refinement
         case "LLM", "Refine": .indigo
-        // Message delivery
-        case "Contacts", "Send": .yellow
+        // Delivery
         case "Paste":       .pink
         case "App":         .purple
         case "Settings":    .gray
         case "History":     .mint
         case "Hotkey":      .teal
+        // Dictation traces
+        case "Trace":       .yellow
         default:            .secondary
         }
     }

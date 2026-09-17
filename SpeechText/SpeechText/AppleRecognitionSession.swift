@@ -95,6 +95,9 @@ final class AppleRecognitionSession: RecognitionSession {
                         self.lastError = error.localizedDescription
                         self.onEvent?(.failure(error.localizedDescription))
                     }
+                    // Nothing more is coming after an error: a `finish()` waiting on this
+                    // task gets its answer now rather than at the 0.5 s deadline.
+                    self.resolveFinish(cancelled: false)
                 }
             }
         }

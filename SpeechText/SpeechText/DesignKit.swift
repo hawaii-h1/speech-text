@@ -212,14 +212,24 @@ struct LCDScreenShape: Shape {
     static let designSize = CGSize(width: 338, height: 259.108)
 
     func path(in rect: CGRect) -> Path {
-        // Unioned rather than merely overlaid: the two halves share an internal edge
-        // at the knob's waistline, and anything that strokes the shape — the inner
-        // shadow — would otherwise draw a seam straight across the glass.
-        Self.subpaths.reduce(into: Path()) { result, d in
-            var part = Path()
-            SVGPathData.append(d, designSize: Self.designSize, in: rect, to: &part)
-            result = result.isEmpty ? part : result.union(part)
-        }
+        // Parsed and unioned once, at the design size, then scaled onto the rect: the
+        // mapping is affine, so it commutes with the union, and the shape is asked for
+        // several times per body at 30Hz.
+        Self.designPath.applying(
+            CGAffineTransform(scaleX: rect.width / Self.designSize.width,
+                              y: rect.height / Self.designSize.height)
+                .concatenating(CGAffineTransform(translationX: rect.minX, y: rect.minY))
+        )
+    }
+
+    /// Unioned rather than merely overlaid: the two halves share an internal edge at
+    /// the knob's waistline, and anything that strokes the shape — the inner shadow —
+    /// would otherwise draw a seam straight across the glass.
+    nonisolated(unsafe) private static let designPath: Path = subpaths.reduce(into: Path()) { result, d in
+        var part = Path()
+        SVGPathData.append(d, designSize: designSize,
+                           in: CGRect(origin: .zero, size: designSize), to: &part)
+        result = result.isEmpty ? part : result.union(part)
     }
 
     /// Two halves that meet (with a hairline of overlap) at the knob's waistline.
@@ -358,11 +368,7 @@ struct PlasticButton: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .help(help)
-        .onHover { hovering in
-            isHovering = hovering
-            guard isEnabled else { return }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointingHandCursor(enabled: isEnabled) { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
         .animation(.easeInOut(duration: 0.2), value: isOn)
     }
@@ -432,11 +438,7 @@ struct TransportKnob: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .help(help)
-        .onHover { hovering in
-            isHovering = hovering
-            guard isEnabled else { return }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointingHandCursor(enabled: isEnabled) { isHovering = $0 }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }

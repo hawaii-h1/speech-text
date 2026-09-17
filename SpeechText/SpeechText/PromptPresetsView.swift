@@ -11,6 +11,7 @@ struct PromptPresetsView: View {
     @State private var selection: PromptPreset.ID?
     @State private var defaultID: UUID?
     @State private var showResetConfirm = false
+    @State private var saveTask: Task<Void, Never>?
 
     private var selectedIndex: Int? {
         guard let selection else { return nil }
@@ -35,6 +36,7 @@ struct PromptPresetsView: View {
             defaultID = PromptPresetStore.defaultPreset(in: presets)?.id
             selection = presets.first?.id
         }
+        .onDisappear { persist() }
     }
 
     // MARK: - Header
@@ -203,7 +205,10 @@ struct PromptPresetsView: View {
 
             Spacer()
 
-            Button("Done") { onClose() }
+            Button("Done") {
+                persist()
+                onClose()
+            }
                 .keyboardShortcut(.defaultAction)
         }
         .padding(12)
@@ -217,12 +222,27 @@ struct PromptPresetsView: View {
             set: {
                 guard index < presets.count else { return }
                 presets[index][keyPath: keyPath] = $0
-                persist()
+                persistDebounced()
             }
         )
     }
 
+    /// Typing writes on every keystroke and every write JSON-encodes all the presets,
+    /// so the text fields settle first. Structural edits (add, delete, reorder) still
+    /// save at once, and Done flushes whatever is still pending.
+    private func persistDebounced() {
+        let snapshot = presets
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            PromptPresetStore.save(snapshot)
+        }
+    }
+
     private func persist() {
+        saveTask?.cancel()
+        saveTask = nil
         PromptPresetStore.save(presets)
     }
 }

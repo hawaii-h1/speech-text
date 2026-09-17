@@ -322,10 +322,7 @@ struct PasteService {
         guard AXIsProcessTrusted() else { return nil }
         guard let pid = (app ?? NSWorkspace.shared.frontmostApplication)?.processIdentifier else { return nil }
         let appElement = AXUIElementCreateApplication(pid)
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let focused else { return nil }
-        return (focused as! AXUIElement)
+        return elementValue(of: appElement, kAXFocusedUIElementAttribute)
     }
 
     private static func attributeString(of element: AXUIElement, _ attribute: String) -> String? {
@@ -369,6 +366,10 @@ struct PasteService {
     /// cancelled and rescheduled, never re-taken.
     private static var savedClipboard: [NSPasteboardItem]?
     private static var pendingRestore: DispatchWorkItem?
+    /// The pasteboard's change count right after our text went on it. If it differs
+    /// when the restore fires, someone else wrote the pasteboard in between — the user
+    /// pressed ⌘C mid-dictation — and putting the old snapshot back would wipe that copy.
+    private static var stagedChangeCount = 0
 
     /// Puts `text` on the pasteboard, keeping the user's own contents safe.
     private static func stageClipboard(_ pasteboard: NSPasteboard, text: String) {
@@ -377,6 +378,7 @@ struct PasteService {
         }
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        stagedChangeCount = pasteboard.changeCount
     }
 
     /// Restores the user's clipboard after a generous delay to ensure the target app has
@@ -389,10 +391,16 @@ struct PasteService {
     private static func scheduleClipboardRestore(_ pasteboard: NSPasteboard) {
         pendingRestore?.cancel()
         let restore = DispatchWorkItem {
+            defer {
+                savedClipboard = nil
+                pendingRestore = nil
+            }
+            guard pasteboard.changeCount == stagedChangeCount else {
+                dlog("Paste", "Clipboard changed since the paste — leaving it alone")
+                return
+            }
             let items = savedClipboard ?? []
             restoreClipboard(pasteboard, items: items)
-            savedClipboard = nil
-            pendingRestore = nil
             dlog("Paste", "Clipboard restored")
         }
         pendingRestore = restore
@@ -453,23 +461,12 @@ struct PasteService {
     static func canLikelyPasteText(in app: NSRunningApplication) -> Bool {
         guard AXIsProcessTrusted() else { return true } // Can't check — assume yes
 
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-
-        var focusedElement: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(
-            appElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedElement
-        )
-
-        guard result == .success, let element = focusedElement else {
+        guard let axElement = focusedTextElement(of: app) else {
             // Can't determine focused element — common in Electron/web apps (Slack, Discord,
             // VS Code, etc.) whose text inputs don't appear in the native AX tree.
             // Default to attempting paste rather than falling back to Record Window.
             return true
         }
-
-        let axElement = element as! AXUIElement
 
         // Quick positive: if the value attribute is settable, it's definitely a text input
         var isSettable = DarwinBoolean(false)

@@ -94,10 +94,7 @@ struct RecordingOverlayView: View {
             }
             .buttonStyle(.plain)
             .help("Cancel (nothing is pasted)")
-            .onHover { hovering in
-                isHoveringCancel = hovering
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointingHandCursor { isHoveringCancel = $0 }
             .animation(.easeInOut(duration: 0.15), value: isHoveringCancel)
         }
         .padding(.horizontal, 10)
@@ -212,10 +209,7 @@ struct StatusOverlayView: View {
         .clipShape(shape)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
-        .onHover { hovering in
-            isHovering = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointingHandCursor { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
     }
 
@@ -246,6 +240,7 @@ final class StatusOverlayPanel: NSPanel {
         )
         isOpaque = false
         backgroundColor = .clear
+        isReleasedWhenClosed = false
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isMovableByWindowBackground = true
@@ -277,6 +272,7 @@ final class RecordingOverlayPanel: NSPanel {
         )
         isOpaque = false
         backgroundColor = .clear
+        isReleasedWhenClosed = false
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isMovableByWindowBackground = true

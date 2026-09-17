@@ -70,7 +70,6 @@ enum SettingsKeys {
     static let dockIconMode = "dockIconMode"
 
     // Debug
-    static let debugMode = "debugMode"
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-
     /// local, like the traces themselves, so not in `portable`.
     static let recordDictationTraces = "recordDictationTraces"
@@ -94,7 +93,7 @@ enum SettingsKeys {
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
         appSkin, accentColor, dockIconMode,
-        hotkeyLayoutVersion, debugMode,
+        hotkeyLayoutVersion,
     ]
 }
 

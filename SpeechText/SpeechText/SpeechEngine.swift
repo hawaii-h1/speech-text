@@ -115,6 +115,10 @@ final class SpeechEngine {
     /// `finalText` / `errorMessage` / `lastRecordID`.
     private var transcriptionWaiters: [CheckedContinuation<Void, Never>] = []
     var barLevels: [CGFloat] = Array(repeating: 0, count: 12)
+    /// The latest per-segment levels from the audio thread, and whether a main-queue hop
+    /// to fold them into `barLevels` is already scheduled — see `installAudioTap`.
+    private let levelBox = LevelBox()
+    private let levelHopPending = AtomicFlag()
 
     /// Kept alive between sessions so the speech model stays loaded (~300-500ms to
     /// create); rebuilt only when the locale changes.
@@ -136,6 +140,10 @@ final class SpeechEngine {
     /// Incremented each time the engine is torn down. Background engine-start closures compare
     /// against this to detect stale sessions and bail out safely.
     private var engineStartToken = 0
+    /// `prepare()`/`start()` run here, and so does the `stop()` of an engine that may
+    /// still be starting: `AVAudioEngine` is not thread-safe, and a cancel that stopped
+    /// it on main while the start was mid-flight raced two mutations of one graph.
+    private let engineQueue = DispatchQueue(label: "SpeechEngine.audio", qos: .userInitiated)
     /// True once a pause has started `finish()` on the current segment, so a subsequent
     /// stop knows not to send the same audio a second time.
     private var segmentFinishStarted = false
@@ -151,9 +159,18 @@ final class SpeechEngine {
         }
     }
 
+    /// A start failed before any audio was taken — the session could not open, or the
+    /// audio engine would not start. Called with the message, before the phase goes
+    /// `.idle`, so the inline flow can take its overlay down: nothing else reads
+    /// `errorMessage` until a stop, and there is no stop coming.
+    var onStartFailure: ((String) -> Void)?
+
     func startRecording(locale: String = "en-US") {
-        guard !isRecording else {
-            dlog("Engine", "startRecording: already recording, ignoring")
+        guard case .idle = phase else {
+            // A second start while one is starting rebuilt the session under it; one
+            // while a stop is finishing cancelled that stop's result. Both are ignored —
+            // the callers cancel or wait explicitly.
+            dlog("Engine", "startRecording: phase=\(phase), ignoring")
             return
         }
         configuration = .current(locale: locale)
@@ -175,8 +192,10 @@ final class SpeechEngine {
             dlog("Engine", "pauseRecording: guard failed (phase=\(phase), audioEngine=\(self.audioEngine != nil), session=\(self.session != nil))")
             return
         }
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        engineQueue.sync {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
         barLevels = Array(repeating: 0, count: 12)
 
         if let segmentText = session.pause().map(configuration.cleaned) {
@@ -262,21 +281,7 @@ final class SpeechEngine {
         session?.cancel()
         session = nil
 
-        // Tear down the old engine entirely. Creating a fresh AVAudioEngine each session
-        // guarantees it binds to the *current* default audio device, avoiding stale-format
-        // crashes when the user switches input devices between recordings.
-        tearDownAudioEngine()
-        let engine = AVAudioEngine()
-        audioEngine = engine
-
-        // Observe audio hardware changes (device plugged/unplugged, AirPods switch, etc.).
-        // AVAudioEngine silently stops when this happens — we need to restart on the new device.
-        removeConfigChangeObserver()
-        configChangeObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in
-            self?.handleAudioConfigChange()
-        }
+        let engine = makeAudioEngine()
 
         let writer = AudioBufferWriter()
         audioBufferWriter = writer
@@ -296,6 +301,11 @@ final class SpeechEngine {
         // tiers, its AudioBufferWriter and AVAudioConverter) per segment. While the
         // session is current the engine holds it strongly, so the identity guard still
         // sees every event that should be acted on.
+        // The committed string is cumulative and changes only on a commit, while a
+        // partial arrives several times a second: cleaning the whole committed text on
+        // every event ran three regexes per word over the entire dictation each time.
+        // Its last result is kept and reused while the input is unchanged.
+        var cleanedCommitted = (raw: "", cleaned: "")
         newSession.onEvent = { [weak self, weak newSession] event in
             guard let self, let newSession, self.session === newSession else { return }
             switch event {
@@ -303,7 +313,10 @@ final class SpeechEngine {
                 // Cleaned here, before the text becomes a span, and not at the stop: spans
                 // are pasted while the user speaks, and a stop whose text no longer extends
                 // what was pasted would be read as disagreement and never delivered.
-                self.spanLayer.ingest(committed: configuration.cleaned(committed),
+                if committed != cleanedCommitted.raw {
+                    cleanedCommitted = (committed, configuration.cleaned(committed))
+                }
+                self.spanLayer.ingest(committed: cleanedCommitted.cleaned,
                                       partial: configuration.cleaned(partial))
                 self.emitCommittedSpans()
             case .failure(let message):
@@ -323,30 +336,56 @@ final class SpeechEngine {
             // which also drops the fresh AVAudioEngine, its config-change observer and
             // the half-built session that would otherwise leak until the next start.
             errorMessage = error.localizedDescription
+            onStartFailure?(error.localizedDescription)
             phase = .idle
             cleanup()
             return
         }
 
         installAudioTap()
+        startAudioEngine(engine)
+    }
 
-        // engine.prepare() + engine.start() acquire audio hardware resources and can block
-        // the main thread for 100–300ms. Run them on a background thread so the UI stays
-        // responsive. The token detects stale sessions (user stops before engine is ready).
+    /// A fresh `AVAudioEngine` bound to the *current* default input device — the old one
+    /// is torn down first, which avoids stale-format crashes when the user switches
+    /// devices between recordings — with the configuration-change observer on it.
+    private func makeAudioEngine() -> AVAudioEngine {
+        tearDownAudioEngine()
+        let engine = AVAudioEngine()
+        audioEngine = engine
+
+        // Observe audio hardware changes (device plugged/unplugged, AirPods switch, etc.).
+        // AVAudioEngine silently stops when this happens — we need to restart on the new device.
+        removeConfigChangeObserver()
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            self?.handleAudioConfigChange()
+        }
+        return engine
+    }
+
+    /// `prepare()` + `start()` acquire audio hardware resources and can block the main
+    /// thread for 100–300 ms, so they run on `engineQueue`. The token detects a stale
+    /// start (the user stopped before the engine was ready).
+    private func startAudioEngine(_ engine: AVAudioEngine) {
         engineStartToken += 1
         let token = engineStartToken
-        let capturedEngine = engine
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            capturedEngine.prepare()
+        engineQueue.async { [weak self] in
+            engine.prepare()
             do {
-                try capturedEngine.start()
+                try engine.start()
             } catch {
                 let desc = error.localizedDescription
                 DispatchQueue.main.async {
                     guard self?.engineStartToken == token else { return }
-                    seLog.error("setupRecordingSession: audio engine failed to start: \(desc, privacy: .public)")
-                    self?.errorMessage = "Audio engine failed to start: \(desc)"
+                    seLog.error("startAudioEngine: audio engine failed to start: \(desc, privacy: .public)")
+                    let message = "Audio engine failed to start: \(desc)"
+                    self?.errorMessage = message
+                    // Only a fresh start: a restart on a new device is already recording,
+                    // and its stop will report the error the ordinary way.
+                    if self?.phase == .starting { self?.onStartFailure?(message) }
                     self?.phase = .idle
                     self?.cleanup()
                 }
@@ -354,14 +393,25 @@ final class SpeechEngine {
             }
             DispatchQueue.main.async {
                 // Session was cancelled (stop pressed before engine finished starting).
-                guard self?.engineStartToken == token else {
-                    capturedEngine.stop()
+                guard let self, self.engineStartToken == token else {
+                    engine.stop()
                     return
                 }
-                self?.phase = .recording
-                seLog.info("setupRecordingSession: audio engine started successfully")
+                // Already `.recording` when this is a restart on a new device.
+                if self.phase != .recording { self.phase = .recording }
+                seLog.info("startAudioEngine: audio engine started successfully")
             }
         }
+    }
+
+    /// The audio device changed under a live segment: only the engine and its tap are
+    /// rebuilt. The writer and the session stay — the writer is re-prepared for the new
+    /// hardware format and keeps appending to the same 16 kHz buffer, so the segment has
+    /// no boundary at all, no upload in flight, and nothing to lose.
+    private func restartAudioEngine() {
+        let engine = makeAudioEngine()
+        installAudioTap()
+        startAudioEngine(engine)
     }
 
     /// Returns once `isTranscribing` is false. Returns immediately when nothing is in
@@ -396,6 +446,10 @@ final class SpeechEngine {
         // foreign app is not possible — but that is the sink's ledger, not the layer's.)
         spanLayer.reset()
         spanIssuer.reset()
+        // A segment handed over at a pause and not yet consumed by the panel would
+        // otherwise be inserted after the cancel.
+        pendingInsertionText = nil
+        pendingInsertionSpans = []
         barLevels = Array(repeating: 0, count: 12)
         cleanup()
     }
@@ -410,9 +464,11 @@ final class SpeechEngine {
             dlog("Engine", "stopRecording: not recording or paused, ignoring")
             return
         }
-        if isRecording {
-            audioEngine?.stop()
-            audioEngine?.inputNode.removeTap(onBus: 0)
+        if isRecording, let audioEngine {
+            engineQueue.sync {
+                audioEngine.stop()
+                audioEngine.inputNode.removeTap(onBus: 0)
+            }
         }
         let wasPaused = isPaused
 
@@ -616,6 +672,8 @@ final class SpeechEngine {
         // stream sends them; Apple takes the native buffer instead). The writer and the
         // session are per-segment and the tap is removed before either is dropped, so the
         // tap holds them strongly.
+        // Re-prepared on a device restart: the format may have changed, and no tap
+        // exists in between (`tearDownAudioEngine` removed it synchronously).
         writer.prepare(sourceFormat: hwFormat)
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
@@ -623,32 +681,54 @@ final class SpeechEngine {
             session.feed(native: buffer, pcm16: pcm)
 
             guard let self else { return }
-            let levels = Self.perSegmentRMS(buffer: buffer, count: 12)
-            DispatchQueue.main.async {
-                for i in 0..<self.barLevels.count {
-                    self.barLevels[i] = self.barLevels[i] * 0.2 + levels[i] * 0.8
+            // One main-queue hop per tap buffer (~50/s) just to smooth twelve numbers is
+            // avoidable: the levels go into a box the display reads on its own clock,
+            // and the hop is taken only when none is already pending.
+            self.levelBox.store(Self.perSegmentRMS(buffer: buffer, count: 12))
+            if !self.levelHopPending.swap(true) {
+                DispatchQueue.main.async {
+                    self.levelHopPending.swap(false)
+                    let levels = self.levelBox.take()
+                    for i in 0..<min(self.barLevels.count, levels.count) {
+                        self.barLevels[i] = self.barLevels[i] * 0.2 + levels[i] * 0.8
+                    }
                 }
             }
         }
     }
 
     /// Called when the audio hardware configuration changes (device switch, sample rate change, etc.).
-    /// AVAudioEngine stops itself automatically — we tear down and rebuild with a fresh engine.
+    /// AVAudioEngine stops itself automatically — a fresh engine on the new device carries
+    /// the same segment on (`restartAudioEngine`), or, where the segment cannot cross a
+    /// format change, it is closed the way a pause closes it and the next one opened.
+    ///
+    /// This used to rebuild the whole session, which lost the segment: the old writer was
+    /// replaced before its audio was ever written, and a batch session's `cancel()` is a
+    /// no-op — so with Groq or a local model the first half of a dictation vanished
+    /// without a History row when AirPods connected mid-sentence.
     private func handleAudioConfigChange() {
         dlog("Engine", "handleAudioConfigChange: audio device changed, phase=\(phase)")
         seLog.warning("handleAudioConfigChange: audio device changed, phase=\(String(describing: self.phase), privacy: .public)")
 
         switch phase {
         case .recording:
-            // Restart recording on the new audio device with a fresh engine and session.
-            setupRecordingSession()
-        case .paused(segmentInFlight: true):
-            // The paused segment is still in flight: let it land, then end the session.
-            finalizeAfterPausedTranscription()
-        case .paused(segmentInFlight: false):
-            // Paused with nothing in flight: back to idle, the engine is discarded on the next start.
-            session?.cancel()
-            phase = .idle
+            if providerType != .apple, audioBufferWriter?.isConvertingLive == true {
+                // The cloud and local tiers only ever see the writer's 16 kHz bytes, so
+                // the segment carries straight on across the new device.
+                restartAudioEngine()
+            } else {
+                // Apple's request takes the native buffers, whose format just changed
+                // (and a writer already on its native fallback path can hold only one
+                // format), so the segment is closed exactly as a user pause closes it and
+                // the next one opens on the new device.
+                pauseRecording()
+                resumeRecording(locale: configuration?.locale ?? "en-US")
+            }
+        case .paused:
+            // Stay paused: the stale engine is discarded here, and a resume builds a fresh
+            // one on the new device anyway. Going idle instead left the Record Window
+            // showing a pause the engine had already abandoned.
+            tearDownAudioEngine()
         case .idle, .starting, .finishing:
             // Not recording — just discard the stale engine so the next session gets a fresh one.
             // A stop that is mid-wait keeps waiting inside its session.
@@ -661,8 +741,14 @@ final class SpeechEngine {
         // Bump the token so any in-flight background prepare()/start() knows it's stale.
         engineStartToken += 1
         if let engine = audioEngine {
-            engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
+            // Synchronously, on the start queue: this returns only once no start is in
+            // flight, which is also what lets `cleanup()` drop the writer right after —
+            // the tap is gone and cannot be inside `append`. The queue is idle except
+            // during the 100–300 ms of a start, so the wait is normally nothing.
+            engineQueue.sync {
+                engine.stop()
+                engine.inputNode.removeTap(onBus: 0)
+            }
         }
         audioEngine = nil
     }
@@ -707,6 +793,7 @@ final class SpeechEngine {
         }
 
         var levels = [CGFloat]()
+        levels.reserveCapacity(count)
         for i in 0..<count {
             let start = i * segmentSize
             let end = min(start + segmentSize, frames)
@@ -718,5 +805,38 @@ final class SpeechEngine {
             levels.append(CGFloat(min(rms * 5.0, 1.0)))
         }
         return levels
+    }
+}
+
+// MARK: - Audio-thread hand-off
+
+/// The most recent levels the tap computed. Written on the audio thread, read on main;
+/// a lock around twelve values is cheaper than a block allocation per buffer.
+private final class LevelBox {
+    private var levels: [CGFloat] = []
+    private let lock = NSLock()
+
+    func store(_ new: [CGFloat]) {
+        lock.lock(); levels = new; lock.unlock()
+    }
+
+    func take() -> [CGFloat] {
+        lock.lock(); defer { lock.unlock() }
+        return levels
+    }
+}
+
+/// A boolean that can be set-and-read atomically from two threads.
+private final class AtomicFlag {
+    private var value = false
+    private let lock = NSLock()
+
+    /// Sets the flag and returns what it was.
+    @discardableResult
+    func swap(_ new: Bool) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let old = value
+        value = new
+        return old
     }
 }

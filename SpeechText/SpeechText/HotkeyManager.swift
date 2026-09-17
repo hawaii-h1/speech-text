@@ -87,7 +87,7 @@ final class HotkeyManager {
             eventKind: UInt32(kEventHotKeyPressed)
         )
 
-        InstallEventHandler(
+        let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             { (_: EventHandlerCallRef?, event: EventRef?, userData: UnsafeMutableRawPointer?) -> OSStatus in
                 guard let event, let userData else { return OSStatus(eventNotHandledErr) }
@@ -120,24 +120,38 @@ final class HotkeyManager {
             refcon,
             &eventHandlerRef
         )
+        if handlerStatus != noErr {
+            dlog("Hotkey", "InstallEventHandler failed (status \(handlerStatus)) — no shortcut will fire")
+        }
 
         // Register inline hotkey (id: 1)
         let inlineCarbonMods = Self.cocoaToCarbonModifiers(inlineModifiers)
         let inlineHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.inlineID)
-        RegisterEventHotKey(inlineKeyCode, inlineCarbonMods, inlineHotKeyID,
-                            GetApplicationEventTarget(), 0, &inlineHotKeyRef)
+        let inlineStatus = RegisterEventHotKey(inlineKeyCode, inlineCarbonMods, inlineHotKeyID,
+                                               GetApplicationEventTarget(), 0, &inlineHotKeyRef)
+        Self.logRegistration("inline recording", keyCode: inlineKeyCode, status: inlineStatus)
 
         // Register record window hotkey (id: 2)
         let rwCarbonMods = Self.cocoaToCarbonModifiers(recordWindowModifiers)
         let rwHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.recordWindowID)
-        RegisterEventHotKey(recordWindowKeyCode, rwCarbonMods, rwHotKeyID,
-                            GetApplicationEventTarget(), 0, &recordWindowHotKeyRef)
+        let rwStatus = RegisterEventHotKey(recordWindowKeyCode, rwCarbonMods, rwHotKeyID,
+                                           GetApplicationEventTarget(), 0, &recordWindowHotKeyRef)
+        Self.logRegistration("record window", keyCode: recordWindowKeyCode, status: rwStatus)
 
         // Register AI recording hotkey (id: 3)
         let aiCarbonMods = Self.cocoaToCarbonModifiers(aiModifiers)
         let aiHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.aiID)
-        RegisterEventHotKey(aiKeyCode, aiCarbonMods, aiHotKeyID,
-                            GetApplicationEventTarget(), 0, &aiHotKeyRef)
+        let aiStatus = RegisterEventHotKey(aiKeyCode, aiCarbonMods, aiHotKeyID,
+                                           GetApplicationEventTarget(), 0, &aiHotKeyRef)
+        Self.logRegistration("AI recording", keyCode: aiKeyCode, status: aiStatus)
+    }
+
+    /// A combination another app already owns comes back as an error here and then
+    /// simply never fires, which is indistinguishable from a broken app unless it is
+    /// said out loud.
+    private static func logRegistration(_ name: String, keyCode: UInt32, status: OSStatus) {
+        guard status != noErr else { return }
+        dlog("Hotkey", "\(name) shortcut (key code \(keyCode)) could not be registered: status \(status) — another app may already own it")
     }
 
     private func unregisterHotkeys() {
