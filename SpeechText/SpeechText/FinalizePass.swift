@@ -19,7 +19,7 @@ struct TextReplacement: Equatable {
 enum FinalizePass {
     enum Decision: Equatable {
         /// Nothing was delivered during the recording: the stop pastes the whole text,
-        /// which is already the one write. AI mode and Tier C always land here.
+        /// which is already the one write. AI mode without a draft always lands here.
         case nothingDelivered
         /// What the sink holds is the authoritative text, or its opening words: the stop
         /// pastes the rest after it (possibly nothing). No correction is needed.

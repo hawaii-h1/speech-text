@@ -15,8 +15,6 @@ SpeechText handles unusually sensitive things, so these matter most:
 - **API keys** — leaking them through logs, crash reports, the debug log window, or any network request other than to the provider they belong to.
 - **Audio and transcripts** — anything that sends recordings or transcribed text somewhere the user did not configure.
 - **Accessibility and clipboard** — the app simulates `Cmd+V` and temporarily writes to the clipboard. Anything that leaves clipboard contents exposed, or pastes into the wrong target, is in scope.
-- **Message delivery** — anything that could send a message without the user confirming it, or to the wrong recipient.
-- **Contacts** — any read of the address book beyond resolving the recipient the user actually named.
 
 ## What is not in scope
 

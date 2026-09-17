@@ -55,10 +55,6 @@ enum SettingsKeys {
     /// Whether an AI dictation tells the model which app, window and field it is for.
     static let aiFocusContextEnabled = "aiFocusContextEnabled"
 
-    // Message delivery
-    /// Whether an AI dictation may be routed to a messaging app instead of the cursor.
-    static let messageSendingEnabled = "messageSendingEnabled"
-
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
 
@@ -93,7 +89,6 @@ enum SettingsKeys {
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
-        messageSendingEnabled,
         appSkin, accentColor,
         hotkeyLayoutVersion, debugMode,
     ]

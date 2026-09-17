@@ -20,7 +20,7 @@ PLIST
 SRC=(SpeechText/SpeechTextTests/PureLogicTests.swift SpeechText/SpeechTextTests/AudioPipelineTests.swift
      SpeechText/SpeechTextTests/LocalModelsTests.swift)
 for f in Settings STTProvider AudioBufferWriter DebugLog LLMProvider PromptPresets \
-         TextRefinementService StreamingSTTProvider RecordingConfiguration MessageDelivery \
+         TextRefinementService StreamingSTTProvider RecordingConfiguration \
          TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier FinalizePass TranscriptCleanup \
          FocusContext SystemCapabilities LocalModelCatalog OllamaProvider; do
   SRC+=("SpeechText/SpeechText/$f.swift")

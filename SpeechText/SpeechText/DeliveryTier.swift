@@ -38,25 +38,17 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
     /// answer inconsistently for `contenteditable`, and terminals, which never answer at
     /// all. Only committed text goes here, and it is never rewritten.
     case b
-    /// A message send. Nothing partial is delivered at all — the confirmation panel
-    /// shows the text that will go, and confirming anything less than final is not a
-    /// confirmation.
-    case c
 
     var description: String {
         switch self {
         case .a: return "A (correctable)"
         case .b: return "B (append-only)"
-        case .c: return "C (confirmed send)"
         }
     }
 
-    /// The spec's decision tree, in order: a send outranks everything, our own surface
-    /// needs no probing, and a foreign app is Tier A only if it proved it.
-    static func resolve(isMessageDelivery: Bool,
-                        isOwnSurface: Bool,
-                        probe: AXTextProbe) -> DeliveryTier {
-        if isMessageDelivery { return .c }
+    /// The spec's decision tree, in order: our own surface needs no probing, and a
+    /// foreign app is Tier A only if it proved it.
+    static func resolve(isOwnSurface: Bool, probe: AXTextProbe) -> DeliveryTier {
         if isOwnSurface { return .a }
         return probe.supportsReplacement ? .a : .b
     }
@@ -67,14 +59,11 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
     /// during the recording has to be taken back at the stop. `aiDraft` (the user's
     /// opt-in) lifts that in Tier A only, the one tier where the raw draft can be replaced
     /// by the rewrite; in Tier B the draft would stay under the rewrite, two versions of
-    /// one dictation. Tier C never delivers early — and an AI dictation with message
-    /// sending on is always Tier C, so a draft is never pasted for text that may yet turn
-    /// out to be a message.
+    /// one dictation.
     func deliversDuringRecording(aiMode: Bool, aiDraft: Bool = false) -> Bool {
         switch self {
         case .a: return !aiMode || aiDraft
         case .b: return !aiMode
-        case .c: return false
         }
     }
 
