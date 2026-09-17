@@ -1055,6 +1055,78 @@ final class TranscriptCleanupTests: XCTestCase {
     }
 }
 
+// MARK: - Dash style (TranscriptCleanup.swift)
+
+final class DashStyleTests: XCTestCase {
+
+    /// From History: every "—" Scribe wrote stood between spaces, and half came before "це".
+    private let recorded = [
+        "Перевірив у редакторі — все працює чітко. В терміналі",
+        "Перше — там, де людина може писати про",
+        "І останнє місце — це вже кінець самого",
+    ]
+
+    func testTheDashIsRedrawnNeverRemoved() {
+        XCTAssertEqual(DashStyle.enDash.applied(to: "Книга — це набір листків"), "Книга – це набір листків")
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "Книга — це набір листків"), "Книга - це набір листків")
+        XCTAssertEqual(DashStyle.emDash.applied(to: "Книга — це набір листків"), "Книга — це набір листків")
+    }
+
+    /// A short dash or a hyphen glued to its words reads as a range or a compound.
+    func testAGluedDashIsGivenSpaces() {
+        XCTAssertEqual(DashStyle.enDash.applied(to: "word—word"), "word – word")
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "— Привіт"), "- Привіт")
+        XCTAssertEqual(DashStyle.enDash.applied(to: "текст\n— пункт"), "текст\n– пункт")
+    }
+
+    func testHyphensAndRangesAreLeftAlone() {
+        let text = "AI-генерація, сторінки 2–5 і 1914-1918"
+        for style in DashStyle.allCases {
+            XCTAssertEqual(style.applied(to: text), text, style.rawValue)
+        }
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "Книга – це"), "Книга - це")
+    }
+
+    func testRedrawingIsIdempotent() {
+        for style in DashStyle.allCases {
+            for text in recorded + ["word—word", "Книга—"] {
+                let once = style.applied(to: text)
+                XCTAssertEqual(style.applied(to: once), once, text)
+            }
+        }
+    }
+
+    /// The same property the hesitation cleanup keeps: text already pasted while the user
+    /// spoke must still be a word prefix of the cleaned whole — including a dash that was
+    /// the last thing said, glued or not.
+    func testEveryWordPrefixRedrawsToAPrefixOfTheWhole() {
+        for style in DashStyle.allCases {
+            for text in recorded + ["Книга— це набір"] {
+                let words = text.split(separator: " ")
+                var previous = ""
+                for count in 1...words.count {
+                    let drawn = style.applied(to: words.prefix(count).joined(separator: " "))
+                    XCTAssertTrue(previous.isEmpty || drawn.hasPrefix(previous + " "),
+                                  "\(style): \"\(previous)\" is not extended by \"\(drawn)\"")
+                    previous = drawn
+                }
+            }
+        }
+    }
+
+    /// Its own setting: turning hesitation cleanup off keeps the dash style.
+    func testTheConfigurationAppliesItWithOrWithoutCleanup() {
+        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
+                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
+                                                   elevenLabsModel: "scribe_v2_realtime")
+        XCTAssertEqual(configuration.cleaned("Книга — цеее, е-е, набір"), "Книга – це, набір")
+        configuration.removesDisfluencies = false
+        XCTAssertEqual(configuration.cleaned("Книга — е-е"), "Книга – е-е")
+        configuration.dashStyle = .emDash
+        XCTAssertEqual(configuration.cleaned("Книга — е-е"), "Книга — е-е")
+    }
+}
+
 // MARK: - Segment joins (TranscriptMerge.swift, TranscriptSpan.swift, InsertionLedger.swift)
 
 /// 17.09: Scribe closed a segment inside a word — "…база дани" | "х, звідки…".

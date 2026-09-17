@@ -465,6 +465,7 @@ final class AppState {
             ? DictationTraceRecorder(setup: DictationTrace.Setup(
                 aiMode: isAIMode, aiDraft: aiDraft,
                 removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
+                dashStyle: .current,
                 app: previousApp?.localizedName,
                 probe: .init(valueReadable: probe.valueReadable, rangeReadable: probe.rangeReadable,
                              rangeReadsBack: probe.rangeReadsBack)))

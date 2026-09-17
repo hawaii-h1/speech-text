@@ -16,6 +16,9 @@ struct DictationTrace: Codable, Equatable {
         var aiMode = false
         var aiDraft = false
         var removesDisfluencies = true
+        /// Optional so a trace recorded before the setting existed still decodes; nil
+        /// replays as `.emDash`, which is what those dictations were pasted with.
+        var dashStyle: DashStyle?
         /// The target app's name — for the reader; the replay goes by `probe`.
         var app: String?
         var probe = Probe()
