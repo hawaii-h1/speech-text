@@ -74,6 +74,9 @@ enum SettingsKeys {
 
     // Debug
     static let debugMode = "debugMode"
+    /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-
+    /// local, like the traces themselves, so not in `portable`.
+    static let recordDictationTraces = "recordDictationTraces"
 
     /// Marks that settings were carried over from the pre-rename preference domain.
     static let didAdoptPreRenameDefaults = "didAdoptPreRenameDefaults"
