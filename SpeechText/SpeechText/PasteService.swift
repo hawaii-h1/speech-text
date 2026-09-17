@@ -373,7 +373,11 @@ struct PasteService {
 
     /// Puts `text` on the pasteboard, keeping the user's own contents safe.
     private static func stageClipboard(_ pasteboard: NSPasteboard, text: String) {
-        if pendingRestore == nil {
+        // The first paste of a burst takes the snapshot. A later one takes it again
+        // only if the pasteboard changed under us since our last write — the user
+        // pressed ⌘C between two spans — so what goes back at the end is their copy,
+        // not the pre-dictation contents over it.
+        if pendingRestore == nil || pasteboard.changeCount != stagedChangeCount {
             savedClipboard = saveClipboard(pasteboard)
         }
         pasteboard.clearContents()

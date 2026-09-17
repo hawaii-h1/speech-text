@@ -192,10 +192,7 @@ final class SpeechEngine {
             dlog("Engine", "pauseRecording: guard failed (phase=\(phase), audioEngine=\(self.audioEngine != nil), session=\(self.session != nil))")
             return
         }
-        engineQueue.sync {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        stopAudioEngine(audioEngine)
         barLevels = Array(repeating: 0, count: 12)
 
         if let segmentText = session.pause().map(configuration.cleaned) {
@@ -203,6 +200,12 @@ final class SpeechEngine {
             dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
             phase = .paused(segmentInFlight: false)
             if !segmentText.isEmpty {
+                // One History row per segment, as the batch tier writes: the stop's row
+                // carries only the last segment, and a resume cancels this one's task
+                // without an outcome.
+                recordOutcome(RecognitionOutcome(text: segmentText, error: nil,
+                                                 audioFileURL: nil, cancelled: false),
+                              writer: audioBufferWriter, locale: configuration.historyLocale)
                 setPendingInsertion(segmentText)
             }
             return
@@ -342,15 +345,22 @@ final class SpeechEngine {
             return
         }
 
-        installAudioTap()
+        guard installAudioTap() else {
+            // No input device: the same terminal shape as a session that would not open.
+            let message = errorMessage ?? "No audio input device available"
+            onStartFailure?(message)
+            phase = .idle
+            cleanup()
+            return
+        }
         startAudioEngine(engine)
     }
 
     /// A fresh `AVAudioEngine` bound to the *current* default input device — the old one
     /// is torn down first, which avoids stale-format crashes when the user switches
     /// devices between recordings — with the configuration-change observer on it.
-    private func makeAudioEngine() -> AVAudioEngine {
-        tearDownAudioEngine()
+    private func makeAudioEngine(waiting: Bool = false) -> AVAudioEngine {
+        tearDownAudioEngine(waiting: waiting)
         let engine = AVAudioEngine()
         audioEngine = engine
 
@@ -391,14 +401,17 @@ final class SpeechEngine {
                 }
                 return
             }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 // Session was cancelled (stop pressed before engine finished starting).
                 guard let self, self.engineStartToken == token else {
-                    engine.stop()
+                    self?.engineQueue.async { engine.stop() }
                     return
                 }
-                // Already `.recording` when this is a restart on a new device.
-                if self.phase != .recording { self.phase = .recording }
+                // Only a fresh start moves the phase: a restart on a new device is already
+                // `.recording`, and a pause or stop that arrived while the restart was in
+                // flight has already moved on — resurrecting `.recording` over `.finishing`
+                // woke the stop's waiter with an empty result.
+                if self.phase == .starting { self.phase = .recording }
                 seLog.info("startAudioEngine: audio engine started successfully")
             }
         }
@@ -409,8 +422,17 @@ final class SpeechEngine {
     /// hardware format and keeps appending to the same 16 kHz buffer, so the segment has
     /// no boundary at all, no upload in flight, and nothing to lose.
     private func restartAudioEngine() {
-        let engine = makeAudioEngine()
-        installAudioTap()
+        // Waiting: `installAudioTap` re-prepares the writer, which is only safe once no
+        // callback of the old tap can be inside `append`.
+        let engine = makeAudioEngine(waiting: true)
+        guard installAudioTap() else {
+            // The new device offers no usable input. Ending the recording here hands the
+            // user what was said so far, with the reason; leaving `.recording` standing
+            // with no tap was a dead microphone they only found out about at the stop.
+            dlog("Engine", "restartAudioEngine: no usable input after the device change — stopping")
+            stopRecording()
+            return
+        }
         startAudioEngine(engine)
     }
 
@@ -465,10 +487,7 @@ final class SpeechEngine {
             return
         }
         if isRecording, let audioEngine {
-            engineQueue.sync {
-                audioEngine.stop()
-                audioEngine.inputNode.removeTap(onBus: 0)
-            }
+            stopAudioEngine(audioEngine)
         }
         let wasPaused = isPaused
 
@@ -646,11 +665,13 @@ final class SpeechEngine {
 
     // MARK: - Audio
 
-    private func installAudioTap() {
+    /// False, with `errorMessage` set, when there is nothing to tap.
+    @discardableResult
+    private func installAudioTap() -> Bool {
         guard let audioEngine, let writer = audioBufferWriter, let session else {
             seLog.error("installAudioTap: no audio engine")
             errorMessage = "Audio engine not initialized"
-            return
+            return false
         }
 
         let inputNode = audioEngine.inputNode
@@ -660,7 +681,7 @@ final class SpeechEngine {
         guard hwFormat.channelCount > 0, hwFormat.sampleRate > 0 else {
             seLog.error("installAudioTap: invalid hardware format (channels=\(hwFormat.channelCount), sampleRate=\(hwFormat.sampleRate))")
             errorMessage = "No audio input device available"
-            return
+            return false
         }
 
         // Pass nil for format so AVAudioEngine uses the hardware's native format.
@@ -695,6 +716,7 @@ final class SpeechEngine {
                 }
             }
         }
+        return true
     }
 
     /// Called when the audio hardware configuration changes (device switch, sample rate change, etc.).
@@ -720,7 +742,8 @@ final class SpeechEngine {
                 // Apple's request takes the native buffers, whose format just changed
                 // (and a writer already on its native fallback path can hold only one
                 // format), so the segment is closed exactly as a user pause closes it and
-                // the next one opens on the new device.
+                // the next one opens on the new device. The whole recording's text is
+                // still `spanLayer.text`, which is what the stop pastes and finalizes.
                 pauseRecording()
                 resumeRecording(locale: configuration?.locale ?? "en-US")
             }
@@ -736,19 +759,31 @@ final class SpeechEngine {
         }
     }
 
+    /// Stops the engine and removes its tap, on `engineQueue` behind any start still in
+    /// flight, and marks that start stale.
+    ///
+    /// Asynchronous by default: waiting here would stall the main thread for the whole
+    /// of a slow (Bluetooth) start whenever a cancel or stop lands during one. A buffer
+    /// or two delivered after this returns is tolerated by every tier — `pause()` and
+    /// `finish()` ignore late feeds, `append` ignores them once flushed — and the tap
+    /// closure holds the writer and session strongly until it is removed, so dropping
+    /// the engine's references right after is safe. `waiting` is for the one caller
+    /// that re-prepares the writer next and must know no callback is inside `append`.
+    private func stopAudioEngine(_ engine: AVAudioEngine, waiting: Bool = false) {
+        engineStartToken += 1
+        let stop = {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        if waiting { engineQueue.sync(execute: stop) } else { engineQueue.async(execute: stop) }
+    }
+
     /// Stop and discard the current audio engine so the next session creates a fresh one.
-    private func tearDownAudioEngine() {
+    private func tearDownAudioEngine(waiting: Bool = false) {
         // Bump the token so any in-flight background prepare()/start() knows it's stale.
         engineStartToken += 1
         if let engine = audioEngine {
-            // Synchronously, on the start queue: this returns only once no start is in
-            // flight, which is also what lets `cleanup()` drop the writer right after —
-            // the tap is gone and cannot be inside `append`. The queue is idle except
-            // during the 100–300 ms of a start, so the wait is normally nothing.
-            engineQueue.sync {
-                engine.stop()
-                engine.inputNode.removeTap(onBus: 0)
-            }
+            stopAudioEngine(engine, waiting: waiting)
         }
         audioEngine = nil
     }
@@ -768,9 +803,9 @@ final class SpeechEngine {
         // speechRecognizer is intentionally kept alive between sessions so the speech
         // model stays loaded in memory, making subsequent recordings start much faster.
         //
-        // The engine (and so the tap) goes first: cancel and a failed start reach here
-        // with the tap still firing, and the writer's converter is only safe to drop
-        // once no callback can be inside `append`.
+        // The engine (and so the tap) goes first. The stop is asynchronous — see
+        // `stopAudioEngine` — and `reset()` leaves the writer's converter alone for
+        // exactly that reason: a callback still inside `append` finds it intact.
         tearDownAudioEngine()
         audioBufferWriter?.reset()
         audioBufferWriter = nil
