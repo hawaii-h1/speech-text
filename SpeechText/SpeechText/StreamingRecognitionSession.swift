@@ -16,7 +16,9 @@ final class StreamingRecognitionSession: RecognitionSession {
     private let writer: AudioBufferWriter
     /// nil leaves the language to the model — see `RecordingConfiguration.cloudLanguage`.
     private let language: String?
-    private let fallback: BatchRecognitionSession
+    /// A `BatchRecognitionSession` over the same writer in the app. Typed by the protocol
+    /// so a replay can stand in the upload's answer without a network or an audio file.
+    private let fallback: RecognitionSession
 
     // Main-thread state.
     private var committedText = ""
@@ -30,7 +32,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     private var sendEnabled = true
 
     init(provider: StreamingSTTProvider, writer: AudioBufferWriter, language: String?,
-         fallback: BatchRecognitionSession) {
+         fallback: RecognitionSession) {
         self.provider = provider
         self.writer = writer
         self.language = language

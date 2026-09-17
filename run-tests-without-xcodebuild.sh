@@ -18,11 +18,13 @@ cat > "$OUT/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 SRC=(SpeechText/SpeechTextTests/PureLogicTests.swift SpeechText/SpeechTextTests/AudioPipelineTests.swift
-     SpeechText/SpeechTextTests/LocalModelsTests.swift)
+     SpeechText/SpeechTextTests/LocalModelsTests.swift SpeechText/SpeechTextTests/DictationReplay.swift
+     SpeechText/SpeechTextTests/DictationReplayTests.swift)
 for f in Settings STTProvider AudioBufferWriter DebugLog LLMProvider PromptPresets \
          TextRefinementService StreamingSTTProvider RecordingConfiguration MessageDelivery \
          TranscriptSpan TranscriptMerge InsertionLedger DeliveryTier FinalizePass TranscriptCleanup \
-         FocusContext SystemCapabilities LocalModelCatalog OllamaProvider; do
+         FocusContext SystemCapabilities LocalModelCatalog OllamaProvider InlineDelivery \
+         RecognitionSession BatchRecognitionSession StreamingRecognitionSession; do
   SRC+=("SpeechText/SpeechText/$f.swift")
 done
 "$SWIFTC" -emit-library -o "$OUT/Contents/MacOS/SpeechTextTests" \
