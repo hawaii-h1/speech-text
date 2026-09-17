@@ -66,16 +66,21 @@ struct InsertionLedger {
         let delta = new.length - range.length
         records[index].range = new
         records[index].text = text
-        for other in records.indices where other != index && records[other].range.location >= range.location + range.length {
+        for other in records.indices where other != index
+            && records[other].range.location != NSNotFound
+            && records[other].range.location >= range.location + range.length {
             records[other].range.location += delta
         }
     }
 
     mutating func clear() { records = [] }
 
+    /// A record with no range (`NSNotFound`, a paste whose landing could not be read) has
+    /// no position to move — and `NSNotFound` is `Int.max`, so moving it would trap.
     private mutating func shift(from location: Int, by delta: Int) {
-        guard delta != 0 else { return }
-        for index in records.indices where records[index].range.location >= location {
+        guard delta != 0, location != NSNotFound else { return }
+        for index in records.indices
+        where records[index].range.location != NSNotFound && records[index].range.location >= location {
             records[index].range.location += delta
         }
     }
