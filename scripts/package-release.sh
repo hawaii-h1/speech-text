@@ -120,6 +120,7 @@ else
         -scheme "$APP_NAME" \
         -configuration Release \
         -derivedDataPath "$WORK/DerivedData" \
+        CODE_SIGN_STYLE=Manual \
         CODE_SIGN_IDENTITY=- \
         CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
         SPT_GIT_COMMIT="$COMMIT" \
