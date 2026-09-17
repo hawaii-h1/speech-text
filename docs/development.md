@@ -21,6 +21,18 @@ xcodebuild -project SpeechText/SpeechText.xcodeproj -scheme SpeechText \
   -configuration Release DEVELOPMENT_TEAM=XXXXXXXXXX build
 ```
 
+### Hardened runtime
+
+The app is built with the **hardened runtime** in both configurations, because notarization requires it, and a runtime restriction that only showed up in the notarized build would first be discovered by users. Everything the runtime would otherwise refuse is declared in `SpeechText/SpeechText.entitlements`:
+
+| Entitlement | Used by |
+|---|---|
+| `com.apple.security.device.audio-input` | the microphone (`AVAudioEngine`) |
+| `com.apple.security.automation.apple-events` | message delivery through Messages and Mail (`AppleScriptRunner`) |
+| `com.apple.security.personal-information.addressbook` | looking up the recipient (`ContactResolver`) |
+
+Accessibility (the ⌘V paste and reading the focused field) and speech recognition need no entitlement: macOS gates them through its privacy prompts alone. Adding a feature that touches another protected resource — the camera, location, the calendar, JIT-compiled code — means adding its entitlement here, or it fails only in signed builds. See [releasing.md](releasing.md) for how a release is signed and notarized.
+
 ## Hooks
 
 ```bash

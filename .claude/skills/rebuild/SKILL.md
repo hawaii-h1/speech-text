@@ -174,6 +174,11 @@ re-points the compare links, commits with a DCO sign-off and creates the annotat
 `v1.1.0`. **Nothing is pushed** — it prints the push command and leaves the decision
 to you. Run the script again afterwards to install the build that now says `1.1.0`.
 
+Pushing the tag is what publishes: the **Release** workflow signs and notarizes the
+build and opens a *draft* GitHub release with the disk image, which a person then
+checks and publishes. That needs the Developer ID secrets; without them the workflow
+fails instead of releasing an unsigned image. See `docs/releasing.md`.
+
 It never writes release notes. What goes under `[Unreleased]` is written by hand as
 the work happens; a generated summary of commit subjects is not a changelog.
 
