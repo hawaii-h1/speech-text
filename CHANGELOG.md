@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local speech recognition with open-source Whisper models, run on-device through WhisperKit, installed, cancelled or removed with one click. No key, and nothing leaves the Mac.
 - Local AI processing through Ollama: Qwen3.5 / 3.6 / 3.8, Gemma 4 and gpt-oss, pulled with one click. Any model you already have in Ollama can be picked too.
 - Model recommendations by Mac class, from an 8 GB MacBook Neo to a 512 GB Mac Studio: each class gets a recommended model (the fastest of good quality) and a best-quality one, and heavier models stay available with a warning.
+- The menu bar's first line says which build is running — version, build number, commit and build date — and copies it when clicked.
 
 ### Changed
 
@@ -20,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - AI mode on Groq stopped working on the default model for free and developer accounts when Groq retired Llama 3.3 70B in August 2026.
-
 - ElevenLabs realtime no longer pastes a dictation twice. The stream re-states text it has already committed — grown by the words said since, and with a word or two revised — and that was being appended instead of merged.
 - "Auto (System)" no longer forces the keyboard layout's language on a cloud speech model. Whisper and Scribe detect the language themselves; being told the wrong one made them drop most of a recording and translate the rest. Apple's recogniser, which has no auto mode, still follows the layout.
 

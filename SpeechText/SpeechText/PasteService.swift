@@ -5,32 +5,248 @@ import Cocoa
 import ApplicationServices
 
 struct PasteService {
+    /// Where a paste landed in the target app: the range the text occupies, and the
+    /// app's own copy of that text. Both are read back out of the Accessibility API
+    /// rather than assumed from what was sent.
+    struct PasteLanding {
+        let range: NSRange
+        /// What the app actually holds there — smart quotes applied, line endings
+        /// normalised, whatever it did. The only version a later guard can compare to.
+        let text: String
+    }
+
     /// Pastes text at the current cursor position, preserving the user's clipboard.
     /// Saves clipboard contents, pastes via ⌘V, then restores the original clipboard.
-    static func pasteAtCursor(_ text: String) {
+    ///
+    /// `completion` receives where the text landed, when that can be established: the
+    /// caret is read before the ⌘V and polled after it, and the range between is read
+    /// back out of `kAXValueAttribute`. It is nil whenever anything in that chain
+    /// refuses — no permission, no focused element, a caret that never moved — and a nil
+    /// landing means only that this paste cannot be corrected later, never that it failed.
+    static func pasteAtCursor(_ text: String, completion: ((PasteLanding?) -> Void)? = nil) {
         let frontApp = NSWorkspace.shared.frontmostApplication
         dlog("Paste", "pasteAtCursor: \(text.count) chars \"\(text.prefix(80))\", trusted=\(AXIsProcessTrusted()), front=\(frontApp?.localizedName ?? "nil") (\(frontApp?.bundleIdentifier ?? "nil"))")
 
-        let pasteboard = NSPasteboard.general
-        let savedItems = saveClipboard(pasteboard)
+        let element = completion == nil ? nil : focusedTextElement(of: frontApp)
+        let before = element.flatMap { selectedRange(of: $0) }
 
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        let pasteboard = NSPasteboard.general
+        stageClipboard(pasteboard, text: text)
 
         // Use CGEvent as primary method — it only requires Accessibility permission,
         // unlike AppleScript which also needs Automation permission for System Events
         // and com.apple.security.automation.apple-events entitlement with hardened runtime.
         simulatePasteCGEvent()
 
-        // Restore the original clipboard after a generous delay to ensure the target app
-        // has fully processed the paste command and read from the clipboard.
-        // This is a blind wait on purpose: the ⌘V lands in *another* process, and there
-        // is no signal from it telling us when it has read the pasteboard. No completion
-        // can replace this delay, so leave it at 1.0s.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            restoreClipboard(pasteboard, items: savedItems)
+        scheduleClipboardRestore(pasteboard)
+
+        guard let completion else { return }
+        guard let element, let before else {
+            completion(nil)
+            return
+        }
+        awaitLanding(in: element, startedAt: before, completion: completion)
+    }
+
+    // MARK: - Where the paste landed
+
+    /// Polls the caret until it moves, then reads the text between where it was and
+    /// where it is. The ⌘V is handled in another process on its own schedule, so there
+    /// is nothing to wait on but the caret itself.
+    ///
+    /// The poll deliberately waits for the caret to *change* rather than to advance by
+    /// the length of what was sent: an app with smart quotes or line-ending
+    /// normalisation on inserts a different number of characters than we handed it, and
+    /// a length test would wait out its whole timeout on every such app.
+    private static func awaitLanding(in element: AXUIElement,
+                                     startedAt before: NSRange,
+                                     attempt: Int = 0,
+                                     completion: @escaping (PasteLanding?) -> Void) {
+        // ~500ms in 20ms steps. Past that the paste either did not happen or went
+        // somewhere we cannot see, and either way there is nothing to record.
+        let maxAttempts = 25
+
+        guard let now = selectedRange(of: element), now != before else {
+            guard attempt < maxAttempts else {
+                dlog("Paste", "landing: caret never moved, nothing recorded")
+                completion(nil)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                awaitLanding(in: element, startedAt: before, attempt: attempt + 1, completion: completion)
+            }
+            return
+        }
+
+        // The paste replaced the selection, so it starts where the selection did and
+        // ends at the caret.
+        let start = before.location
+        let length = now.location - start
+        guard length > 0, let value = stringValue(of: element) else {
+            dlog("Paste", "landing: caret moved to \(now.location) from \(start) — no usable range")
+            completion(nil)
+            return
+        }
+
+        let document = value as NSString
+        guard NSMaxRange(NSRange(location: start, length: length)) <= document.length else {
+            dlog("Paste", "landing: range \(start)+\(length) is outside a \(document.length)-char value")
+            completion(nil)
+            return
+        }
+
+        let range = NSRange(location: start, length: length)
+        let landed = document.substring(with: range)
+        dlog("Paste", "landing: \(range.location)+\(range.length) \"\(landed.prefix(40))\"")
+        completion(PasteLanding(range: range, text: landed))
+    }
+
+    // MARK: - Tier probe
+
+    /// What the Accessibility API will let us do to this app's focused text element.
+    ///
+    /// The read-back is the whole point: Chromium answers `.success` to a selected-range
+    /// write and then reports a different range, so only writing the range the element
+    /// already has — a no-op for the user — and comparing what comes back separates an
+    /// app we can correct from one we would be scribbling into blind.
+    static func probeFocusedText(in app: NSRunningApplication?) -> AXTextProbe {
+        guard AXIsProcessTrusted(), let element = focusedTextElement(of: app) else {
+            return .unavailable
+        }
+
+        var probe = AXTextProbe()
+        probe.valueReadable = stringValue(of: element) != nil
+
+        guard let range = selectedRange(of: element) else { return probe }
+        probe.rangeReadable = true
+
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextRangeAttribute as CFString, &settable) == .success,
+              settable.boolValue else {
+            return probe
+        }
+
+        // Setting the selection to what it already is changes nothing the user can see.
+        var value = range
+        guard let axValue = AXValueCreate(.cfRange, &value) else { return probe }
+        guard AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success else {
+            return probe
+        }
+        probe.rangeReadsBack = selectedRange(of: element) == range
+        return probe
+    }
+
+    /// Where the text is going: the app, its focused window's title and the focused
+    /// field's label, or nil when there is nothing that may be sent (see `FocusContext.capture`).
+    ///
+    /// Only the LLM pass after the stop reads this, so the caller takes it *after* the
+    /// microphone has been asked to start: these are round trips to another process, and
+    /// against a slow app they would otherwise be time the user loses a first syllable to.
+    static func readFocusContext(in app: NSRunningApplication?) -> FocusContext? {
+        guard let target = app ?? NSWorkspace.shared.frontmostApplication,
+              target.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+
+        var windowTitle: String?
+        var fieldLabels: [String?] = []
+        var isSecureField = false
+        if AXIsProcessTrusted() {
+            let appElement = AXUIElementCreateApplication(target.processIdentifier)
+            if let window = elementValue(of: appElement, kAXFocusedWindowAttribute) {
+                windowTitle = attributeString(of: window, kAXTitleAttribute)
+            }
+            if let element = focusedTextElement(of: target) {
+                isSecureField = attributeString(of: element, kAXSubroleAttribute) == kAXSecureTextFieldSubrole
+                fieldLabels = [kAXPlaceholderValueAttribute, kAXDescriptionAttribute, kAXTitleAttribute]
+                    .map { attributeString(of: element, $0) }
+            }
+        }
+        return FocusContext.capture(appName: target.localizedName,
+                                    bundleID: target.bundleIdentifier,
+                                    windowTitle: windowTitle,
+                                    fieldLabels: fieldLabels,
+                                    isSecureField: isSecureField)
+    }
+
+    /// The focused element of `app`, or of whatever is frontmost when `app` is nil.
+    private static func focusedTextElement(of app: NSRunningApplication?) -> AXUIElement? {
+        guard AXIsProcessTrusted() else { return nil }
+        guard let pid = (app ?? NSWorkspace.shared.frontmostApplication)?.processIdentifier else { return nil }
+        let appElement = AXUIElementCreateApplication(pid)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused else { return nil }
+        return (focused as! AXUIElement)
+    }
+
+    private static func attributeString(of element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+        return value as? String
+    }
+
+    private static func elementValue(of element: AXUIElement, _ attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
+    }
+
+    private static func stringValue(of element: AXUIElement) -> String? {
+        attributeString(of: element, kAXValueAttribute)
+    }
+
+    private static func selectedRange(of element: AXUIElement) -> NSRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue((value as! AXValue), .cfRange, &range) else { return nil }
+        return NSRange(location: range.location, length: range.length)
+    }
+
+    // MARK: - Clipboard
+
+    /// The user's clipboard, taken before the first paste of a burst, and the restore
+    /// waiting to put it back.
+    ///
+    /// A recording that inserts each committed span pastes several times, and the
+    /// naive version — save, paste, restore in 1 s, per paste — corrupts the clipboard
+    /// rather than preserving it: the second paste's "save" reads back the *first
+    /// paste's text*, and a second later the user's clipboard holds a fragment of their
+    /// own dictation. So the snapshot is taken once per burst and the pending restore is
+    /// cancelled and rescheduled, never re-taken.
+    private static var savedClipboard: [NSPasteboardItem]?
+    private static var pendingRestore: DispatchWorkItem?
+
+    /// Puts `text` on the pasteboard, keeping the user's own contents safe.
+    private static func stageClipboard(_ pasteboard: NSPasteboard, text: String) {
+        if pendingRestore == nil {
+            savedClipboard = saveClipboard(pasteboard)
+        }
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    /// Restores the user's clipboard after a generous delay to ensure the target app has
+    /// fully processed the paste command and read from the clipboard.
+    ///
+    /// This is a blind wait on purpose: the ⌘V lands in *another* process, and there is
+    /// no signal from it telling us when it has read the pasteboard. No completion can
+    /// replace this delay, so leave it at 1.0s. A paste that arrives before the previous
+    /// restore fires pushes it out rather than stacking a second one behind it.
+    private static func scheduleClipboardRestore(_ pasteboard: NSPasteboard) {
+        pendingRestore?.cancel()
+        let restore = DispatchWorkItem {
+            let items = savedClipboard ?? []
+            restoreClipboard(pasteboard, items: items)
+            savedClipboard = nil
+            pendingRestore = nil
             dlog("Paste", "Clipboard restored")
         }
+        pendingRestore = restore
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: restore)
     }
 
     /// Save current clipboard contents so they can be restored later.

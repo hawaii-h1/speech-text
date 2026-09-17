@@ -300,6 +300,15 @@ struct HistoryView: View {
             }
             .font(.system(size: 11))
 
+            if let context = refinement.context {
+                Label("For \(context.summary)", systemImage: "macwindow")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .help(context.promptBlock)
+            }
+
             if let error = refinement.errorMessage {
                 Text("Fell back to the dictated text — \(error)")
                     .font(.system(size: 10, design: .monospaced))
@@ -375,7 +384,7 @@ struct HistoryView: View {
             do {
                 let provider = makeBatchProvider(configuration: configuration)
                 let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = configuration.cleaned(text.trimmingCharacters(in: .whitespacesAndNewlines))
                 await MainActor.run {
                     if trimmed.isEmpty {
                         history.markRetryFailed(id: recordID, error: "Retry returned no text")

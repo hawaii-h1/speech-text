@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.elevenLabsAPIKey) private var elevenLabsAPIKey = ""
     @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
+    @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
@@ -24,6 +25,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
+    @AppStorage(SettingsKeys.aiFocusContextEnabled) private var aiFocusContextEnabled = true
     @AppStorage(SettingsKeys.messageSendingEnabled) private var messageSendingEnabled = false
     @State private var contactsAuthorized = ContactResolver.isAuthorized
 
@@ -277,6 +279,10 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Toggle("Remove hesitation sounds", isOn: $removeDisfluencies)
+            Text("Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         } header: {
             sectionHeader("Step 1 · Speech → Text", "Turns what you say into raw text. Always runs.")
         }
@@ -317,6 +323,11 @@ struct SettingsView: View {
             }
 
             Text("Separate from the speech model above — you can transcribe with one provider and generate with another.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Tell the AI which app you're typing in", isOn: $aiFocusContextEnabled)
+            Text("The AI Recording shortcut sends the app's name, its window title and the text field's label along with the dictation, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

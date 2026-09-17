@@ -16,6 +16,8 @@ enum SettingsKeys {
     static let elevenLabsModel = "elevenLabsModel"
     /// `LocalSTTModel.id` (a WhisperKit variant) the local engine transcribes with.
     static let localSTTModel = "localSTTModel"
+    /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
+    static let removeDisfluencies = "removeDisfluencies"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -47,6 +49,8 @@ enum SettingsKeys {
     static let defaultPresetID = "defaultPresetID"
     /// Whether the Record Window's ✨ toggle is on.
     static let aiModeInRecordWindow = "aiModeInRecordWindow"
+    /// Whether an AI dictation tells the model which app, window and field it is for.
+    static let aiFocusContextEnabled = "aiFocusContextEnabled"
 
     // Message delivery
     /// Whether an AI dictation may be routed to a messaging app instead of the cursor.
@@ -79,12 +83,13 @@ enum SettingsKeys {
     static let portable: [String] = [
         webhookURL, authToken, selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
+        removeDisfluencies,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
-        promptPresets, defaultPresetID, aiModeInRecordWindow,
+        promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
         messageSendingEnabled,
         appSkin, accentColor,
         hotkeyLayoutVersion, debugMode,

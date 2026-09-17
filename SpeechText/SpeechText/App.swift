@@ -16,6 +16,44 @@ struct SpeechTextApp: App {
     }
 }
 
+// MARK: - Build identity
+
+/// What this build is, in one line: the release version, and — when the rebuild
+/// skill produced it — which commit it came from and when.
+///
+/// `CFBundleShortVersionString` is the semver in CHANGELOG.md and moves only on a
+/// release. The rest is stamped at build time: `scripts/rebuild.sh` passes
+/// `CURRENT_PROJECT_VERSION`, `SPT_GIT_COMMIT` and `SPT_BUILD_DATE` on the
+/// `xcodebuild` line, and `Info.plist` carries `$(...)` placeholders for them.
+/// A plain Xcode ⌘R build defines none of those, so the app says "dev" instead —
+/// which is the honest answer, not a missing feature.
+enum AppVersion {
+    static var marketing: String { string(for: "CFBundleShortVersionString") ?? "?" }
+    static var build: String { string(for: "CFBundleVersion") ?? "?" }
+    static var commit: String? { string(for: "SPTGitCommit") }
+    static var builtAt: String? { string(for: "SPTBuildDate") }
+
+    /// e.g. `1.0 (build 47 · a18a7d1 · 2026-09-16 14:20)`, or `1.0 (dev)`.
+    static var displayString: String {
+        guard let commit else { return "\(marketing) (dev)" }
+        var parts = ["build \(build)", commit]
+        if let builtAt { parts.append(builtAt) }
+        return "\(marketing) (\(parts.joined(separator: " · ")))"
+    }
+
+    /// An Info.plist string that is actually a value. Xcode substitutes an *empty*
+    /// string for a build setting it was never given, so the unstamped case is ""
+    /// rather than a missing key; a placeholder left verbatim would mean the key in
+    /// Info.plist and the variable on the build line disagree, and showing the user
+    /// `$(SPT_GIT_COMMIT)` is worse than showing nothing.
+    private static func string(for key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+}
+
 // MARK: - AppDelegate with NSStatusItem
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -138,6 +176,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
 
+        // Which build is this? The app has no window and no About box, so the menu
+        // is the only place the answer can live — and after a rebuild it is the
+        // first thing worth checking.
+        let versionItem = NSMenuItem(title: "SpeechText \(AppVersion.displayString)",
+                                     action: #selector(copyVersion), keyEquivalent: "")
+        versionItem.target = self
+        versionItem.toolTip = "Click to copy this build's version"
+        menu.addItem(versionItem)
+
+        menu.addItem(.separator())
+
         let shortcut = currentShortcutDisplayString()
         if appState.speechEngine.isRecording {
             let stopItem = NSMenuItem(title: "Stop Recording (\(shortcut))", action: #selector(toggleRecording), keyEquivalent: "")
@@ -184,6 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    @objc private func copyVersion() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("SpeechText \(AppVersion.displayString)", forType: .string)
     }
 
     @objc private func toggleRecording() {
@@ -315,6 +370,9 @@ final class AppState {
     /// True when the current inline session was started with the AI hotkey, so the
     /// transcription gets routed through `TextRefinementService` before pasting.
     private(set) var isAIMode = false
+    /// Where an AI dictation is going, read when its recording started. Nil outside AI
+    /// mode and when the user turned the setting off.
+    private var focusContext: FocusContext?
     /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
     private(set) var isRefining = false
     private var refinementTask: Task<Void, Never>?
@@ -327,6 +385,20 @@ final class AppState {
     /// The pending "send this to X" confirmation, if one is on screen.
     private var confirmationPanel: SendConfirmationPanelWindow?
     private var recipientTask: Task<Void, Never>?
+
+    /// Which sink this recording is delivering into. Decided once, when the recording
+    /// starts, and never revisited: a tier that changed halfway would mean text issued
+    /// under one set of rules being corrected under another.
+    private var deliveryTier: DeliveryTier = .c
+    /// What has actually been pasted into the target app during this recording — the
+    /// sink's own record, not the engine's. The stop subtracts it from the authoritative
+    /// text so a dictation is never pasted twice.
+    private var inlineLedger = InsertionLedger()
+    /// Spans waiting their turn, and whether one is in flight. Pastes are serialised:
+    /// two ⌘V in flight at once race over the pasteboard, and the second would stage its
+    /// text before the first had been read.
+    private var spanQueue: [TranscriptSpan] = []
+    private var isDeliveringSpan = false
 
     func toggleRecording(aiMode: Bool = false) {
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
@@ -350,6 +422,7 @@ final class AppState {
         recipientTask?.cancel()
         recipientTask = nil
         isRefining = false
+        endInlineDelivery()
         speechEngine.cancelRecording()
         hideOverlay()
         hideSendConfirmation()
@@ -366,14 +439,155 @@ final class AppState {
         }
         dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(resolvedLocale()), aiMode=\(isAIMode)")
 
+        beginDeliveryPlan()
         showOverlay()
 
         let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
+
+        // After the engine start, not before: nothing reads it until the stop.
+        focusContext = isAIMode && FocusContext.isEnabled
+            ? PasteService.readFocusContext(in: previousApp)
+            : nil
+        if let focusContext {
+            // The window title stays out of the system log — it can be a mail subject.
+            dlog("Refine", "focus context: \(focusContext.appName ?? "?") (\(focusContext.bundleID ?? "?")), window title \(focusContext.windowTitle == nil ? "absent" : "present")")
+        }
+    }
+
+    // MARK: - Delivering while the user is still speaking
+
+    /// Decides the tier for this recording and wires the engine up to it.
+    ///
+    /// An AI dictation with message sending on is Tier C: it may turn out to be a
+    /// message, and that is only known once the LLM has answered. Nothing is lost by
+    /// assuming it — AI mode buffers in every tier anyway, because the rewrite at the
+    /// stop replaces the whole text.
+    private func beginDeliveryPlan() {
+        spanQueue = []
+        isDeliveringSpan = false
+        inlineLedger.clear()
+
+        let mayBecomeMessage = isAIMode
+            && UserDefaults.standard.bool(forKey: SettingsKeys.messageSendingEnabled)
+        deliveryTier = .resolve(isMessageDelivery: mayBecomeMessage,
+                                isOwnSurface: false,
+                                probe: PasteService.probeFocusedText(in: previousApp))
+
+        let progressive = deliveryTier.deliversDuringRecording(aiMode: isAIMode)
+        dlog("Span", "tier \(deliveryTier) for \(previousApp?.localizedName ?? "nil") — \(progressive ? "delivering during the recording" : "buffering until the stop")")
+
+        speechEngine.onSpansCommitted = progressive
+            ? { [weak self] spans in self?.enqueueSpans(spans) }
+            : nil
+    }
+
+    /// Stops offering spans. The ledger is kept: the stop still has to know what the
+    /// app was given so it can hand over the rest and not the whole thing again.
+    private func stopOfferingSpans() {
+        speechEngine.onSpansCommitted = nil
+        spanQueue = []
+    }
+
+    /// The recording was abandoned. Nothing more goes out — including anything already
+    /// queued — and the ledger goes with it. Text already pasted stays where it is:
+    /// un-inserting it into a foreign app is not possible.
+    private func endInlineDelivery() {
+        stopOfferingSpans()
+        inlineLedger.clear()
+    }
+
+    private func enqueueSpans(_ spans: [TranscriptSpan]) {
+        spanQueue.append(contentsOf: spans)
+        drainSpanQueue()
+    }
+
+    /// Pastes one emission's worth of spans, then the next. Everything ready at once
+    /// goes in a single ⌘V: one paste is one race with the target app instead of
+    /// several, and the ranges still come out per span whenever the app stored the text
+    /// exactly as it was handed it.
+    private func drainSpanQueue() {
+        guard !isDeliveringSpan, !spanQueue.isEmpty else { return }
+
+        let spans = spanQueue
+        spanQueue = []
+
+        // Only into the app the recording was started in, and only while it is still the
+        // one in front: the user may have switched away mid-dictation, and text pasted
+        // into whatever they switched to is worse than text delivered late. Nothing is
+        // recorded in the ledger, so the stop delivers these words itself.
+        guard PasteService.isAccessibilityGranted,
+              let app = previousApp,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            dlog("Span", "not delivering now — the target app is not in front; the stop will")
+            return
+        }
+
+        let texts = spans.map(\.text).filter { !$0.isEmpty }
+        guard !texts.isEmpty else { return }
+        let joined = texts.joined(separator: " ")
+        // A space between this delivery and the last, the way the spans join.
+        let payload = inlineLedger.isEmpty ? joined : " " + joined
+
+        isDeliveringSpan = true
+        PasteService.pasteAtCursor(payload) { [weak self] landing in
+            guard let self else { return }
+            self.isDeliveringSpan = false
+            self.recordDelivery(of: spans, texts: texts, payload: payload, landing: landing)
+            self.drainSpanQueue()
+        }
+    }
+
+    /// Writes what went out into the ledger. Per span where the app stored exactly what
+    /// it was handed — those ranges are what phase C will replace through — and as one
+    /// untracked piece otherwise, which still answers the only question phase A asks of
+    /// the ledger: what has this app already been given?
+    private func recordDelivery(of spans: [TranscriptSpan], texts: [String],
+                                payload: String, landing: PasteService.PasteLanding?) {
+        let joined = texts.joined(separator: " ")
+
+        // Per span only when the app stored exactly what it was handed. Anything else —
+        // it normalised the text, or the landing could not be read — and the offsets
+        // would be fiction, so it goes down as one untracked piece instead.
+        guard let landing, deliveryTier.recordsRanges, landing.text == payload else {
+            if landing == nil {
+                dlog("Span", "delivered \(spans.map(\.id.description).joined(separator: " ")), landing unknown")
+            }
+            inlineLedger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: joined)
+            return
+        }
+
+        // The payload may open with the space that separates this delivery from the last.
+        var location = landing.range.location + (payload as NSString).length - (joined as NSString).length
+        for (span, text) in zip(spans, texts) {
+            let length = (text as NSString).length
+            inlineLedger.insert(span: span.id,
+                                range: NSRange(location: location, length: length),
+                                text: text)
+            location += length + 1 // the separating space
+        }
+    }
+
+    /// What the stop still has to paste, with everything already delivered taken off the
+    /// front. The deciding is `InsertionLedger.remainder`; this logs what it decided.
+    private func undeliveredRemainder(of authoritative: String) -> String? {
+        let delivered = inlineLedger.deliveredText
+        guard !delivered.isEmpty else { return authoritative }
+
+        guard let remainder = inlineLedger.remainder(of: authoritative) else {
+            dlog("Span", "final text does not extend the \(delivered.count) chars already delivered — delivering nothing more")
+            return nil
+        }
+        dlog("Span", "already delivered \(delivered.count) chars; \(remainder.count) left to paste")
+        return remainder
     }
 
     private func stopRecording() {
         dlog("App", "stopRecording")
+        // From here the authoritative text arrives through the result path, and anything
+        // still queued would be delivered twice. The ledger stays — the stop needs it to
+        // know what the app has already been given.
+        stopOfferingSpans()
         speechEngine.stopRecording()
         waitForTranscription()
     }
@@ -400,6 +614,11 @@ final class AppState {
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil"), aiMode=\(isAIMode)")
 
+        // Spans pasted while the user was still speaking are already in the document.
+        // Nil means the final text disagrees with them rather than extending them, and
+        // phase A cannot replace what a foreign app already holds.
+        let remainder = undeliveredRemainder(of: text)
+
         // A failed transcription used to end here silently — the user just saw nothing
         // happen and lost everything they said. Always surface it.
         if let rawError = speechEngine.errorMessage {
@@ -413,8 +632,8 @@ final class AppState {
             )
             // Any partial text is better than nothing — hand it to the Record Window.
             // Refinement is skipped: there is no trustworthy transcript to rewrite.
-            if !text.isEmpty {
-                showDirectRecordingPanel(withText: text)
+            if let remainder, !remainder.isEmpty {
+                showDirectRecordingPanel(withText: remainder)
             }
             return
         }
@@ -422,6 +641,14 @@ final class AppState {
         guard !text.isEmpty else {
             dlog("App", "handleTranscriptionResult: empty text")
             hideOverlay()
+            // Unless the recording already delivered: a stream that committed words and
+            // then fell back to a batch upload which came back empty leaves the dictation
+            // sitting in the user's document, and telling them nothing was transcribed
+            // while they are looking at it is worse than saying nothing.
+            guard inlineLedger.deliveredText.isEmpty else {
+                dlog("App", "handleTranscriptionResult: empty final text, but the dictation was already delivered")
+                return
+            }
             showStatus(
                 icon: "waveform.slash",
                 title: "No speech detected",
@@ -433,7 +660,13 @@ final class AppState {
 
         guard isAIMode else {
             hideOverlay()
-            deliver(text)
+            // Everything was already pasted as it was committed — which is the point of
+            // the exercise, not a failure of it.
+            guard let remainder, !remainder.isEmpty else {
+                dlog("App", "handleTranscriptionResult: nothing left to paste")
+                return
+            }
+            deliver(remainder)
             return
         }
 
@@ -456,12 +689,13 @@ final class AppState {
         // Keep the overlay up (now in its loading state) while the LLM rewrites the text.
         isRefining = true
         let recordID = speechEngine.lastRecordID
+        let context = focusContext
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var output = text
             var sendIntent: TextRefinementService.SendIntent?
             do {
-                let result = try await TextRefinementService.refine(text)
+                let result = try await TextRefinementService.refine(text, context: context)
                 if Task.isCancelled { return }
                 output = result.text
                 sendIntent = result.sendIntent
@@ -469,7 +703,8 @@ final class AppState {
                     TranscriptionHistory.shared.recordRefinement(
                         id: recordID, input: text, output: result.text,
                         presetName: result.presetName,
-                        provider: result.provider, model: result.model
+                        provider: result.provider, model: result.model,
+                        context: context
                     )
                 }
             } catch {
@@ -478,7 +713,8 @@ final class AppState {
                     let type = LLMConfiguration.providerType
                     TranscriptionHistory.shared.recordRefinementFailure(
                         id: recordID, input: text, error: error.localizedDescription,
-                        provider: type.rawValue, model: LLMConfiguration.model(for: type)
+                        provider: type.rawValue, model: LLMConfiguration.model(for: type),
+                        context: context
                     )
                 }
                 // Never lose the dictation: fall back to the raw transcript, but say so
@@ -699,6 +935,7 @@ final class AppState {
             self?.refinementTask?.cancel()
             self?.refinementTask = nil
             self?.isRefining = false
+            self?.endInlineDelivery()
             self?.speechEngine.cancelRecording()
             // Close this specific panel regardless of what overlayPanel points to
             panel?.close()

@@ -24,6 +24,16 @@ struct RecordingConfiguration {
     /// written before the local tier existed) still describes a valid session.
     var localModel: String = defaultLocalSTTModel
 
+    /// Drop hesitation sounds, stretched words and trailing-off dots from what the
+    /// recogniser returns — see `cleanedTranscript`. `var` with a default so a value
+    /// built by hand (the tests) gets the setting's default.
+    var removesDisfluencies = true
+
+    /// `cleanedTranscript(text)` when the setting is on, `text` untouched otherwise.
+    func cleaned(_ text: String) -> String {
+        removesDisfluencies ? cleanedTranscript(text) : text
+    }
+
     /// The language to force on a cloud provider — nil on Auto, which leaves the model
     /// to detect it. Whisper and Scribe do that far better than a keyboard layout does:
     /// dictating Ukrainian while the layout was US used to send `language_code=en`, and
@@ -91,7 +101,8 @@ struct RecordingConfiguration {
             groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
             elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
             elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? defaultElevenLabsModel,
-            localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel
+            localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
+            removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true
         )
     }
 }
