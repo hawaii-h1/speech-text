@@ -83,6 +83,11 @@ final class TranscriptionHistory {
     private let audioRetention: TimeInterval = 7 * 24 * 60 * 60
 
     private let ioQueue = DispatchQueue(label: "com.speechtext.history.io")
+    /// The write scheduled by the last mutation, or nil when nothing is pending.
+    /// Main-thread-only, like `records`.
+    @ObservationIgnored private var pendingSave: DispatchWorkItem?
+    /// How long a burst of mutations is allowed to coalesce into one write.
+    private let saveCoalescingDelay: TimeInterval = 0.25
 
     private init() {
         adoptPreRenameStore()
@@ -315,10 +320,50 @@ final class TranscriptionHistory {
         }
     }
 
+    /// Schedules one write for a burst of mutations.
+    ///
+    /// A single dictation mutates the store several times (the record, its refinement, the
+    /// correction flag), and each write re-encodes up to 300 entries. The pending write is
+    /// cancelled and re-scheduled instead of stacking, so a burst costs one encode. The
+    /// snapshot is taken when the write *fires*, so it is always the latest state.
+    ///
+    /// `records` and `pendingSave` are both main-thread-only — a `save()` from anywhere
+    /// else hops to main rather than taking a lock.
     private func save() {
-        let snapshot = records
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.save() }
+            return
+        }
+        pendingSave?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingSave = nil
+            self.writeNow(records: self.records)
+        }
+        pendingSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + saveCoalescingDelay, execute: work)
+    }
+
+    /// Writes any pending change immediately, on the calling thread. Called at
+    /// termination, where an asynchronous write would not land before the process exits.
+    func flush() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.sync { self.flush() }
+            return
+        }
+        if let work = pendingSave {
+            work.cancel()
+            pendingSave = nil
+            writeNow(records: records, synchronously: true)
+        } else {
+            // Nothing pending, but a write scheduled a moment ago may still be in flight.
+            ioQueue.sync {}
+        }
+    }
+
+    private func writeNow(records snapshot: [TranscriptionRecord], synchronously: Bool = false) {
         let url = historyFileURL
-        ioQueue.async { [weak self] in
+        let write = { [weak self] in
             guard let self else { return }
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
@@ -331,5 +376,6 @@ final class TranscriptionHistory {
                 histLog.error("save failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+        if synchronously { ioQueue.sync(execute: write) } else { ioQueue.async(execute: write) }
     }
 }

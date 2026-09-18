@@ -157,10 +157,47 @@ enum Semantic {
     /// AI mode. Fixed on purpose: if it followed the accent, a user who picked violet
     /// would have no way to tell a rewritten dictation from a plain one.
     static let ai = Color(hex: 0x9E7BFF)
-    static let failure = Color(hex: 0xE2564D)
     /// The momentary flash after copy / paste / send. Green means "that worked",
     /// whatever colour the rest of the panel happens to be.
     static let confirmation = Color(hex: 0x30D158)
+}
+
+// MARK: - Cursor
+
+extension View {
+    /// Shows the pointing-hand cursor while the pointer is over this view.
+    ///
+    /// `NSCursor.push()`/`pop()` is what this replaces: a view dismissed under the
+    /// pointer (the overlay closing mid-hover) never sees the exit, so the push is
+    /// never popped and the whole app keeps a hand cursor. `set()` is reapplied by
+    /// AppKit on the next cursor update, so a missed exit corrects itself.
+    ///
+    /// `onHover` is forwarded before `enabled` is consulted, so a disabled control
+    /// still drives its own hover animation.
+    func pointingHandCursor(enabled: Bool = true, onHover: @escaping (Bool) -> Void = { _ in }) -> some View {
+        modifier(PointingHandCursor(enabled: enabled, onHoverChange: onHover))
+    }
+}
+
+private struct PointingHandCursor: ViewModifier {
+    let enabled: Bool
+    let onHoverChange: (Bool) -> Void
+
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                isHovering = hovering
+                onHoverChange(hovering)
+                guard enabled else { return }
+                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+            }
+            .onDisappear {
+                if isHovering, enabled { NSCursor.arrow.set() }
+                isHovering = false
+            }
+    }
 }
 
 extension Notification.Name {

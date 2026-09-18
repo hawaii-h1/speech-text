@@ -27,7 +27,6 @@ struct SystemCapabilities: Equatable {
     let freeDiskBytes: UInt64
 
     var memoryGB: Double { Double(memoryBytes) / 1_073_741_824 }
-    var freeDiskGB: Double { Double(freeDiskBytes) / 1_073_741_824 }
 
     /// A one-line description for the Settings row, so the recommendation can say what
     /// it based itself on rather than asking the user to trust it.

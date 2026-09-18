@@ -57,6 +57,7 @@ struct HotkeyRecorderView: View {
                 }
             }
         }
+        .onDisappear { stopListening() }
     }
 
     private func toggleRecording() {
@@ -90,6 +91,7 @@ struct HotkeyRecorderView: View {
     }
 
     private func stopListening() {
+        // Safe to call when not listening: localMonitor is nil, so this is a no-op.
         isRecording = false
         if let monitor = localMonitor {
             NSEvent.removeMonitor(monitor)

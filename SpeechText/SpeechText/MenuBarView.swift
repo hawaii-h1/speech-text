@@ -6,8 +6,6 @@ import ServiceManagement
 import AppKit
 
 struct SettingsView: View {
-    @AppStorage(SettingsKeys.webhookURL) private var webhookURL = ""
-    @AppStorage(SettingsKeys.authToken) private var authToken = ""
     @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
@@ -16,6 +14,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
     @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
+    @AppStorage(SettingsKeys.dashStyle) private var dashStyle = DashStyle.default.rawValue
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
@@ -25,11 +24,11 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
-    @AppStorage(SettingsKeys.aiFocusContextEnabled) private var aiFocusContextEnabled = true
     @AppStorage(SettingsKeys.aiDraftWhileSpeaking) private var aiDraftWhileSpeaking = false
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
+    @AppStorage(SettingsKeys.dockIconMode) private var dockIconRaw = DockIconMode.default.rawValue
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     // Sparkle keeps this in its own defaults key, so it is read from the updater rather
@@ -74,6 +73,15 @@ struct SettingsView: View {
                         }
                     }
 
+                Picker("Show in Dock", selection: $dockIconRaw) {
+                    ForEach(DockIconMode.allCases) { mode in
+                        Text(mode.label).tag(mode.rawValue)
+                    }
+                }
+                .onChange(of: dockIconRaw) { _, _ in
+                    NotificationCenter.default.post(name: .dockIconModeDidChange, object: nil)
+                }
+
                 // Absent in a build with no signing key, where the updater never starts.
                 if UpdateChecker.shared.isConfigured {
                     Toggle("Check for Updates Automatically", isOn: $checksForUpdates)
@@ -111,13 +119,6 @@ struct SettingsView: View {
                 Text("Click a shortcut, then press the new key combination.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section("Webhook") {
-                TextField("Webhook URL", text: $webhookURL)
-                    .textFieldStyle(.roundedBorder)
-                SecureField("Auth Token", text: $authToken)
-                    .textFieldStyle(.roundedBorder)
             }
 
             Section("Permissions") {
@@ -276,6 +277,14 @@ struct SettingsView: View {
             Text("Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Picker("Dashes", selection: $dashStyle) {
+                ForEach(DashStyle.allCases) { style in
+                    Text(style.displayName).tag(style.rawValue)
+                }
+            }
+            Text("Speech models write a long “—” where you paused between phrases. It is redrawn in this style, in dictations and AI output alike, and never removed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         } header: {
             sectionHeader("Step 1 · Speech → Text", "Turns what you say into raw text. Always runs.")
         }
@@ -319,8 +328,9 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Tell the AI which app you're typing in", isOn: $aiFocusContextEnabled)
-            Text("The AI Recording shortcut sends the app's name, its window title and the text field's label along with the dictation, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
+            Text("The AI Recording shortcut also sends the app's name, its window title and the text field's label, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Toggle("Show the dictation while speaking, then swap in the AI version", isOn: $aiDraftWhileSpeaking)
             Text("Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")

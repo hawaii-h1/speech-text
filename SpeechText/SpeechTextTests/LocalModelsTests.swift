@@ -244,7 +244,6 @@ final class LocalRecordingConfigurationTests: XCTestCase {
     func testLocalUsesItsModelAndNoKey() {
         let c = config(.local)
         XCTAssertEqual(c.batchModel, "openai_whisper-base")
-        XCTAssertEqual(c.batchAPIKey, "")
         XCTAssertFalse(c.streams)
         // Auto leaves detection to Whisper, exactly like the cloud tiers.
         XCTAssertNil(c.cloudLanguage)

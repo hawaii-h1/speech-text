@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var debugLogWindow: DebugLogWindow?
     private var historyWindow: HistoryWindow?
+    private var dockIcon: DockIconController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
@@ -108,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         normalizeStoredProviders()
         registerLocalSTT()
         registerSpellCheckedJoins()
+        dockIcon = DockIconController()
         migrateHotkeyLayoutIfNeeded()
 
         // Starts Sparkle's background schedule. Nothing happens in a build with no
@@ -155,6 +157,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
             try? SMAppService.mainApp.register()
         }
+    }
+
+    /// A click on the Dock icon with nothing on screen opens Settings — otherwise the icon
+    /// the user asked for would do nothing at all when clicked.
+    func applicationWillTerminate(_ notification: Notification) {
+        // History writes are coalesced; a record made in the last quarter second is
+        // still pending here.
+        TranscriptionHistory.shared.flush()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !DockIconController.hasOpenWindow() {
+            openSettings()
+        }
+        return true
     }
 
     /// Moves existing installs onto the current shortcut layout (Inline ⌃⇧Q,
@@ -339,45 +356,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func currentShortcutDisplayString() -> String {
-        let defaults = UserDefaults.standard
-        let kc: UInt16
-        let mf: NSEvent.ModifierFlags
-        if defaults.object(forKey: SettingsKeys.hotkeyKeyCode) != nil {
-            kc = UInt16(defaults.integer(forKey: SettingsKeys.hotkeyKeyCode))
-            mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.hotkeyModifierFlags)))
-        } else {
-            kc = 12   // Q
-            mf = [.control, .shift]
-        }
-        return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
+        storedShortcutDisplayString(keyCodeKey: SettingsKeys.hotkeyKeyCode,
+                                    modifiersKey: SettingsKeys.hotkeyModifierFlags,
+                                    defaultKeyCode: 12)  // Q
     }
 
     private func currentRecordWindowShortcutDisplayString() -> String {
-        let defaults = UserDefaults.standard
-        let kc: UInt16
-        let mf: NSEvent.ModifierFlags
-        if defaults.object(forKey: SettingsKeys.recordWindowHotkeyKeyCode) != nil {
-            kc = UInt16(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyKeyCode))
-            mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyModifierFlags)))
-        } else {
-            kc = 13   // W
-            mf = [.control, .shift]
-        }
-        return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
+        storedShortcutDisplayString(keyCodeKey: SettingsKeys.recordWindowHotkeyKeyCode,
+                                    modifiersKey: SettingsKeys.recordWindowHotkeyModifierFlags,
+                                    defaultKeyCode: 13)  // W
     }
 
     private func currentAIShortcutDisplayString() -> String {
+        storedShortcutDisplayString(keyCodeKey: SettingsKeys.aiHotkeyKeyCode,
+                                    modifiersKey: SettingsKeys.aiHotkeyModifierFlags,
+                                    defaultKeyCode: 0)  // A
+    }
+
+    /// The stored shortcut, or the built-in one (⌃⇧ + `defaultKeyCode`, matching
+    /// `HotkeyManager`'s defaults) when none has been saved.
+    private func storedShortcutDisplayString(keyCodeKey: String, modifiersKey: String,
+                                             defaultKeyCode: UInt16) -> String {
         let defaults = UserDefaults.standard
-        let kc: UInt16
-        let mf: NSEvent.ModifierFlags
-        if defaults.object(forKey: SettingsKeys.aiHotkeyKeyCode) != nil {
-            kc = UInt16(defaults.integer(forKey: SettingsKeys.aiHotkeyKeyCode))
-            mf = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.aiHotkeyModifierFlags)))
-        } else {
-            kc = 0   // A
-            mf = [.control, .shift]
+        guard defaults.object(forKey: keyCodeKey) != nil else {
+            return shortcutDisplayString(keyCode: defaultKeyCode, modifierFlags: [.control, .shift])
         }
-        return shortcutDisplayString(keyCode: kc, modifierFlags: mf)
+        return shortcutDisplayString(
+            keyCode: UInt16(defaults.integer(forKey: keyCodeKey)),
+            modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: modifiersKey))))
     }
 }
 
@@ -399,6 +405,10 @@ final class AppState {
     private var statusDismissItem: DispatchWorkItem?
     private var directRecordingPanel: DirectRecordingPanelWindow?
     private var directRecordingSpeechEngine: SpeechEngine?
+    /// The block observer on the Record Window's `willClose`. Kept so it can be removed:
+    /// `removeObserver(self, …)` does nothing for a block observer, and a leaked one from
+    /// a previous panel cleared the *new* panel's references when the old one closed.
+    private var directRecordingCloseObserver: NSObjectProtocol?
     /// The app the user was in before recording started (paste target)
     var previousApp: NSRunningApplication?
 
@@ -457,17 +467,36 @@ final class AppState {
         beginDeliveryPlan()
         showOverlay()
 
+        // A start that fails (microphone refused, no input device, a stream that could
+        // not open) never reaches a stop, and the "preparing" overlay used to sit there
+        // until the next hotkey press.
+        speechEngine.onStartFailure = { [weak self] message in
+            self?.handleStartFailure(message)
+        }
         let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
 
         // After the engine start, not before: nothing reads it until the stop.
-        focusContext = isAIMode && FocusContext.isEnabled
+        focusContext = isAIMode
             ? PasteService.readFocusContext(in: previousApp)
             : nil
         if let focusContext {
             // The window title stays out of the system log — it can be a mail subject.
             dlog("Refine", "focus context: \(focusContext.appName ?? "?") (\(focusContext.bundleID ?? "?")), window title \(focusContext.windowTitle == nil ? "absent" : "present")")
         }
+    }
+
+    private func handleStartFailure(_ message: String) {
+        dlog("App", "startRecording failed: \(message)")
+        endInlineDelivery()
+        DictationTraceRecorder.current = nil
+        hideOverlay()
+        showStatus(
+            icon: "exclamationmark.triangle.fill",
+            title: "Couldn't start recording",
+            detail: friendlySTTError(message),
+            tint: .orange
+        )
     }
 
     // MARK: - Delivering while the user is still speaking
@@ -481,6 +510,7 @@ final class AppState {
             ? DictationTraceRecorder(setup: DictationTrace.Setup(
                 aiMode: isAIMode, aiDraft: aiDraft,
                 removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
+                dashStyle: .current,
                 app: previousApp?.localizedName,
                 probe: .init(valueReadable: probe.valueReadable, rangeReadable: probe.rangeReadable,
                              rangeReadsBack: probe.rangeReadsBack)))
@@ -922,33 +952,46 @@ final class AppState {
         directRecordingPanel = panel
 
         // Silent save on close: stop recording / let transcription finish, but don't paste
-        NotificationCenter.default.addObserver(
+        directRecordingCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: panel, queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            if let engine = self.directRecordingSpeechEngine {
-                if engine.isRecording || engine.isPaused {
-                    engine.stopRecording()
-                }
-                // If transcribing, let it finish on its own — don't cancel
-            }
-            self.directRecordingSpeechEngine = nil
+        ) { [weak self, weak panel] _ in
+            guard let self, self.directRecordingPanel === panel else { return }
+            self.releaseDirectRecordingEngine()
+            self.removeDirectRecordingCloseObserver()
             self.directRecordingPanel = nil
         }
     }
 
     private func hideDirectRecordingPanel() {
-        if let engine = directRecordingSpeechEngine {
-            if engine.isRecording || engine.isPaused {
-                engine.stopRecording()
-            }
-        }
-        directRecordingSpeechEngine = nil
+        releaseDirectRecordingEngine()
+        removeDirectRecordingCloseObserver()
         if let panel = directRecordingPanel {
-            NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: panel)
             panel.close()
         }
         directRecordingPanel = nil
+    }
+
+    /// Lets the Record Window's engine finish what it is doing and forgets it: a live
+    /// recording is stopped (its text is written to History, nothing is pasted), a
+    /// transcription in flight is left to land, and an engine still *starting* is
+    /// cancelled — it has no result to wait for, and forgetting it mid-start left the
+    /// tap running into a session nobody would ever finish.
+    private func releaseDirectRecordingEngine() {
+        if let engine = directRecordingSpeechEngine {
+            if engine.isRecording || engine.isPaused {
+                engine.stopRecording()
+            } else if engine.isStartingEngine {
+                engine.cancelRecording()
+            }
+        }
+        directRecordingSpeechEngine = nil
+    }
+
+    private func removeDirectRecordingCloseObserver() {
+        if let observer = directRecordingCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+            directRecordingCloseObserver = nil
+        }
     }
 }
 

@@ -115,7 +115,9 @@ struct DebugLogView: View {
                 .id(entry.id)
             }
             .listStyle(.plain)
-            .onChange(of: debugLog.entries.count) {
+            // The ring buffer caps at 1000 entries, so once it's full the count stays
+            // put while entries still roll over — key on the newest id instead.
+            .onChange(of: debugLog.entries.last?.id) {
                 if autoScroll, let last = filteredEntries.last {
                     withAnimation(.easeOut(duration: 0.1)) {
                         proxy.scrollTo(last.id, anchor: .bottom)
@@ -127,20 +129,37 @@ struct DebugLogView: View {
 
     // MARK: - Helpers
 
-    private func formatTime(_ date: Date) -> String {
+    private static let timeFormatter: DateFormatter = {
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
-        return df.string(from: date)
+        return df
+    }()
+
+    private func formatTime(_ date: Date) -> String {
+        Self.timeFormatter.string(from: date)
     }
 
     private func categoryColor(_ category: String) -> Color {
         switch category {
-        case "Engine":   .blue
-        case "App":      .purple
-        case "Groq":     .orange
-        case "Audio":    .green
-        case "Paste":    .pink
-        default:         .secondary
+        // Recording pipeline
+        case "Engine":      .blue
+        case "Audio":       .green
+        case "Span":        .cyan
+        // Cloud STT/LLM providers
+        case "Groq", "ElevenLabs": .orange
+        // Local models
+        case "LocalModel", "LocalWhisper", "Ollama": .brown
+        // AI text refinement
+        case "LLM", "Refine": .indigo
+        // Delivery
+        case "Paste":       .pink
+        case "App":         .purple
+        case "Settings":    .gray
+        case "History":     .mint
+        case "Hotkey":      .teal
+        // Dictation traces
+        case "Trace":       .yellow
+        default:            .secondary
         }
     }
 }

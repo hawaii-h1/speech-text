@@ -242,13 +242,23 @@ struct PasteService {
     /// write and then reports a different range, so only writing the range the element
     /// already has — a no-op for the user — and comparing what comes back separates an
     /// app we can correct from one we would be scribbling into blind.
+    ///
+    /// That write is only a no-op if the range we read is where the caret really is. A
+    /// web or Electron field whose accessibility tree has just been woken by our first
+    /// query answers `{0, 0}` whatever the caret's position, and writing that back moved
+    /// the caret to the start of the field — the dictation then landed *before* the text
+    /// already there. So a range that cannot be the caret's (`{0, 0}` in a non-empty
+    /// field, or one past the end of the value) is never written, and the element probes
+    /// as Tier B. A field whose caret genuinely sits at the very start loses its
+    /// correction for that recording; that is the side to fail on.
     static func probeFocusedText(in app: NSRunningApplication?) -> AXTextProbe {
         guard AXIsProcessTrusted(), let element = focusedTextElement(of: app) else {
             return .unavailable
         }
 
         var probe = AXTextProbe()
-        probe.valueReadable = stringValue(of: element) != nil
+        let document = stringValue(of: element)
+        probe.valueReadable = document != nil
 
         guard let range = selectedRange(of: element) else { return probe }
         probe.rangeReadable = true
@@ -256,6 +266,13 @@ struct PasteService {
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextRangeAttribute as CFString, &settable) == .success,
               settable.boolValue else {
+            return probe
+        }
+
+        let length = (document as NSString?)?.length ?? 0
+        guard range.location + range.length <= length,
+              !(range.location == 0 && range.length == 0 && length > 0) else {
+            dlog("Span", "probe: selection \(range.location)+\(range.length) in \(length) characters is not trusted — not written back")
             return probe
         }
 
@@ -305,10 +322,7 @@ struct PasteService {
         guard AXIsProcessTrusted() else { return nil }
         guard let pid = (app ?? NSWorkspace.shared.frontmostApplication)?.processIdentifier else { return nil }
         let appElement = AXUIElementCreateApplication(pid)
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let focused else { return nil }
-        return (focused as! AXUIElement)
+        return elementValue(of: appElement, kAXFocusedUIElementAttribute)
     }
 
     private static func attributeString(of element: AXUIElement, _ attribute: String) -> String? {
@@ -352,14 +366,23 @@ struct PasteService {
     /// cancelled and rescheduled, never re-taken.
     private static var savedClipboard: [NSPasteboardItem]?
     private static var pendingRestore: DispatchWorkItem?
+    /// The pasteboard's change count right after our text went on it. If it differs
+    /// when the restore fires, someone else wrote the pasteboard in between — the user
+    /// pressed ⌘C mid-dictation — and putting the old snapshot back would wipe that copy.
+    private static var stagedChangeCount = 0
 
     /// Puts `text` on the pasteboard, keeping the user's own contents safe.
     private static func stageClipboard(_ pasteboard: NSPasteboard, text: String) {
-        if pendingRestore == nil {
+        // The first paste of a burst takes the snapshot. A later one takes it again
+        // only if the pasteboard changed under us since our last write — the user
+        // pressed ⌘C between two spans — so what goes back at the end is their copy,
+        // not the pre-dictation contents over it.
+        if pendingRestore == nil || pasteboard.changeCount != stagedChangeCount {
             savedClipboard = saveClipboard(pasteboard)
         }
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        stagedChangeCount = pasteboard.changeCount
     }
 
     /// Restores the user's clipboard after a generous delay to ensure the target app has
@@ -372,10 +395,16 @@ struct PasteService {
     private static func scheduleClipboardRestore(_ pasteboard: NSPasteboard) {
         pendingRestore?.cancel()
         let restore = DispatchWorkItem {
+            defer {
+                savedClipboard = nil
+                pendingRestore = nil
+            }
+            guard pasteboard.changeCount == stagedChangeCount else {
+                dlog("Paste", "Clipboard changed since the paste — leaving it alone")
+                return
+            }
             let items = savedClipboard ?? []
             restoreClipboard(pasteboard, items: items)
-            savedClipboard = nil
-            pendingRestore = nil
             dlog("Paste", "Clipboard restored")
         }
         pendingRestore = restore
@@ -436,23 +465,12 @@ struct PasteService {
     static func canLikelyPasteText(in app: NSRunningApplication) -> Bool {
         guard AXIsProcessTrusted() else { return true } // Can't check — assume yes
 
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-
-        var focusedElement: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(
-            appElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedElement
-        )
-
-        guard result == .success, let element = focusedElement else {
+        guard let axElement = focusedTextElement(of: app) else {
             // Can't determine focused element — common in Electron/web apps (Slack, Discord,
             // VS Code, etc.) whose text inputs don't appear in the native AX tree.
             // Default to attempting paste rather than falling back to Record Window.
             return true
         }
-
-        let axElement = element as! AXUIElement
 
         // Quick positive: if the value attribute is settable, it's definitely a text input
         var isSettable = DarwinBoolean(false)

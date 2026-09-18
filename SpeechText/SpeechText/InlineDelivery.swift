@@ -276,7 +276,13 @@ final class InlineDelivery {
     /// to be a rewrite of all of it — `finalText` holds only the last segment after a
     /// device restart.
     func stopResult(finalText: String, failed: Bool, aiMode: Bool, recordingText: String) -> StopResult {
-        let text = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let whole = recordingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The whole recording, not its last segment — the two differ only after a
+        // device change closed a segment mid-dictation, and pasting the last one alone
+        // dropped everything said before it. An empty final text keeps its meaning: the
+        // span layer is empty too, or holds ghost text a failed stream took back.
+        let text = last.isEmpty || whole.isEmpty ? last : whole
 
         // Spans pasted while the user was still speaking are already in the document.
         // `finalize` has already corrected them where it could, which leaves nothing

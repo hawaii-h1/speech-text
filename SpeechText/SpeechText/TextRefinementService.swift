@@ -21,7 +21,7 @@ enum TextRefinementService {
 
     /// `context` is where the text is going, read when the recording started. The Record
     /// Window passes none: it is our own surface, and its text as often ends up on the
-    /// clipboard or a webhook as in the app that was in front before it opened.
+    /// clipboard as in the app that was in front before it opened.
     static func refine(_ transcript: String, context: FocusContext? = nil) async throws -> Result {
         let source = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let providerType = LLMConfiguration.providerType
@@ -33,22 +33,22 @@ enum TextRefinementService {
 
         let provider = try LLMConfiguration.makeProvider()
         let presets = PromptPresetStore.load()
-        // The section describing <context> follows the setting, not whether this one
-        // dictation has a context: the system prompt stays the same from one recording
-        // to the next, and a missing block needs no explanation.
-        let describesContext = FocusContext.isEnabled
-        let system = buildSystemPrompt(presets: presets, describesContext: describesContext)
-
+        // The system prompt describes <context> whether or not this dictation has one:
+        // it stays the same from one recording to the next, and a missing block needs
+        // no explanation.
         let raw = try await provider.complete(
-            system: system,
-            user: userMessage(transcript: source, context: describesContext ? context : nil)
+            system: buildSystemPrompt(presets: presets),
+            user: userMessage(transcript: source, context: context)
         )
 
         let parsed = parse(raw, presetNames: presets.map(\.name))
-        dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(parsed.text.count) chars")
+        // Models love "—" as much as Scribe does, and the prompt cannot be trusted to stop
+        // them; the paste gets the user's dash either way.
+        let text = DashStyle.current.applied(to: parsed.text)
+        dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(text.count) chars")
 
-        guard !parsed.text.isEmpty else { throw LLMError.emptyResponse }
-        return Result(text: parsed.text, presetName: parsed.presetName,
+        guard !text.isEmpty else { throw LLMError.emptyResponse }
+        return Result(text: text, presetName: parsed.presetName,
                       provider: providerType.rawValue, model: modelID)
     }
 
@@ -62,8 +62,7 @@ enum TextRefinementService {
         return "\(context.promptBlock)\n\n\(body)"
     }
 
-    static func buildSystemPrompt(presets: [PromptPreset],
-                                  describesContext: Bool = false) -> String {
+    static func buildSystemPrompt(presets: [PromptPreset]) -> String {
         let fallback = PromptPresetStore.defaultPreset(in: presets)
 
         let modes = presets.map { preset -> String in
@@ -108,7 +107,7 @@ enum TextRefinementService {
 
         Available modes:
 
-        \(modes)\(describesContext ? contextSection : "")
+        \(modes)\(contextSection)
 
         Response format:
         Line 1 must be exactly `<<mode:NAME>>` where NAME is the mode you chose.

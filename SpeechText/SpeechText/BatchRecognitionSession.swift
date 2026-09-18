@@ -36,6 +36,12 @@ final class BatchRecognitionSession: RecognitionSession {
         let fileURL: URL
         do {
             fileURL = try writer.writeAudioFile()
+        } catch AudioBufferWriter.AudioBufferWriterError.noAudio {
+            // A segment with no audio in it (a pause the instant after a resume) is an
+            // empty result, not a failure: History would otherwise show it as an error
+            // reading "No audio was recorded".
+            dlog("Engine", "BatchRecognitionSession.finish: no audio in this segment")
+            return RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: Task.isCancelled)
         } catch {
             dlog("Engine", "BatchRecognitionSession.finish: could not write audio file: \(error.localizedDescription)")
             return RecognitionOutcome(text: "", error: error.localizedDescription,

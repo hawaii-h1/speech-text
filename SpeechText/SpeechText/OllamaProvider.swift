@@ -384,7 +384,7 @@ struct OllamaLLMProvider: LLMChatProvider {
             throw LLMError.httpError(http.statusCode, body)
         }
 
-        let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+        let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
         guard let raw = decoded.choices.first?.message.content else { throw LLMError.emptyResponse }
 
         let text = strippingReasoning(raw).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -393,14 +393,6 @@ struct OllamaLLMProvider: LLMChatProvider {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         dlog("LLM", "Ollama: done in \(String(format: "%.2f", elapsed))s, \(text.count) chars")
         return text
-    }
-
-    private struct ChatResponse: Decodable {
-        struct Choice: Decodable {
-            struct Message: Decodable { let content: String? }
-            let message: Message
-        }
-        let choices: [Choice]
     }
 }
 

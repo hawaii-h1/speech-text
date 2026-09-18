@@ -4,8 +4,6 @@
 import Foundation
 
 enum SettingsKeys {
-    static let webhookURL = "webhookURL"
-    static let authToken = "authToken"
     static let selectedLanguage = "selectedLanguage"
 
     // STT Provider
@@ -18,6 +16,8 @@ enum SettingsKeys {
     static let localSTTModel = "localSTTModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
     static let removeDisfluencies = "removeDisfluencies"
+    /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
+    static let dashStyle = "dashStyle"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -53,7 +53,6 @@ enum SettingsKeys {
     /// rewrite at the stop. Tier A only; off by default.
     static let aiDraftWhileSpeaking = "aiDraftWhileSpeaking"
     /// Whether an AI dictation tells the model which app, window and field it is for.
-    static let aiFocusContextEnabled = "aiFocusContextEnabled"
 
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
@@ -67,9 +66,10 @@ enum SettingsKeys {
     static let appSkin = "appSkin"
     /// `#RRGGBB` — only the minimal skin uses it.
     static let accentColor = "accentColor"
+    /// `DockIconMode.rawValue`: never, while a window is open, or always.
+    static let dockIconMode = "dockIconMode"
 
     // Debug
-    static let debugMode = "debugMode"
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-
     /// local, like the traces themselves, so not in `portable`.
     static let recordDictationTraces = "recordDictationTraces"
@@ -88,17 +88,17 @@ enum SettingsKeys {
     /// new identity re-defaults to checking for updates, whereas a carried-over
     /// `SUSkippedVersion` would suppress an update the new install never saw offered.
     static let portable: [String] = [
-        webhookURL, authToken, selectedLanguage,
+        selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
-        removeDisfluencies,
+        removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
-        promptPresets, defaultPresetID, aiModeInRecordWindow, aiFocusContextEnabled,
-        appSkin, accentColor,
-        hotkeyLayoutVersion, debugMode,
+        promptPresets, defaultPresetID, aiModeInRecordWindow,
+        appSkin, accentColor, dockIconMode,
+        hotkeyLayoutVersion,
     ]
 }
 
@@ -225,6 +225,12 @@ private func currentInputSourceLanguage() -> String? {
 /// default — so the UI shows nothing and the app runs something the user did not pick.
 func normalizeStoredProviders() {
     let defaults = UserDefaults.standard
+
+    // Settings for removed features: the webhook (whose bearer token should not outlive
+    // it) and the switch that used to keep the focus context out of AI dictations.
+    for key in ["webhookURL", "authToken", "aiFocusContextEnabled"] {
+        defaults.removeObject(forKey: key)
+    }
 
     if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
        STTProviderType(rawValue: raw) == nil {

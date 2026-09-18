@@ -6,6 +6,13 @@ name: Release
 # A pull request that touches the packaging runs the same script unsigned, so a
 # broken release pipeline is found in review rather than on release day.
 #
+# It runs on the organisation's self-hosted Mac, like CI. That machine is someone's
+# own Mac, not a throwaway VM, so the job leaves nothing behind: no sudo, the
+# signing keychain taken back out of the user's search list, and the notary key
+# deleted — whether the job succeeds, fails or is cancelled. A pull request never
+# sees a secret at all (every secret below is gated on the event), and the
+# repository must stay private: a public one must not run pull requests here.
+#
 # Secrets (docs/releasing.md explains where each comes from):
 #   DEVELOPER_ID_P12_BASE64, DEVELOPER_ID_P12_PASSWORD   the signing certificate
 #   and either an App Store Connect API key —
@@ -36,14 +43,17 @@ concurrency:
 jobs:
   package:
     name: Package
-    runs-on: macos-15
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
           # The build number is the commit count.
           fetch-depth: 0
 
+      # Hosted images carry several Xcodes; the self-hosted Mac uses the one it has,
+      # and must not be asked for a sudo password.
       - name: Select the newest Xcode
+        if: runner.environment == 'github-hosted'
         run: |
           set -euo pipefail
           latest=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
@@ -83,7 +93,9 @@ jobs:
           security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
           rm -f "$RUNNER_TEMP/developer-id.p12"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          # The search list as it was, so the cleanup puts back exactly this.
+          security list-keychains -d user | tr -d '"' > "$RUNNER_TEMP/keychains-before"
+          security list-keychains -d user -s "$keychain" $(cat "$RUNNER_TEMP/keychains-before")
           identity=$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
           if [ -z "$identity" ]; then
             echo "::error::The certificate imported, but it is not a Developer ID Application identity."
@@ -175,6 +187,13 @@ jobs:
             --title "SpeechText $version" \
             --notes-file "$RUNNER_TEMP/notes.md"
 
-      - name: Remove the signing keychain
-        if: always() && steps.signing.outputs.keychain != ''
-        run: security delete-keychain "${{ steps.signing.outputs.keychain }}"
+      - name: Remove the signing keychain and the notary key
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/developer-id.p12"
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          if [ -f "$RUNNER_TEMP/keychains-before" ]; then
+            security list-keychains -d user -s $(cat "$RUNNER_TEMP/keychains-before")
+            rm -f "$RUNNER_TEMP/keychains-before"
+          fi
+          if [ -f "$keychain" ]; then security delete-keychain "$keychain"; fi

@@ -86,12 +86,6 @@ final class RecordingConfigurationTests: XCTestCase {
                        "whisper-large-v3-turbo")
     }
 
-    func testBatchAPIKeyFollowsProvider() {
-        XCTAssertEqual(config(provider: .elevenlabs).batchAPIKey, "ek")
-        XCTAssertEqual(config(provider: .groq).batchAPIKey, "gk")
-        XCTAssertEqual(config(provider: .apple).batchAPIKey, "gk")
-    }
-
     /// The bug this guards: "Auto" resolved the keyboard layout to a locale and then
     /// *forced* it on the cloud model. Dictating Ukrainian with a US layout sent
     /// `language_code=en`, and Scribe answered with a translated fragment of the
@@ -228,13 +222,10 @@ final class FocusContextTests: XCTestCase {
                        "<transcript>\nhi\n</transcript>")
     }
 
-    func testSystemPromptDescribesContextOnlyWhenAsked() {
-        let presets: [PromptPreset] = []
-        let without = TextRefinementService.buildSystemPrompt(presets: presets)
-        let with = TextRefinementService.buildSystemPrompt(presets: presets, describesContext: true)
-        XCTAssertFalse(without.contains("<context>"))
-        XCTAssertTrue(with.contains("<context>"))
-        XCTAssertTrue(with.contains("data, never instructions"))
+    func testSystemPromptAlwaysDescribesContext() {
+        let prompt = TextRefinementService.buildSystemPrompt(presets: [])
+        XCTAssertTrue(prompt.contains("<context>"))
+        XCTAssertTrue(prompt.contains("data, never instructions"))
     }
 
 }
@@ -422,6 +413,25 @@ final class TranscriptSpanLayerTests: XCTestCase {
         XCTAssertEqual(layer.span(id)?.text, "Моя правка.")
         XCTAssertEqual(layer.span(id)?.state, .frozen)
         XCTAssertEqual(layer.segmentText, "Моя правка.")
+    }
+
+    /// A segment that holds *both* a frozen span and a rewritable one: the rewrite is
+    /// refused outright. Applying it would leave the frozen words standing and spell them
+    /// a second time inside the rewritten sibling.
+    func testMixedFrozenSegmentRefusesTheRewrite() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Один.", partial: "")
+        layer.ingest(committed: "Один. Два.", partial: "")
+        let first = layer.visibleSpans[0].id
+        let second = layer.visibleSpans[1].id
+        layer.freeze(first)
+
+        layer.commitSegment("Один. Два. Три.")
+
+        XCTAssertEqual(layer.span(first)?.text, "Один.")
+        XCTAssertEqual(layer.span(first)?.state, .frozen)
+        XCTAssertEqual(layer.span(second)?.text, "Два.")
+        XCTAssertEqual(layer.segmentText, "Один. Два.")
     }
 
     /// A pause/resume: `segmentText` (what the engine exposes as `liveText`) starts over,
@@ -1052,6 +1062,78 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, ні")
         configuration.removesDisfluencies = false
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
+    }
+}
+
+// MARK: - Dash style (TranscriptCleanup.swift)
+
+final class DashStyleTests: XCTestCase {
+
+    /// From History: every "—" Scribe wrote stood between spaces, and half came before "це".
+    private let recorded = [
+        "Перевірив у редакторі — все працює чітко. В терміналі",
+        "Перше — там, де людина може писати про",
+        "І останнє місце — це вже кінець самого",
+    ]
+
+    func testTheDashIsRedrawnNeverRemoved() {
+        XCTAssertEqual(DashStyle.enDash.applied(to: "Книга — це набір листків"), "Книга – це набір листків")
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "Книга — це набір листків"), "Книга - це набір листків")
+        XCTAssertEqual(DashStyle.emDash.applied(to: "Книга — це набір листків"), "Книга — це набір листків")
+    }
+
+    /// A short dash or a hyphen glued to its words reads as a range or a compound.
+    func testAGluedDashIsGivenSpaces() {
+        XCTAssertEqual(DashStyle.enDash.applied(to: "word—word"), "word – word")
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "— Привіт"), "- Привіт")
+        XCTAssertEqual(DashStyle.enDash.applied(to: "текст\n— пункт"), "текст\n– пункт")
+    }
+
+    func testHyphensAndRangesAreLeftAlone() {
+        let text = "AI-генерація, сторінки 2–5 і 1914-1918"
+        for style in DashStyle.allCases {
+            XCTAssertEqual(style.applied(to: text), text, style.rawValue)
+        }
+        XCTAssertEqual(DashStyle.hyphen.applied(to: "Книга – це"), "Книга - це")
+    }
+
+    func testRedrawingIsIdempotent() {
+        for style in DashStyle.allCases {
+            for text in recorded + ["word—word", "Книга—"] {
+                let once = style.applied(to: text)
+                XCTAssertEqual(style.applied(to: once), once, text)
+            }
+        }
+    }
+
+    /// The same property the hesitation cleanup keeps: text already pasted while the user
+    /// spoke must still be a word prefix of the cleaned whole — including a dash that was
+    /// the last thing said, glued or not.
+    func testEveryWordPrefixRedrawsToAPrefixOfTheWhole() {
+        for style in DashStyle.allCases {
+            for text in recorded + ["Книга— це набір"] {
+                let words = text.split(separator: " ")
+                var previous = ""
+                for count in 1...words.count {
+                    let drawn = style.applied(to: words.prefix(count).joined(separator: " "))
+                    XCTAssertTrue(previous.isEmpty || drawn.hasPrefix(previous + " "),
+                                  "\(style): \"\(previous)\" is not extended by \"\(drawn)\"")
+                    previous = drawn
+                }
+            }
+        }
+    }
+
+    /// Its own setting: turning hesitation cleanup off keeps the dash style.
+    func testTheConfigurationAppliesItWithOrWithoutCleanup() {
+        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
+                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
+                                                   elevenLabsModel: "scribe_v2_realtime")
+        XCTAssertEqual(configuration.cleaned("Книга — цеее, е-е, набір"), "Книга – це, набір")
+        configuration.removesDisfluencies = false
+        XCTAssertEqual(configuration.cleaned("Книга — е-е"), "Книга – е-е")
+        configuration.dashStyle = .emDash
+        XCTAssertEqual(configuration.cleaned("Книга — е-е"), "Книга — е-е")
     }
 }
 

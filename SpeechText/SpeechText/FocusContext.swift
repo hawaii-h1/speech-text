@@ -34,12 +34,6 @@ struct FocusContext: Codable, Equatable {
         self.fieldLabel = Self.clean(fieldLabel)
     }
 
-    /// Whether AI dictations carry this context. On unless the user turned it off, so an
-    /// unset key has to read as `true` — `UserDefaults.bool(forKey:)` would say `false`.
-    static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: SettingsKeys.aiFocusContextEnabled) as? Bool ?? true
-    }
-
     /// Apps whose windows are nobody's business but the user's. Nothing is read from
     /// them — not even the name, since "the user is in their password manager" is
     /// itself worth keeping off a third-party server.

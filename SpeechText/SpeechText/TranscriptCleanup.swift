@@ -130,3 +130,64 @@ enum TranscriptCleanupRules {
         return String(word[..<whole.lowerBound]) + terminator + word[closers]
     }
 }
+
+// MARK: - Dash style
+
+/// Scribe punctuates like an editor: "Перше — там, де людина…". An em dash in a chat
+/// message reads as text a model wrote, not as something typed, so it is redrawn in
+/// the style the user picked — the same dash, in the same place, never removed and never
+/// guessed at from the words around it: "Книга — це" is a choice, and so is "Книга – це".
+///
+/// A character swap is safe on cumulative text: the spacing it adds depends only on the
+/// characters either side of the dash, and a dash that ends the text gets no space after
+/// it until a word follows — which the span layer joins with a space anyway.
+enum DashStyle: String, CaseIterable, Identifiable, Codable {
+    /// "–", what the Mac's own keyboard types with ⌥-.
+    case enDash
+    /// "-", what a keyboard without substitutions produces.
+    case hyphen
+    /// Leave the transcriber's "—" as it is.
+    case emDash
+
+    static let `default`: DashStyle = .enDash
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .enDash: "Short dash ( – )"
+        case .hyphen: "Hyphen ( - )"
+        case .emDash: "Long dash ( — ), unchanged"
+        }
+    }
+
+    static var current: DashStyle {
+        UserDefaults.standard.string(forKey: SettingsKeys.dashStyle).flatMap(DashStyle.init(rawValue:)) ?? .default
+    }
+
+    /// `text` with every em dash drawn in this style. An em dash glued to a word on
+    /// either side ("1914—1918", "word—word") is given spaces, because a short dash
+    /// or a hyphen without them reads as a range or a compound. For `.hyphen`, an en
+    /// dash standing alone between spaces goes too; one inside "2–5" is a range and stays.
+    func applied(to text: String) -> String {
+        guard self != .emDash, text.contains(where: { $0 == "—" || $0 == "–" }) else { return text }
+        let dash: Character = self == .enDash ? "–" : "-"
+        var output = ""
+        let characters = Array(text)
+        for (index, character) in characters.enumerated() {
+            let before = index > 0 ? characters[index - 1] : nil
+            let after = index + 1 < characters.count ? characters[index + 1] : nil
+            switch character {
+            case "—":
+                if let before, !before.isWhitespace { output.append(" ") }
+                output.append(dash)
+                if let after, !after.isWhitespace { output.append(" ") }
+            case "–" where self == .hyphen && (before?.isWhitespace ?? true) && (after?.isWhitespace ?? true):
+                output.append(dash)
+            default:
+                output.append(character)
+            }
+        }
+        return output
+    }
+}

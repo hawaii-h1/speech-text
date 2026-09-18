@@ -21,7 +21,12 @@ final class StreamingRecognitionSession: RecognitionSession {
     private let fallback: RecognitionSession
 
     // Main-thread state.
-    private var committedText = ""
+    private var committedText = "" {
+        didSet { committedWords = transcriptWords(committedText) }
+    }
+    /// `committedText` tokenised once per commit rather than once per partial — the
+    /// partial arrives several times a second and is merged against all of it each time.
+    private var committedWords: [TranscriptWord] = []
     private var partialText = ""
     /// Set when the stream broke; `finish()` then falls back to the batch upload.
     private var failure: String?
@@ -66,7 +71,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             // The stream re-states what it has already committed — sometimes verbatim,
             // sometimes grown by the words said since — so the partial is reduced to
             // what it actually adds. Joining it whole pastes the dictation twice.
-            partialText = transcriptContinuation(of: committedText, in: text)
+            partialText = transcriptContinuation(of: committedText, committedWords: committedWords, in: text)
         case .committed(let text):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {

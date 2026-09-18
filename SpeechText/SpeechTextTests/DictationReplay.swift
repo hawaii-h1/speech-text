@@ -254,6 +254,7 @@ final class DictationReplay {
         var aiMode = false
         var aiDraft = false
         var removesDisfluencies = true
+        var dashStyle = DashStyle.default
     }
 
     enum Step {
@@ -342,7 +343,7 @@ final class DictationReplay {
     }
 
     private func cleaned(_ text: String) -> String {
-        setup.removesDisfluencies ? cleanedTranscript(text) : text
+        setup.dashStyle.applied(to: setup.removesDisfluencies ? cleanedTranscript(text) : text)
     }
 
     /// A recorded `DictationTrace`, replayed into an app that answers the probe the way the
@@ -356,7 +357,8 @@ final class DictationReplay {
     /// are recorded only once that event has been handled.
     static func run(_ trace: DictationTrace) async -> Result {
         let setup = Setup(aiMode: trace.setup.aiMode, aiDraft: trace.setup.aiDraft,
-                          removesDisfluencies: trace.setup.removesDisfluencies)
+                          removesDisfluencies: trace.setup.removesDisfluencies,
+                          dashStyle: trace.setup.dashStyle ?? .emDash)
         let probe = AXTextProbe(valueReadable: trace.setup.probe.valueReadable,
                                 rangeReadable: trace.setup.probe.rangeReadable,
                                 rangeReadsBack: trace.setup.probe.rangeReadsBack)

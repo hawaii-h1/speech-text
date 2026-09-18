@@ -186,15 +186,11 @@ struct GroqSTTProvider: BatchSTTProvider {
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         dlog("Groq", "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            dlog("Groq", "transcribe: invalid response (not HTTP)")
-            throw GroqError.invalidResponse
-        }
-        guard (200 ... 299).contains(httpResponse.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            dlog("Groq", "transcribe: HTTP error \(httpResponse.statusCode): \(errorBody.prefix(200))")
-            throw GroqError.httpError(httpResponse.statusCode, errorBody)
-        }
+        try validatedHTTPResponse(response, data: data, log: "Groq", label: "transcribe",
+                                  bodyLimit: 200,
+                                  nonHTTPMessage: "transcribe: invalid response (not HTTP)",
+                                  invalidResponse: GroqError.invalidResponse,
+                                  httpError: GroqError.httpError)
 
         let decoded = try JSONDecoder().decode(GroqTranscriptionResponse.self, from: data)
         dlog("Groq", "transcribe: success, text=\(decoded.text.count) chars")
@@ -277,15 +273,11 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         dlog("ElevenLabs", "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            dlog("ElevenLabs", "transcribe: invalid response (not HTTP)")
-            throw ElevenLabsError.invalidResponse
-        }
-        guard (200 ... 299).contains(httpResponse.statusCode) else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            dlog("ElevenLabs", "transcribe: HTTP error \(httpResponse.statusCode): \(errorBody.prefix(200))")
-            throw ElevenLabsError.httpError(httpResponse.statusCode, errorBody)
-        }
+        try validatedHTTPResponse(response, data: data, log: "ElevenLabs", label: "transcribe",
+                                  bodyLimit: 200,
+                                  nonHTTPMessage: "transcribe: invalid response (not HTTP)",
+                                  invalidResponse: ElevenLabsError.invalidResponse,
+                                  httpError: ElevenLabsError.httpError)
 
         let decoded = try JSONDecoder().decode(ElevenLabsTranscriptionResponse.self, from: data)
         dlog("ElevenLabs", "transcribe: success, text=\(decoded.text.count) chars")
@@ -310,6 +302,41 @@ enum ElevenLabsError: LocalizedError {
         case .realtime(let type, let detail): "ElevenLabs realtime \(type): \(detail)"
         }
     }
+}
+
+// MARK: - HTTP Response Validation
+
+/// The check every provider in this app runs on a JSON POST's reply: it must be an HTTP
+/// response, and its status must be 2xx; anything else is logged with the body and turned
+/// into that provider's own error.
+///
+/// One place rather than five near-identical copies. Each caller keeps its own log
+/// category, message label and error type — only the shape is shared. Foundation only,
+/// so the standalone test bundle still builds.
+///
+/// - Parameters:
+///   - label: prefix for the log line, e.g. `"transcribe"` or the LLM's own label.
+///   - bodyLimit: how much of the error body is logged.
+///   - nonHTTPMessage: logged when the reply is not an HTTP response at all; nil logs nothing.
+@discardableResult
+func validatedHTTPResponse(_ response: URLResponse,
+                           data: Data,
+                           log category: String,
+                           label: String,
+                           bodyLimit: Int = 300,
+                           nonHTTPMessage: String? = nil,
+                           invalidResponse: Error,
+                           httpError: (Int, String) -> Error) throws -> HTTPURLResponse {
+    guard let http = response as? HTTPURLResponse else {
+        if let nonHTTPMessage { dlog(category, nonHTTPMessage) }
+        throw invalidResponse
+    }
+    guard (200 ... 299).contains(http.statusCode) else {
+        let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+        dlog(category, "\(label): HTTP \(http.statusCode): \(body.prefix(bodyLimit))")
+        throw httpError(http.statusCode, body)
+    }
+    return http
 }
 
 // MARK: - Multipart Helpers

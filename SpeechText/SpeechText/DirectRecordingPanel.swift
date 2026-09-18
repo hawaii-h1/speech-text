@@ -25,6 +25,7 @@ final class DirectRecordingPanelWindow: NSPanel {
         )
         isOpaque = false
         backgroundColor = .clear
+        isReleasedWhenClosed = false
         level = .floating
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
@@ -274,7 +275,6 @@ struct DirectRecordingPanelView: View {
     }
 
     @State private var showCopyCheck = false
-    @State private var showSendCheck = false
     @State private var showPasteCheck = false
     @State private var isHoveringTransport = false
     @State private var langLabel = ""
@@ -287,17 +287,15 @@ struct DirectRecordingPanelView: View {
     /// True while the LLM is rewriting the panel's text.
     @State private var isRefining = false
     @State private var refineTask: Task<Void, Never>?
+    /// A segment landed while a pass was in flight — run one more when it finishes,
+    /// or that segment's words never reach the LLM.
+    @State private var refinementPending = false
     /// Which preset the last refinement routed to, shown under the text area.
     @State private var refineStatus: String?
     /// Set when the last refinement failed, so the status line can be shown in red.
     @State private var refineFailed = false
 
     private let insertionHandler = TextInsertionHandler()
-
-    private var hasWebhook: Bool {
-        guard let url = UserDefaults.standard.string(forKey: SettingsKeys.webhookURL) else { return false }
-        return !url.isEmpty
-    }
 
     private var hasText: Bool {
         !speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -350,6 +348,7 @@ struct DirectRecordingPanelView: View {
         }
         .onDisappear {
             if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
+            refinementPending = false
             refineTask?.cancel()
         }
         .onChange(of: selectedLanguage) { refreshLangLabel() }
@@ -521,11 +520,7 @@ struct DirectRecordingPanelView: View {
         .buttonStyle(.plain)
         .disabled(isBusy)
         .help(transportHelp)
-        .onHover { hovering in
-            isHoveringTransport = hovering
-            guard !isBusy else { return }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointingHandCursor(enabled: !isBusy) { isHoveringTransport = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHoveringTransport)
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: expanded)
     }
@@ -672,7 +667,7 @@ struct DirectRecordingPanelView: View {
     }
 
     private var railActions: [RailAction] {
-        var actions: [RailAction] = [
+        [
             RailAction(
                 id: "ai",
                 systemImage: "sparkles",
@@ -702,20 +697,6 @@ struct DirectRecordingPanelView: View {
                 action: copyToClipboard
             ),
         ]
-        if hasWebhook {
-            actions.append(
-                RailAction(
-                    id: "webhook",
-                    systemImage: showSendCheck ? "checkmark" : "paperplane",
-                    isOn: showSendCheck,
-                    accent: confirmation,
-                    isEnabled: hasText,
-                    help: "Send to your webhook",
-                    action: sendToWebhook
-                )
-            )
-        }
-        return actions
     }
 
     private var railHeight: CGFloat {
@@ -724,9 +705,8 @@ struct DirectRecordingPanelView: View {
     }
 
     /// The rail hangs from its bottom edge, high enough that the close button below it
-    /// still clears the shell's bottom-right corner. A fourth action needs another
-    /// 34pt and borrows them from above, stopping just under the knob.
-    private var railBottom: CGFloat { hasWebhook ? 226 : 213 }
+    /// still clears the shell's bottom-right corner.
+    private let railBottom: CGFloat = 213
 
     private var buttonRail: some View {
         ButtonRail {
@@ -772,6 +752,7 @@ struct DirectRecordingPanelView: View {
             refineTask?.cancel()
             refineTask = nil
             isRefining = false
+            refinementPending = false
             refineStatus = nil
             refineFailed = false
         }
@@ -781,11 +762,6 @@ struct DirectRecordingPanelView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(speechEngine.editedText, forType: .string)
         flash($showCopyCheck)
-    }
-
-    private func sendToWebhook() {
-        WebhookService.send(text: speechEngine.editedText) { _ in }
-        flash($showSendCheck)
     }
 
     private func pasteAtCursor() {
@@ -805,7 +781,12 @@ struct DirectRecordingPanelView: View {
     /// Sends the whole text area through the LLM and replaces it with the result.
     private func runRefinement() {
         let source = speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty, !isRefining else { return }
+        guard !source.isEmpty else { return }
+        guard !isRefining else {
+            // The pass already running was given an older copy of the text area.
+            refinementPending = true
+            return
+        }
         guard TextRefinementService.isConfigured else {
             refineStatus = LLMConfiguration.providerType.needsAPIKey
                 ? "Set an LLM API key in Settings to use AI mode"
@@ -822,6 +803,16 @@ struct DirectRecordingPanelView: View {
         // below is the whole text area, which may span several segments and manual edits.
         let recordID = speechEngine.lastRecordID
         refineTask = Task { @MainActor in
+            // Runs on the cancellation paths below too, which would otherwise leave
+            // the panel stuck in its "rewriting" state.
+            defer {
+                isRefining = false
+                refineTask = nil
+                if refinementPending {
+                    refinementPending = false
+                    if aiMode { runRefinement() }
+                }
+            }
             do {
                 let result = try await TextRefinementService.refine(source)
                 guard !Task.isCancelled else { return }
@@ -848,8 +839,6 @@ struct DirectRecordingPanelView: View {
                     )
                 }
             }
-            isRefining = false
-            refineTask = nil
         }
     }
 }
