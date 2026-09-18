@@ -1,9 +1,10 @@
 name: CI
 
+# Pull requests only: main takes nothing but merged PRs, whose head already
+# passed these jobs, and a second macOS run per merge costs ten included
+# minutes for every minute it takes.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
