@@ -19,6 +19,10 @@ struct DictationTrace: Codable, Equatable {
         /// Optional so a trace recorded before the setting existed still decodes; nil
         /// replays as `.emDash`, which is what those dictations were pasted with.
         var dashStyle: DashStyle?
+        /// The recording streamed and showed its text on the overlay, pasting only at the
+        /// stop (`InlineDelivery.begin`). Optional so older traces decode; nil replays as
+        /// false, which is how those dictations were delivered.
+        var livePreview: Bool?
         /// The target app's name — for the reader; the replay goes by `probe`.
         var app: String?
         var probe = Probe()

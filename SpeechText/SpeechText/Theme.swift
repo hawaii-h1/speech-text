@@ -41,25 +41,34 @@ enum AppSkin: String, CaseIterable, Identifiable {
     /// design file, so letting the accent loose in there would only break it.
     var supportsAccent: Bool { self == .minimal }
 
-    /// Size of the inline overlay's panel.
-    var overlaySize: CGSize {
+    /// Size of the inline overlay's strip — the meter and the cancel button.
+    var overlayStripSize: CGSize {
         switch self {
-        case .minimal: return CGSize(width: 197, height: 65)
+        case .minimal: return CGSize(width: 300, height: 44)
         // Glass (100 × 56) + gap (6) + the cancel button in its rail (36).
         case .techno: return CGSize(width: 142, height: 56)
         }
     }
 
-    /// Where the strip's *display* sits inside its panel, measured from the left edge.
-    ///
-    /// This is what gets centred on screen, not the panel: the techno strip carries a
-    /// cancel button off to one side, and centring the whole block would push the words
-    /// the user is watching off to the left of where they are looking.
-    var overlayFocusX: CGFloat {
+    /// Height of the transcript above the strip, when the recording shows one.
+    var overlayTranscriptHeight: CGFloat {
         switch self {
-        case .minimal: return overlaySize.width / 2
-        // Centre of the 100pt glass, which starts at the panel's left edge.
-        case .techno: return 50
+        case .minimal: return 112
+        case .techno: return 104
+        }
+    }
+
+    /// Size of the inline overlay's panel. `showsTranscript`: a streaming recording,
+    /// whose text is built on the overlay and pasted once at the stop.
+    func overlaySize(showsTranscript: Bool) -> CGSize {
+        let strip = overlayStripSize
+        guard showsTranscript else { return strip }
+        switch self {
+        // The transcript sits inside the same glass, above the strip.
+        case .minimal: return CGSize(width: strip.width, height: strip.height + overlayTranscriptHeight)
+        // Techno's strip is drawn to the design and too narrow to read from, so the
+        // transcript is a wider glass of its own, with the strip under its right end.
+        case .techno: return CGSize(width: 260, height: strip.height + 6 + overlayTranscriptHeight)
         }
     }
 

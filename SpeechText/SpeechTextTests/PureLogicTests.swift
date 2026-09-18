@@ -1251,3 +1251,72 @@ final class SegmentJoinTests: XCTestCase {
                                            tier: .a, hasFrozenSpans: false), .extend)
     }
 }
+
+// MARK: - Overlay placement
+
+final class OverlayPlacementTests: XCTestCase {
+    private let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
+    /// An external display to the laptop's right.
+    private let external = CGRect(x: 1512, y: 0, width: 2560, height: 1415)
+    private let size = CGSize(width: 300, height: 156)
+
+    func testNothingSavedGoesToTheBottomRightCorner() {
+        let origin = OverlayPlacement.origin(saved: nil, size: size, screens: [laptop], main: laptop)
+        XCTAssertEqual(origin, CGPoint(x: 1512 - 20 - 300, y: 20))
+    }
+
+    func testASavedSpotOnScreenIsKept() {
+        let saved = CGPoint(x: 400, y: 300)
+        XCTAssertEqual(OverlayPlacement.origin(saved: saved, size: size, screens: [laptop], main: laptop), saved)
+    }
+
+    /// Saved as the small strip near the top, shown with the transcript: it grows upward
+    /// and is pulled down just far enough to stay whole.
+    func testATallerPanelIsPulledBackOnScreen() {
+        let saved = CGPoint(x: 400, y: 900)
+        let origin = OverlayPlacement.origin(saved: saved, size: size, screens: [laptop], main: laptop)
+        XCTAssertEqual(origin, CGPoint(x: 400, y: 944 - 156))
+    }
+
+    /// Straddling two displays, it stays on the one holding most of it.
+    func testAStraddlingPanelMovesOntoTheScreenHoldingMostOfIt() {
+        let saved = CGPoint(x: 1450, y: 100)
+        let origin = OverlayPlacement.origin(saved: saved, size: size, screens: [laptop, external], main: laptop)
+        XCTAssertEqual(origin, CGPoint(x: 1512, y: 100))
+    }
+
+    /// The external display it was dragged to is unplugged: the default corner, not a
+    /// spot clamped against wherever the laptop's edge happens to be.
+    func testAnUnpluggedDisplayFallsBackToTheDefaultCorner() {
+        let saved = CGPoint(x: 3000, y: 600)
+        let origin = OverlayPlacement.origin(saved: saved, size: size, screens: [laptop], main: laptop)
+        XCTAssertEqual(origin, CGPoint(x: 1512 - 20 - 300, y: 20))
+    }
+
+    func testNoScreensMeansNoPlacement() {
+        XCTAssertNil(OverlayPlacement.origin(saved: nil, size: size, screens: [], main: nil))
+    }
+
+    func testTheStoredValueRoundTrips() {
+        let origin = CGPoint(x: -1200, y: 37)
+        XCTAssertEqual(OverlayPlacement.decode(OverlayPlacement.encode(origin)), origin)
+        XCTAssertNil(OverlayPlacement.decode(""))
+        XCTAssertNil(OverlayPlacement.decode("12"))
+        XCTAssertNil(OverlayPlacement.decode("a,b"))
+    }
+
+    /// The overlay's bright half spans segments, unlike `segmentStableText`: a pause does
+    /// not wipe the transcript the user is reading.
+    func testStableTextSpansSegments() {
+        var layer = TranscriptSpanLayer()
+        layer.beginSegment()
+        layer.ingest(committed: "Перше.", partial: "")
+        layer.commitSegment("Перше.")
+        layer.settleSegment()
+        layer.beginSegment()
+        layer.ingest(committed: "Друге.", partial: "ще")
+        XCTAssertEqual(layer.stableText, "Перше. Друге.")
+        XCTAssertEqual(layer.segmentStableText, "Друге.")
+        XCTAssertEqual(layer.segmentProvisionalText, "ще")
+    }
+}
