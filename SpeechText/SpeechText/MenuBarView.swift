@@ -43,9 +43,12 @@ struct SettingsView: View {
     }
 
     /// The realtime model is selected: an inline dictation is built on the overlay and
-    /// pasted once at the stop (`RecordingConfiguration.streams`).
+    /// pasted once at the stop. Asked of `RecordingConfiguration` — the same answer
+    /// `AppState` acts on — rather than re-derived here. The body re-renders on the
+    /// `sttProvider` / `elevenLabsModel` storage it already reads.
     private var streamsLive: Bool {
-        stt == .elevenlabs && elevenLabsModel == elevenLabsRealtimeModel
+        _ = (sttProvider, elevenLabsModel)
+        return RecordingConfiguration.current(locale: autoLanguageID).streams
     }
 
     private var llm: LLMProviderType {

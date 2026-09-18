@@ -194,8 +194,14 @@ struct RecordingOverlayView: View {
             Self.transcriptGlass.fill(TechnoSkin.screen)
             transcript(base: isAIMode ? TechnoSkin.aiText : TechnoSkin.phosphorText,
                        font: .system(size: 12, design: .monospaced))
+                // Lines scrolling past the glass's rim fade instead of being sliced.
+                .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
+                                             .init(color: .black, location: 0.15),
+                                             .init(color: .black, location: 0.85),
+                                             .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 6)
             InnerShadow(shape: Self.transcriptGlass, width: 6.6, blur: 3.3)
             InnerShadow(shape: Self.transcriptGlass, width: 4, blur: 2,
                         offset: CGSize(width: 0, height: -1))
@@ -329,15 +335,17 @@ final class StatusOverlayPanel: NSPanel {
         isMovableByWindowBackground = true
         hasShadow = true
 
-        positionBottomCenter()
+        positionWhereTheOverlayWas()
     }
 
-    private func positionBottomCenter() {
-        guard let screen = NSScreen.main else { return }
-        let screenFrame = screen.visibleFrame
-        let x = screenFrame.midX - Self.panelWidth / 2
-        let y = screenFrame.minY + 20
-        setFrameOrigin(NSPoint(x: x, y: y))
+    /// The notice takes the recording overlay's place — it usually replaces it on screen —
+    /// so it opens at the overlay's spot, kept whole on the screen like the overlay is.
+    private func positionWhereTheOverlayWas() {
+        let saved = OverlayPlacement.decode(UserDefaults.standard.string(forKey: SettingsKeys.overlayOrigin) ?? "")
+        guard let origin = OverlayPlacement.origin(saved: saved, size: frame.size,
+                                                   screens: NSScreen.screens.map(\.visibleFrame),
+                                                   main: NSScreen.main?.visibleFrame) else { return }
+        setFrameOrigin(origin)
     }
 }
 
@@ -350,8 +358,11 @@ final class StatusOverlayPanel: NSPanel {
 final class RecordingOverlayPanel: NSPanel {
     private let showsTranscript: Bool
     private var observers: [NSObjectProtocol] = []
-    /// Set while the panel moves itself, so only the user's drags are remembered.
-    private var isPlacing = false
+    /// Where the panel last put itself. Move notifications arrive after `setFrame` has
+    /// returned, so a flag set around the call cannot tell them apart; a move that ends
+    /// here is the panel's own, and only the user's drags are remembered — otherwise the
+    /// fallback for an unplugged monitor would overwrite the spot the user chose on it.
+    private var placedOrigin: CGPoint?
 
     init(showsTranscript: Bool = false) {
         self.showsTranscript = showsTranscript
@@ -399,15 +410,14 @@ final class RecordingOverlayPanel: NSPanel {
         let saved = OverlayPlacement.decode(UserDefaults.standard.string(forKey: SettingsKeys.overlayOrigin) ?? "")
         guard let origin = OverlayPlacement.origin(saved: saved, size: size, screens: screens,
                                                    main: NSScreen.main?.visibleFrame) else { return }
-        isPlacing = true
+        placedOrigin = origin
         setFrame(NSRect(origin: origin, size: size), display: true)
-        isPlacing = false
     }
 
     /// Called for every move; only a drag by the user is saved, and saved as it ended up
     /// on screen — a drag past the edge is pulled back in rather than remembered off it.
     private func rememberPosition() {
-        guard !isPlacing else { return }
+        guard frame.origin != placedOrigin else { return }
         let screens = NSScreen.screens.map(\.visibleFrame)
         let origin = OverlayPlacement.origin(saved: frame.origin, size: frame.size, screens: screens,
                                              main: NSScreen.main?.visibleFrame) ?? frame.origin
