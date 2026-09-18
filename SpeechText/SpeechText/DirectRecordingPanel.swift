@@ -25,6 +25,7 @@ final class DirectRecordingPanelWindow: NSPanel {
         )
         isOpaque = false
         backgroundColor = .clear
+        isReleasedWhenClosed = false
         level = .floating
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
@@ -286,6 +287,9 @@ struct DirectRecordingPanelView: View {
     /// True while the LLM is rewriting the panel's text.
     @State private var isRefining = false
     @State private var refineTask: Task<Void, Never>?
+    /// A segment landed while a pass was in flight — run one more when it finishes,
+    /// or that segment's words never reach the LLM.
+    @State private var refinementPending = false
     /// Which preset the last refinement routed to, shown under the text area.
     @State private var refineStatus: String?
     /// Set when the last refinement failed, so the status line can be shown in red.
@@ -344,6 +348,7 @@ struct DirectRecordingPanelView: View {
         }
         .onDisappear {
             if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
+            refinementPending = false
             refineTask?.cancel()
         }
         .onChange(of: selectedLanguage) { refreshLangLabel() }
@@ -515,11 +520,7 @@ struct DirectRecordingPanelView: View {
         .buttonStyle(.plain)
         .disabled(isBusy)
         .help(transportHelp)
-        .onHover { hovering in
-            isHoveringTransport = hovering
-            guard !isBusy else { return }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointingHandCursor(enabled: !isBusy) { isHoveringTransport = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHoveringTransport)
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: expanded)
     }
@@ -751,6 +752,7 @@ struct DirectRecordingPanelView: View {
             refineTask?.cancel()
             refineTask = nil
             isRefining = false
+            refinementPending = false
             refineStatus = nil
             refineFailed = false
         }
@@ -779,7 +781,12 @@ struct DirectRecordingPanelView: View {
     /// Sends the whole text area through the LLM and replaces it with the result.
     private func runRefinement() {
         let source = speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty, !isRefining else { return }
+        guard !source.isEmpty else { return }
+        guard !isRefining else {
+            // The pass already running was given an older copy of the text area.
+            refinementPending = true
+            return
+        }
         guard TextRefinementService.isConfigured else {
             refineStatus = LLMConfiguration.providerType.needsAPIKey
                 ? "Set an LLM API key in Settings to use AI mode"
@@ -796,6 +803,16 @@ struct DirectRecordingPanelView: View {
         // below is the whole text area, which may span several segments and manual edits.
         let recordID = speechEngine.lastRecordID
         refineTask = Task { @MainActor in
+            // Runs on the cancellation paths below too, which would otherwise leave
+            // the panel stuck in its "rewriting" state.
+            defer {
+                isRefining = false
+                refineTask = nil
+                if refinementPending {
+                    refinementPending = false
+                    if aiMode { runRefinement() }
+                }
+            }
             do {
                 let result = try await TextRefinementService.refine(source)
                 guard !Task.isCancelled else { return }
@@ -822,8 +839,6 @@ struct DirectRecordingPanelView: View {
                     )
                 }
             }
-            isRefining = false
-            refineTask = nil
         }
     }
 }

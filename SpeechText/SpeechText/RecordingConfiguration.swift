@@ -65,15 +65,6 @@ struct RecordingConfiguration {
         }
     }
 
-    /// The key the batch (upload) path will use. Empty for the local tier, which has none.
-    var batchAPIKey: String {
-        switch provider {
-        case .elevenlabs: elevenLabsAPIKey
-        case .groq, .apple: groqAPIKey
-        case .local: ""
-        }
-    }
-
     /// Why a file transcription with these settings cannot start, or nil when it can.
     /// History retry asks this instead of testing the key itself: the local tier needs a
     /// model on disk rather than a key, and "add a Groq key" would be the wrong advice.

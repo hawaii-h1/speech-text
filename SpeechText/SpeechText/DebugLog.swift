@@ -17,6 +17,10 @@ final class DebugLog {
 
     private(set) var entries: [Entry] = []
     private let maxEntries = 1000
+    /// Trimming is O(n) in the whole buffer, so it is paid once per `trimSlack` entries
+    /// rather than on every log line: the array is allowed to run over before it is cut
+    /// back to `maxEntries`.
+    private let trimSlack = 100
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                                 category: "Debug")
 
@@ -41,7 +45,7 @@ final class DebugLog {
 
     private func appendEntry(_ entry: Entry) {
         entries.append(entry)
-        if entries.count > maxEntries {
+        if entries.count > maxEntries + trimSlack {
             entries.removeFirst(entries.count - maxEntries)
         }
     }

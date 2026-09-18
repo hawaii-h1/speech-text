@@ -148,11 +148,7 @@ struct MinimalIconButton: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .help(help)
-        .onHover { hovering in
-            isHovering = hovering
-            guard isEnabled else { return }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointingHandCursor(enabled: isEnabled) { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
         .animation(.easeInOut(duration: 0.2), value: isOn)
     }

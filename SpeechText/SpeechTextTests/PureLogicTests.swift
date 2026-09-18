@@ -86,12 +86,6 @@ final class RecordingConfigurationTests: XCTestCase {
                        "whisper-large-v3-turbo")
     }
 
-    func testBatchAPIKeyFollowsProvider() {
-        XCTAssertEqual(config(provider: .elevenlabs).batchAPIKey, "ek")
-        XCTAssertEqual(config(provider: .groq).batchAPIKey, "gk")
-        XCTAssertEqual(config(provider: .apple).batchAPIKey, "gk")
-    }
-
     /// The bug this guards: "Auto" resolved the keyboard layout to a locale and then
     /// *forced* it on the cloud model. Dictating Ukrainian with a US layout sent
     /// `language_code=en`, and Scribe answered with a translated fragment of the
@@ -419,6 +413,25 @@ final class TranscriptSpanLayerTests: XCTestCase {
         XCTAssertEqual(layer.span(id)?.text, "Моя правка.")
         XCTAssertEqual(layer.span(id)?.state, .frozen)
         XCTAssertEqual(layer.segmentText, "Моя правка.")
+    }
+
+    /// A segment that holds *both* a frozen span and a rewritable one: the rewrite is
+    /// refused outright. Applying it would leave the frozen words standing and spell them
+    /// a second time inside the rewritten sibling.
+    func testMixedFrozenSegmentRefusesTheRewrite() {
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Один.", partial: "")
+        layer.ingest(committed: "Один. Два.", partial: "")
+        let first = layer.visibleSpans[0].id
+        let second = layer.visibleSpans[1].id
+        layer.freeze(first)
+
+        layer.commitSegment("Один. Два. Три.")
+
+        XCTAssertEqual(layer.span(first)?.text, "Один.")
+        XCTAssertEqual(layer.span(first)?.state, .frozen)
+        XCTAssertEqual(layer.span(second)?.text, "Два.")
+        XCTAssertEqual(layer.segmentText, "Один. Два.")
     }
 
     /// A pause/resume: `segmentText` (what the engine exposes as `liveText`) starts over,

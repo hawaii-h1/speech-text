@@ -150,7 +150,12 @@ func mergedTranscript(_ head: String, _ tail: String) -> String {
 /// The part of `text` that is not already in `committed` — what a partial adds to the
 /// text the stream has committed so far. Empty when the partial is nothing but an echo.
 func transcriptContinuation(of committed: String, in text: String) -> String {
-    let committedWords = transcriptWords(committed)
+    transcriptContinuation(of: committed, committedWords: transcriptWords(committed), in: text)
+}
+
+/// `transcriptContinuation` with `committed` already tokenised, for a caller that holds
+/// the same committed text across many partials.
+func transcriptContinuation(of committed: String, committedWords: [TranscriptWord], in text: String) -> String {
     let textWords = transcriptWords(text)
     let overlap = transcriptOverlap(head: committedWords, tail: textWords)
     return dropping(overlap.words, from: text, words: textWords)

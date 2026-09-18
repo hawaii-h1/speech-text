@@ -158,6 +158,12 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     }
 
     func send(pcm16: Data) {
+        // `sendLock` first, and held until the chunk is on the socket: taken only after
+        // `lock` was released, a `finish()` that won it in between found `pendingAudio`
+        // already emptied, committed nothing but padding, and the chunk landed *after*
+        // the commit — up to 100 ms of the last word in a segment that never closes.
+        sendLock.lock()
+        defer { sendLock.unlock() }
         lock.lock()
         guard !isClosed, let task else {
             lock.unlock()
@@ -189,7 +195,9 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         }
         lock.unlock()
 
-        sendChunk(chunk, commit: false, over: task)
+        if let message = Self.encodeChunk(chunk, commit: false, sampleRate: sampleRate) {
+            enqueue(message, over: task)
+        }
     }
 
     /// `session_started` arrived: release everything held for it, in order, ahead of
@@ -302,15 +310,6 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-
-    private func sendChunk(_ pcm: Data, commit: Bool, over task: URLSessionWebSocketTask) {
-        guard let text = Self.encodeChunk(pcm, commit: commit, sampleRate: sampleRate) else { return }
-        sendMessage(text, over: task)
-    }
-
-    private func sendMessage(_ text: String, over task: URLSessionWebSocketTask) {
-        sendMessages([text], over: task)
     }
 
     /// Puts the whole batch on the socket with nothing of another thread's in between.

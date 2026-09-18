@@ -296,6 +296,14 @@ struct TranscriptSpanLayer {
 
     private mutating func rewriteSegmentStable(to text: String, reason: String) {
         let stable = spans.indices.filter { spans[$0].segment == segment && spans[$0].state.isStable }
+        // Frozen text is the user's own edit, and a rewrite is one string for the whole
+        // segment: with a frozen span *and* a rewritable one, the frozen words would stay
+        // where they are and be spelled a second time inside the rewritten sibling. A
+        // correction that would overlap frozen text is refused, not partially applied.
+        guard !stable.contains(where: { spans[$0].state == .frozen }) else {
+            log("skip rewrite (\(reason)): segment has frozen text")
+            return
+        }
         var replaced = false
         for index in stable where spans[index].state.isRewritable {
             if replaced {
@@ -310,10 +318,11 @@ struct TranscriptSpanLayer {
         guard !replaced else { return }
         // Nothing stable to rewrite: the authoritative text is this segment's first
         // committed span (the batch tier's ordinary path — it has no live text at all).
-        // But if the segment *does* have stable spans and every one of them is frozen,
-        // the user has edited this text by hand and a second copy is not a correction.
+        // But if the segment *does* have stable spans, every one of them is settled —
+        // nothing else will change this segment's text, and a second copy is not a
+        // correction.
         guard stable.isEmpty else {
-            log("skip rewrite (\(reason)): segment is frozen")
+            log("skip rewrite (\(reason)): segment is settled")
             return
         }
         let span = append(text: text, state: .committed)
