@@ -107,7 +107,10 @@ struct RecordingOverlayView: View {
             .padding(.horizontal, horizontal)
             .padding(.top, top)
             .padding(.bottom, bottom)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            // `minHeight: 0` matters: without it the frame is never smaller than the text,
+            // so once there was more text than room it overflowed centred — over the strip
+            // below, with the newest line hidden under it.
+            .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .bottom)
             .clipped()
             .mask {
                 GeometryReader { proxy in
@@ -451,6 +454,9 @@ final class RecordingOverlayPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // The drag is handled in `sendEvent`, where it can be kept on screen as it happens.
         isMovableByWindowBackground = false
+        // Nor may the window server move it: a system drag is what brings up macOS's
+        // tiling preview at a screen edge, and it moved the panel as well as our drag.
+        isMovable = false
         hasShadow = true
         container.clipsToBounds = true
         contentView = container
