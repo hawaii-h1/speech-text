@@ -367,7 +367,8 @@ struct StatusOverlayView: View {
 final class StatusOverlayPanel: NSPanel {
     static let panelWidth: CGFloat = 340
 
-    init() {
+    /// `overlay` is the recording overlay's frame when it is still on screen.
+    init(above overlay: NSRect? = nil) {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -383,6 +384,11 @@ final class StatusOverlayPanel: NSPanel {
         hasShadow = true
 
         positionWhereTheOverlayWas()
+        // Shown while the overlay is still up (a refused mode switch), the notice sits
+        // above it rather than on top of it.
+        if let overlay {
+            setFrameOrigin(NSPoint(x: frame.minX, y: overlay.maxY + 8))
+        }
     }
 
     /// The notice takes the recording overlay's place — it usually replaces it on screen —

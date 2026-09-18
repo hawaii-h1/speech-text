@@ -47,6 +47,9 @@ struct DictationTrace: Codable, Equatable {
             case targetNotInFront
             /// A span delivery was pasted; `landing` says what could be read back.
             case paste
+            /// The user switched the dictation's mode with the other shortcut; `text` is
+            /// `"ai"` or `"inline"`. `Setup.aiMode` is the mode it started in.
+            case modeSwitch
             /// The user stopped the recording.
             case stop
             /// The batch upload's answer after the stream broke or came back empty.

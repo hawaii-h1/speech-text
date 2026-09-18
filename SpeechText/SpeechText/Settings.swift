@@ -57,6 +57,10 @@ enum SettingsKeys {
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
 
+    /// Whether holding a dictation shortcut records until it is let go. A quick tap still
+    /// toggles, so this only adds the hold. Off by default.
+    static let holdToTalk = "holdToTalk"
+
     /// Bumped when the built-in hotkey layout changes, so stored shortcuts can be
     /// migrated once instead of silently keeping the old assignment.
     static let hotkeyLayoutVersion = "hotkeyLayoutVersion"

@@ -274,6 +274,8 @@ final class DictationReplay {
         case focus(String)
         case holdLandings
         case landPendingPastes
+        /// The other mode's shortcut, pressed mid-dictation (`AppState.switchMode`).
+        case switchMode(ai: Bool)
     }
 
     enum LLM {
@@ -288,6 +290,8 @@ final class DictationReplay {
         let correctionApplied: Bool?
         /// Every Debug Log line the replay produced, as "[Category] message".
         let log: [String]
+        /// A `switchMode(ai: true)` step was refused.
+        var switchRefused = false
 
         var document: String { app.document }
 
@@ -298,6 +302,10 @@ final class DictationReplay {
 
     let setup: Setup
     let app: FakeApp
+    /// `AppState.isAIMode`: the mode the dictation started in, until a switch.
+    private var aiMode: Bool
+    /// Whether the last `switchMode` step was accepted.
+    private(set) var switchRefused = false
     private let delivery = InlineDelivery()
     private var layer = TranscriptSpanLayer()
     private var issuer = SpanIssuer()
@@ -311,6 +319,7 @@ final class DictationReplay {
     private init(setup: Setup, app: FakeApp) {
         self.setup = setup
         self.app = app
+        self.aiMode = setup.aiMode
     }
 
     /// One dictation from hotkey to paste. `atStop` is what the server sends once the
@@ -342,7 +351,8 @@ final class DictationReplay {
             DispatchQueue.main.async { continuation.resume() }
         }
         let log = DebugLog.shared.entries.map { "[\($0.category)] \($0.message)" }
-        return Result(app: app, stop: result.0, correctionApplied: result.1, log: log)
+        return Result(app: app, stop: result.0, correctionApplied: result.1, log: log,
+                      switchRefused: replay.switchRefused)
     }
 
     private func cleaned(_ text: String) -> String {
@@ -405,6 +415,9 @@ final class DictationReplay {
                 steps.insert(.switchBack, at: lastEventIndex)
                 lastEventIndex += 1
                 away = false
+            case .modeSwitch where !stopped:
+                lastEventIndex = steps.count
+                steps.append(.switchMode(ai: event.text == "ai"))
             case .stop:
                 stopped = true
             case .fallback:
@@ -477,6 +490,15 @@ final class DictationReplay {
         case .landPendingPastes:
             app.holdsLandings = false
             app.landPendingPastes()
+        case .switchMode(let ai):
+            if ai {
+                guard delivery.switchToAI() else {
+                    switchRefused = true
+                    return
+                }
+                offersSpans = false
+            }
+            aiMode = ai
         }
     }
 
@@ -509,7 +531,7 @@ final class DictationReplay {
         var correctionApplied: Bool?
         let hasFrozenSpans = layer.spans.contains { $0.state == .frozen }
         // runFinalizePass → AppState.finalizeDelivery, which AI mode skips.
-        if !setup.aiMode {
+        if !aiMode {
             correctionApplied = delivery.finalize(text: layer.text, hasFrozenSpans: hasFrozenSpans)
         }
 
@@ -521,7 +543,7 @@ final class DictationReplay {
         if !idle { XCTFail("the stop is still waiting for a paste to land") }
 
         let result = delivery.stopResult(finalText: finalText, failed: outcome.error != nil,
-                                         aiMode: setup.aiMode, recordingText: layer.text)
+                                         aiMode: aiMode, recordingText: layer.text)
         switch result {
         case .paste(let remainder):
             app.activateAndPaste(remainder)
