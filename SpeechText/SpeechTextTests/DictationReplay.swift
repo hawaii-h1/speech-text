@@ -255,6 +255,9 @@ final class DictationReplay {
         var aiDraft = false
         var removesDisfluencies = true
         var dashStyle = DashStyle.default
+        /// `AppState` shows a streaming recording's text on the overlay and pastes it at
+        /// the stop — see `InlineDelivery.begin(livePreview:)`.
+        var livePreview = false
     }
 
     enum Step {
@@ -368,7 +371,8 @@ final class DictationReplay {
     static func run(_ trace: DictationTrace) async -> Result {
         let setup = Setup(aiMode: trace.setup.aiMode, aiDraft: trace.setup.aiDraft,
                           removesDisfluencies: trace.setup.removesDisfluencies,
-                          dashStyle: trace.setup.dashStyle ?? .emDash)
+                          dashStyle: trace.setup.dashStyle ?? .emDash,
+                          livePreview: trace.setup.livePreview ?? false)
         let probe = AXTextProbe(valueReadable: trace.setup.probe.valueReadable,
                                 rangeReadable: trace.setup.probe.rangeReadable,
                                 rangeReadsBack: trace.setup.probe.rangeReadsBack)
@@ -435,9 +439,13 @@ final class DictationReplay {
     /// `AppState.startRecording` → `beginDeliveryPlan`, then `SpeechEngine.startRecording`
     /// → `setupRecordingSession`.
     private func start(fallback: ScriptedSegment) {
+        // A live-preview recording never probes: nothing goes out early, so the tier is
+        // never used (`AppState.beginDeliveryPlan`).
+        let probed = app.accessibilityGranted && !setup.livePreview
         let tier = DeliveryTier.resolve(isOwnSurface: false,
-                                        probe: app.accessibilityGranted ? app.behaviour.probe : .unavailable)
+                                        probe: probed ? app.behaviour.probe : .unavailable)
         offersSpans = delivery.begin(tier: tier, aiMode: setup.aiMode, aiDraft: setup.aiDraft,
+                                     livePreview: setup.livePreview,
                                      target: app, targetName: "FakeApp")
 
         layer.reset()

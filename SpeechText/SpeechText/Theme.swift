@@ -41,25 +41,28 @@ enum AppSkin: String, CaseIterable, Identifiable {
     /// design file, so letting the accent loose in there would only break it.
     var supportsAccent: Bool { self == .minimal }
 
-    /// Size of the inline overlay's panel.
-    var overlaySize: CGSize {
+    /// Size of the inline overlay's strip — the meter and the cancel button.
+    var overlayStripSize: CGSize {
         switch self {
-        case .minimal: return CGSize(width: 197, height: 65)
+        case .minimal: return CGSize(width: 300, height: 44)
         // Glass (100 × 56) + gap (6) + the cancel button in its rail (36).
         case .techno: return CGSize(width: 142, height: 56)
         }
     }
 
-    /// Where the strip's *display* sits inside its panel, measured from the left edge.
-    ///
-    /// This is what gets centred on screen, not the panel: the techno strip carries a
-    /// cancel button off to one side, and centring the whole block would push the words
-    /// the user is watching off to the left of where they are looking.
-    var overlayFocusX: CGFloat {
+    /// The inline overlay's shape. `showsTranscript`: a streaming recording, whose text is
+    /// built on the overlay and pasted once at the stop.
+    func overlayGeometry(showsTranscript: Bool) -> OverlayGeometry {
+        let strip = overlayStripSize
+        guard showsTranscript else { return OverlayGeometry(strip: strip) }
         switch self {
-        case .minimal: return overlaySize.width / 2
-        // Centre of the 100pt glass, which starts at the panel's left edge.
-        case .techno: return 50
+        // The transcript sits inside the same glass as the strip.
+        case .minimal:
+            return OverlayGeometry(strip: strip, transcriptWidth: strip.width, maxTranscriptHeight: 112)
+        // Techno's strip is drawn to the design and too narrow to read from, so the
+        // transcript is a wider glass of its own, beside which the strip hangs at the right.
+        case .techno:
+            return OverlayGeometry(strip: strip, transcriptWidth: 260, maxTranscriptHeight: 104, gap: 6)
         }
     }
 

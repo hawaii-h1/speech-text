@@ -43,6 +43,15 @@ struct SettingsView: View {
         STTProviderType(rawValue: sttProvider) ?? .apple
     }
 
+    /// The realtime model is selected: an inline dictation is built on the overlay and
+    /// pasted once at the stop. Asked of `RecordingConfiguration` — the same answer
+    /// `AppState` acts on — rather than re-derived here. The body re-renders on the
+    /// `sttProvider` / `elevenLabsModel` storage it already reads.
+    private var streamsLive: Bool {
+        _ = (sttProvider, elevenLabsModel)
+        return RecordingConfiguration.current(locale: autoLanguageID).streams
+    }
+
     private var llm: LLMProviderType {
         LLMProviderType(rawValue: llmProvider) ?? .groq
     }
@@ -247,7 +256,7 @@ struct SettingsView: View {
                     }
                 }
                 if elevenLabsModel == elevenLabsRealtimeModel {
-                    Text("Streams audio over a WebSocket, so words appear as you say them and the result lands almost as soon as you stop — a 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan.")
+                    Text("Streams audio over a WebSocket, so words appear on the recording overlay as you say them — corrected as the sentence goes on — and are pasted in one go as soon as you stop. A 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -331,7 +340,10 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
 
             Toggle("Show the dictation while speaking, then swap in the AI version", isOn: $aiDraftWhileSpeaking)
-            Text("Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")
+                .disabled(streamsLive)
+            Text(streamsLive
+                 ? "With Scribe v2 Realtime the dictation is shown on the recording overlay instead, and only the AI version is pasted."
+                 : "Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
