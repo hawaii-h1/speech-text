@@ -402,6 +402,9 @@ final class AppState {
     /// Where an AI dictation is going, read when its recording started. Nil outside AI
     /// mode and when the user turned the setting off.
     private var focusContext: FocusContext?
+    /// The current inline recording streams, so its text is built on the overlay and
+    /// pasted once at the stop rather than span by span into the target app.
+    private(set) var showsLiveTranscript = false
     /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
     private(set) var isRefining = false
     private var refinementTask: Task<Void, Never>?
@@ -446,7 +449,10 @@ final class AppState {
         if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = front
         }
-        dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(resolvedLocale()), aiMode=\(isAIMode)")
+        let locale = resolvedLocale()
+        // The same settings the engine snapshots a moment later, read the same way.
+        showsLiveTranscript = RecordingConfiguration.current(locale: locale).streams
+        dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(locale), aiMode=\(isAIMode), liveTranscript=\(showsLiveTranscript)")
 
         beginDeliveryPlan()
         showOverlay()
@@ -457,7 +463,6 @@ final class AppState {
         speechEngine.onStartFailure = { [weak self] message in
             self?.handleStartFailure(message)
         }
-        let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
 
         // After the engine start, not before: nothing reads it until the stop.
@@ -487,7 +492,9 @@ final class AppState {
 
     /// Decides the tier for this recording and wires the engine up to it.
     private func beginDeliveryPlan() {
-        let probe = PasteService.probeFocusedText(in: previousApp)
+        // A live-transcript recording delivers nothing early, so its tier is never used —
+        // and the probe is AX round trips to a possibly slow app ahead of the microphone.
+        let probe = showsLiveTranscript ? AXTextProbe.unavailable : PasteService.probeFocusedText(in: previousApp)
         let tier = DeliveryTier.resolve(isOwnSurface: false, probe: probe)
         let aiDraft = UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking)
         DictationTraceRecorder.current = DictationTraceRecorder.isEnabled
@@ -495,12 +502,13 @@ final class AppState {
                 aiMode: isAIMode, aiDraft: aiDraft,
                 removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
                 dashStyle: .current,
+                livePreview: showsLiveTranscript,
                 app: previousApp?.localizedName,
                 probe: .init(valueReadable: probe.valueReadable, rangeReadable: probe.rangeReadable,
                              rangeReadsBack: probe.rangeReadsBack)))
             : nil
         let progressive = inlineDelivery.begin(
-            tier: tier, aiMode: isAIMode, aiDraft: aiDraft,
+            tier: tier, aiMode: isAIMode, aiDraft: aiDraft, livePreview: showsLiveTranscript,
             target: AccessibilityDeliveryTarget(app: previousApp),
             targetName: previousApp?.localizedName)
 
@@ -798,8 +806,10 @@ final class AppState {
         // Close any existing panel first to prevent orphaned overlays
         hideOverlay()
 
-        let panel = RecordingOverlayPanel()
-        let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, appState: self, onCancel: { [weak self, weak panel] in
+        let panel = RecordingOverlayPanel(showsTranscript: showsLiveTranscript)
+        panel.host(ObservedOverlay(speechEngine: speechEngine, appState: self, layout: panel.layout,
+                                   onTranscriptHeight: { [weak panel] in panel?.setTranscriptHeight($0) },
+                                   onCancel: { [weak self, weak panel] in
             self?.transcriptionWaitTask?.cancel()
             self?.transcriptionWaitTask = nil
             self?.refinementTask?.cancel()
@@ -813,7 +823,6 @@ final class AppState {
                 self?.overlayPanel = nil
             }
         }))
-        panel.contentView = hostingView
         panel.orderFrontRegardless()
         overlayPanel = panel
     }
@@ -983,6 +992,8 @@ final class AppState {
 struct ObservedOverlay: View {
     @Bindable var speechEngine: SpeechEngine
     @Bindable var appState: AppState
+    let layout: OverlayLayout
+    let onTranscriptHeight: (CGFloat) -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -991,6 +1002,12 @@ struct ObservedOverlay: View {
             isLoading: speechEngine.isTranscribing || appState.isRefining,
             isPreparing: speechEngine.isStartingEngine,
             isAIMode: appState.isAIMode,
+            showsTranscript: appState.showsLiveTranscript,
+            growsDown: layout.growsDown,
+            transcriptHeight: layout.transcriptHeight,
+            settledText: appState.showsLiveTranscript ? speechEngine.spanLayer.stableText : "",
+            movingText: appState.showsLiveTranscript ? speechEngine.spanLayer.segmentProvisionalText : "",
+            onTranscriptHeight: onTranscriptHeight,
             onCancel: onCancel
         )
     }

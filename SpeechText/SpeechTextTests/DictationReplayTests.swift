@@ -218,6 +218,58 @@ final class TierReplayTests: XCTestCase {
     }
 }
 
+// MARK: - Live transcript on the overlay (L)
+
+/// A streaming recording shows its text on the overlay and pastes it once at the stop —
+/// `InlineDelivery.begin(livePreview:)`. What these pin down is the reason it exists: a
+/// sentence Scribe closed on a pause and reopened a moment later reaches the document in
+/// its final form, in every tier.
+@MainActor
+final class LiveTranscriptReplayTests: XCTestCase {
+
+    /// A pause mid-sentence: Scribe commits it with a full stop, then re-states it with a
+    /// comma once the user carries on.
+    private let pauseMidSentence: [DictationReplay.Step] = [
+        .partial("Я думаю, що ми зробимо"),
+        .committed("Я думаю, що ми зробимо."),
+        .partial("Я думаю, що ми зробимо, потім"),
+        .committed("Я думаю, що ми зробимо, потім перевіримо."),
+    ]
+    private let live = DictationReplay.Setup(livePreview: true)
+
+    /// L1: a terminal — which can never take back a pasted full stop — gets the
+    /// re-punctuated sentence, in one paste.
+    func testL1_TheCorrectedSentenceIsPastedOnceInATerminal() async {
+        let app = FakeApp(.terminal)
+        let run = await DictationReplay.run(live, in: app, pauseMidSentence)
+
+        XCTAssertEqual(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
+        XCTAssertEqual(app.pastes.count, 1)
+        XCTAssertTrue(run.logged("shown on the overlay, pasted at the stop"))
+    }
+
+    /// L2: the same in TextEdit, where nothing is left for the finalizing pass to correct.
+    func testL2_NothingGoesOutWhileSpeakingInTextEdit() async {
+        let app = FakeApp(.textEdit)
+        let run = await DictationReplay.run(live, in: app, pauseMidSentence)
+
+        XCTAssertEqual(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
+        XCTAssertEqual(app.pastes.count, 1)
+        XCTAssertNil(run.correctionApplied)
+    }
+
+    /// L3: the AI draft setting does not bring early pastes back — the rewrite is the
+    /// only thing pasted.
+    func testL3_AIDraftIsNotPastedWithALiveTranscript() async {
+        let app = FakeApp(.textEdit)
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true, livePreview: true),
+                                            in: app, pauseMidSentence, llm: .rewrites("Зробимо, потім перевіримо."))
+
+        XCTAssertEqual(run.document, "Зробимо, потім перевіримо.")
+        XCTAssertEqual(app.pastes.count, 1)
+    }
+}
+
 // MARK: - The finalizing pass (F)
 
 @MainActor

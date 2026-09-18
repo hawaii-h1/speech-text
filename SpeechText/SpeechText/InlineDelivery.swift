@@ -60,7 +60,13 @@ final class InlineDelivery {
 
     /// Starts a recording's delivery and says whether spans go out while the user is
     /// still speaking.
-    func begin(tier: DeliveryTier, aiMode: Bool, aiDraft: Bool,
+    ///
+    /// `livePreview`: the recording streams, and its text is built on our own overlay —
+    /// where the provider can still re-punctuate and re-word it — and pasted once at the
+    /// stop. Nothing goes out early, in any tier or mode: a sentence the provider closed
+    /// on a pause and reopened a moment later is exactly what text already in a foreign
+    /// app cannot take back.
+    func begin(tier: DeliveryTier, aiMode: Bool, aiDraft: Bool, livePreview: Bool = false,
                target: InlineDeliveryTarget, targetName: String?) -> Bool {
         queue = []
         isDeliveringSpan = false
@@ -69,8 +75,10 @@ final class InlineDelivery {
         self.tier = tier
         self.target = target
 
-        let progressive = tier.deliversDuringRecording(aiMode: aiMode, aiDraft: aiDraft)
-        dlog("Span", "tier \(tier) for \(targetName ?? "nil") — \(progressive ? "delivering during the recording" : "buffering until the stop")")
+        let progressive = !livePreview && tier.deliversDuringRecording(aiMode: aiMode, aiDraft: aiDraft)
+        let plan = progressive ? "delivering during the recording"
+            : livePreview ? "shown on the overlay, pasted at the stop" : "buffering until the stop"
+        dlog("Span", "tier \(tier) for \(targetName ?? "nil") — \(plan)")
         if progressive && tier.recordsRanges {
             target.captureFocusedField()
         } else {

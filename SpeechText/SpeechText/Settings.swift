@@ -68,6 +68,10 @@ enum SettingsKeys {
     static let accentColor = "accentColor"
     /// `DockIconMode.rawValue`: never, while a window is open, or always.
     static let dockIconMode = "dockIconMode"
+    /// Where the user dragged the inline overlay: its bottom-left corner as `"x,y"` in
+    /// screen coordinates (UserDefaults has no point type). Empty means the default
+    /// corner. Monitor geometry, so machine-local and not in `portable`.
+    static let overlayOrigin = "overlayOrigin"
 
     // Debug
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-

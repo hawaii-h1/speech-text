@@ -125,6 +125,10 @@ struct TranscriptSpanLayer {
     /// The text of those spans.
     var segmentStableText: String { join(segmentStableSpans) }
 
+    /// Everything settled in this recording, all segments — what the inline overlay draws
+    /// at full brightness, ahead of `segmentProvisionalText`.
+    var stableText: String { join(visibleSpans.filter { $0.state.isStable }) }
+
     /// The current segment's moving half. At most one span, but joined the same way.
     var segmentProvisionalText: String {
         join(visibleSpans.filter { $0.segment == segment && $0.state == .provisional })
