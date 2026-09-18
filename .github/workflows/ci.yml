@@ -1,8 +1,9 @@
 name: CI
 
 # Pull requests only: main takes nothing but merged PRs, whose head already
-# passed these jobs, and a second macOS run per merge costs ten included
-# minutes for every minute it takes.
+# passed these jobs. Every job runs on the organisation's self-hosted Mac, so
+# none of them spends included Actions minutes (the repository is private —
+# a public one must not run pull requests on a self-hosted runner).
 on:
   pull_request:
 
@@ -13,11 +14,14 @@ concurrency:
 jobs:
   test:
     name: Tests
-    runs-on: macos-15
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
+      # Hosted images carry several Xcodes; the self-hosted Mac uses the one
+      # it has, and must not be asked for a sudo password.
       - name: Select the newest Xcode
+        if: runner.environment == 'github-hosted'
         run: |
           set -euo pipefail
           latest=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
@@ -38,7 +42,7 @@ jobs:
 
   pbxproj:
     name: No development team
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +57,7 @@ jobs:
 
   spdx:
     name: SPDX headers
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -78,7 +82,7 @@ jobs:
 
   dco:
     name: DCO sign-off
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
