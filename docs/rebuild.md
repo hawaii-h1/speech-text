@@ -44,6 +44,11 @@ different application, so the Accessibility grant is dropped and paste-back sile
 stops working until you toggle SpeechText off and on in System Settings. A
 certificate makes the signature stable, and the grant then survives every rebuild.
 
+If the keychain holds a **Developer ID Application** certificate — the one releases are
+signed with (docs/releasing.md) — the script uses it without being asked, ahead of a
+`SpeechText Dev` one: a grant made to a local build then carries over to a release
+instead of being asked for again. Otherwise, make a self-signed one:
+
 In **Keychain Access** → menu **Keychain Access › Certificate Assistant › Create a
 Certificate…**:
 
@@ -68,16 +73,27 @@ went, the summary at the end of a run says which you got:
 It reads that from the built bundle's designated requirement rather than from what
 it asked for, so it reports what actually happened.
 
+**Why a teamless build carries an extra entitlement.** The app is built with the
+hardened runtime, which loads only frameworks signed by the app's own *team* — and
+Sparkle, the updater, is a framework. A Developer ID or Apple Development certificate
+has a team, and the script re-signs Sparkle with it. An ad-hoc signature or a
+self-signed `SpeechText Dev` has none, and macOS refuses Sparkle even when every piece
+is signed the same way: the app dies at launch with *"mapping process and mapped file
+have different Team IDs"*. So for those two the script adds
+`com.apple.security.cs.disable-library-validation` to the local build's signature.
+Only here: `scripts/package-release.sh`, which makes what users install, never adds
+it.
+
 ## Which build is running
 
 Every build is stamped with the commit it came from, and the menu bar's first line
 shows it:
 
 ```
-SpeechText 1.0 (build 47 · a18a7d1 · 2026-09-16 14:20)
+SpeechText 0.9.0 (build 47 · a18a7d1 · 2026-09-16 14:20)
 ```
 
-`1.0` is the release version from CHANGELOG.md and only moves on `--tag`. `build 47`
+`0.9.0` is the release version from CHANGELOG.md and only moves on `--tag`. `build 47`
 is the commit count, `a18a7d1` the commit — with a trailing `+` when the working
 tree had uncommitted changes, which is the whole warning: what ran is not any commit,
 so a bug found in it cannot be reproduced from git alone. Clicking the line copies it,
@@ -85,7 +101,7 @@ for pasting into an issue.
 
 The stamp is passed on the `xcodebuild` line into `$(SPT_GIT_COMMIT)` /
 `$(SPT_BUILD_DATE)` placeholders in `Info.plist`. A plain Xcode ⌘R build defines
-neither, so the menu says `1.0 (dev)` — which is the honest answer for a build that
+neither, so the menu says `0.9.0 (dev)` — which is the honest answer for a build that
 was never recorded, not a bug. `--status` compares the installed stamp against HEAD
 and says whether they agree.
 
@@ -157,14 +173,14 @@ microphone, paste-back — only appear when it is actually running.
 ## Cutting a release
 
 ```bash
-scripts/rebuild.sh --tag 1.1.0
+scripts/rebuild.sh --tag 0.10.0
 ```
 
 Requires a clean working tree. It sets `MARKETING_VERSION` in `project.pbxproj`, moves
-everything under CHANGELOG's `## [Unreleased]` into a dated `## [1.1.0]` section,
+everything under CHANGELOG's `## [Unreleased]` into a dated `## [0.10.0]` section,
 re-points the compare links, commits with a DCO sign-off and creates the annotated tag
-`v1.1.0`. **Nothing is pushed** — it prints the push command and leaves the decision
-to you. Run the script again afterwards to install the build that now says `1.1.0`.
+`v0.10.0`. **Nothing is pushed** — it prints the push command and leaves the decision
+to you. Run the script again afterwards to install the build that now says `0.10.0`.
 
 Pushing the tag is what publishes: the **Release** workflow signs and notarizes the
 build and opens a *draft* GitHub release with the disk image, which a person then

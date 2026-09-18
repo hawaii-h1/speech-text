@@ -171,7 +171,10 @@ scripts/package-release.sh
 
 Run it without `SPT_DEVELOPER_ID` to exercise the packaging with no certificate at
 all: it builds `SpeechText-X.Y.Z-unsigned.dmg`, signed ad-hoc and labelled as not for
-distribution. `--from-app PATH` packages an app that is already built.
+distribution — and it only exercises the packaging: the app in it does not start,
+because an ad-hoc signature has no team and the hardened runtime then refuses the
+Sparkle framework (docs/rebuild.md explains; `scripts/rebuild.sh` is how to run a local
+build). `--from-app PATH` packages an app that is already built.
 
 ## When notarization fails
 
