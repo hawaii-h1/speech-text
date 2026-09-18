@@ -56,7 +56,53 @@ If the account offers no API keys, use an **app-specific password** instead:
 account.apple.com › Sign-In and Security › App-Specific Passwords, together with the
 Apple ID and the team ID.
 
-### 3. Repository secrets
+### 3. The update-signing key
+
+SpeechText updates itself with [Sparkle](https://sparkle-project.org): the app reads an
+**appcast** — an XML feed published as an asset of each release — and installs what it
+finds there. What makes that download trustworthy is not Apple's certificate but an
+**EdDSA key pair of our own**, and the two are deliberately independent: the Apple team
+ID may change (converting the account to an organization would do it), and an update
+signed with the same EdDSA key still installs.
+
+Generate it once, on the maintainer's Mac. The private half stays in that Mac's Keychain:
+
+```bash
+scripts/make-appcast.sh --fetch-tools    # downloads Sparkle's tools into build/tools/
+build/tools/sparkle-2.10.0/bin/generate_keys
+```
+
+It prints the **public** key. Put it in `SpeechText/SpeechText/Info.plist`:
+
+```xml
+<key>SUPublicEDKey</key>
+<string>…the printed key…</string>
+```
+
+Until that key is there the app simply has no updater: no menu item, no settings row,
+nothing started at launch — and `scripts/package-release.sh` refuses to build a
+distributable image at all, because an app that cannot be updated is not one to hand out.
+
+A build from Xcode (⌘R) has no updater either, key or no key: it carries no commit and
+build number 1, so it is older than every release, and every Sparkle setting lives in the
+app's *own* defaults domain — which a ⌘R build shares with the copy in `/Applications`.
+Updates are exercised from a `scripts/rebuild.sh` install.
+
+The private half never goes in the repository. Export it for the CI secret and for a
+password manager, then delete the file:
+
+```bash
+build/tools/sparkle-2.10.0/bin/generate_keys -x sparkle-private-key.txt
+gh secret set SPARKLE_ED_PRIVATE_KEY < sparkle-private-key.txt
+rm sparkle-private-key.txt
+```
+
+Whoever holds this key can publish an update to every installed copy of SpeechText.
+Losing it is survivable only the hard way: a new key means a new `SUPublicEDKey`, which
+existing installs will not accept — everyone would have to download the next version by
+hand. Keep a copy somewhere safe, and keep it out of everything else.
+
+### 4. Repository secrets
 
 ```bash
 gh secret set DEVELOPER_ID_P12_BASE64   < <(base64 -i DeveloperID.p12)
@@ -81,15 +127,37 @@ gh secret set NOTARY_TEAM_ID
    CHANGELOG section, commits and tags `vX.Y.Z`. Nothing is pushed.
 3. `git push && git push origin vX.Y.Z`.
 4. The **Release** workflow checks the tag against the project version, signs,
-   notarizes (a few minutes), and opens a **draft** release with
-   `SpeechText-X.Y.Z.dmg` and its `.sha256`.
+   notarizes (a few minutes), writes the appcast, and opens a **draft** release with
+   `SpeechText-X.Y.Z.dmg`, its `.sha256` and `appcast.xml`.
 5. Download the image and install it on a Mac — or a fresh user account — that has
    never run SpeechText: it should open without any Gatekeeper dialog, and ask for the
    microphone, Accessibility and, on first use, speech recognition. Then publish the
    draft.
+6. Check that the release it replaces can reach it: on a Mac running the *previous*
+   version, SpeechText › Check for Updates… should offer this one, and installing it
+   should leave the app running the new version with its permissions intact.
 
 A tag pushed before the secrets exist fails the workflow instead of releasing an
 unsigned image.
+
+## How an installed copy learns about a new version
+
+Every release carries `appcast.xml`, and the app reads it at
+`…/releases/latest/download/appcast.xml` — a URL GitHub answers with the asset of
+whatever release is currently the latest *published* one. So a draft release is invisible
+to installed copies, and publishing the draft is the moment the update goes out. Sparkle
+checks once a day; the menu item checks now.
+
+The feed holds one item: the release being cut. Sparkle installs the best item it finds,
+so one is enough, and it means a release depends on nothing from the release before it —
+no archive of old disk images, no re-signing. The consequence to know about is that the
+"what's new" text in the update window covers that version alone; the full history stays
+in `CHANGELOG.md`, which the window links to.
+
+A release taken back — unpublished or deleted — stops being offered: the `latest` URL
+answers with the release before it again. Copies that already updated stay where they
+are, so a bad version is pulled from everyone who has not updated yet, and fixed for the
+rest by the next release.
 
 ## Building a release locally
 
@@ -103,7 +171,10 @@ scripts/package-release.sh
 
 Run it without `SPT_DEVELOPER_ID` to exercise the packaging with no certificate at
 all: it builds `SpeechText-X.Y.Z-unsigned.dmg`, signed ad-hoc and labelled as not for
-distribution. `--from-app PATH` packages an app that is already built.
+distribution — and it only exercises the packaging: the app in it does not start,
+because an ad-hoc signature has no team and the hardened runtime then refuses the
+Sparkle framework (docs/rebuild.md explains; `scripts/rebuild.sh` is how to run a local
+build). `--from-app PATH` packages an app that is already built.
 
 ## When notarization fails
 

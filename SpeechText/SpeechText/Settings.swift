@@ -90,6 +90,11 @@ enum SettingsKeys {
     /// Deliberately not the whole domain: `hasRegisteredLaunchAtLogin` and the
     /// accessibility prompt flag describe grants made to the *old* bundle identifier,
     /// and copying them would leave the new app unregistered and unprompted.
+    ///
+    /// Sparkle's own keys (`SUEnableAutomaticChecks`, `SULastCheckTime`,
+    /// `SUSkippedVersion`) are missing for the same reason, and should stay missing: a
+    /// new identity re-defaults to checking for updates, whereas a carried-over
+    /// `SUSkippedVersion` would suppress an update the new install never saw offered.
     static let portable: [String] = [
         selectedLanguage,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,

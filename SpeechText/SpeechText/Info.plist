@@ -10,6 +10,16 @@
 	<string>SpeechText needs microphone access for speech recognition</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>SpeechText uses on-device speech recognition to convert your voice to text</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/yavno/speech-text/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>4z3nw3aazhehlhKlN/+KosEREvt9RiTx+Ku38M6mHMA=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 	<key>SPTBuildDate</key>
 	<string>$(SPT_BUILD_DATE)</string>
 	<key>SPTGitCommit</key>

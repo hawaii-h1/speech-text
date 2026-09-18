@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Automatic updates. SpeechText now checks once a day whether a newer version has been released, offers it with that version's release notes, and installs it when you agree — the menu's *Check for Updates…* asks right away. Every update is signed with a key of the project's own, checked before anything is installed.
 - Local speech recognition with open-source Whisper models, run on-device through WhisperKit, installed, cancelled or removed with one click. No key, and nothing leaves the Mac.
 - Local AI processing through Ollama: Qwen3.5 / 3.6 / 3.8, Gemma 4 and gpt-oss, pulled with one click. Any model you already have in Ollama can be picked too.
 - Model recommendations by Mac class, from an 8 GB MacBook Neo to a 512 GB Mac Studio: each class gets a recommended model (the fastest of good quality) and a best-quality one, and heavier models stay available with a warning.
@@ -30,7 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ElevenLabs realtime no longer pastes a dictation twice. The stream re-states text it has already committed — grown by the words said since, and with a word or two revised — and that was being appended instead of merged.
 - "Auto (System)" no longer forces the keyboard layout's language on a cloud speech model. Whisper and Scribe detect the language themselves; being told the wrong one made them drop most of a recording and translate the rest. Apple's recogniser, which has no auto mode, still follows the layout.
 
-## [1.0.0] - 2026-09-13
+## [0.9.0] - 2026-09-13
+
+First tagged as 1.0.0, renumbered on 2026-09-18: SpeechText is still in a closed beta, and a 1.0 promised more than that.
 
 ### Added
 
@@ -43,5 +46,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Webhook delivery: POST the transcribed text to a URL of your own, with optional Bearer token auth.
 - Automatic language detection that follows the active macOS keyboard layout.
 
-[Unreleased]: https://github.com/yavno/speech-text/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/yavno/speech-text/releases/tag/v1.0.0
+[Unreleased]: https://github.com/yavno/speech-text/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/yavno/speech-text/releases/tag/v0.9.0

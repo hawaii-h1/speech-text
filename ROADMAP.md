@@ -6,7 +6,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 ## Now
 
-- **Distribution** — signed and notarized `.dmg`, GitHub Releases, Homebrew cask, in-app auto-update. Today the only way to run SpeechText is to build it, which excludes almost everyone.
+- **Distribution** — signed and notarized `.dmg` on GitHub Releases with in-app auto-update, and a Homebrew cask. Today the only way to run SpeechText is to build it, which excludes almost everyone.
 - **CI** — build and test on every PR.
 - **Latency** — chunked transcription so text appears while you are still speaking. See [the spec](docs/specs/2026-08-29-low-latency-chunked-transcription.md).
 
@@ -25,7 +25,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 Saying no early saves everyone time:
 
-- **Third-party dependencies, with one exception.** The app is Apple frameworks plus [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) for local speech models — running Whisper needs a tokenizer and a decode loop that Core ML does not provide, and reimplementing them is not a good use of anyone's time. WhisperKit is imported by exactly one file (`LocalWhisperRuntime.swift`); everything else stays Apple-only. A second dependency needs an issue first.
+- **Third-party dependencies, beyond the two we have.** The app is Apple frameworks plus [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) for local speech models and [Sparkle](https://sparkle-project.org) for updates. Running Whisper needs a tokenizer and a decode loop that Core ML does not provide; updating an app outside the App Store needs a downloader, a signature check and an installer that can replace a running app, and getting that wrong breaks every user at once. Each is imported by exactly one file — `LocalWhisperRuntime.swift` and `UpdateChecker.swift` — and everything else stays Apple-only. A third dependency needs an issue first.
 - **iOS / iPadOS.** The whole design rests on pasting into another app on a desktop.
 - **Windows / Linux.** Different project entirely.
 - **A general audio-file transcription tool.** That is a different kind of app. SpeechText is about dictation into the cursor.
