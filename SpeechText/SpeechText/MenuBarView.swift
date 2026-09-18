@@ -132,11 +132,13 @@ struct SettingsView: View {
 
                 Toggle("Hold to talk", isOn: $holdToTalk)
                 Text(holdToTalk
-                     ? "Hold a recording shortcut while you speak and let go to paste. A quick tap still starts and stops a recording."
+                     ? "Hold a recording shortcut while you speak and let go to paste. A quick tap cancels."
                      : "Press a recording shortcut to start, and press it again to stop.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("While recording, the other recording shortcut switches the dictation between plain text and AI.")
+                Text(holdToTalk
+                     ? "While holding, tap the other recording shortcut to switch between plain text and AI, as often as you like."
+                     : "While recording, the other recording shortcut switches the dictation between plain text and AI.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

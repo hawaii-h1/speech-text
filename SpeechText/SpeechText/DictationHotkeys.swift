@@ -25,18 +25,23 @@ enum DictationHotkeyAction: Equatable {
 
 /// Turns presses and releases of the two dictation shortcuts into actions.
 ///
-/// A press follows one table in every mode. Idle, it starts a dictation in its own mode.
+/// A press follows one table, the held dictation below aside. Idle, it starts a dictation in its own mode.
 /// During one, the shortcut of the mode it is in stops it and the other shortcut switches
 /// it over — so a dictation begun as plain text can still be sent through the AI, and the
 /// other way round. Once the audio is closed (transcribing, rewriting) either shortcut
 /// cancels, as it always has: there is nothing left to switch.
 ///
 /// Releases matter only with `holdToTalk`. The press that started the dictation *owns* it,
-/// and letting go of that shortcut stops it — unless it was let go within `tapThreshold`,
-/// which is a tap: the dictation stays on until the next press, exactly as with the setting
-/// off. One shortcut therefore serves both habits, and a press too short to hold a word
-/// does not end in "No speech detected". Only the owner's release counts, which is what
-/// lets a held dictation switch modes: hold ⌃⇧Q, tap ⌃⇧A, keep talking, let go of Q.
+/// and letting go of that shortcut stops it. A release within `tapThreshold` is a tap, not
+/// a hold, and cancels: nothing was said in it, and a tap that latched the recording on
+/// left an overlay listening that the user had not asked for. Hands-free dictation is the
+/// setting switched off.
+///
+/// While the owner is held, the other shortcut cannot stop the dictation — only the
+/// owner's release does — so each of its presses flips the mode instead: hold ⌃⇧Q, tap
+/// ⌃⇧A for AI, tap it again for plain text, let go of Q. The owner itself cannot be pressed
+/// again while it is down; a press of it means its release never arrived, and it follows
+/// the table, so a missed release costs one extra press rather than a stuck recording.
 ///
 /// Pure logic, in both targets; `AppState` supplies the phase and performs the action.
 struct DictationHotkeyGesture {
@@ -50,8 +55,8 @@ struct DictationHotkeyGesture {
         case busy
     }
 
-    /// Shorter than this, a release is the end of a tap rather than of a hold. Long
-    /// enough for a deliberate keypress, short enough that no one says a word in it.
+    /// Shorter than this, a release is the end of a tap rather than of a hold, and cancels.
+    /// Long enough for a deliberate keypress, short enough that no one says a word in it.
     static let tapThreshold: TimeInterval = 0.3
 
     var holdToTalk = false
@@ -78,6 +83,14 @@ struct DictationHotkeyGesture {
     }
 
     mutating func press(_ key: DictationHotkey, in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
+        if let owner, key != owner {
+            switch phase {
+            case .starting(let ai), .recording(let ai):
+                return .switchTo(ai: !ai)
+            case .idle, .busy:
+                break
+            }
+        }
         let action = Self.action(forPressOf: key, in: phase)
         switch action {
         case .start:
@@ -103,10 +116,9 @@ struct DictationHotkeyGesture {
     mutating func release(_ key: DictationHotkey, in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
         guard key == owner else { return .ignore }
         owner = nil
-        guard time - pressedAt >= Self.tapThreshold else { return .ignore }
         switch phase {
         case .starting: return .cancel
-        case .recording: return .stop
+        case .recording: return time - pressedAt < Self.tapThreshold ? .cancel : .stop
         case .idle, .busy: return .ignore
         }
     }

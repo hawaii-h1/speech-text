@@ -643,13 +643,12 @@ final class DictationHotkeyGestureTests: XCTestCase {
         XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 12), .stop)
     }
 
-    func testATapLatchesUntilTheNextPress() {
+    func testATapCancels() {
         var g = DictationHotkeyGesture(holdToTalk: true)
         _ = g.press(.inline, in: .idle, at: 10)
-        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 10.1), .ignore)
-        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 15), .stop)
-        // That press's own release lands on a finishing dictation, and does nothing.
-        XCTAssertEqual(g.release(.inline, in: .busy, at: 16), .ignore)
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 10.1), .cancel)
+        XCTAssertNil(g.owner)
+        XCTAssertEqual(g.release(.inline, in: .idle, at: 10.2), .ignore)
     }
 
     func testAHeldDictationSwitchesModeAndStopsOnTheOwnersRelease() {
@@ -659,6 +658,39 @@ final class DictationHotkeyGestureTests: XCTestCase {
         // The switching key is not the owner: letting go of it keeps the dictation on.
         XCTAssertEqual(g.release(.ai, in: .recording(ai: true), at: 11.2), .ignore)
         XCTAssertEqual(g.release(.inline, in: .recording(ai: true), at: 14), .stop)
+    }
+
+    func testTheOtherShortcutTogglesWhileTheOwnerIsHeld() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 11), .switchTo(ai: true))
+        // Pressed again in its own mode it would stop an unheld dictation; held, it goes back.
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: true), at: 12), .switchTo(ai: false))
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 13), .switchTo(ai: true))
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: true), at: 14), .stop)
+    }
+
+    func testAHeldAIDictationTogglesThroughPlainText() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.ai, in: .idle, at: 10)
+        XCTAssertEqual(g.press(.inline, in: .starting(ai: true), at: 10.2), .switchTo(ai: false))
+        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 11), .switchTo(ai: true))
+        XCTAssertEqual(g.release(.ai, in: .recording(ai: true), at: 13), .stop)
+    }
+
+    func testAPressOfTheOwnerMeansItsReleaseWasMissed() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 15), .stop)
+        XCTAssertNil(g.owner)
+        XCTAssertEqual(g.release(.inline, in: .busy, at: 15.1), .ignore)
+    }
+
+    func testWithoutHoldToTalkThePressTableStands() {
+        var g = DictationHotkeyGesture()
+        _ = g.press(.inline, in: .idle, at: 10)
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 11), .switchTo(ai: true))
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: true), at: 12), .stop)
     }
 
     func testAHoldReleasedBeforeTheMicrophoneOpenedCancels() {
