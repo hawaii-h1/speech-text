@@ -94,7 +94,18 @@ struct RecordingOverlayView: View {
     /// above, and once it stops growing they slide off the top under a fade.
     private func transcript(base: Color, font: Font, horizontal: CGFloat,
                             top: CGFloat, bottom: CGFloat) -> some View {
-        transcriptText(base: base)
+        // Judged against the glass's full height, not the height it has on this frame of
+        // its animation: mid-growth the text is always taller than the glass, and taking
+        // that for overflow flipped the alignment and flashed the fade on every new line.
+        let overflows = textHeight + top + bottom
+            > skin.overlayGeometry(showsTranscript: true).maxTranscriptHeight + 1
+        // Growing down, the text hangs from the top while it fits, so the glass's lower
+        // edge reveals each new line under lines that stay put; pinned to the bottom it
+        // travelled down with that edge and the whole block slid on every line. Growing
+        // up, the bottom is the edge that stays put. Once it overflows, the newest line
+        // is what must stay in view, whichever way it grows.
+        let alignment: Alignment = overflows || !growsDown ? .bottom : .top
+        return transcriptText(base: base)
             .font(font)
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
@@ -110,15 +121,12 @@ struct RecordingOverlayView: View {
             // `minHeight: 0` matters: without it the frame is never smaller than the text,
             // so once there was more text than room it overflowed centred — over the strip
             // below, with the newest line hidden under it.
-            .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .bottom)
+            .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: alignment)
             .clipped()
             .mask {
-                GeometryReader { proxy in
-                    let overflows = textHeight + top + bottom > proxy.size.height + 1
-                    LinearGradient(stops: [.init(color: overflows ? .clear : .black, location: 0),
-                                           .init(color: .black, location: overflows ? 0.3 : 0)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
+                LinearGradient(stops: [.init(color: overflows ? .clear : .black, location: 0),
+                                       .init(color: .black, location: overflows ? 0.3 : 0)],
+                               startPoint: .top, endPoint: .bottom)
             }
             .onPreferenceChange(TranscriptHeightKey.self) { height in
                 textHeight = height
