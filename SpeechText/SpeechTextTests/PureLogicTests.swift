@@ -1318,30 +1318,6 @@ final class OverlayPlacementTests: XCTestCase {
         XCTAssertEqual(placed.strip.y, 200 - 44 - 112)
     }
 
-    // MARK: Snapping
-
-    func testAnEdgeCloseToItsRestingLineSnapsOntoIt() {
-        // 10 pt from the right resting line, 12 from the bottom one: the corner.
-        let placed = OverlayPlacement.settled(strip: CGPoint(x: 1512 - m - 300 - 10, y: m + 12), minimal, in: laptop)
-        XCTAssertEqual(placed.strip, CGPoint(x: 1512 - m - 300, y: m))
-    }
-
-    func testAnEdgeFartherAwayIsLeftWhereItWas() {
-        let proposed = CGPoint(x: 1512 - m - 300 - 40, y: m + 40)
-        XCTAssertEqual(OverlayPlacement.settled(strip: proposed, minimal, in: laptop).strip, proposed)
-    }
-
-    func testTheHorizontalCentreSnapsToo() {
-        let placed = OverlayPlacement.settled(strip: CGPoint(x: 756 - 150 + 8, y: 300), minimal, in: laptop)
-        XCTAssertEqual(placed.strip.x, 756 - 150)
-    }
-
-    /// Techno snaps by the whole panel, so its wide glass lands on the resting line too.
-    func testTechnoSnapsByItsWidestPart() {
-        let placed = OverlayPlacement.settled(strip: CGPoint(x: m + 260 - 142 + 10, y: 300), techno, in: laptop)
-        XCTAssertEqual(placed.strip.x, m + 260 - 142)
-    }
-
     // MARK: Keeping it on screen
 
     /// A drag past the edge stops at the edge — there is no half-off-screen position.

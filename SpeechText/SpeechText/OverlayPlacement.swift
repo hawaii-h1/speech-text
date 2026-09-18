@@ -43,11 +43,8 @@ enum OverlayGrowth: Equatable {
 /// transcript grows out of it, so anchoring anything else would move the strip every time
 /// a line of text lands.
 enum OverlayPlacement {
-    /// The resting inset from a screen's edges — where the default corner is, and where
-    /// an edge snaps to.
+    /// How far the default corner is inset from the screen's edges.
     static let margin: CGFloat = 20
-    /// How close to a resting line a dragged edge has to come to snap onto it.
-    static let snapDistance: CGFloat = 18
 
     struct Placement: Equatable {
         /// The strip's bottom-left corner.
@@ -67,7 +64,7 @@ enum OverlayPlacement {
     /// The default spot: the bottom-right corner of `screen`.
     static func defaultPlacement(_ geometry: OverlayGeometry, in screen: CGRect) -> Placement {
         settled(strip: CGPoint(x: screen.maxX - margin - geometry.strip.width, y: screen.minY + margin),
-                geometry, in: screen, snaps: false)
+                geometry, in: screen)
     }
 
     /// Where the panel opens. `saved` — where the user left the strip — settled onto the
@@ -90,35 +87,17 @@ enum OverlayPlacement {
     }
 
     /// The strip proposed at `strip` — by a drag, or a saved spot — made valid on `screen`:
-    /// the transcript grows away from the nearer edge, an edge that came within
-    /// `snapDistance` of its resting line (or the panel's centre, of the screen's) snaps
-    /// onto it, and the whole panel, at its largest, is kept on the screen.
-    static func settled(strip: CGPoint, _ geometry: OverlayGeometry, in screen: CGRect,
-                        snaps: Bool = true) -> Placement {
+    /// the transcript grows away from the nearer edge, and the whole panel, at its largest,
+    /// is kept on the screen.
+    static func settled(strip: CGPoint, _ geometry: OverlayGeometry, in screen: CGRect) -> Placement {
         let growth: OverlayGrowth = strip.y + geometry.strip.height / 2 <= screen.midY ? .up : .down
         var full = frame(strip: strip, geometry, growth: growth, transcriptHeight: geometry.maxTranscriptHeight)
-        if snaps { full.origin = snapped(full, in: screen) }
         full.origin = clamped(full.origin, size: full.size, in: screen)
 
         let size = geometry.fullSize
         let settledStrip = CGPoint(x: full.maxX - geometry.strip.width,
                                    y: growth == .up ? full.minY : full.minY + size.height - geometry.strip.height)
         return Placement(strip: settledStrip, growth: growth)
-    }
-
-    /// `frame`'s origin, with each axis pulled onto a resting line it came close to.
-    static func snapped(_ frame: CGRect, in screen: CGRect) -> CGPoint {
-        func snap(_ value: CGFloat, to targets: [CGFloat]) -> CGFloat {
-            guard let nearest = targets.min(by: { abs($0 - value) < abs($1 - value) }),
-                  abs(nearest - value) <= snapDistance else { return value }
-            return nearest
-        }
-        return CGPoint(
-            x: snap(frame.minX, to: [screen.minX + margin,
-                                     screen.maxX - margin - frame.width,
-                                     screen.midX - frame.width / 2]),
-            y: snap(frame.minY, to: [screen.minY + margin,
-                                     screen.maxY - margin - frame.height]))
     }
 
     /// `origin` moved inside `screen`. A panel bigger than the screen keeps its bottom-left

@@ -26,12 +26,12 @@ struct RecordingOverlayView: View {
     let isPreparing: Bool
     /// Recolours the display so an LLM-processed dictation is obvious at a glance.
     var isAIMode: Bool = false
-    /// Draw the transcript. It takes whatever height the panel gives it — the panel grows
-    /// it from nothing towards `onTranscriptHeight`'s answer, see `RecordingOverlayPanel`.
+    /// Draw the transcript, growing from nothing towards `onTranscriptHeight`'s answer — see
+    /// `RecordingOverlayPanel`.
     var showsTranscript: Bool = false
     /// The strip is at the top and the transcript grows down from it.
     var growsDown: Bool = false
-    /// The transcript's height right now — animated by the panel, 0 until the first word.
+    /// The transcript's height, 0 until the first word. The view animates towards it.
     var transcriptHeight: CGFloat = 0
     /// What the provider has committed, all segments — drawn at full brightness.
     var settledText: String = ""
@@ -54,16 +54,24 @@ struct RecordingOverlayView: View {
     private var hasText: Bool { !settledText.isEmpty || !movingText.isEmpty }
 
     var body: some View {
-        // The panel is sized from outside, frame by frame while the transcript grows, so
-        // the view fills it rather than proposing a size of its own.
+        // Always laid out at the panel's largest size, with the strip pinned to its corner:
+        // the window only reveals as much of it as is drawn, so resizing the window never
+        // makes this view lay itself out again — which is what made the strip jump.
+        let full = skin.overlayGeometry(showsTranscript: showsTranscript).fullSize
         Group {
             switch skin {
             case .minimal: minimalBody
             case .techno: technoBody
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: growsDown ? .top : .bottom)
+        .animation(Self.growth, value: transcriptHeight)
+        .frame(width: full.width, height: full.height,
+               alignment: growsDown ? .topTrailing : .bottomTrailing)
     }
+
+    /// How the transcript grows and shrinks. `RecordingOverlayPanel.growthDuration` has to
+    /// cover it: the window shrinks only once the glass has.
+    static let growth = Animation.spring(response: 0.35, dampingFraction: 0.9)
 
     // MARK: Transcript
 
@@ -131,11 +139,9 @@ struct RecordingOverlayView: View {
             if growsDown { minimalStrip }
             if showsTranscript {
                 // Kept in the hierarchy at zero height too: it is what measures the text.
-                // Its height is whatever the window leaves above the strip, so glass and
-                // window edge move together on every frame of the growth.
                 transcript(base: .primary, font: .system(size: 13), horizontal: 16,
                            top: growsDown ? 6 : 12, bottom: growsDown ? 12 : 6)
-                    .frame(maxHeight: transcriptHeight > 0 ? .infinity : 0)
+                    .frame(height: transcriptHeight)
             }
             if !growsDown { minimalStrip }
         }
@@ -213,14 +219,8 @@ struct RecordingOverlayView: View {
                 // Kept in the hierarchy at zero height too: it is what measures the text.
                 let geometry = skin.overlayGeometry(showsTranscript: true)
                 technoTranscript
-                    .frame(width: geometry.transcriptWidth)
-                    .frame(maxHeight: transcriptHeight > 0 ? .infinity : 0)
+                    .frame(width: geometry.transcriptWidth, height: transcriptHeight)
                     .opacity(transcriptHeight > 0 ? 1 : 0)
-                    // Until it has a height the panel is only as wide as the strip; the glass
-                    // overhangs it invisibly rather than being laid out narrower — it is
-                    // measuring the text, and at the wrong width it would measure wrong.
-                    .frame(width: transcriptHeight > 0 ? geometry.transcriptWidth : geometry.strip.width,
-                           alignment: .trailing)
                     .padding(growsDown ? .top : .bottom, transcriptHeight > 0 ? geometry.gap : 0)
             }
             if !growsDown { technoStrip }
@@ -402,28 +402,34 @@ final class OverlayLayout {
 ///
 /// It opens where the user last left it — the bottom-right corner until they move it —
 /// and is never anywhere a screen does not show all of it. The user drags it by any part
-/// that is not a button; the drag is the panel's own rather than AppKit's, so it can be
-/// held on screen *while* it moves (edges stop at the screen's, and snap onto a resting
-/// line `OverlayPlacement.margin` in from them as they come near) instead of being
-/// corrected after the mouse is let go. The saved spot is also re-checked on every show,
-/// skin change and display change, so an unplugged monitor cannot strand it.
+/// that is not a button; the drag is the panel's own rather than AppKit's, so it is held
+/// on screen *while* it moves instead of being corrected after the mouse is let go. The
+/// saved spot is also re-checked on every show, skin change and display change, so an
+/// unplugged monitor cannot strand it.
 ///
-/// For a streaming recording the transcript grows out of the strip: the view reports the
-/// height its text wants, and the panel eases towards it on the display's clock, resizing
-/// the window around the strip each frame. The window is always exactly as big as what is
-/// drawn — a taller, partly transparent window would sit on top of whatever the user is
-/// working in.
+/// For a streaming recording the transcript grows out of the strip. The hosted view is
+/// always the panel's *largest* size, pinned by the strip's corner inside a plain
+/// container, and the window only reveals part of it: resizing an `NSHostingView` makes
+/// SwiftUI lay out again a frame later, anchored at the top, so a window growing upward
+/// showed its strip jumping down and back. Growing, the window takes the new height at
+/// once and the glass animates into it (`RecordingOverlayView.growth`); shrinking, the
+/// glass animates first and the window follows once it has. The transparent strip that
+/// leaves exists only while the glass is moving.
 final class RecordingOverlayPanel: NSPanel {
     let layout = OverlayLayout()
 
     private var geometry: OverlayGeometry
     private var placement: OverlayPlacement.Placement
     private var observers: [NSObjectProtocol] = []
+    private let container = NSView()
+    private var hosting: NSView?
 
-    /// Where the transcript is easing to, and the clock driving it.
-    private var targetTranscriptHeight: CGFloat = 0
-    private var displayLink: CADisplayLink?
-    private var lastTick: CFTimeInterval?
+    /// The transcript height the window is sized for — at least the glass's, while it moves.
+    private var windowTranscriptHeight: CGFloat = 0
+    /// The window catching up with the glass: a shrink, and the shadow's recomputation.
+    private var settleWork: DispatchWorkItem?
+    /// Longer than `RecordingOverlayView.growth` takes to come to rest.
+    private static let growthDuration: TimeInterval = 0.45
 
     /// A press that may become a drag: where the mouse and the strip were.
     private var pressStart: (mouse: CGPoint, strip: CGPoint)?
@@ -446,6 +452,8 @@ final class RecordingOverlayPanel: NSPanel {
         // The drag is handled in `sendEvent`, where it can be kept on screen as it happens.
         isMovableByWindowBackground = false
         hasShadow = true
+        container.clipsToBounds = true
+        contentView = container
 
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .skinDidChange, object: nil, queue: .main) { [weak self] _ in
@@ -463,21 +471,30 @@ final class RecordingOverlayPanel: NSPanel {
 
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
-        displayLink?.invalidate()
+        settleWork?.cancel()
     }
 
-    override func close() {
-        displayLink?.invalidate()
-        displayLink = nil
-        super.close()
-    }
-
-    /// The hosting view, set up so the window's size is ours to decide: by default it
-    /// would hold the window to the SwiftUI content's ideal size and fight every resize.
+    /// The overlay's view, hosted at the panel's largest size — see the type's comment.
     func host<Content: View>(_ root: Content) {
         let hosting = NSHostingView(rootView: root)
+        // The size is ours to decide; by default the hosting view would push the SwiftUI
+        // content's ideal size onto the window.
         hosting.sizingOptions = []
-        contentView = hosting
+        container.addSubview(hosting)
+        self.hosting = hosting
+        pinHosting()
+    }
+
+    /// The hosted view at full size, its strip corner on the window's — bottom-right when
+    /// the transcript grows up, top-right when it grows down.
+    private func pinHosting() {
+        guard let hosting else { return }
+        let full = geometry.fullSize
+        let bounds = container.bounds
+        let frame = NSRect(x: bounds.width - full.width,
+                           y: placement.growth == .down ? bounds.height - full.height : 0,
+                           width: full.width, height: full.height)
+        if hosting.frame != frame { hosting.frame = frame }
     }
 
     // MARK: Placing
@@ -496,56 +513,39 @@ final class RecordingOverlayPanel: NSPanel {
         layoutFrame()
     }
 
-    /// The window around the strip, with the transcript at its current height.
+    /// The window around the strip, sized for `windowTranscriptHeight`.
     private func layoutFrame() {
         let frame = OverlayPlacement.frame(strip: placement.strip, geometry, growth: placement.growth,
-                                           transcriptHeight: layout.transcriptHeight)
-        guard frame != self.frame else { return }
-        setFrame(frame, display: true)
-        // The shadow is recomputed once the growth settles, not on every frame of it:
-        // rebuilding it 60 times a second is what makes a resizing window stutter.
-        if displayLink == nil { invalidateShadow() }
+                                           transcriptHeight: windowTranscriptHeight)
+        if frame != self.frame { setFrame(frame, display: false) }
+        pinHosting()
     }
 
     // MARK: Growing the transcript
 
     /// How tall the transcript would like to be — its text and padding, 0 before the first
-    /// word. Capped at the geometry's maximum, beyond which the text scrolls instead.
+    /// word. Capped at the geometry's maximum, beyond which older lines scroll off the top.
     func setTranscriptHeight(_ wanted: CGFloat) {
         let target = min(max(wanted, 0), geometry.maxTranscriptHeight)
-        guard target != targetTranscriptHeight else { return }
-        targetTranscriptHeight = target
-        guard displayLink == nil, let view = contentView else { return }
-        let link = view.displayLink(target: self, selector: #selector(step(_:)))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-        lastTick = nil
-    }
+        guard target != layout.transcriptHeight else { return }
+        layout.transcriptHeight = target
 
-    /// One frame of the growth: an exponential ease towards the target — quick at first,
-    /// settling softly — so a line landing mid-growth just moves the destination instead
-    /// of restarting an animation.
-    @objc private func step(_ link: CADisplayLink) {
-        let now = link.timestamp
-        let dt = min(lastTick.map { now - $0 } ?? 1.0 / 60, 0.05)
-        lastTick = now
-
-        let current = layout.transcriptHeight
-        let remaining = targetTranscriptHeight - current
-        let next: CGFloat
-        if abs(remaining) < 0.5 {
-            next = targetTranscriptHeight
-            link.invalidate()
-            displayLink = nil  // `layoutFrame` below then settles the shadow
-        } else {
-            next = current + remaining * CGFloat(1 - exp(-dt / Self.growthTimeConstant))
+        settleWork?.cancel()
+        if target > windowTranscriptHeight {
+            // Room first, so the glass has somewhere to grow into.
+            windowTranscriptHeight = target
+            layoutFrame()
         }
-        layout.transcriptHeight = next
-        layoutFrame()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.windowTranscriptHeight = self.layout.transcriptHeight
+            self.layoutFrame()
+            // Recomputed once the glass is at rest: a shadow rebuilt while it moves stutters.
+            self.invalidateShadow()
+        }
+        settleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.growthDuration, execute: work)
     }
-
-    /// Seconds for the transcript to cover ~63% of the way to its target height.
-    private static let growthTimeConstant: CFTimeInterval = 0.09
 
     // MARK: Dragging
 
