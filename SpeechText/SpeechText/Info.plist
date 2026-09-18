@@ -14,6 +14,8 @@
 	<true/>
 	<key>SUFeedURL</key>
 	<string>https://github.com/yavno/speech-text/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>4z3nw3aazhehlhKlN/+KosEREvt9RiTx+Ku38M6mHMA=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 	<key>SUAutomaticallyUpdate</key>

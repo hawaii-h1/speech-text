@@ -95,7 +95,9 @@ fi
 
 KEY_ARGS=()
 KEY_FILE=""
-cleanup() { [ -n "$KEY_FILE" ] && rm -f "$KEY_FILE"; }
+# An `if`, not `[ … ] && rm`: under `set -e` a function whose last test fails returns 1,
+# and in the EXIT trap that turns a feed written successfully into a failed run.
+cleanup() { if [ -n "$KEY_FILE" ]; then rm -f "$KEY_FILE"; fi; }
 trap cleanup EXIT
 
 if [ -n "${SPT_SPARKLE_KEY:-}" ]; then
@@ -124,8 +126,10 @@ if [ -n "$NOTES" ]; then
 fi
 
 step "Writing the appcast for $TAG"
+# The `+` form, because an empty array is "unbound" to macOS's bash 3.2 under `set -u` —
+# and empty is exactly the Keychain case.
 "$TOOLS/bin/generate_appcast" \
-    "${KEY_ARGS[@]}" \
+    ${KEY_ARGS[@]+"${KEY_ARGS[@]}"} \
     --download-url-prefix "$REPO_URL/releases/download/$TAG/" \
     --link "$REPO_URL" \
     --full-release-notes-url "$REPO_URL/blob/main/CHANGELOG.md" \
@@ -139,11 +143,13 @@ step "Writing the appcast for $TAG"
 # here fails only later, on a user's Mac, as an update that cannot be downloaded.
 grep -q "$REPO_URL/releases/download/$TAG/$(basename "$DMG")" "$STAGE/appcast.xml" ||
     die "the feed does not point at $TAG/$(basename "$DMG")"
-# generate_appcast signs an update only when the app inside the image asks to be
-# updated with a signature, so an unsigned feed usually means one thing: the app was
-# built without SUPublicEDKey in Info.plist. Sparkle would refuse such an update anyway.
+# generate_appcast signs an update only when the app inside the image carries a
+# SUPublicEDKey *and* the private key it was given is that key's other half — otherwise
+# it warns and writes the item unsigned. Either way Sparkle would refuse the update, so
+# an unsigned feed is a failed release: no key in Info.plist, or the wrong key here (a
+# stale SPARKLE_ED_PRIVATE_KEY secret, say).
 grep -q 'sparkle:edSignature' "$STAGE/appcast.xml" ||
-    die "the feed carries no EdDSA signature — check that the app in $(basename "$DMG") has SUPublicEDKey in Info.plist (docs/releasing.md)"
+    die "the feed carries no EdDSA signature — the app in $(basename "$DMG") has no SUPublicEDKey, or it does not match the private key used here (docs/releasing.md)"
 
 cp "$STAGE/appcast.xml" "$OUT/appcast.xml"
 printf '\nWrote %s\n' "$OUT/appcast.xml"
