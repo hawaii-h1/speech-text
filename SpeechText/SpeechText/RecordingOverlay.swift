@@ -502,7 +502,9 @@ final class RecordingOverlayPanel: NSPanel {
                                            transcriptHeight: layout.transcriptHeight)
         guard frame != self.frame else { return }
         setFrame(frame, display: true)
-        invalidateShadow()
+        // The shadow is recomputed once the growth settles, not on every frame of it:
+        // rebuilding it 60 times a second is what makes a resizing window stutter.
+        if displayLink == nil { invalidateShadow() }
     }
 
     // MARK: Growing the transcript
@@ -534,7 +536,7 @@ final class RecordingOverlayPanel: NSPanel {
         if abs(remaining) < 0.5 {
             next = targetTranscriptHeight
             link.invalidate()
-            displayLink = nil
+            displayLink = nil  // `layoutFrame` below then settles the shadow
         } else {
             next = current + remaining * CGFloat(1 - exp(-dt / Self.growthTimeConstant))
         }
@@ -575,7 +577,8 @@ final class RecordingOverlayPanel: NSPanel {
             UserDefaults.standard.set(OverlayPlacement.encode(placement.strip), forKey: SettingsKeys.overlayOrigin)
             // A button that took the mouse-down is released away from itself, so it lets go
             // without firing — the window moved with the pointer, which is still over it.
-            if let release = NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: -10_000, y: -10_000),
+            // The bottom-left corner: inside the window, where no skin puts a button.
+            if let release = NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: 1, y: 1),
                                                 modifierFlags: [], timestamp: event.timestamp,
                                                 windowNumber: windowNumber, context: nil,
                                                 eventNumber: event.eventNumber, clickCount: 1, pressure: 0) {
