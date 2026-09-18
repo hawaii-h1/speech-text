@@ -85,6 +85,24 @@ final class InlineDelivery {
         queue = []
     }
 
+    /// A dictation begun as plain text is being switched to AI mode. From here it is
+    /// handled as an AI draft: nothing more goes out while the user speaks, and at the
+    /// stop `deliverAIResult` replaces what was already delivered with the rewrite.
+    ///
+    /// False, with nothing changed, when that replacement could never happen: Tier B
+    /// cannot take text back, so once anything has gone out (or is landing) the stop
+    /// would paste the rewrite under the raw text and the document would hold the
+    /// dictation twice. Switching the other way needs nothing from the delivery — the
+    /// stop of a plain dictation already handles an empty ledger.
+    func switchToAI() -> Bool {
+        guard tier == .a || (ledger.isEmpty && !isDeliveringSpan) else {
+            dlog("Span", "switch to AI refused — tier \(tier) already delivered text it cannot take back")
+            return false
+        }
+        stopOffering()
+        return true
+    }
+
     /// The recording was abandoned. Nothing more goes out — including anything already
     /// queued — and the ledger goes with it. Text already pasted stays where it is:
     /// un-inserting it into a foreign app is not possible.

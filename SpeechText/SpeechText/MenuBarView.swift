@@ -25,6 +25,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
     @AppStorage(SettingsKeys.aiDraftWhileSpeaking) private var aiDraftWhileSpeaking = false
+    @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
@@ -105,6 +106,16 @@ struct SettingsView: View {
                 )
 
                 Text("Click a shortcut, then press the new key combination.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Hold to talk", isOn: $holdToTalk)
+                Text(holdToTalk
+                     ? "Hold a recording shortcut while you speak and let go to paste. A quick tap still starts and stops a recording."
+                     : "Press a recording shortcut to start, and press it again to stop.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("While recording, the other recording shortcut switches the dictation between plain text and AI.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

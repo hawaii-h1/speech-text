@@ -12,9 +12,10 @@ final class HotkeyManager {
     private var eventHandlerRef: EventHandlerRef?
     private var notificationObserver: Any?
 
-    var onInlineToggle: (() -> Void)?
+    /// A dictation shortcut went down (`true`) or came back up (`false`). Releases are
+    /// what hold-to-talk runs on; `AppState` decides whether one means anything.
+    var onDictationKey: ((DictationHotkey, Bool) -> Void)?
     var onRecordWindowToggle: (() -> Void)?
-    var onAIToggle: (() -> Void)?
 
     // Inline recording hotkey
     private var inlineKeyCode: UInt32 = 12  // Q
@@ -81,11 +82,11 @@ final class HotkeyManager {
     private func registerHotkeys() {
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
-        // Install single event handler for all hotkeys
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        // Install single event handler for all hotkeys, for presses and releases alike
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
 
         let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
@@ -104,19 +105,20 @@ final class HotkeyManager {
                     &hotKeyID
                 )
                 guard status == noErr else { return OSStatus(eventNotHandledErr) }
+                let isDown = GetEventKind(event) == UInt32(kEventHotKeyPressed)
 
                 DispatchQueue.main.async {
                     switch hotKeyID.id {
-                    case 1: mgr.onInlineToggle?()
-                    case 2: mgr.onRecordWindowToggle?()
-                    case 3: mgr.onAIToggle?()
+                    case 1: mgr.onDictationKey?(.inline, isDown)
+                    case 2: if isDown { mgr.onRecordWindowToggle?() }
+                    case 3: mgr.onDictationKey?(.ai, isDown)
                     default: break
                     }
                 }
                 return noErr
             },
-            1,
-            &eventType,
+            eventTypes.count,
+            &eventTypes,
             refcon,
             &eventHandlerRef
         )

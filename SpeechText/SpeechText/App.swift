@@ -113,9 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         migrateHotkeyLayoutIfNeeded()
 
         // Set up hotkeys
-        appState.hotkeyManager.onInlineToggle = { [weak self] in
+        appState.hotkeyManager.onDictationKey = { [weak self] key, isDown in
             DispatchQueue.main.async {
-                self?.appState.toggleRecording()
+                if isDown {
+                    self?.appState.hotkeyPressed(key)
+                } else {
+                    self?.appState.hotkeyReleased(key)
+                }
                 self?.updateIcon()
                 self?.rebuildMenu()
             }
@@ -123,13 +127,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.hotkeyManager.onRecordWindowToggle = { [weak self] in
             DispatchQueue.main.async {
                 self?.appState.toggleOrShowDirectRecordingPanel()
-            }
-        }
-        appState.hotkeyManager.onAIToggle = { [weak self] in
-            DispatchQueue.main.async {
-                self?.appState.toggleRecording(aiMode: true)
-                self?.updateIcon()
-                self?.rebuildMenu()
             }
         }
         appState.hotkeyManager.start()
@@ -224,20 +221,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         let shortcut = currentShortcutDisplayString()
-        if appState.speechEngine.isRecording {
-            let stopItem = NSMenuItem(title: "Stop Recording (\(shortcut))", action: #selector(toggleRecording), keyEquivalent: "")
-            stopItem.target = self
-            menu.addItem(stopItem)
-        } else {
-            let startItem = NSMenuItem(title: "Start Recording (\(shortcut))", action: #selector(toggleRecording), keyEquivalent: "")
-            startItem.target = self
-            menu.addItem(startItem)
-        }
+        // During a dictation, the other mode's item switches it over rather than stopping it.
+        let title = !appState.speechEngine.isRecording ? "Start Recording (\(shortcut))"
+            : appState.isAIMode ? "Switch to Plain Text (\(shortcut))"
+            : "Stop Recording (\(shortcut))"
+        let recordingItem = NSMenuItem(title: title, action: #selector(toggleRecording), keyEquivalent: "")
+        recordingItem.target = self
+        menu.addItem(recordingItem)
 
         let aiShortcut = currentAIShortcutDisplayString()
-        let aiTitle = appState.speechEngine.isRecording && appState.isAIMode
-            ? "Stop AI Recording (\(aiShortcut))"
-            : "AI Recording (\(aiShortcut))"
+        let aiTitle = !appState.speechEngine.isRecording ? "AI Recording (\(aiShortcut))"
+            : appState.isAIMode ? "Stop AI Recording (\(aiShortcut))"
+            : "Switch to AI (\(aiShortcut))"
         let aiItem = NSMenuItem(title: aiTitle, action: #selector(toggleAIRecording), keyEquivalent: "")
         aiItem.target = self
         menu.addItem(aiItem)
@@ -396,11 +391,12 @@ final class AppState {
     /// The app the user was in before recording started (paste target)
     var previousApp: NSRunningApplication?
 
-    /// True when the current inline session was started with the AI hotkey, so the
-    /// transcription gets routed through `TextRefinementService` before pasting.
+    /// True when the current inline session is in AI mode — started with the AI hotkey or
+    /// switched to it — so the transcription gets routed through `TextRefinementService`
+    /// before pasting.
     private(set) var isAIMode = false
-    /// Where an AI dictation is going, read when its recording started. Nil outside AI
-    /// mode and when the user turned the setting off.
+    /// Where the dictation is going, read when its recording started. Sent only with an
+    /// AI rewrite.
     private var focusContext: FocusContext?
     /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
     private(set) var isRefining = false
@@ -415,17 +411,85 @@ final class AppState {
     /// pasted while the user speaks, the ledger, and the stop's correction.
     private let inlineDelivery = InlineDelivery()
 
+    /// Presses and releases of the two dictation shortcuts, and whether the one that
+    /// started a dictation is still held.
+    private var hotkeyGesture = DictationHotkeyGesture()
+
+    /// Where the inline flow is, in the terms the shortcuts care about.
+    private var dictationPhase: DictationHotkeyGesture.Phase {
+        if speechEngine.isTranscribing || isRefining { return .busy }
+        if speechEngine.isStartingEngine { return .starting(ai: isAIMode) }
+        if speechEngine.isRecording { return .recording(ai: isAIMode) }
+        return .idle
+    }
+
+    /// A dictation shortcut went down.
+    func hotkeyPressed(_ key: DictationHotkey) {
+        hotkeyGesture.holdToTalk = UserDefaults.standard.bool(forKey: SettingsKeys.holdToTalk)
+        let phase = dictationPhase
+        let action = hotkeyGesture.press(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
+        dlog("Hotkey", "\(key) pressed in \(phase) → \(action)")
+        perform(action)
+    }
+
+    /// A dictation shortcut came back up. Only acts with hold-to-talk on, and only for the
+    /// shortcut that started the dictation.
+    func hotkeyReleased(_ key: DictationHotkey) {
+        let phase = dictationPhase
+        let action = hotkeyGesture.release(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
+        dlog("Hotkey", "\(key) released in \(phase) → \(action)")
+        perform(action)
+    }
+
+    /// The menu's items: a press with nothing held.
     func toggleRecording(aiMode: Bool = false) {
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
-        if speechEngine.isRecording {
-            stopRecording()
-        } else if speechEngine.isTranscribing || speechEngine.isStartingEngine || isRefining {
-            dlog("App", "toggleRecording: cancelling mid-flight")
-            cancelInlineFlow()
-        } else {
-            isAIMode = aiMode
+        perform(hotkeyGesture.click(aiMode ? .ai : .inline, in: dictationPhase))
+    }
+
+    private func perform(_ action: DictationHotkeyAction) {
+        switch action {
+        case .start(let ai):
+            isAIMode = ai
             startRecording()
+        case .switchTo(let ai):
+            switchMode(toAI: ai)
+        case .stop:
+            // A stop before the microphone opened has nothing to transcribe.
+            if speechEngine.isRecording {
+                stopRecording()
+            } else {
+                cancelInlineFlow()
+            }
+        case .cancel:
+            dlog("App", "cancelling mid-flight")
+            cancelInlineFlow()
+        case .ignore:
+            break
         }
+    }
+
+    /// The dictation carries on in the other mode. What is said stays one dictation;
+    /// only its handling at the stop changes.
+    private func switchMode(toAI: Bool) {
+        if toAI {
+            guard inlineDelivery.switchToAI() else {
+                showStatus(
+                    icon: "sparkles",
+                    title: "Can't switch to AI now",
+                    detail: "\(previousApp?.localizedName ?? "This app") already has the dictated text, and it can't be replaced with the AI version.",
+                    tint: .orange
+                )
+                return
+            }
+            // Whatever is already in the document is now an AI draft, replaced at the stop.
+            speechEngine.onSpansCommitted = nil
+        }
+        // Switching to plain text changes nothing while recording: the stop pastes what
+        // was not delivered, which after an AI start is everything.
+        dlog("App", "switching the dictation to \(toAI ? "AI" : "plain text")")
+        isAIMode = toAI
+        DictationTraceRecorder.record(.modeSwitch, text: toAI ? "ai" : "inline")
     }
 
     /// Aborts recording, transcription and any in-flight LLM call, and drops the overlay.
@@ -460,10 +524,10 @@ final class AppState {
         let locale = resolvedLocale()
         speechEngine.startRecording(locale: locale)
 
-        // After the engine start, not before: nothing reads it until the stop.
-        focusContext = isAIMode
-            ? PasteService.readFocusContext(in: previousApp)
-            : nil
+        // After the engine start, not before: nothing reads it until the stop. Read for
+        // a plain dictation too, because the AI shortcut can switch it over mid-way; it
+        // leaves the machine only with an AI rewrite.
+        focusContext = PasteService.readFocusContext(in: previousApp)
         if let focusContext {
             // The window title stays out of the system log — it can be a mail subject.
             dlog("Refine", "focus context: \(focusContext.appName ?? "?") (\(focusContext.bundleID ?? "?")), window title \(focusContext.windowTitle == nil ? "absent" : "present")")
@@ -828,7 +892,8 @@ final class AppState {
     func showStatus(icon: String, title: String, detail: String?, tint: Color, duration: TimeInterval = 5) {
         hideStatus()
 
-        let panel = StatusOverlayPanel()
+        let overlayHeight = overlayPanel.map { $0.isVisible ? $0.frame.height + 8 : 0 } ?? 0
+        let panel = StatusOverlayPanel(raisedBy: overlayHeight)
         panel.contentView = NSHostingView(rootView: StatusOverlayView(
             icon: icon,
             title: title,

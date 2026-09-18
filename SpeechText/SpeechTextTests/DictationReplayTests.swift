@@ -486,3 +486,149 @@ final class RecordedTraceTests: XCTestCase {
         XCTAssertNil(recorder.write(into: FileManager.default.temporaryDirectory))
     }
 }
+
+// MARK: - Switching mode mid-dictation
+
+/// The other mode's shortcut pressed while speaking (`AppState.switchMode`).
+@MainActor
+final class ModeSwitchReplayTests: XCTestCase {
+
+    private let rewrite = "Буду за пів години."
+
+    /// Plain → AI in TextEdit: what was pasted while speaking becomes the draft, and the
+    /// rewrite replaces it in one write.
+    func testPlainToAIReplacesWhatWasAlreadyPasted() async {
+        let run = await DictationReplay.run(in: FakeApp(.textEdit), [
+            .committed("ну короче напиши"),
+            .switchMode(ai: true),
+            .committed("ну короче напиши що я буду за пів години"),
+        ], llm: .rewrites(rewrite))
+
+        XCTAssertFalse(run.switchRefused)
+        XCTAssertEqual(run.document, rewrite)
+        XCTAssertEqual(run.correctionApplied, true)
+    }
+
+    /// Plain → AI before anything went out, in a terminal: accepted, one paste of the rewrite.
+    func testPlainToAIInATerminalBeforeAnythingWasPasted() async {
+        let run = await DictationReplay.run(in: FakeApp(.terminal), [
+            .partial("ну короче"),
+            .switchMode(ai: true),
+            .committed("ну короче напиши що я буду за пів години"),
+        ], llm: .rewrites(rewrite))
+
+        XCTAssertFalse(run.switchRefused)
+        XCTAssertEqual(run.document, rewrite)
+    }
+
+    /// Plain → AI once a terminal holds text: refused, because the rewrite could only go
+    /// in under the raw text. The dictation finishes as plain text, once.
+    func testPlainToAIInATerminalAfterAPasteIsRefused() async {
+        let run = await DictationReplay.run(in: FakeApp(.terminal), [
+            .committed("ну короче напиши"),
+            .switchMode(ai: true),
+            .committed("ну короче напиши що я запізнюсь"),
+        ], llm: .rewrites(rewrite))
+
+        XCTAssertTrue(run.switchRefused)
+        XCTAssertEqual(run.document, "ну короче напиши що я запізнюсь")
+    }
+
+    /// AI draft → plain: the draft is now plain text already delivered, and the stop
+    /// treats it as one — the rest pasted after it, no second copy.
+    func testAIDraftToPlainFinishesAsAPlainDictation() async {
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
+                                            in: FakeApp(.textEdit), [
+            .committed("ну короче напиши"),
+            .switchMode(ai: false),
+            .committed("ну короче напиши що я запізнюсь"),
+        ], llm: .rewrites(rewrite))
+
+        XCTAssertEqual(run.document, "ну короче напиши що я запізнюсь")
+        XCTAssertFalse(run.logged("AI draft"))
+    }
+
+    /// AI → plain: nothing was delivered while speaking, so the stop pastes all of it.
+    func testAIToPlainPastesTheWholeDictationAtTheStop() async {
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: FakeApp(.textEdit), [
+            .committed("ну короче напиши"),
+            .switchMode(ai: false),
+            .committed("ну короче напиши що я запізнюсь"),
+        ], llm: .rewrites(rewrite))
+
+        XCTAssertEqual(run.document, "ну короче напиши що я запізнюсь")
+        XCTAssertEqual(run.stop, .paste("ну короче напиши що я запізнюсь"))
+    }
+}
+
+// MARK: - Shortcut presses and releases
+
+final class DictationHotkeyGestureTests: XCTestCase {
+
+    func testAPressFollowsTheTable() {
+        typealias G = DictationHotkeyGesture
+        XCTAssertEqual(G.action(forPressOf: .inline, in: .idle), .start(ai: false))
+        XCTAssertEqual(G.action(forPressOf: .ai, in: .idle), .start(ai: true))
+        XCTAssertEqual(G.action(forPressOf: .inline, in: .recording(ai: false)), .stop)
+        XCTAssertEqual(G.action(forPressOf: .ai, in: .recording(ai: true)), .stop)
+        XCTAssertEqual(G.action(forPressOf: .ai, in: .recording(ai: false)), .switchTo(ai: true))
+        XCTAssertEqual(G.action(forPressOf: .inline, in: .recording(ai: true)), .switchTo(ai: false))
+        XCTAssertEqual(G.action(forPressOf: .inline, in: .starting(ai: false)), .cancel)
+        XCTAssertEqual(G.action(forPressOf: .ai, in: .starting(ai: false)), .switchTo(ai: true))
+        XCTAssertEqual(G.action(forPressOf: .inline, in: .busy), .cancel)
+        XCTAssertEqual(G.action(forPressOf: .ai, in: .busy), .cancel)
+    }
+
+    func testWithoutHoldToTalkAReleaseDoesNothing() {
+        var g = DictationHotkeyGesture()
+        XCTAssertEqual(g.press(.inline, in: .idle, at: 0), .start(ai: false))
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 5), .ignore)
+    }
+
+    func testAHoldStopsOnRelease() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        XCTAssertEqual(g.press(.inline, in: .idle, at: 10), .start(ai: false))
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 12), .stop)
+    }
+
+    func testATapLatchesUntilTheNextPress() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 10.1), .ignore)
+        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 15), .stop)
+        // That press's own release lands on a finishing dictation, and does nothing.
+        XCTAssertEqual(g.release(.inline, in: .busy, at: 16), .ignore)
+    }
+
+    func testAHeldDictationSwitchesModeAndStopsOnTheOwnersRelease() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 11), .switchTo(ai: true))
+        // The switching key is not the owner: letting go of it keeps the dictation on.
+        XCTAssertEqual(g.release(.ai, in: .recording(ai: true), at: 11.2), .ignore)
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: true), at: 14), .stop)
+    }
+
+    func testAHoldReleasedBeforeTheMicrophoneOpenedCancels() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.ai, in: .idle, at: 10)
+        XCTAssertEqual(g.release(.ai, in: .starting(ai: true), at: 11), .cancel)
+    }
+
+    func testAMenuClickLeavesNoOwner() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        XCTAssertEqual(g.click(.ai, in: .recording(ai: false)), .switchTo(ai: true))
+        XCTAssertEqual(g.owner, .inline)
+        XCTAssertEqual(g.click(.ai, in: .recording(ai: true)), .stop)
+        XCTAssertNil(g.owner)
+    }
+
+    func testTheOwnerIsForgottenOnceUsed() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        _ = g.release(.inline, in: .recording(ai: false), at: 12)
+        XCTAssertNil(g.owner)
+        XCTAssertEqual(g.release(.inline, in: .idle, at: 13), .ignore)
+    }
+}

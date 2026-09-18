@@ -231,7 +231,9 @@ struct StatusOverlayView: View {
 final class StatusOverlayPanel: NSPanel {
     static let panelWidth: CGFloat = 340
 
-    init() {
+    /// `raisedBy` lifts the notice above the recording overlay when one is on screen —
+    /// both sit at the bottom centre, and a notice shown mid-recording would cover it.
+    init(raisedBy raise: CGFloat = 0) {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -246,14 +248,14 @@ final class StatusOverlayPanel: NSPanel {
         isMovableByWindowBackground = true
         hasShadow = true
 
-        positionBottomCenter()
+        positionBottomCenter(raisedBy: raise)
     }
 
-    private func positionBottomCenter() {
+    private func positionBottomCenter(raisedBy raise: CGFloat) {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
         let x = screenFrame.midX - Self.panelWidth / 2
-        let y = screenFrame.minY + 20
+        let y = screenFrame.minY + 20 + raise
         setFrameOrigin(NSPoint(x: x, y: y))
     }
 }
