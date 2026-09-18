@@ -458,12 +458,19 @@ final class RecordingOverlayPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         isReleasedWhenClosed = false
-        level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Above the level macOS's window tiling manages. Dragged to a screen edge, a
+        // floating panel still brought up the tiling preview, even with the window server
+        // barred from moving it; the tiling engine leaves high-level windows alone
+        // (developer.apple.com/forums/thread/757430). The overlay belongs above
+        // everything the user is working in anyway.
+        level = .statusBar
+        // Not one of the user's windows to arrange: out of tiling, Mission Control and
+        // the window cycle, on every Space.
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .fullScreenDisallowsTiling,
+                              .stationary, .ignoresCycle]
         // The drag is handled in `sendEvent`, where it can be kept on screen as it happens.
         isMovableByWindowBackground = false
-        // Nor may the window server move it: a system drag is what brings up macOS's
-        // tiling preview at a screen edge, and it moved the panel as well as our drag.
+        // Nor may the window server move it: a system drag moved the panel alongside ours.
         isMovable = false
         hasShadow = true
         container.clipsToBounds = true
