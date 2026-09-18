@@ -50,25 +50,19 @@ enum AppSkin: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Height of the transcript above the strip, when the recording shows one.
-    var overlayTranscriptHeight: CGFloat {
-        switch self {
-        case .minimal: return 112
-        case .techno: return 104
-        }
-    }
-
-    /// Size of the inline overlay's panel. `showsTranscript`: a streaming recording,
-    /// whose text is built on the overlay and pasted once at the stop.
-    func overlaySize(showsTranscript: Bool) -> CGSize {
+    /// The inline overlay's shape. `showsTranscript`: a streaming recording, whose text is
+    /// built on the overlay and pasted once at the stop.
+    func overlayGeometry(showsTranscript: Bool) -> OverlayGeometry {
         let strip = overlayStripSize
-        guard showsTranscript else { return strip }
+        guard showsTranscript else { return OverlayGeometry(strip: strip) }
         switch self {
-        // The transcript sits inside the same glass, above the strip.
-        case .minimal: return CGSize(width: strip.width, height: strip.height + overlayTranscriptHeight)
+        // The transcript sits inside the same glass as the strip.
+        case .minimal:
+            return OverlayGeometry(strip: strip, transcriptWidth: strip.width, maxTranscriptHeight: 112)
         // Techno's strip is drawn to the design and too narrow to read from, so the
-        // transcript is a wider glass of its own, with the strip under its right end.
-        case .techno: return CGSize(width: 260, height: strip.height + 6 + overlayTranscriptHeight)
+        // transcript is a wider glass of its own, beside which the strip hangs at the right.
+        case .techno:
+            return OverlayGeometry(strip: strip, transcriptWidth: 260, maxTranscriptHeight: 104, gap: 6)
         }
     }
 

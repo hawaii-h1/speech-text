@@ -1258,43 +1258,117 @@ final class OverlayPlacementTests: XCTestCase {
     private let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
     /// An external display to the laptop's right.
     private let external = CGRect(x: 1512, y: 0, width: 2560, height: 1415)
-    private let size = CGSize(width: 300, height: 156)
+    /// The minimal skin with a transcript: a 300×44 strip, text growing to 112 above it.
+    private let minimal = OverlayGeometry(strip: CGSize(width: 300, height: 44),
+                                          transcriptWidth: 300, maxTranscriptHeight: 112)
+    /// Techno: the transcript is wider than the strip, which hangs at its right end.
+    private let techno = OverlayGeometry(strip: CGSize(width: 142, height: 56),
+                                         transcriptWidth: 260, maxTranscriptHeight: 104, gap: 6)
+    private let m = OverlayPlacement.margin
 
     func testNothingSavedGoesToTheBottomRightCorner() {
-        let origin = OverlayPlacement.origin(saved: nil, size: size, screens: [laptop], main: laptop)
-        XCTAssertEqual(origin, CGPoint(x: 1512 - 20 - 300, y: 20))
+        let placed = OverlayPlacement.placement(saved: nil, minimal, screens: [laptop], main: laptop)
+        XCTAssertEqual(placed, .init(strip: CGPoint(x: 1512 - m - 300, y: m), growth: .up))
     }
 
     func testASavedSpotOnScreenIsKept() {
         let saved = CGPoint(x: 400, y: 300)
-        XCTAssertEqual(OverlayPlacement.origin(saved: saved, size: size, screens: [laptop], main: laptop), saved)
+        XCTAssertEqual(OverlayPlacement.placement(saved: saved, minimal, screens: [laptop], main: laptop)?.strip, saved)
     }
 
-    /// Saved as the small strip near the top, shown with the transcript: it grows upward
-    /// and is pulled down just far enough to stay whole.
-    func testATallerPanelIsPulledBackOnScreen() {
-        let saved = CGPoint(x: 400, y: 900)
-        let origin = OverlayPlacement.origin(saved: saved, size: size, screens: [laptop], main: laptop)
-        XCTAssertEqual(origin, CGPoint(x: 400, y: 944 - 156))
+    // MARK: Growing
+
+    /// The panel starts as the strip alone and grows upward around it: the strip does not
+    /// move while the transcript appears.
+    func testTheTranscriptGrowsOutOfAStripThatStaysPut() {
+        let strip = CGPoint(x: 400, y: 100)
+        XCTAssertEqual(OverlayPlacement.frame(strip: strip, minimal, growth: .up, transcriptHeight: 0),
+                       CGRect(x: 400, y: 100, width: 300, height: 44))
+        XCTAssertEqual(OverlayPlacement.frame(strip: strip, minimal, growth: .up, transcriptHeight: 40),
+                       CGRect(x: 400, y: 100, width: 300, height: 84))
+        XCTAssertEqual(OverlayPlacement.frame(strip: strip, minimal, growth: .down, transcriptHeight: 40),
+                       CGRect(x: 400, y: 60, width: 300, height: 84))
     }
 
-    /// Straddling two displays, it stays on the one holding most of it.
-    func testAStraddlingPanelMovesOntoTheScreenHoldingMostOfIt() {
-        let saved = CGPoint(x: 1450, y: 100)
-        let origin = OverlayPlacement.origin(saved: saved, size: size, screens: [laptop, external], main: laptop)
-        XCTAssertEqual(origin, CGPoint(x: 1512, y: 100))
+    /// Techno's wider glass reaches out to the left of the strip, and only once it has a
+    /// height — before that the panel is the strip.
+    func testTechnoTranscriptReachesLeftOfTheStrip() {
+        let strip = CGPoint(x: 400, y: 100)
+        XCTAssertEqual(OverlayPlacement.frame(strip: strip, techno, growth: .up, transcriptHeight: 0),
+                       CGRect(x: 400, y: 100, width: 142, height: 56))
+        XCTAssertEqual(OverlayPlacement.frame(strip: strip, techno, growth: .up, transcriptHeight: 30),
+                       CGRect(x: 400 + 142 - 260, y: 100, width: 260, height: 56 + 6 + 30))
+    }
+
+    /// In the top half the transcript grows down, so the strip can sit at the top edge
+    /// instead of being held a transcript's height below it.
+    func testATopStripGrowsDownAndSitsAtTheTop() {
+        let placed = OverlayPlacement.settled(strip: CGPoint(x: 400, y: 944 - m - 44), minimal, in: laptop)
+        XCTAssertEqual(placed, .init(strip: CGPoint(x: 400, y: 944 - m - 44), growth: .down))
+    }
+
+    /// Room is kept for the transcript at its full height, whichever way it grows.
+    func testRoomIsKeptForTheWholeTranscript() {
+        // Bottom half, dragged right down to the edge: the strip may touch it.
+        XCTAssertEqual(OverlayPlacement.settled(strip: CGPoint(x: 400, y: -50), minimal, in: laptop).strip.y, 0)
+        // A short screen whose midline is low: growing up from y 60 must still fit.
+        let short = CGRect(x: 0, y: 0, width: 800, height: 200)
+        let placed = OverlayPlacement.settled(strip: CGPoint(x: 100, y: 60), minimal, in: short)
+        XCTAssertEqual(placed.growth, .up)
+        XCTAssertEqual(placed.strip.y, 200 - 44 - 112)
+    }
+
+    // MARK: Snapping
+
+    func testAnEdgeCloseToItsRestingLineSnapsOntoIt() {
+        // 10 pt from the right resting line, 12 from the bottom one: the corner.
+        let placed = OverlayPlacement.settled(strip: CGPoint(x: 1512 - m - 300 - 10, y: m + 12), minimal, in: laptop)
+        XCTAssertEqual(placed.strip, CGPoint(x: 1512 - m - 300, y: m))
+    }
+
+    func testAnEdgeFartherAwayIsLeftWhereItWas() {
+        let proposed = CGPoint(x: 1512 - m - 300 - 40, y: m + 40)
+        XCTAssertEqual(OverlayPlacement.settled(strip: proposed, minimal, in: laptop).strip, proposed)
+    }
+
+    func testTheHorizontalCentreSnapsToo() {
+        let placed = OverlayPlacement.settled(strip: CGPoint(x: 756 - 150 + 8, y: 300), minimal, in: laptop)
+        XCTAssertEqual(placed.strip.x, 756 - 150)
+    }
+
+    /// Techno snaps by the whole panel, so its wide glass lands on the resting line too.
+    func testTechnoSnapsByItsWidestPart() {
+        let placed = OverlayPlacement.settled(strip: CGPoint(x: m + 260 - 142 + 10, y: 300), techno, in: laptop)
+        XCTAssertEqual(placed.strip.x, m + 260 - 142)
+    }
+
+    // MARK: Keeping it on screen
+
+    /// A drag past the edge stops at the edge — there is no half-off-screen position.
+    func testADragPastTheEdgeStopsAtIt() {
+        let placed = OverlayPlacement.settled(strip: CGPoint(x: 1400, y: 300), minimal, in: laptop)
+        XCTAssertEqual(placed.strip.x, 1512 - 300)
+        let left = OverlayPlacement.settled(strip: CGPoint(x: -150, y: 300), minimal, in: laptop)
+        XCTAssertEqual(left.strip.x, 0)
+    }
+
+    /// Straddling two displays, it opens on the one holding most of it.
+    func testAStraddlingStripOpensOnTheScreenHoldingMostOfIt() {
+        let placed = OverlayPlacement.placement(saved: CGPoint(x: 1450, y: 100), minimal,
+                                                screens: [laptop, external], main: laptop)
+        XCTAssertEqual(placed?.strip, CGPoint(x: 1512, y: 100))
     }
 
     /// The external display it was dragged to is unplugged: the default corner, not a
     /// spot clamped against wherever the laptop's edge happens to be.
     func testAnUnpluggedDisplayFallsBackToTheDefaultCorner() {
-        let saved = CGPoint(x: 3000, y: 600)
-        let origin = OverlayPlacement.origin(saved: saved, size: size, screens: [laptop], main: laptop)
-        XCTAssertEqual(origin, CGPoint(x: 1512 - 20 - 300, y: 20))
+        let placed = OverlayPlacement.placement(saved: CGPoint(x: 3000, y: 600), minimal,
+                                                screens: [laptop], main: laptop)
+        XCTAssertEqual(placed?.strip, CGPoint(x: 1512 - m - 300, y: m))
     }
 
     func testNoScreensMeansNoPlacement() {
-        XCTAssertNil(OverlayPlacement.origin(saved: nil, size: size, screens: [], main: nil))
+        XCTAssertNil(OverlayPlacement.placement(saved: nil, minimal, screens: [], main: nil))
     }
 
     func testTheStoredValueRoundTrips() {

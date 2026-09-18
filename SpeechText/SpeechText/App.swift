@@ -807,7 +807,9 @@ final class AppState {
         hideOverlay()
 
         let panel = RecordingOverlayPanel(showsTranscript: showsLiveTranscript)
-        let hostingView = NSHostingView(rootView: ObservedOverlay(speechEngine: speechEngine, appState: self, onCancel: { [weak self, weak panel] in
+        panel.host(ObservedOverlay(speechEngine: speechEngine, appState: self, layout: panel.layout,
+                                   onTranscriptHeight: { [weak panel] in panel?.setTranscriptHeight($0) },
+                                   onCancel: { [weak self, weak panel] in
             self?.transcriptionWaitTask?.cancel()
             self?.transcriptionWaitTask = nil
             self?.refinementTask?.cancel()
@@ -821,7 +823,6 @@ final class AppState {
                 self?.overlayPanel = nil
             }
         }))
-        panel.contentView = hostingView
         panel.orderFrontRegardless()
         overlayPanel = panel
     }
@@ -991,6 +992,8 @@ final class AppState {
 struct ObservedOverlay: View {
     @Bindable var speechEngine: SpeechEngine
     @Bindable var appState: AppState
+    let layout: OverlayLayout
+    let onTranscriptHeight: (CGFloat) -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -1000,8 +1003,11 @@ struct ObservedOverlay: View {
             isPreparing: speechEngine.isStartingEngine,
             isAIMode: appState.isAIMode,
             showsTranscript: appState.showsLiveTranscript,
+            growsDown: layout.growsDown,
+            transcriptHeight: layout.transcriptHeight,
             settledText: appState.showsLiveTranscript ? speechEngine.spanLayer.stableText : "",
             movingText: appState.showsLiveTranscript ? speechEngine.spanLayer.segmentProvisionalText : "",
+            onTranscriptHeight: onTranscriptHeight,
             onCancel: onCancel
         )
     }

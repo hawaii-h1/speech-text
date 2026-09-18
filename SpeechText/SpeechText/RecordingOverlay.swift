@@ -26,44 +26,50 @@ struct RecordingOverlayView: View {
     let isPreparing: Bool
     /// Recolours the display so an LLM-processed dictation is obvious at a glance.
     var isAIMode: Bool = false
-    /// Draw the transcript above the strip. Fixed for the life of the panel, which is
-    /// sized for it — see `AppSkin.overlaySize(showsTranscript:)`.
+    /// Draw the transcript. It takes whatever height the panel gives it — the panel grows
+    /// it from nothing towards `onTranscriptHeight`'s answer, see `RecordingOverlayPanel`.
     var showsTranscript: Bool = false
+    /// The strip is at the top and the transcript grows down from it.
+    var growsDown: Bool = false
+    /// The transcript's height right now — animated by the panel, 0 until the first word.
+    var transcriptHeight: CGFloat = 0
     /// What the provider has committed, all segments — drawn at full brightness.
     var settledText: String = ""
     /// The partial it may still take back — drawn dimmer, after the settled text.
     var movingText: String = ""
+    /// The height the transcript would like: its text and padding, 0 before the first word.
+    var onTranscriptHeight: (CGFloat) -> Void = { _ in }
     let onCancel: () -> Void
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
 
     @State private var isHoveringCancel = false
+    /// The text's own height, for the fade that shows lines have scrolled off the top.
+    @State private var textHeight: CGFloat = 0
 
     private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
     private var accent: Color { isAIMode ? Semantic.ai : AccentColor.meter(accentHex) }
     private var isBusy: Bool { isLoading || isPreparing }
+    private var hasText: Bool { !settledText.isEmpty || !movingText.isEmpty }
 
     var body: some View {
-        let size = skin.overlaySize(showsTranscript: showsTranscript)
+        // The panel is sized from outside, frame by frame while the transcript grows, so
+        // the view fills it rather than proposing a size of its own.
         Group {
             switch skin {
             case .minimal: minimalBody
             case .techno: technoBody
             }
         }
-        .frame(width: size.width, height: size.height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: growsDown ? .top : .bottom)
     }
 
     // MARK: Transcript
 
     /// The settled text, then the partial, at two brightnesses — the same boundary the
-    /// Record Window's glass draws. Before the first word, what the recording is doing.
+    /// Record Window's glass draws.
     private func transcriptText(base: Color) -> Text {
-        guard !settledText.isEmpty || !movingText.isEmpty else {
-            let placeholder = isPreparing ? "Starting…" : isLoading ? "Transcribing…" : "Listening…"
-            return Text(placeholder).foregroundStyle(base.opacity(0.45))
-        }
         var text = Text(verbatim: "")
         if !settledText.isEmpty {
             text = text + Text(verbatim: settledText).foregroundStyle(base.opacity(0.9))
@@ -75,49 +81,63 @@ struct RecordingOverlayView: View {
         return text
     }
 
-    /// The transcript, kept scrolled to its newest line: the words the user is saying
-    /// now are the ones they are checking.
-    private func transcript(base: Color, font: Font) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    transcriptText(base: base)
-                        .font(font)
-                        .lineSpacing(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Color.clear.frame(height: 1).id(Self.transcriptEnd)
+    /// The transcript, pinned to its newest line: the text is laid out at its full height
+    /// and the area shows its bottom, so as the panel grows the older lines come into view
+    /// above, and once it stops growing they slide off the top under a fade.
+    private func transcript(base: Color, font: Font, horizontal: CGFloat,
+                            top: CGFloat, bottom: CGFloat) -> some View {
+        transcriptText(base: base)
+            .font(font)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: TranscriptHeightKey.self, value: proxy.size.height)
                 }
             }
-            .onChange(of: settledText) { proxy.scrollTo(Self.transcriptEnd, anchor: .bottom) }
-            .onChange(of: movingText) { proxy.scrollTo(Self.transcriptEnd, anchor: .bottom) }
-            .onAppear { proxy.scrollTo(Self.transcriptEnd, anchor: .bottom) }
-        }
+            .padding(.horizontal, horizontal)
+            .padding(.top, top)
+            .padding(.bottom, bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .clipped()
+            .mask {
+                GeometryReader { proxy in
+                    let overflows = textHeight + top + bottom > proxy.size.height + 1
+                    LinearGradient(stops: [.init(color: overflows ? .clear : .black, location: 0),
+                                           .init(color: .black, location: overflows ? 0.3 : 0)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+            }
+            .onPreferenceChange(TranscriptHeightKey.self) { height in
+                textHeight = height
+                onTranscriptHeight(hasText ? (height + top + bottom).rounded(.up) : 0)
+            }
+            .onChange(of: hasText) {
+                onTranscriptHeight(hasText ? (textHeight + top + bottom).rounded(.up) : 0)
+            }
     }
-
-    private static let transcriptEnd = "transcriptEnd"
 
     // MARK: Minimal
 
-    /// One piece of glass: the strip is a capsule, and with a transcript the glass keeps
-    /// the capsule's radius so the strip's ends are the panel's bottom corners.
+    /// One piece of glass: the strip is a capsule, and the glass keeps the capsule's
+    /// radius as the transcript grows out of it, so the strip's ends stay its corners.
     private var minimalShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: skin.overlayStripSize.height / 2, style: .continuous)
     }
 
     private var minimalBody: some View {
         VStack(spacing: 0) {
+            if growsDown { minimalStrip }
             if showsTranscript {
-                transcript(base: .primary, font: .system(size: 13))
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Kept in the hierarchy at zero height too: it is what measures the text.
+                // Its height is whatever the window leaves above the strip, so glass and
+                // window edge move together on every frame of the growth.
+                transcript(base: .primary, font: .system(size: 13), horizontal: 16,
+                           top: growsDown ? 6 : 12, bottom: growsDown ? 12 : 6)
+                    .frame(maxHeight: transcriptHeight > 0 ? .infinity : 0)
             }
-            minimalStrip
-                .background {
-                    if showsTranscript { Capsule().fill(.primary.opacity(0.07)) }
-                }
+            if !growsDown { minimalStrip }
         }
         .background(.ultraThinMaterial)
         .clipShape(minimalShape)
@@ -170,6 +190,11 @@ struct RecordingOverlayView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: skin.overlayStripSize.height)
+        .background {
+            // Once there is text, the strip reads as a bar of its own within the glass.
+            Capsule().fill(.primary.opacity(showsTranscript && hasText ? 0.07 : 0))
+                .animation(.easeInOut(duration: 0.25), value: hasText)
+        }
     }
 
     // MARK: Techno
@@ -182,9 +207,23 @@ struct RecordingOverlayView: View {
     private static let transcriptGlass = RoundedRectangle(cornerRadius: 20, style: .continuous)
 
     private var technoBody: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            if showsTranscript { technoTranscript }
-            technoStrip
+        VStack(alignment: .trailing, spacing: 0) {
+            if growsDown { technoStrip }
+            if showsTranscript {
+                // Kept in the hierarchy at zero height too: it is what measures the text.
+                let geometry = skin.overlayGeometry(showsTranscript: true)
+                technoTranscript
+                    .frame(width: geometry.transcriptWidth)
+                    .frame(maxHeight: transcriptHeight > 0 ? .infinity : 0)
+                    .opacity(transcriptHeight > 0 ? 1 : 0)
+                    // Until it has a height the panel is only as wide as the strip; the glass
+                    // overhangs it invisibly rather than being laid out narrower — it is
+                    // measuring the text, and at the wrong width it would measure wrong.
+                    .frame(width: transcriptHeight > 0 ? geometry.transcriptWidth : geometry.strip.width,
+                           alignment: .trailing)
+                    .padding(growsDown ? .top : .bottom, transcriptHeight > 0 ? geometry.gap : 0)
+            }
+            if !growsDown { technoStrip }
         }
     }
 
@@ -193,20 +232,12 @@ struct RecordingOverlayView: View {
         ZStack {
             Self.transcriptGlass.fill(TechnoSkin.screen)
             transcript(base: isAIMode ? TechnoSkin.aiText : TechnoSkin.phosphorText,
-                       font: .system(size: 12, design: .monospaced))
-                // Lines scrolling past the glass's rim fade instead of being sliced.
-                .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
-                                             .init(color: .black, location: 0.15),
-                                             .init(color: .black, location: 0.85),
-                                             .init(color: .clear, location: 1)],
-                                     startPoint: .top, endPoint: .bottom))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                       font: .system(size: 12, design: .monospaced),
+                       horizontal: 16, top: 12, bottom: 12)
             InnerShadow(shape: Self.transcriptGlass, width: 6.6, blur: 3.3)
             InnerShadow(shape: Self.transcriptGlass, width: 4, blur: 2,
                         offset: CGSize(width: 0, height: -1))
         }
-        .frame(height: skin.overlayTranscriptHeight)
         .clipShape(Self.transcriptGlass)
     }
 
@@ -245,6 +276,11 @@ struct RecordingOverlayView: View {
         }
         .frame(width: skin.overlayStripSize.width, height: skin.overlayStripSize.height)
     }
+}
+
+private struct TranscriptHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 // MARK: - Status Overlay
@@ -341,33 +377,63 @@ final class StatusOverlayPanel: NSPanel {
     /// The notice takes the recording overlay's place — it usually replaces it on screen —
     /// so it opens at the overlay's spot, kept whole on the screen like the overlay is.
     private func positionWhereTheOverlayWas() {
+        // Right-aligned with where the strip was, the way the default corner is.
+        let strip = AppSkin.current.overlayStripSize
         let saved = OverlayPlacement.decode(UserDefaults.standard.string(forKey: SettingsKeys.overlayOrigin) ?? "")
-        guard let origin = OverlayPlacement.origin(saved: saved, size: frame.size,
-                                                   screens: NSScreen.screens.map(\.visibleFrame),
-                                                   main: NSScreen.main?.visibleFrame) else { return }
-        setFrameOrigin(origin)
+            .map { CGPoint(x: $0.x + strip.width - frame.width, y: $0.y) }
+        guard let placed = OverlayPlacement.placement(saved: saved, OverlayGeometry(strip: frame.size),
+                                                      screens: NSScreen.screens.map(\.visibleFrame),
+                                                      main: NSScreen.main?.visibleFrame) else { return }
+        setFrameOrigin(placed.strip)
     }
 }
 
 // MARK: - Panel
 
-/// The inline overlay's window. It opens where the user last dragged it — the bottom-right
-/// corner until they do — and never outside a screen: the saved spot is checked against
-/// the screens there are *now* every time the panel is shown, resized or the displays
-/// change, so an unplugged monitor or a lower resolution cannot leave it out of sight.
+/// What the panel tells the view it hosts: which way the transcript grows, and how tall it
+/// is on this frame of its animation.
+@Observable
+final class OverlayLayout {
+    var growsDown = false
+    var transcriptHeight: CGFloat = 0
+}
+
+/// The inline overlay's window.
+///
+/// It opens where the user last left it — the bottom-right corner until they move it —
+/// and is never anywhere a screen does not show all of it. The user drags it by any part
+/// that is not a button; the drag is the panel's own rather than AppKit's, so it can be
+/// held on screen *while* it moves (edges stop at the screen's, and snap onto a resting
+/// line `OverlayPlacement.margin` in from them as they come near) instead of being
+/// corrected after the mouse is let go. The saved spot is also re-checked on every show,
+/// skin change and display change, so an unplugged monitor cannot strand it.
+///
+/// For a streaming recording the transcript grows out of the strip: the view reports the
+/// height its text wants, and the panel eases towards it on the display's clock, resizing
+/// the window around the strip each frame. The window is always exactly as big as what is
+/// drawn — a taller, partly transparent window would sit on top of whatever the user is
+/// working in.
 final class RecordingOverlayPanel: NSPanel {
-    private let showsTranscript: Bool
+    let layout = OverlayLayout()
+
+    private var geometry: OverlayGeometry
+    private var placement: OverlayPlacement.Placement
     private var observers: [NSObjectProtocol] = []
-    /// Where the panel last put itself. Move notifications arrive after `setFrame` has
-    /// returned, so a flag set around the call cannot tell them apart; a move that ends
-    /// here is the panel's own, and only the user's drags are remembered — otherwise the
-    /// fallback for an unplugged monitor would overwrite the spot the user chose on it.
-    private var placedOrigin: CGPoint?
+
+    /// Where the transcript is easing to, and the clock driving it.
+    private var targetTranscriptHeight: CGFloat = 0
+    private var displayLink: CADisplayLink?
+    private var lastTick: CFTimeInterval?
+
+    /// A press that may become a drag: where the mouse and the strip were.
+    private var pressStart: (mouse: CGPoint, strip: CGPoint)?
+    private var isDragging = false
 
     init(showsTranscript: Bool = false) {
-        self.showsTranscript = showsTranscript
+        geometry = AppSkin.current.overlayGeometry(showsTranscript: showsTranscript)
+        placement = OverlayPlacement.Placement(strip: .zero, growth: .up)
         super.init(
-            contentRect: NSRect(origin: .zero, size: AppSkin.current.overlaySize(showsTranscript: showsTranscript)),
+            contentRect: NSRect(origin: .zero, size: geometry.strip),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -377,50 +443,147 @@ final class RecordingOverlayPanel: NSPanel {
         isReleasedWhenClosed = false
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        isMovableByWindowBackground = true
+        // The drag is handled in `sendEvent`, where it can be kept on screen as it happens.
+        isMovableByWindowBackground = false
         hasShadow = true
 
         let center = NotificationCenter.default
-        // The hosted view reflows itself, but the window it sits in does not.
         observers.append(center.addObserver(forName: .skinDidChange, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.place(size: AppSkin.current.overlaySize(showsTranscript: self.showsTranscript))
+            self.geometry = AppSkin.current.overlayGeometry(showsTranscript: self.geometry.showsTranscript)
+            self.placeAtSavedSpot()
         })
         observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                             object: nil, queue: .main) { [weak self] _ in
-            self?.place(size: nil)
-        })
-        observers.append(center.addObserver(forName: NSWindow.didMoveNotification, object: self,
-                                            queue: .main) { [weak self] _ in
-            self?.rememberPosition()
+            self?.placeAtSavedSpot()
         })
 
-        place(size: nil)
+        placeAtSavedSpot()
     }
 
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
+        displayLink?.invalidate()
     }
 
-    /// Puts the panel at its remembered spot, resized to `size` first when given. The
-    /// bottom-left corner is what is kept, so a taller panel grows upward.
-    private func place(size: CGSize?) {
-        let size = size ?? frame.size
-        let screens = NSScreen.screens.map(\.visibleFrame)
+    override func close() {
+        displayLink?.invalidate()
+        displayLink = nil
+        super.close()
+    }
+
+    /// The hosting view, set up so the window's size is ours to decide: by default it
+    /// would hold the window to the SwiftUI content's ideal size and fight every resize.
+    func host<Content: View>(_ root: Content) {
+        let hosting = NSHostingView(rootView: root)
+        hosting.sizingOptions = []
+        contentView = hosting
+    }
+
+    // MARK: Placing
+
+    private func placeAtSavedSpot() {
         let saved = OverlayPlacement.decode(UserDefaults.standard.string(forKey: SettingsKeys.overlayOrigin) ?? "")
-        guard let origin = OverlayPlacement.origin(saved: saved, size: size, screens: screens,
-                                                   main: NSScreen.main?.visibleFrame) else { return }
-        placedOrigin = origin
-        setFrame(NSRect(origin: origin, size: size), display: true)
+        guard let placed = OverlayPlacement.placement(saved: saved, geometry,
+                                                      screens: NSScreen.screens.map(\.visibleFrame),
+                                                      main: NSScreen.main?.visibleFrame) else { return }
+        apply(placed)
     }
 
-    /// Called for every move; only a drag by the user is saved, and saved as it ended up
-    /// on screen — a drag past the edge is pulled back in rather than remembered off it.
-    private func rememberPosition() {
-        guard frame.origin != placedOrigin else { return }
-        let screens = NSScreen.screens.map(\.visibleFrame)
-        let origin = OverlayPlacement.origin(saved: frame.origin, size: frame.size, screens: screens,
-                                             main: NSScreen.main?.visibleFrame) ?? frame.origin
-        UserDefaults.standard.set(OverlayPlacement.encode(origin), forKey: SettingsKeys.overlayOrigin)
+    private func apply(_ placed: OverlayPlacement.Placement) {
+        placement = placed
+        if layout.growsDown != (placed.growth == .down) { layout.growsDown = placed.growth == .down }
+        layoutFrame()
+    }
+
+    /// The window around the strip, with the transcript at its current height.
+    private func layoutFrame() {
+        let frame = OverlayPlacement.frame(strip: placement.strip, geometry, growth: placement.growth,
+                                           transcriptHeight: layout.transcriptHeight)
+        guard frame != self.frame else { return }
+        setFrame(frame, display: true)
+        invalidateShadow()
+    }
+
+    // MARK: Growing the transcript
+
+    /// How tall the transcript would like to be — its text and padding, 0 before the first
+    /// word. Capped at the geometry's maximum, beyond which the text scrolls instead.
+    func setTranscriptHeight(_ wanted: CGFloat) {
+        let target = min(max(wanted, 0), geometry.maxTranscriptHeight)
+        guard target != targetTranscriptHeight else { return }
+        targetTranscriptHeight = target
+        guard displayLink == nil, let view = contentView else { return }
+        let link = view.displayLink(target: self, selector: #selector(step(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+        lastTick = nil
+    }
+
+    /// One frame of the growth: an exponential ease towards the target — quick at first,
+    /// settling softly — so a line landing mid-growth just moves the destination instead
+    /// of restarting an animation.
+    @objc private func step(_ link: CADisplayLink) {
+        let now = link.timestamp
+        let dt = min(lastTick.map { now - $0 } ?? 1.0 / 60, 0.05)
+        lastTick = now
+
+        let current = layout.transcriptHeight
+        let remaining = targetTranscriptHeight - current
+        let next: CGFloat
+        if abs(remaining) < 0.5 {
+            next = targetTranscriptHeight
+            link.invalidate()
+            displayLink = nil
+        } else {
+            next = current + remaining * CGFloat(1 - exp(-dt / Self.growthTimeConstant))
+        }
+        layout.transcriptHeight = next
+        layoutFrame()
+    }
+
+    /// Seconds for the transcript to cover ~63% of the way to its target height.
+    private static let growthTimeConstant: CFTimeInterval = 0.09
+
+    // MARK: Dragging
+
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            pressStart = (NSEvent.mouseLocation, placement.strip)
+            isDragging = false
+            super.sendEvent(event)
+
+        case .leftMouseDragged:
+            guard let start = pressStart else { return super.sendEvent(event) }
+            let mouse = NSEvent.mouseLocation
+            let delta = CGPoint(x: mouse.x - start.mouse.x, y: mouse.y - start.mouse.y)
+            if !isDragging {
+                // A few points of slack, so a click on ✕ with a trembling hand is a click.
+                guard hypot(delta.x, delta.y) >= 3 else { return super.sendEvent(event) }
+                isDragging = true
+            }
+            let proposed = CGPoint(x: start.strip.x + delta.x, y: start.strip.y + delta.y)
+            // The screen under the pointer, so the overlay can be carried to another display.
+            let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? self.screen ?? NSScreen.main
+            guard let screen else { return }
+            apply(OverlayPlacement.settled(strip: proposed, geometry, in: screen.visibleFrame))
+
+        case .leftMouseUp:
+            defer { pressStart = nil; isDragging = false }
+            guard isDragging else { return super.sendEvent(event) }
+            UserDefaults.standard.set(OverlayPlacement.encode(placement.strip), forKey: SettingsKeys.overlayOrigin)
+            // A button that took the mouse-down is released away from itself, so it lets go
+            // without firing — the window moved with the pointer, which is still over it.
+            if let release = NSEvent.mouseEvent(with: .leftMouseUp, location: NSPoint(x: -10_000, y: -10_000),
+                                                modifierFlags: [], timestamp: event.timestamp,
+                                                windowNumber: windowNumber, context: nil,
+                                                eventNumber: event.eventNumber, clickCount: 1, pressure: 0) {
+                super.sendEvent(release)
+            }
+
+        default:
+            super.sendEvent(event)
+        }
     }
 }
