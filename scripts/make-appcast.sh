@@ -57,7 +57,7 @@ step() { printf '\n== %s\n' "$*"; }
 
 if [ "$FETCH_ONLY" -eq 0 ]; then
     [ -f "$DMG" ] || die "--dmg needs the disk image this release ships"
-    [ -n "$TAG" ] || die "--tag needs the release tag, e.g. --tag v1.1.0"
+    [ -n "$TAG" ] || die "--tag needs the release tag, e.g. --tag v0.10.0"
     OUT="${OUT:-$(cd "$(dirname "$DMG")" && pwd)}"
     mkdir -p "$OUT"
 fi

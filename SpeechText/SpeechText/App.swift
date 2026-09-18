@@ -33,7 +33,7 @@ enum AppVersion {
     static var commit: String? { string(for: "SPTGitCommit") }
     static var builtAt: String? { string(for: "SPTBuildDate") }
 
-    /// e.g. `1.0 (build 47 · a18a7d1 · 2026-09-16 14:20)`, or `1.0 (dev)`.
+    /// e.g. `0.9.0 (build 47 · a18a7d1 · 2026-09-16 14:20)`, or `0.9.0 (dev)`.
     static var displayString: String {
         guard let commit else { return "\(marketing) (dev)" }
         var parts = ["build \(build)", commit]
