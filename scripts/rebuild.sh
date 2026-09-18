@@ -1,62 +1,3 @@
-# Library validation. The app is built with the hardened runtime, which lets it load only
-# frameworks signed by its own team — and Sparkle is a framework. A certificate with a team
-# ID (Developer ID, Apple Development) satisfies that once the framework is re-signed with
-# it; an ad-hoc signature or a self-made certificate has no team at all, and dyld refuses
-# Sparkle even when every piece is signed the same way ("mapping process and mapped file
-# have different Team IDs"). Both measured on 2026-09-18: the app died before drawing
-# anything. So a teamless local build gets `disable-library-validation` added to *its own*
-# signature — this script's installs only; package-release.sh, which makes what users
-# get, never adds it.
-HAS_TEAM=0
-if [ "$HAVE_IDENTITY" -eq 1 ] && printf '%s' "$SIGN_IDENTITY" | grep -qE '\([A-Z0-9]{10}\)$'; then
-    HAS_TEAM=1
-fi
-
-# Sparkle's framework and the helpers inside it, deepest first — Xcode left them ad-hoc,
-# and the app's signature only seals them.
-sign_nested() {
-    [ -d "$BUILT/Contents/Frameworks" ] || return 0
-    local nested
-    while IFS= read -r -d '' nested; do
-        codesign --force --options runtime --sign "$SIGN_IDENTITY" "$nested" || return 1
-    done < <(find "$BUILT/Contents/Frameworks" -depth \
-        \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' -o -name '*.app' \
-           -o -name '*.xpc' -o -name 'Autoupdate' \) -print0)
-}
-
-sign_local() {
-    if [ "$HAVE_IDENTITY" -eq 1 ]; then
-        sign_nested || return 1
-    fi
-    if [ "$HAS_TEAM" -eq 1 ]; then
-        # Keep the entitlements Xcode signed in (sandbox off), regenerate everything
-        # else so the designated requirement names the certificate rather than a hash.
-        codesign --force --sign "$SIGN_IDENTITY" --preserve-metadata=entitlements,flags "$BUILT" || return 1
-    else
-        local entitlements="$LOG.entitlements.plist" as="-"
-        [ "$HAVE_IDENTITY" -eq 1 ] && as="$SIGN_IDENTITY"
-        codesign -d --entitlements - --xml "$BUILT" > "$entitlements" 2>/dev/null || return 1
-        /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' \
-            "$entitlements" || return 1
-        codesign --force --sign "$as" --options runtime --entitlements "$entitlements" "$BUILT" || return 1
-        rm -f "$entitlements"
-    fi
-    codesign --verify --deep --strict "$BUILT"
-}
-
-if ! sign_local > "$LOG.sign" 2>&1; then
-    if [ "$HAVE_IDENTITY" -eq 1 ]; then
-        echo "FAILED: could not sign with \"$SIGN_IDENTITY\":" >&2
-    else
-        echo "FAILED: could not re-sign the ad-hoc build:" >&2
-    fi
-    sed 's/^/  /' "$LOG.sign" >&2
-    print_summary failed "Signing FAILED — nothing was changed" \
-        "If macOS asked for keychain access and it was denied, run again and choose Always Allow."
-    exit 1
-fi
-rm -f "$LOG.sign"
-
 #!/bin/bash
 # SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -562,11 +503,22 @@ if [ "$BUILT_COMMIT" != "$COMMIT" ]; then
     echo "         The app will show 'dev' in the menu bar. Check the SPT_GIT_COMMIT key in Info.plist." >&2
 fi
 
-# Sparkle's framework and the helpers inside it, deepest first. Xcode left them signed
-# ad-hoc, and the app's signature only seals them: a hardened app signed with a team's
-# certificate refuses to load a framework that no team signed ("mapping process and
-# mapped file have different Team IDs"), so the app would die in dyld before it drew
-# anything. Measured on 2026-09-18 with the Developer ID certificate.
+# Library validation. The app is built with the hardened runtime, which lets it load only
+# frameworks signed by its own team — and Sparkle is a framework. A certificate with a team
+# ID (Developer ID, Apple Development) satisfies that once the framework is re-signed with
+# it; an ad-hoc signature or a self-made certificate has no team at all, and dyld refuses
+# Sparkle even when every piece is signed the same way ("mapping process and mapped file
+# have different Team IDs"). Both measured on 2026-09-18: the app died before drawing
+# anything. So a teamless local build gets `disable-library-validation` added to *its own*
+# signature — this script's installs only; package-release.sh, which makes what users
+# get, never adds it.
+HAS_TEAM=0
+if [ "$HAVE_IDENTITY" -eq 1 ] && printf '%s' "$SIGN_IDENTITY" | grep -qE '\([A-Z0-9]{10}\)$'; then
+    HAS_TEAM=1
+fi
+
+# Sparkle's framework and the helpers inside it, deepest first — Xcode left them ad-hoc,
+# and the app's signature only seals them.
 sign_nested() {
     [ -d "$BUILT/Contents/Frameworks" ] || return 0
     local nested
@@ -577,20 +529,38 @@ sign_nested() {
            -o -name '*.xpc' -o -name 'Autoupdate' \) -print0)
 }
 
-if [ "$HAVE_IDENTITY" -eq 1 ]; then
-    # Keep the entitlements Xcode signed in (sandbox off), regenerate everything else
-    # so the designated requirement names the certificate rather than a hash.
-    if ! sign_nested > "$LOG.sign" 2>&1 \
-        || ! codesign --force --sign "$SIGN_IDENTITY" --preserve-metadata=entitlements,flags "$BUILT" >> "$LOG.sign" 2>&1 \
-        || ! codesign --verify --deep --strict "$BUILT" >> "$LOG.sign" 2>&1; then
-        echo "FAILED: could not sign with \"$SIGN_IDENTITY\":" >&2
-        sed 's/^/  /' "$LOG.sign" >&2
-        print_summary failed "Signing FAILED — nothing was changed" \
-            "If macOS asked for keychain access and it was denied, run again and choose Always Allow."
-        exit 1
+sign_local() {
+    if [ "$HAVE_IDENTITY" -eq 1 ]; then
+        sign_nested || return 1
     fi
-    rm -f "$LOG.sign"
+    if [ "$HAS_TEAM" -eq 1 ]; then
+        # Keep the entitlements Xcode signed in (sandbox off), regenerate everything
+        # else so the designated requirement names the certificate rather than a hash.
+        codesign --force --sign "$SIGN_IDENTITY" --preserve-metadata=entitlements,flags "$BUILT" || return 1
+    else
+        local entitlements="$LOG.entitlements.plist" as="-"
+        [ "$HAVE_IDENTITY" -eq 1 ] && as="$SIGN_IDENTITY"
+        codesign -d --entitlements - --xml "$BUILT" > "$entitlements" 2>/dev/null || return 1
+        /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' \
+            "$entitlements" || return 1
+        codesign --force --sign "$as" --options runtime --entitlements "$entitlements" "$BUILT" || return 1
+        rm -f "$entitlements"
+    fi
+    codesign --verify --deep --strict "$BUILT"
+}
+
+if ! sign_local > "$LOG.sign" 2>&1; then
+    if [ "$HAVE_IDENTITY" -eq 1 ]; then
+        echo "FAILED: could not sign with \"$SIGN_IDENTITY\":" >&2
+    else
+        echo "FAILED: could not re-sign the ad-hoc build:" >&2
+    fi
+    sed 's/^/  /' "$LOG.sign" >&2
+    print_summary failed "Signing FAILED — nothing was changed" \
+        "If macOS asked for keychain access and it was denied, run again and choose Always Allow."
+    exit 1
 fi
+rm -f "$LOG.sign"
 
 echo "Stopping:"
 stop_all
