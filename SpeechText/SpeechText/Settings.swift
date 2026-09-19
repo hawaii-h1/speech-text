@@ -31,6 +31,10 @@ enum SettingsKeys {
     static let aiHotkeyKeyCode = "aiHotkeyKeyCode"
     static let aiHotkeyModifierFlags = "aiHotkeyModifierFlags"
 
+    // Hotkey (edit the selection with AI)
+    static let editHotkeyKeyCode = "editHotkeyKeyCode"
+    static let editHotkeyModifierFlags = "editHotkeyModifierFlags"
+
     // LLM post-processing
     static let llmProvider = "llmProvider"
     static let groqLLMModel = "groqLLMModel"
@@ -102,6 +106,7 @@ enum SettingsKeys {
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
+        editHotkeyKeyCode, editHotkeyModifierFlags,
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow,

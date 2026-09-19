@@ -26,6 +26,10 @@ struct RecordingOverlayView: View {
     let isPreparing: Bool
     /// Recolours the display so an LLM-processed dictation is obvious at a glance.
     var isAIMode: Bool = false
+    /// An edit of selected text (the Edit shortcut): the recording is an instruction, and
+    /// the panel is filled violet rather than outlined, with the pencil glyph — AI mode's
+    /// violet alone would not tell the two apart.
+    var isEditMode: Bool = false
     /// Draw the transcript, growing from nothing towards `onTranscriptHeight`'s answer — see
     /// `RecordingOverlayPanel`.
     var showsTranscript: Bool = false
@@ -49,7 +53,11 @@ struct RecordingOverlayView: View {
     @State private var textHeight: CGFloat = 0
 
     private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
-    private var accent: Color { isAIMode ? Semantic.ai : AccentColor.meter(accentHex) }
+    private var accent: Color { isAIMode || isEditMode ? Semantic.ai : AccentColor.meter(accentHex) }
+    private var isViolet: Bool { isAIMode || isEditMode }
+    private var cancelHelp: String {
+        isEditMode ? "Cancel (the selected text is left as it was)" : "Cancel (nothing is pasted)"
+    }
     private var isBusy: Bool { isLoading || isPreparing }
     private var hasText: Bool { !settledText.isEmpty || !movingText.isEmpty }
 
@@ -157,12 +165,16 @@ struct RecordingOverlayView: View {
             if !growsDown { minimalStrip }
         }
         .background(.ultraThinMaterial)
+        .background {
+            // An edit fills the glass: the outline alone is AI dictation's.
+            if isEditMode { Semantic.ai.opacity(0.26) }
+        }
         .clipShape(minimalShape)
         .overlay {
-            // Only AI mode gets an outline; a plain dictation is meant to be a quiet
+            // Only the AI modes get an outline; a plain dictation is meant to be a quiet
             // sliver of glass over whatever the user is working in.
-            if isAIMode {
-                minimalShape.stroke(accent.opacity(0.55), lineWidth: 1.5)
+            if isViolet {
+                minimalShape.stroke(accent.opacity(isEditMode ? 0.8 : 0.55), lineWidth: 1.5)
             }
         }
     }
@@ -172,11 +184,18 @@ struct RecordingOverlayView: View {
             // What kind of dictation this is, where the language badge used to be: the
             // language rarely changes and had to be read, the AI rewrite changes what gets
             // pasted and has to be noticed.
-            Image(systemName: isAIMode ? "sparkles" : "mic.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isAIMode ? accent : accent.opacity(0.55))
-                .frame(width: 24, height: 24)
-                .help(isAIMode ? "AI dictation — rewritten before it is pasted" : "Dictation")
+            Group {
+                if isEditMode {
+                    EditGlyph(size: 18)
+                } else {
+                    Image(systemName: isAIMode ? "sparkles" : "mic.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+            }
+            .foregroundStyle(isViolet ? accent : accent.opacity(0.55))
+            .frame(width: 24, height: 24)
+            .help(isEditMode ? "Editing the selected text — say how to change it"
+                  : isAIMode ? "AI dictation — rewritten before it is pasted" : "Dictation")
 
             WaveformBarsView(
                 barLevels: barLevels,
@@ -201,7 +220,7 @@ struct RecordingOverlayView: View {
                     .scaleEffect(isHoveringCancel ? 1.1 : 1.0)
             }
             .buttonStyle(.plain)
-            .help("Cancel (nothing is pasted)")
+            .help(cancelHelp)
             .pointingHandCursor { isHoveringCancel = $0 }
             .animation(.easeInOut(duration: 0.15), value: isHoveringCancel)
         }
@@ -241,8 +260,8 @@ struct RecordingOverlayView: View {
     /// The transcript on a glass of its own, phosphor on black like the Record Window's.
     private var technoTranscript: some View {
         ZStack {
-            Self.transcriptGlass.fill(TechnoSkin.screen)
-            transcript(base: isAIMode ? TechnoSkin.aiText : TechnoSkin.phosphorText,
+            Self.transcriptGlass.fill(isEditMode ? TechnoSkin.editScreen : TechnoSkin.screen)
+            transcript(base: isViolet ? TechnoSkin.aiText : TechnoSkin.phosphorText,
                        font: .system(size: 12, design: .monospaced),
                        horizontal: 16, top: 12, bottom: 12)
             InnerShadow(shape: Self.transcriptGlass, width: 6.6, blur: 3.3)
@@ -255,15 +274,25 @@ struct RecordingOverlayView: View {
     private var technoStrip: some View {
         HStack(spacing: 6) {
             ZStack {
-                Self.glass.fill(TechnoSkin.screen)
+                Self.glass.fill(isEditMode ? TechnoSkin.editScreen : TechnoSkin.screen)
 
                 PixelWaveform(
                     levels: barLevels,
                     columns: Self.technoColumns,
                     rows: Self.technoRows,
                     mode: isBusy ? .busy : .level,
-                    palette: isAIMode ? .ai : .phosphor
+                    palette: isViolet ? .ai : .phosphor
                 )
+
+                if isEditMode {
+                    // The glyph printed in the glass's corner, where it cannot be taken
+                    // for a pixel of the meter.
+                    EditGlyph(size: 13)
+                        .foregroundStyle(TechnoSkin.aiPeak.opacity(0.85))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(.leading, 14)
+                        .padding(.top, 10)
+                }
 
                 // The design's inset shadow — it seats the glass into the panel edge.
                 InnerShadow(shape: Self.glass, width: 6.6, blur: 3.3)
@@ -280,12 +309,33 @@ struct RecordingOverlayView: View {
             ButtonRail {
                 PlasticButton(
                     systemImage: "xmark",
-                    help: "Cancel (nothing is pasted)",
+                    help: cancelHelp,
                     action: onCancel
                 )
             }
         }
         .frame(width: skin.overlayStripSize.width, height: skin.overlayStripSize.height)
+    }
+}
+
+/// A pencil with an AI sparkle over it, as one glyph: the Edit shortcut's mark. The
+/// sparkle sits on the side the pencil writes from — at the eraser end it read as a wand.
+///
+/// Composed rather than taken from SF Symbols: the one symbol that draws this,
+/// `apple.writing.tools`, needs macOS 15 (the app runs on 14) and is reserved for Apple's
+/// own Writing Tools.
+struct EditGlyph: View {
+    var size: CGFloat = 13
+
+    var body: some View {
+        Image(systemName: "pencil")
+            .font(.system(size: size, weight: .semibold))
+            .overlay(alignment: .topLeading) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: size * 0.55, weight: .bold))
+                    .offset(x: -size * 0.14, y: -size * 0.22)
+            }
+            .padding(.leading, size * 0.14)
     }
 }
 

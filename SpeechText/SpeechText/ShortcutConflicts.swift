@@ -32,11 +32,12 @@ struct KeyShortcut: Hashable {
     }
 }
 
-/// The app's three global shortcuts, with where each is stored and what it is until
+/// The app's four global shortcuts, with where each is stored and what it is until
 /// the user changes it.
 enum ShortcutAction: CaseIterable, Hashable {
     case inline
     case ai
+    case edit
     case recordWindow
 
     var title: String {
@@ -44,6 +45,7 @@ enum ShortcutAction: CaseIterable, Hashable {
         case .inline: return "Inline Recording"
         case .ai: return "AI Recording"
         case .recordWindow: return "Record Window"
+        case .edit: return "Edit Selection with AI"
         }
     }
 
@@ -52,6 +54,7 @@ enum ShortcutAction: CaseIterable, Hashable {
         case .inline: return SettingsKeys.hotkeyKeyCode
         case .ai: return SettingsKeys.aiHotkeyKeyCode
         case .recordWindow: return SettingsKeys.recordWindowHotkeyKeyCode
+        case .edit: return SettingsKeys.editHotkeyKeyCode
         }
     }
 
@@ -60,6 +63,7 @@ enum ShortcutAction: CaseIterable, Hashable {
         case .inline: return SettingsKeys.hotkeyModifierFlags
         case .ai: return SettingsKeys.aiHotkeyModifierFlags
         case .recordWindow: return SettingsKeys.recordWindowHotkeyModifierFlags
+        case .edit: return SettingsKeys.editHotkeyModifierFlags
         }
     }
 
@@ -68,6 +72,7 @@ enum ShortcutAction: CaseIterable, Hashable {
         case .inline: return 12        // Q
         case .ai: return 0             // A
         case .recordWindow: return 13  // W
+        case .edit: return 14          // E
         }
     }
 

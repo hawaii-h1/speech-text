@@ -127,6 +127,11 @@ struct SettingsView: View {
                      : "While recording, the other recording shortcut switches the dictation between plain text and AI.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text(holdToTalk
+                     ? "Edit Selection with AI: select text, hold the shortcut, say how to change it and let go. Double-press it to just polish the text; a single tap does nothing."
+                     : "Edit Selection with AI: select text, press the shortcut, say how to change it and press it again. Double-press it to just polish the text.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Permissions") {

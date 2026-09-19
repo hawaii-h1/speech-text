@@ -1,0 +1,232 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+
+/// What one press or release of the Edit shortcut does.
+enum EditHotkeyAction: Equatable {
+    /// Read the selection and open the microphone for an instruction.
+    case start
+    /// Close the microphone and rewrite the selection as the instruction says.
+    case send
+    /// Rewrite the selection now, with no instruction; whatever was recorded is dropped.
+    case sendWithoutInstruction
+    case cancel
+    case ignore
+}
+
+/// Turns presses and releases of the Edit shortcut (⌃⇧E) into actions.
+///
+/// The Edit shortcut rewrites the text selected in the app in front, optionally told how
+/// by a spoken instruction. A double press means "just do it": no instruction.
+///
+/// Neither form waits to find out whether a second press is coming. The first press
+/// always opens the microphone, so a spoken instruction never loses its first syllable,
+/// and the second press is read retroactively:
+///
+/// - Toggle (hold-to-talk off): a second press within `doubleTapWindow` of the first is
+///   a double press — the fraction of a second recorded is dropped and the selection goes
+///   out with no instruction. A later second press is the ordinary stop.
+/// - Hold to talk: letting go after a hold sends the instruction. Letting go within
+///   `DictationHotkeyGesture.tapThreshold` is a tap; a second press within
+///   `doubleTapWindow` of that release makes it a double press, and no second press at
+///   all cancels, when `tapWindowExpired` is called — a lone tap does nothing, as a lone
+///   tap of a dictation shortcut does nothing with hold-to-talk on.
+///
+/// Once the audio is closed (transcribing the instruction, rewriting) a press cancels.
+///
+/// Its own type rather than a third case of `DictationHotkey`: the two dictation modes
+/// switch into each other mid-recording, and an edit switches into neither — its
+/// recording is an instruction, and pasting it as a dictation would be nonsense.
+/// `AppState` keeps the two apart: a dictation shortcut pressed during an edit cancels
+/// the edit, and the Edit shortcut is ignored while a dictation runs.
+///
+/// Pure logic, in both targets; `AppState` supplies the phase and performs the action.
+struct EditHotkeyGesture {
+    enum Phase: Equatable {
+        case idle
+        /// The microphone is not open yet.
+        case starting
+        case recording
+        /// Transcribing the instruction, reading the selection, or rewriting.
+        case busy
+    }
+
+    /// How close two presses have to be to count as one double press.
+    static let doubleTapWindow: TimeInterval = 0.35
+
+    var holdToTalk = false
+
+    /// When the press that started this edit arrived. Nil once a second press has
+    /// been judged, or for an edit started from the menu, which has no key to double.
+    private var startedAt: TimeInterval?
+    /// Hold to talk: the key that started the edit is still down.
+    private(set) var isHeld = false
+    /// Hold to talk: when a tap ended, while it may still become a double press.
+    private var tapReleasedAt: TimeInterval?
+    /// The release of the press that made a double press — it must not act again.
+    private var swallowsRelease = false
+
+    init(holdToTalk: Bool = false) {
+        self.holdToTalk = holdToTalk
+    }
+
+    /// A tap that has not yet been told apart from the first half of a double press.
+    /// `AppState` calls `tapWindowExpired` `doubleTapWindow` after the release.
+    var awaitsSecondTap: Bool { tapReleasedAt != nil }
+
+    mutating func press(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
+        switch phase {
+        case .idle:
+            reset()
+            startedAt = time
+            isHeld = holdToTalk
+            return .start
+        case .busy:
+            reset()
+            return .cancel
+        case .starting, .recording:
+            break
+        }
+
+        if holdToTalk {
+            if let released = tapReleasedAt, time - released <= Self.doubleTapWindow {
+                reset()
+                swallowsRelease = true
+                return .sendWithoutInstruction
+            }
+            // The key is down again with no tap pending: its release was missed, or the
+            // edit came from the menu. A press of the key that started it stops it.
+            reset()
+            swallowsRelease = true
+            return .send
+        }
+
+        if let startedAt, time - startedAt <= Self.doubleTapWindow {
+            reset()
+            return .sendWithoutInstruction
+        }
+        reset()
+        return .send
+    }
+
+    mutating func release(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
+        if swallowsRelease {
+            swallowsRelease = false
+            return .ignore
+        }
+        guard holdToTalk, isHeld else { return .ignore }
+        isHeld = false
+        switch phase {
+        case .starting, .recording:
+            if let startedAt, time - startedAt < DictationHotkeyGesture.tapThreshold {
+                tapReleasedAt = time
+                return .ignore
+            }
+            reset()
+            return .send
+        case .idle, .busy:
+            reset()
+            return .ignore
+        }
+    }
+
+    /// `doubleTapWindow` after a tap's release, with no second press: the tap was all
+    /// there was, and cancels.
+    mutating func tapWindowExpired(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
+        guard let released = tapReleasedAt, time - released >= Self.doubleTapWindow * 0.9 else { return .ignore }
+        reset()
+        switch phase {
+        case .starting, .recording: return .cancel
+        case .idle, .busy: return .ignore
+        }
+    }
+
+    /// A menu item: no key is held, and none will be pressed twice.
+    mutating func click(in phase: Phase) -> EditHotkeyAction {
+        reset()
+        switch phase {
+        case .idle: return .start
+        case .starting, .recording: return .send
+        case .busy: return .cancel
+        }
+    }
+
+    mutating func reset() {
+        startedAt = nil
+        isHeld = false
+        tapReleasedAt = nil
+        swallowsRelease = false
+    }
+}
+
+/// What the Edit shortcut found selected in the app in front.
+struct CapturedSelection: Equatable {
+    let text: String
+    /// Where it is, when the AX API could say (Tier A): these words are found again and
+    /// re-selected before the cut. Nil when it was read with ⌘C — the cut then takes what
+    /// is selected, and is checked by what it took.
+    let record: InsertionRecord?
+}
+
+/// The pure half of reading and replacing a selection; `PasteService` does the I/O.
+enum SelectionEdit {
+    /// Longer than this, a selection is refused rather than sent: the rewrite would be
+    /// slow and expensive on a cloud model and beyond a small local one, and the whole
+    /// of it comes back as one paste the user waits for.
+    static let maxCharacters = 20_000
+
+    /// Whether a ⌘C put a whole *line* on the pasteboard because nothing was selected.
+    /// VS Code (and editors built on Monaco) copy the caret's line on an empty selection
+    /// and say so in their own pasteboard type; taking that line for a selection would
+    /// rewrite text the user never chose.
+    static func isEmptySelectionLineCopy(_ pasteboardStrings: [String: String]) -> Bool {
+        for (type, value) in pasteboardStrings where type.localizedCaseInsensitiveContains("vscode") {
+            if value.replacingOccurrences(of: " ", with: "").contains("\"isFromEmptySelection\":true") {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The selection's words: `range` (UTF-16, as the AX API reports it) of `document`,
+    /// less the whitespace at either end, with the text it covers. A model trims its
+    /// answer, so a selection taken with its trailing newline would otherwise have that
+    /// newline replaced away and the next paragraph glued on. Nil when the range is empty,
+    /// outside the document, or only whitespace — nothing to rewrite.
+    static func words(in range: NSRange, of document: String) -> InsertionRecord? {
+        let text = document as NSString
+        guard range.location != NSNotFound, range.length > 0, NSMaxRange(range) <= text.length else { return nil }
+        let selected = text.substring(with: range)
+        let lead = selected.prefix { $0.isWhitespace }.utf16.count
+        guard lead < selected.utf16.count else { return nil }
+        let trail = String(selected.reversed().prefix { $0.isWhitespace }).utf16.count
+        let core = NSRange(location: range.location + lead, length: range.length - lead - trail)
+        return InsertionRecord(span: nil, range: core, text: text.substring(with: core))
+    }
+
+    /// Whether a ⌘X took the selection that was read, and not something the user selected
+    /// since — or, in VS Code with the selection gone, the caret's whole line. Edges aside:
+    /// a Tier A selection is recorded trimmed to its words.
+    static func cutMatches(_ cut: String, selection: String) -> Bool {
+        let trim = { (value: String) in value.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return !trim(cut).isEmpty && trim(cut) == trim(selection)
+    }
+
+    /// Whether the rewrite changes anything worth writing back.
+    static func changes(_ selection: String, to output: String) -> Bool {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed != selection.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The rewrite, carrying the whitespace the cut selection had around it. A model trims
+    /// its answer, and a selection cut with its trailing newline or space would otherwise
+    /// glue the next paragraph or word onto the result.
+    static func preservingEdges(of selection: String, _ output: String) -> String {
+        let core = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let leading = selection.prefix { $0.isWhitespace || $0.isNewline }
+        let trailing = String(selection.reversed().prefix { $0.isWhitespace || $0.isNewline }.reversed())
+        guard leading.count < selection.count else { return core }
+        return String(leading) + core + trailing
+    }
+}

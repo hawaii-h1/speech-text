@@ -52,6 +52,9 @@ enum TechnoSkin {
     /// loudest, which is when the user is looking at it.
     static let aiPeak = Color(hex: 0xEAE2FF)
     static let aiText = Color(hex: 0x9C85F0)
+    /// The glass itself goes violet for an edit of selected text — AI mode only
+    /// recolours the phosphor, so the two stay apart at a glance.
+    static let editScreen = Color(hex: 0x1F1834)
 
     static let danger = Color(hex: 0xE2564D)
 

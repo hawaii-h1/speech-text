@@ -26,6 +26,9 @@ final class HotkeyManager {
     /// what hold-to-talk runs on; `AppState` decides whether one means anything.
     var onDictationKey: ((DictationHotkey, Bool) -> Void)?
     var onRecordWindowToggle: (() -> Void)?
+    /// The Edit shortcut went down (`true`) or came back up (`false`). Both matter: a
+    /// double press sends the selection with no instruction, and a hold is one.
+    var onEditKey: ((Bool) -> Void)?
 
     private var shortcuts: [ShortcutAction: KeyShortcut] = [:]
 
@@ -36,6 +39,7 @@ final class HotkeyManager {
         case .inline: return 1
         case .recordWindow: return 2
         case .ai: return 3
+        case .edit: return 4
         }
     }
 
@@ -114,6 +118,7 @@ final class HotkeyManager {
                     case 1: mgr.onDictationKey?(.inline, isDown)
                     case 2: if isDown { mgr.onRecordWindowToggle?() }
                     case 3: mgr.onDictationKey?(.ai, isDown)
+                    case 4: mgr.onEditKey?(isDown)
                     default: break
                     }
                 }
