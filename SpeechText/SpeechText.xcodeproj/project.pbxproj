@@ -11,9 +11,11 @@
 		D30000010000000000000008 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
 		D10000010000000000000001 /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
 		D10000990000000000000001 /* DictationHotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000990000000000000001 /* DictationHotkeys.swift */; };
+		D100009A0000000000000001 /* ShortcutConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D200009A0000000000000001 /* ShortcutConflicts.swift */; };
 		D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000002 /* RecognitionSessionFactory.swift */; };
 		D30000010000000000000001 /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
 		D30000990000000000000001 /* DictationHotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000990000000000000001 /* DictationHotkeys.swift */; };
+		D300009A0000000000000001 /* ShortcutConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D200009A0000000000000001 /* ShortcutConflicts.swift */; };
 		D30000010000000000000003 /* RecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000025 /* RecognitionSession.swift */; };
 		D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
 		D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
@@ -96,6 +98,7 @@
 		D20000010000000000000005 /* DictationTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationTrace.swift; sourceTree = "<group>"; };
 		D20000010000000000000001 /* InlineDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineDelivery.swift; sourceTree = "<group>"; };
 		D20000990000000000000001 /* DictationHotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationHotkeys.swift; sourceTree = "<group>"; };
+		D200009A0000000000000001 /* ShortcutConflicts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutConflicts.swift; sourceTree = "<group>"; };
 		D20000010000000000000002 /* RecognitionSessionFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionSessionFactory.swift; sourceTree = "<group>"; };
 		D20000010000000000000003 /* DictationReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationReplay.swift; sourceTree = "<group>"; };
 		D20000010000000000000004 /* DictationReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationReplayTests.swift; sourceTree = "<group>"; };
@@ -233,6 +236,7 @@
 				A20000010000000000000030 /* OverlayPlacement.swift */,
 				D20000010000000000000001 /* InlineDelivery.swift */,
 				D20000990000000000000001 /* DictationHotkeys.swift */,
+				D200009A0000000000000001 /* ShortcutConflicts.swift */,
 				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
 				D20000010000000000000005 /* DictationTrace.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
@@ -398,6 +402,7 @@
 				A1000001000000000000002D /* OverlayPlacement.swift in Sources */,
 				D10000010000000000000001 /* InlineDelivery.swift in Sources */,
 				D10000990000000000000001 /* DictationHotkeys.swift in Sources */,
+				D100009A0000000000000001 /* ShortcutConflicts.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
 				D10000010000000000000005 /* DictationTrace.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
@@ -433,6 +438,7 @@
 				B10000010000000000000021 /* OverlayPlacement.swift in Sources */,
 				D30000010000000000000001 /* InlineDelivery.swift in Sources */,
 				D30000990000000000000001 /* DictationHotkeys.swift in Sources */,
+				D300009A0000000000000001 /* ShortcutConflicts.swift in Sources */,
 				D30000010000000000000003 /* RecognitionSession.swift in Sources */,
 				D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */,
 				D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */,

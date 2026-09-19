@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+import AppKit
+import Carbon.HIToolbox
 
 // These tests compile the app's source files directly into the test bundle (see the
 // SpeechTextTests target's Sources phase) — there is no `@testable import`, because the
@@ -1368,5 +1370,64 @@ final class OverlayPlacementTests: XCTestCase {
         XCTAssertEqual(layer.stableText, "Перше. Друге.")
         XCTAssertEqual(layer.segmentStableText, "Друге.")
         XCTAssertEqual(layer.segmentProvisionalText, "ще")
+    }
+}
+
+// MARK: - Shortcut conflicts
+
+final class ShortcutConflictTests: XCTestCase {
+    private let ctrlShift: NSEvent.ModifierFlags = [.control, .shift]
+
+    private func shortcut(_ keyCode: UInt32, _ modifiers: NSEvent.ModifierFlags) -> KeyShortcut {
+        KeyShortcut(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    private var defaults: [ShortcutAction: KeyShortcut] {
+        [.inline: shortcut(12, ctrlShift), .ai: shortcut(0, ctrlShift), .recordWindow: shortcut(13, ctrlShift)]
+    }
+
+    func testAnotherOfOurShortcutsIsAConflict() {
+        XCTAssertEqual(ShortcutConflict.find(shortcut(0, ctrlShift), for: .inline, assigned: defaults, system: []),
+                       .action(.ai))
+        XCTAssertEqual(ShortcutConflict.find(shortcut(12, ctrlShift), for: .recordWindow, assigned: defaults, system: []),
+                       .action(.inline))
+    }
+
+    func testReassigningTheSameShortcutToItselfIsNot() {
+        XCTAssertNil(ShortcutConflict.find(shortcut(12, ctrlShift), for: .inline, assigned: defaults, system: []))
+    }
+
+    func testSameKeyWithOtherModifiersIsNot() {
+        XCTAssertNil(ShortcutConflict.find(shortcut(0, [.control, .option]), for: .inline, assigned: defaults, system: []))
+    }
+
+    func testEnabledSystemShortcutIsAConflict() {
+        let spotlight = KeyShortcut(keyCode: 49, carbonModifiers: UInt32(cmdKey))
+        XCTAssertEqual(ShortcutConflict.find(shortcut(49, .command), for: .ai, assigned: defaults, system: [spotlight]),
+                       .system)
+    }
+
+    func testOurOwnShortcutWinsOverTheSystemInTheMessage() {
+        let system: Set<KeyShortcut> = [shortcut(0, ctrlShift)]
+        XCTAssertEqual(ShortcutConflict.find(shortcut(0, ctrlShift), for: .inline, assigned: defaults, system: system),
+                       .action(.ai))
+    }
+
+    func testModifierBitsBeyondTheFourAreIgnored() {
+        // Caps Lock and fn ride along in the Cocoa flags; Carbon's system list never has them.
+        XCTAssertEqual(shortcut(49, [.command, .capsLock, .function]),
+                       KeyShortcut(keyCode: 49, carbonModifiers: UInt32(cmdKey) | UInt32(alphaLock)))
+    }
+
+    func testStoredFallsBackToTheBuiltInShortcut() {
+        let suiteName = "ShortcutConflictTests-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        XCTAssertEqual(ShortcutAction.ai.stored(in: suite).keyCode, 0)
+        XCTAssertEqual(ShortcutAction.recordWindow.stored(in: suite).modifiers, ctrlShift)
+        suite.set(7, forKey: ShortcutAction.ai.keyCodeKey)
+        suite.set(Int(NSEvent.ModifierFlags.command.rawValue), forKey: ShortcutAction.ai.modifierFlagsKey)
+        XCTAssertEqual(ShortcutAction.ai.stored(in: suite).keyCode, 7)
+        XCTAssertEqual(ShortcutAction.ai.stored(in: suite).modifiers, .command)
     }
 }
