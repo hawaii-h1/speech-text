@@ -108,23 +108,9 @@ struct SettingsView: View {
             apiKeysSection
 
             Section("Keyboard Shortcuts") {
-                HotkeyRecorderView(label: "Inline Recording")
-
-                HotkeyRecorderView(
-                    label: "AI Recording",
-                    keyCodeKey: SettingsKeys.aiHotkeyKeyCode,
-                    modifierFlagsKey: SettingsKeys.aiHotkeyModifierFlags,
-                    defaultKeyCode: 0,  // A
-                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
-                )
-
-                HotkeyRecorderView(
-                    label: "Record Window",
-                    keyCodeKey: SettingsKeys.recordWindowHotkeyKeyCode,
-                    modifierFlagsKey: SettingsKeys.recordWindowHotkeyModifierFlags,
-                    defaultKeyCode: 13,  // W
-                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
-                )
+                ForEach(ShortcutAction.allCases, id: \.self) { action in
+                    HotkeyRecorderView(action: action)
+                }
 
                 Text("Click a shortcut, then press the new key combination.")
                     .font(.caption)

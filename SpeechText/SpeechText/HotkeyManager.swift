@@ -4,47 +4,61 @@
 import Cocoa
 import Carbon.HIToolbox
 
+/// Which of the app's shortcuts macOS refused to register, and why. Settings reads it to
+/// say so under the shortcut, since a refused shortcut otherwise just never fires.
+@Observable
+final class HotkeyRegistrationStatus {
+    static let shared = HotkeyRegistrationStatus()
+    var failures: [ShortcutAction: OSStatus] = [:]
+}
+
 @Observable
 final class HotkeyManager {
-    private var inlineHotKeyRef: EventHotKeyRef?
-    private var recordWindowHotKeyRef: EventHotKeyRef?
-    private var aiHotKeyRef: EventHotKeyRef?
+    private var hotKeyRefs: [ShortcutAction: EventHotKeyRef] = [:]
     private var eventHandlerRef: EventHandlerRef?
-    private var notificationObserver: Any?
+    private var observers: [Any] = []
+    /// Recorders currently listening. While any is, nothing is registered: a combination
+    /// that is already one of ours would otherwise start a dictation instead of reaching
+    /// the recorder, which then could not tell the user it is taken.
+    private var recorderPauses = 0
 
     /// A dictation shortcut went down (`true`) or came back up (`false`). Releases are
     /// what hold-to-talk runs on; `AppState` decides whether one means anything.
     var onDictationKey: ((DictationHotkey, Bool) -> Void)?
     var onRecordWindowToggle: (() -> Void)?
 
-    // Inline recording hotkey
-    private var inlineKeyCode: UInt32 = 12  // Q
-    private var inlineModifiers: NSEvent.ModifierFlags = [.control, .shift]
-
-    // Record window hotkey
-    private var recordWindowKeyCode: UInt32 = 13  // W
-    private var recordWindowModifiers: NSEvent.ModifierFlags = [.control, .shift]
-
-    // AI recording hotkey (transcription is post-processed by an LLM)
-    private var aiKeyCode: UInt32 = 0  // A
-    private var aiModifiers: NSEvent.ModifierFlags = [.control, .shift]
+    private var shortcuts: [ShortcutAction: KeyShortcut] = [:]
 
     private static let signature: OSType = 0x56504852
-    private static let inlineID: UInt32 = 1
-    private static let recordWindowID: UInt32 = 2
-    private static let aiID: UInt32 = 3
+
+    private static func hotKeyID(_ action: ShortcutAction) -> UInt32 {
+        switch action {
+        case .inline: return 1
+        case .recordWindow: return 2
+        case .ai: return 3
+        }
+    }
 
     func start() {
         loadHotkeys()
         registerHotkeys()
 
-        notificationObserver = NotificationCenter.default.addObserver(
-            forName: .hotkeyDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadHotkeys()
-        }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: .hotkeyDidChange, object: nil, queue: .main) { [weak self] _ in
+                self?.reloadHotkeys()
+            },
+            center.addObserver(forName: .hotkeyRecorderDidStart, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.recorderPauses += 1
+                if self.recorderPauses == 1 { self.unregisterHotkeys() }
+            },
+            center.addObserver(forName: .hotkeyRecorderDidStop, object: nil, queue: .main) { [weak self] _ in
+                guard let self, self.recorderPauses > 0 else { return }
+                self.recorderPauses -= 1
+                if self.recorderPauses == 0 { self.reloadHotkeys() }
+            },
+        ]
     }
 
     func stop() {
@@ -53,29 +67,17 @@ final class HotkeyManager {
 
     private func loadHotkeys() {
         let defaults = UserDefaults.standard
-
-        // Inline
-        if defaults.object(forKey: SettingsKeys.hotkeyKeyCode) != nil {
-            inlineKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.hotkeyKeyCode))
-            inlineModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.hotkeyModifierFlags)))
-        }
-
-        // Record window
-        if defaults.object(forKey: SettingsKeys.recordWindowHotkeyKeyCode) != nil {
-            recordWindowKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyKeyCode))
-            recordWindowModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.recordWindowHotkeyModifierFlags)))
-        }
-
-        // AI recording
-        if defaults.object(forKey: SettingsKeys.aiHotkeyKeyCode) != nil {
-            aiKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.aiHotkeyKeyCode))
-            aiModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.aiHotkeyModifierFlags)))
+        for action in ShortcutAction.allCases {
+            let stored = action.stored(in: defaults)
+            shortcuts[action] = KeyShortcut(keyCode: stored.keyCode, modifiers: stored.modifiers)
         }
     }
 
     private func reloadHotkeys() {
         unregisterHotkeys()
         loadHotkeys()
+        // A recorder still listening re-registers when it stops; the new values are loaded.
+        guard recorderPauses == 0 else { return }
         registerHotkeys()
     }
 
@@ -126,67 +128,52 @@ final class HotkeyManager {
             dlog("Hotkey", "InstallEventHandler failed (status \(handlerStatus)) — no shortcut will fire")
         }
 
-        // Register inline hotkey (id: 1)
-        let inlineCarbonMods = Self.cocoaToCarbonModifiers(inlineModifiers)
-        let inlineHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.inlineID)
-        let inlineStatus = RegisterEventHotKey(inlineKeyCode, inlineCarbonMods, inlineHotKeyID,
-                                               GetApplicationEventTarget(), 0, &inlineHotKeyRef)
-        Self.logRegistration("inline recording", keyCode: inlineKeyCode, status: inlineStatus)
-
-        // Register record window hotkey (id: 2)
-        let rwCarbonMods = Self.cocoaToCarbonModifiers(recordWindowModifiers)
-        let rwHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.recordWindowID)
-        let rwStatus = RegisterEventHotKey(recordWindowKeyCode, rwCarbonMods, rwHotKeyID,
-                                           GetApplicationEventTarget(), 0, &recordWindowHotKeyRef)
-        Self.logRegistration("record window", keyCode: recordWindowKeyCode, status: rwStatus)
-
-        // Register AI recording hotkey (id: 3)
-        let aiCarbonMods = Self.cocoaToCarbonModifiers(aiModifiers)
-        let aiHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.aiID)
-        let aiStatus = RegisterEventHotKey(aiKeyCode, aiCarbonMods, aiHotKeyID,
-                                           GetApplicationEventTarget(), 0, &aiHotKeyRef)
-        Self.logRegistration("AI recording", keyCode: aiKeyCode, status: aiStatus)
-    }
-
-    /// A combination another app already owns comes back as an error here and then
-    /// simply never fires, which is indistinguishable from a broken app unless it is
-    /// said out loud.
-    private static func logRegistration(_ name: String, keyCode: UInt32, status: OSStatus) {
-        guard status != noErr else { return }
-        dlog("Hotkey", "\(name) shortcut (key code \(keyCode)) could not be registered: status \(status) — another app may already own it")
+        var failures: [ShortcutAction: OSStatus] = [:]
+        for action in ShortcutAction.allCases {
+            guard let shortcut = shortcuts[action] else { continue }
+            var ref: EventHotKeyRef?
+            let status = RegisterEventHotKey(shortcut.keyCode, shortcut.carbonModifiers,
+                                             EventHotKeyID(signature: Self.signature, id: Self.hotKeyID(action)),
+                                             GetApplicationEventTarget(), 0, &ref)
+            if status == noErr, let ref {
+                hotKeyRefs[action] = ref
+            } else {
+                // A combination another app reserved, or one of ours twice, comes back as
+                // an error here and then simply never fires — indistinguishable from a
+                // broken app unless it is said out loud.
+                failures[action] = status
+                dlog("Hotkey", "\(action.title) shortcut (key code \(shortcut.keyCode)) could not be registered: status \(status) — another app may already own it")
+            }
+        }
+        HotkeyRegistrationStatus.shared.failures = failures
     }
 
     private func unregisterHotkeys() {
-        if let ref = inlineHotKeyRef {
-            UnregisterEventHotKey(ref)
-            inlineHotKeyRef = nil
-        }
-        if let ref = recordWindowHotKeyRef {
-            UnregisterEventHotKey(ref)
-            recordWindowHotKeyRef = nil
-        }
-        if let ref = aiHotKeyRef {
-            UnregisterEventHotKey(ref)
-            aiHotKeyRef = nil
-        }
+        for ref in hotKeyRefs.values { UnregisterEventHotKey(ref) }
+        hotKeyRefs = [:]
         if let ref = eventHandlerRef {
             RemoveEventHandler(ref)
             eventHandlerRef = nil
         }
     }
 
-    private static func cocoaToCarbonModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {
-        var carbon: UInt32 = 0
-        if flags.contains(.command) { carbon |= UInt32(cmdKey) }
-        if flags.contains(.option) { carbon |= UInt32(optionKey) }
-        if flags.contains(.control) { carbon |= UInt32(controlKey) }
-        if flags.contains(.shift) { carbon |= UInt32(shiftKey) }
-        return carbon
+    /// The enabled macOS shortcuts (System Settings › Keyboard › Keyboard Shortcuts).
+    /// The system acts on these before any app sees the key.
+    static func enabledSystemShortcuts() -> Set<KeyShortcut> {
+        var unmanaged: Unmanaged<CFArray>?
+        guard CopySymbolicHotKeys(&unmanaged) == noErr,
+              let entries = unmanaged?.takeRetainedValue() as? [[String: Any]] else { return [] }
+        return Set(entries.compactMap { entry in
+            guard (entry[kHISymbolicHotKeyEnabled] as? Bool) == true,
+                  let code = entry[kHISymbolicHotKeyCode] as? Int,
+                  let modifiers = entry[kHISymbolicHotKeyModifiers] as? Int else { return nil }
+            return KeyShortcut(keyCode: UInt32(code), carbonModifiers: UInt32(modifiers))
+        })
     }
 
     deinit {
         stop()
-        if let observer = notificationObserver {
+        for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
     }
