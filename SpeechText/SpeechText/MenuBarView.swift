@@ -26,6 +26,7 @@ struct SettingsView: View {
 
     @AppStorage(SettingsKeys.aiDraftWhileSpeaking) private var aiDraftWhileSpeaking = false
     @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
+    @AppStorage(SettingsKeys.escapeCancelsDictation) private var escapeCancelsDictation = false
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
@@ -118,7 +119,7 @@ struct SettingsView: View {
 
                 Toggle("Hold to talk", isOn: $holdToTalk)
                 Text(holdToTalk
-                     ? "Hold a recording shortcut while you speak and let go to paste. A quick tap cancels."
+                     ? "Hold a recording shortcut while you speak and let go to paste. A quick tap cancels; a double tap keeps recording hands-free until you press it again."
                      : "Press a recording shortcut to start, and press it again to stop.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -130,6 +131,11 @@ struct SettingsView: View {
                 Text(holdToTalk
                      ? "Edit Selection with AI: select text, hold the shortcut, say how to change it and let go. Double-press it to just polish the text; a single tap does nothing."
                      : "Edit Selection with AI: select text, press the shortcut, say how to change it and press it again. Double-press it to just polish the text.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Esc cancels a dictation", isOn: $escapeCancelsDictation)
+                Text("While the recording overlay is on screen, Esc cancels it — and reaches no other app until the overlay is gone.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

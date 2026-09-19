@@ -178,6 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.rebuildMenu()
             }
         }
+        appState.hotkeyManager.onEscape = { [weak self] in
+            self?.appState.escapePressed()
+            self?.updateIcon()
+            self?.rebuildMenu()
+        }
         appState.hotkeyManager.onEditKey = { [weak self] isDown in
             DispatchQueue.main.async {
                 if isDown {
@@ -527,6 +532,25 @@ final class AppState {
         let action = hotkeyGesture.release(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
         dlog("Hotkey", "\(key) released in \(phase) → \(action)")
         perform(action)
+        if hotkeyGesture.awaitsSecondTap {
+            scheduleDictationTapTimer()
+        }
+    }
+
+    /// Cancels a tapped dictation unless a second tap locks it on first.
+    private var dictationTapTimer: DispatchWorkItem?
+
+    private func scheduleDictationTapTimer() {
+        dictationTapTimer?.cancel()
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.dictationTapTimer = nil
+            let action = self.hotkeyGesture.tapWindowExpired(in: self.dictationPhase, at: ProcessInfo.processInfo.systemUptime)
+            dlog("Hotkey", "dictation tap stood alone → \(action)")
+            self.perform(action)
+        }
+        dictationTapTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + DictationHotkeyGesture.doubleTapWindow, execute: timer)
     }
 
     /// The menu's items: a press with nothing held.
@@ -556,6 +580,10 @@ final class AppState {
         case .cancel:
             dlog("App", "cancelling mid-flight")
             cancelInlineFlow()
+        case .lock:
+            dlog("App", "double tap — the dictation stays on hands-free")
+            dictationTapTimer?.cancel()
+            dictationTapTimer = nil
         case .ignore:
             break
         }
@@ -1412,14 +1440,33 @@ final class AppState {
             if self?.overlayPanel === panel {
                 self?.overlayPanel = nil
             }
+            self?.updateEscapeShortcut()
         }))
         panel.orderFrontRegardless()
         overlayPanel = panel
+        updateEscapeShortcut()
+    }
+
+    /// ⎋ is ours only while the overlay is up, and only if the user asked for it.
+    private func updateEscapeShortcut() {
+        let wanted = overlayPanel != nil && UserDefaults.standard.bool(forKey: SettingsKeys.escapeCancelsDictation)
+        hotkeyManager.setEscapeShortcut(active: wanted)
+    }
+
+    /// ⎋, while the overlay is up: what its ✕ does.
+    func escapePressed() {
+        dlog("Hotkey", "⎋ → cancel")
+        if isEditMode {
+            cancelEdit()
+        } else {
+            cancelInlineFlow()
+        }
     }
 
     private func hideOverlay() {
         overlayPanel?.close()
         overlayPanel = nil
+        updateEscapeShortcut()
     }
 
     // MARK: - Status Overlay
