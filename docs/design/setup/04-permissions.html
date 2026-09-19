@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-variant="c">
+<head>
+  <meta charset="utf-8">
+  <title>SpeechText Setup · ④ Permissions</title>
+  <link rel="stylesheet" href="setup.css">
+  <script src="setup.js"></script>
+  <style>
+    /* ---------------------------------------------------------------- ④ Permissions
+       Left: why. Right: the three rows, each with the one control it needs right now. */
+
+    /* What the permissions are used for, under the lead — the promise that makes "Allow" easy */
+    .promises { list-style: none; margin: 0; padding: 0; width: 100%; max-width: 250px; display: flex; flex-direction: column; gap: 10px; }
+    .promises li { text-wrap: pretty; display: grid; grid-template-columns: 18px 1fr; gap: 10px; font-size: 12.5px; line-height: 1.4; color: var(--label-2); }
+    .promises li b { color: var(--label); font-weight: 600; }
+    .promises svg { margin-top: 2px; color: var(--step-current); }
+
+    /* The panel is as tall as its rows (and the hint, while there is one); it and the left
+       column's text both sit in the middle of the window's content area */
+    :root[data-variant="c"] .choice-screen .content > .panel.perm-panel { align-self: center; display: flex; flex-direction: column; }
+    .choice-screen .copy { justify-content: center; }
+    .perms { display: flex; flex-direction: column; padding: 2px 18px; }
+    .perm:last-child { padding-bottom: 12px; }
+    .perm {
+      display: grid;
+      grid-template-columns: 38px 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 0;
+    }
+    .perm + .perm { border-top: 1px solid var(--separator); }
+    .perm .icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      color: var(--label-2);
+      background: var(--control-bg);
+      box-shadow: inset 0 0 0 1px var(--panel-border);
+      transition: background 0.3s, color 0.3s;
+    }
+    .perm[data-state="granted"] .icon, .perm[data-state="on"] .icon { background: linear-gradient(160deg, #1f6a48, var(--brand-deep)); color: var(--phosphor); box-shadow: none; }
+    .perm .t { font-size: 14px; font-weight: 600; }
+    .perm .d { font-size: 12px; color: var(--label-2); margin-top: 1px; }
+    .perm .state { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: 11.5px; line-height: 1.4; color: var(--label-2); }
+    .perm .state:empty { display: none; }
+    .perm .state.warn { color: #b35f00; }
+    :root[data-theme="dark"] .perm .state.warn { color: var(--warning); }
+    .perm .state.bad { color: var(--danger); }
+    .waiting-dot { flex: none; width: 7px; height: 7px; margin: 5px 1px 0; border-radius: 50%; background: #0a84ff; animation: wait-pulse 1.6s ease-in-out infinite; }
+    @keyframes wait-pulse { 50% { opacity: 0.3; transform: scale(0.8); } }
+    .perm .control { display: flex; align-items: center; }
+    .perm .link-btn { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; }
+    /* A long action sits under the row's text, so the text keeps its width */
+    .perm .actions { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+    .perm .actions:empty { display: none; }
+    .allowed { font-size: 12.5px; font-weight: 600; color: #1e8e46; white-space: nowrap; }
+    :root[data-theme="dark"] .allowed { color: var(--confirmation); }
+    /* A row that has just been granted glows once */
+    .perm.just .icon { animation: just 1.2s ease-out; }
+    @keyframes just { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--phosphor) 70%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+
+    /* The macOS switch, in the app's green */
+    .switch {
+      flex: none;
+      position: relative;
+      width: 38px;
+      height: 22px;
+      border: 0;
+      padding: 0;
+      border-radius: 11px;
+      cursor: pointer;
+      background: var(--separator);
+      box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      transition: background 0.2s;
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      transition: transform 0.2s;
+    }
+    .switch[aria-checked="true"] { background: var(--step-current); }
+    :root[data-theme="dark"] .switch[aria-checked="true"] { background: #2f9e67; }
+    .switch[aria-checked="true"]::after { transform: translateX(16px); }
+    .switch:focus-visible { outline: 3px solid color-mix(in srgb, var(--phosphor) 45%, transparent); outline-offset: 1px; }
+
+    /* Why Continue is off */
+    .panel-hint { margin: 0; padding: 0 18px 12px; font-size: 11.5px; color: var(--label-2); text-align: left; }
+    .panel-hint[hidden] { display: none; }
+
+    /* The setup window when another app is in front: macOS greys the traffic lights */
+    .window.inactive .traffic i { background: var(--label-3) !important; opacity: 0.35 !important; }
+
+    /* ================================================================ What macOS shows
+       Not part of the design — stand-ins for the system alert and System Settings, so the
+       flow can be clicked through. */
+
+    .sys-alert {
+      position: fixed;
+      z-index: 30;
+      left: 50%;
+      top: 190px;
+      transform: translateX(-50%);
+      width: 272px;
+      padding: 20px 16px 16px;
+      border-radius: 24px;
+      text-align: center;
+      font-size: 11.5px;
+      color: var(--label-2);
+      background: var(--glass);
+      backdrop-filter: blur(30px) saturate(1.8);
+      -webkit-backdrop-filter: blur(30px) saturate(1.8);
+      box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25), 0 20px 60px rgba(0, 0, 0, 0.35);
+    }
+    .sys-alert img { width: 56px; height: 56px; margin-bottom: 8px; }
+    .sys-alert b { display: block; margin-bottom: 6px; font-size: 13px; color: var(--label); }
+    .sys-alert p { margin: 0 0 16px; }
+    .sys-alert .buttons { display: flex; gap: 8px; }
+    .sys-alert .buttons button { flex: 1; height: 28px; border: 0; border-radius: 14px; font: 500 13px/1 var(--ui-font); cursor: pointer; background: var(--control-bg); color: var(--label); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.15); }
+    .sys-alert .buttons .default { background: #0a84ff; color: #fff; }
+
+    .sys-settings {
+      position: fixed;
+      z-index: 20;
+      left: 560px;
+      top: 170px;
+      width: 560px;
+      height: 440px;
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      border-radius: 22px;
+      overflow: hidden;
+      font-size: 12px;
+      color: var(--label);
+      background: var(--card-bg);
+      box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 26px 70px rgba(0, 0, 0, 0.35);
+    }
+    .sys-settings[hidden], .sys-alert[hidden], .helper[hidden], .scrim[hidden] { display: none; }
+    .sys-settings aside { padding: 14px 8px; background: var(--panel-bg); border-right: 1px solid var(--separator); }
+    .sys-settings aside .traffic { display: flex; margin: 0 0 16px 6px; }
+    .sys-settings aside .traffic i { width: 12px; height: 12px; }
+    .sys-settings aside .traffic i:first-child { cursor: pointer; }
+    .sys-settings .search { height: 24px; margin: 0 4px 12px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; color: var(--label-3); background: var(--separator); }
+    .sys-settings nav div { padding: 5px 8px; border-radius: 7px; color: var(--label-2); }
+    .sys-settings nav .on { background: #0a84ff; color: #fff; }
+    .sys-settings main { padding: 16px 18px; overflow: hidden; }
+    .sys-settings h2 { margin: 0 0 12px; font-size: 15px; font-weight: 700; }
+    .sys-settings h2 span { color: var(--label-3); font-weight: 400; margin-right: 8px; }
+    .sys-settings .explain { margin: 0 0 12px; color: var(--label-2); }
+    .sys-settings .list { border-radius: 10px; background: var(--control-bg); box-shadow: inset 0 0 0 1px var(--panel-border); }
+    .sys-settings .app[data-mine] { cursor: pointer; }
+    .sys-settings .app { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+    .sys-settings .app + .app { border-top: 1px solid var(--separator); }
+    .sys-settings .app .ico { width: 22px; height: 22px; border-radius: 6px; flex: none; }
+    .sys-settings .app img.ico { box-shadow: none; }
+    .sys-settings .app span { flex: 1; }
+    .sys-settings .app.target { position: relative; z-index: 1; box-shadow: 0 0 0 2px #0a84ff; border-radius: 8px; }
+    .sys-settings .app .switch { width: 32px; height: 19px; }
+    .sys-settings .app .switch::after { width: 15px; height: 15px; }
+    .sys-settings .app .switch[aria-checked="true"] { background: #0a84ff; }
+    .sys-settings .app .switch[aria-checked="true"]::after { transform: translateX(13px); }
+    .sys-settings .plusminus { margin-top: 8px; color: var(--label-3); letter-spacing: 8px; }
+
+    /* The helper panel (spec §5.3, step 3): floats beside System Settings, points at the switch */
+    .helper {
+      position: fixed;
+      z-index: 25;
+      left: 300px;
+      top: 274px;
+      width: 244px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      font-size: 12px;
+      color: var(--label-2);
+      background: var(--glass);
+      backdrop-filter: blur(24px) saturate(1.6);
+      -webkit-backdrop-filter: blur(24px) saturate(1.6);
+      box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 14px 40px rgba(0, 0, 0, 0.28);
+    }
+    .helper::after {
+      /* the arrow towards the SpeechText row */
+      content: "";
+      position: absolute;
+      right: -7px;
+      top: 26px;
+      width: 14px;
+      height: 14px;
+      transform: rotate(45deg);
+      background: inherit;
+      box-shadow: 0.5px -0.5px 0 rgba(0, 0, 0, 0.12);
+    }
+    .helper.no-arrow::after { display: none; }
+    .helper b { display: block; margin-bottom: 4px; font-size: 13px; color: var(--label); }
+    .helper p { margin: 0 0 10px; line-height: 1.4; }
+    .helper .demo { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 7px 10px; border-radius: 9px; background: var(--control-bg); }
+    .helper .demo img { width: 18px; height: 18px; }
+    .helper .demo span { flex: 1; color: var(--label); }
+    .helper .demo .switch { width: 32px; height: 19px; pointer-events: none; animation: flip 2.4s ease-in-out infinite; }
+    .helper .demo .switch::after { width: 15px; height: 15px; animation: flip-knob 2.4s ease-in-out infinite; }
+    @keyframes flip { 0%, 40% { background: var(--separator); } 55%, 100% { background: #0a84ff; } }
+    @keyframes flip-knob { 0%, 40% { transform: none; } 55%, 100% { transform: translateX(13px); } }
+    .helper .btn { height: 26px; font-size: 12px; padding: 0 14px; border-radius: 13px; float: right; }
+    .helper::before { content: ""; display: table; }
+    .helper > :last-child::after { content: ""; display: block; clear: both; }
+    .helper .head { display: flex; gap: 8px; align-items: baseline; }
+    .helper .head .arrow { color: #0a84ff; font-size: 14px; animation: nudge 1.2s ease-in-out infinite; }
+    @keyframes nudge { 50% { transform: translateX(3px); } }
+
+    .scrim { position: fixed; inset: 0; z-index: 15; }
+  </style>
+</head>
+<body class="choice-screen">
+
+  <!-- Review toolbar: outside the window, for looking at the design -->
+  <div class="review-bar" role="toolbar" aria-label="Preview options">
+    <button type="button" data-theme-set="light" aria-pressed="true">Light</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+    <span class="sep"></span>
+    <select id="sim-mic" aria-label="What macOS reports for the microphone">
+      <option value="notAsked">Microphone: not asked yet</option>
+      <option value="granted">Microphone: allowed</option>
+      <option value="denied">Microphone: turned off</option>
+      <option value="restricted">Microphone: blocked by an admin</option>
+    </select>
+    <button type="button" id="sim-ax" title="Flip SpeechText's switch in Accessibility">Accessibility: off</button>
+    <button type="button" id="sim-fail">Fail downloads</button>
+    <span class="sep"></span>
+    <button type="button" id="sim-reset">Start over</button>
+  </div>
+
+  <div class="stage">
+  <!-- The moving glow, under the window and seen through its glass frame -->
+  <div class="aura" aria-hidden="true"><div class="swirl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+
+  <div class="window" role="dialog" aria-label="SpeechText Setup">
+    <div class="card">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+
+      <main class="content">
+
+        <!-- Left: what is asked, and what it is used for -->
+        <section class="copy">
+          <h1 class="title" id="step-title">Two quick permissions</h1>
+          <p class="lead">SpeechText needs these to hear you and to type for you.</p>
+
+          <ul class="promises">
+            <li>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5l5.5 2v4.2c0 3.3-2.3 5.8-5.5 6.8-3.2-1-5.5-3.5-5.5-6.8V3.5z"/><path d="M5.5 8l1.8 1.8L10.8 6.3"/></svg>
+              <span><b>Listens only while you dictate</b> — from one press of the shortcut to the next.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5l5.5 2v4.2c0 3.3-2.3 5.8-5.5 6.8-3.2-1-5.5-3.5-5.5-6.8V3.5z"/><path d="M5.5 8l1.8 1.8L10.8 6.3"/></svg>
+              <span><b>Types only what you said</b> — right where your cursor is.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Right: the three rows -->
+        <section class="panel perm-panel" aria-label="Permissions">
+          <div class="perms">
+            <div class="perm" id="row-mic">
+              <span class="icon" aria-hidden="true">
+                <svg width="14" height="19" viewBox="0 0 14 19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3.5" y="1" width="7" height="11" rx="3.5"/><path d="M1 9a6 6 0 0 0 12 0M7 15v3"/></svg>
+              </span>
+              <div>
+                <div class="t">Microphone</div>
+                <div class="d">So SpeechText can hear you.</div>
+                <div class="state" role="status"></div>
+                <div class="actions"></div>
+              </div>
+              <div class="control"></div>
+            </div>
+
+            <div class="perm" id="row-ax">
+              <span class="icon" aria-hidden="true">
+                <svg width="20" height="15" viewBox="0 0 20 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="18" height="13" rx="2.5"/><path d="M4.5 4.5h1M8 4.5h1M11.5 4.5h1M15 4.5h.5M4.5 7.5h1M8 7.5h1M11.5 7.5h1M15 7.5h.5M6 10.5h8"/></svg>
+              </span>
+              <div>
+                <div class="t">Type for you</div>
+                <div class="d">So your words appear where your cursor is.</div>
+                <div class="state" role="status"></div>
+                <div class="actions"></div>
+              </div>
+              <div class="control"></div>
+            </div>
+
+            <div class="perm" id="row-login">
+              <span class="icon" aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8.5 1.5v6.5"/><path d="M4.6 4a6.5 6.5 0 1 0 7.8 0"/></svg>
+              </span>
+              <div>
+                <div class="t">Open at login</div>
+                <div class="d">So SpeechText is always ready when you start your Mac.</div>
+                <div class="state"></div>
+              </div>
+              <div class="control"><button class="switch" type="button" role="switch" id="login" aria-label="Open at login" aria-checked="true"></button></div>
+            </div>
+          </div>
+          <p class="panel-hint" id="hint">Allow the microphone to continue — SpeechText can't work without it.</p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <ol class="steps steps-bar" aria-label="Setup steps">
+          <li><span class="dot"></span><span class="label">Welcome</span></li>
+          <li><span class="dot"></span><span class="label">Speech</span></li>
+          <li><span class="dot"></span><span class="label">AI</span></li>
+          <li class="current" aria-current="step"><span class="dot"></span><span class="label">Permissions</span></li>
+          <li><span class="dot"></span><span class="label">Try it</span></li>
+        </ol>
+        <button class="btn btn-secondary" type="button" id="back">Back</button>
+        <button class="btn btn-primary" type="button" id="primary" autofocus>Continue</button>
+      </footer>
+    </div>
+  </div>
+  </div>
+
+  <!-- ============ Stand-ins for macOS (not part of the design) ============ -->
+  <div class="scrim" id="scrim" hidden></div>
+
+  <div class="sys-alert" id="mic-alert" role="alertdialog" aria-label="Microphone access" hidden>
+    <img src="assets/logo.png" alt="">
+    <b>“SpeechText” would like to access the microphone.</b>
+    <p>SpeechText needs microphone access for speech recognition</p>
+    <div class="buttons">
+      <button type="button" data-answer="denied">Don't Allow</button>
+      <button type="button" class="default" data-answer="granted">Allow</button>
+    </div>
+  </div>
+
+  <div class="sys-settings" id="sys-settings" aria-label="System Settings" hidden>
+    <aside>
+      <div class="traffic"><i title="Close System Settings" id="sys-close"></i><i></i><i></i></div>
+      <div class="search">⌕ Search</div>
+      <nav>
+        <div>Wi‑Fi</div><div>Bluetooth</div><div>Network</div><div>Notifications</div><div>Sound</div><div>Focus</div>
+        <div>General</div><div>Appearance</div><div>Accessibility</div><div class="on">Privacy &amp; Security</div><div>Desktop &amp; Dock</div>
+      </nav>
+    </aside>
+    <main>
+      <h2><span>‹ ›</span><span id="sys-pane-title" style="color:inherit;font-weight:700;margin:0">Accessibility</span></h2>
+      <p class="explain" id="sys-explain"></p>
+      <div class="list" id="sys-list"></div>
+      <div class="plusminus">+ −</div>
+    </main>
+  </div>
+
+  <aside class="helper" id="helper" aria-label="How to turn on SpeechText" hidden>
+    <div class="head"><b>Turn on SpeechText</b><span class="arrow" aria-hidden="true">→</span></div>
+    <p>Find <b style="display:inline;font-size:inherit">SpeechText</b> in the list and click its switch. You may need to enter your Mac password.</p>
+    <div class="demo" id="helper-demo" aria-hidden="true" style="cursor:pointer"><img src="assets/logo.png" alt=""><span>SpeechText</span><i class="switch"></i></div>
+    <div><button class="btn btn-secondary" type="button" id="helper-done">Done</button></div>
+  </aside>
+
+  <script>
+    // ④ Permissions (spec §5). What macOS would report lives in Setup.state.sim (mic, ax) and is
+    // driven by the stand-in dialogs or the review bar; what the screen itself decided lives in perm.
+    const S = () => Setup.state;
+    const primary = document.getElementById("primary");
+    const win = document.querySelector(".window");
+    S().sim.mic ??= "notAsked";
+    S().sim.ax ??= false;
+    S().perm ??= { ax: "idle", login: true };      // ax: idle | waiting | skipped (granted comes from macOS)
+    S().settings.onboardingStep = "permissions";
+    Setup.changed();
+
+    const $ = id => document.getElementById(id);
+    const axState = () => S().sim.ax ? "granted" : S().perm.ax;
+
+    // ---- The stand-ins -------------------------------------------------------------------
+    let open = null;                                   // null | "alert" | "settings"
+    let pane = null;                                   // "microphone" | "accessibility"
+    let poll = null;
+
+    function showAlert() {
+      open = "alert";
+      $("scrim").hidden = false;
+      $("mic-alert").hidden = false;
+      win.classList.add("inactive");
+      $("mic-alert").querySelector(".default").focus();
+    }
+    $("mic-alert").addEventListener("click", e => {
+      const answer = e.target.closest("[data-answer]")?.dataset.answer;
+      if (!answer) return;
+      S().sim.mic = answer;
+      closeSystem();
+      flashIf(answer === "granted", "row-mic");
+    });
+
+    const APPS = {
+      accessibility: [["Raycast", "#ff6363", true], ["SpeechText", null, false], ["Zoom", "#2d8cff", false]],
+      microphone:    [["FaceTime", "#34c759", true], ["SpeechText", null, false], ["Zoom", "#2d8cff", true]],
+    };
+    function openSettings(which) {
+      open = "settings";
+      pane = which;
+      $("scrim").hidden = false;
+      $("sys-settings").hidden = false;
+      win.classList.add("inactive");
+      $("sys-pane-title").textContent = which === "accessibility" ? "Accessibility" : "Microphone";
+      $("sys-explain").textContent = which === "accessibility"
+        ? "Allow the applications below to control your computer."
+        : "Allow the applications below to access the microphone.";
+      drawSettings();
+      place(which === "accessibility");
+      if (which === "accessibility") {
+        // §5.3: prompt first so SpeechText is already in the list, open the pane, show the helper, poll every second
+        $("helper").hidden = false;
+        if (!S().sim.ax) { S().perm.ax = "waiting"; Setup.changed(); }
+        clearInterval(poll);
+        poll = setInterval(() => {
+          if (!S().sim.ax) return;
+          S().perm.ax = "idle";
+          closeSystem();                               // hide the helper, bring setup back to the front
+          flashIf(true, "row-ax");
+        }, 1000);
+      }
+    }
+    // System Settings opens over the right half of the setup window; the helper sits to its left,
+    // level with the SpeechText row. Both are kept inside whatever size the preview is.
+    function place(withHelper) {
+      const w = win.getBoundingClientRect(), ss = $("sys-settings"), help = $("helper");
+      const ssW = 560, ssH = 440;
+      const left = Math.max(8, Math.min(w.right - 460, innerWidth - ssW - 8));
+      const top = Math.max(8, Math.min(w.top + 40, innerHeight - ssH - 8));
+      Object.assign(ss.style, { left: left + "px", top: top + "px" });
+      if (!withHelper) return;
+      const helpW = 244, rowY = top + 137;          // the SpeechText row's centre
+      const room = left - helpW - 16 >= 8;
+      Object.assign(help.style, room
+        ? { left: left - helpW - 16 + "px", top: rowY - 33 + "px" }
+        : { left: Math.max(8, left + ssW - helpW - 16) + "px", top: Math.min(top + ssH - 190, innerHeight - 200) + "px" });
+      help.classList.toggle("no-arrow", !room);
+    }
+    function drawSettings() {
+      $("sys-list").innerHTML = APPS[pane].map(([name, color, on]) => {
+        const mine = name === "SpeechText";
+        const checked = mine ? (pane === "accessibility" ? S().sim.ax : S().sim.mic === "granted") : on;
+        const icon = mine ? '<img class="ico" src="assets/logo.png" alt="">' : `<span class="ico" style="background:${color}"></span>`;
+        return `<div class="app${mine && pane === "accessibility" && !checked ? " target" : ""}"${mine ? " data-mine" : ""}>${icon}<span>${name}</span><button type="button" class="switch" role="switch" aria-checked="${checked}" ${mine ? "data-mine" : "disabled"} aria-label="${name}"></button></div>`;
+      }).join("");
+    }
+    function flipMine() {
+      if (pane === "accessibility") S().sim.ax = !S().sim.ax;
+      else S().sim.mic = S().sim.mic === "granted" ? "denied" : "granted";
+      Setup.changed();
+      drawSettings();
+    }
+    $("sys-list").addEventListener("click", e => { if (e.target.closest("[data-mine]")) flipMine(); });
+    $("helper-demo").addEventListener("click", flipMine);
+
+    function closeSystem() {
+      clearInterval(poll);
+      poll = null;
+      open = null;
+      ["scrim", "mic-alert", "sys-settings", "helper"].forEach(id => $(id).hidden = true);
+      win.classList.remove("inactive");
+      // "re-checks when the app becomes active": render reads macOS' answer again
+      if (!S().sim.ax && S().perm.ax === "idle" && pane === "accessibility") S().perm.ax = "waiting";
+      pane = null;
+      Setup.changed();
+      primary.focus();
+    }
+    // Clicking the setup window behind brings it to the front, as on a Mac
+    $("scrim").addEventListener("click", () => { if (open === "settings") closeSystem(); });
+    $("sys-close").addEventListener("click", closeSystem);
+    $("helper-done").addEventListener("click", closeSystem);   // §5.3 step 5
+
+    function flashIf(yes, id) {
+      if (!yes) return;
+      const row = $(id);
+      row.classList.remove("just"); void row.offsetWidth; row.classList.add("just");
+    }
+
+    // ---- The rows ----------------------------------------------------------------------
+    const allowed = '<span class="allowed">✓ Allowed</span>';
+    const btn = (act, text) => `<button class="link-btn" type="button" data-act="${act}">${text}</button>`;
+
+    function renderMic() {
+      const row = $("row-mic"), mic = S().sim.mic;
+      row.dataset.state = mic;
+      const [state, cls, control, actions] = {
+        notAsked:   ["", "", btn("allow", "Allow"), ""],
+        granted:    ["", "", allowed, ""],
+        denied:     ["Microphone is turned off for SpeechText.", "warn", "", btn("mic-settings", "Open System Settings")],
+        restricted: ["Your Mac's settings don't allow microphone use. Ask whoever manages this Mac.", "bad", "", ""],
+      }[mic];
+      setRow(row, state, cls, control, actions);
+    }
+    function renderAx() {
+      const row = $("row-ax"), ax = axState();
+      row.dataset.state = ax;
+      const open = btn("ax-settings", "Open System Settings") + '<button class="skip-btn" type="button" data-act="skip">Skip for now</button>';
+      const [state, cls, control, actions] = {
+        idle:    ["", "", "", open],
+        // "Open again" replaces the big button while waiting
+        waiting: ['<span class="waiting-dot"></span><span>Waiting for you to turn on SpeechText in System Settings. <button class="inline-link" type="button" data-act="ax-settings">Open again</button></span>', "", "", '<button class="skip-btn" type="button" data-act="skip">Skip for now</button>'],
+        granted: ["", "", allowed, ""],
+        skipped: ['<span>Skipped — your text will appear in a small window, ready to copy. <button class="inline-link" type="button" data-act="ax-settings">Turn on</button></span>', "", "", ""],
+      }[ax];
+      setRow(row, state, cls, control, actions);
+    }
+    function setRow(row, state, cls, control, actions) {
+      const s = row.querySelector(".state");
+      if (s.innerHTML !== state) s.innerHTML = state;
+      s.className = "state " + cls;
+      for (const [sel, html] of [[".control", control], [".actions", actions]]) {
+        const el = row.querySelector(sel);
+        if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+      }
+    }
+
+    document.querySelector(".perms").addEventListener("click", e => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "allow") showAlert();
+      if (act === "mic-settings") openSettings("microphone");
+      if (act === "ax-settings") openSettings("accessibility");
+      if (act === "skip") { S().perm.ax = "skipped"; Setup.changed(); }
+    });
+
+    // §5.4: the login item is registered or unregistered on change, not on Continue
+    $("login").addEventListener("click", () => {
+      S().perm.login = !S().perm.login;
+      S().settings.loginItem = { launchAtLogin: S().perm.login, hasRegisteredLaunchAtLogin: true };
+      Setup.changed();
+    });
+
+    function render() {
+      renderMic();
+      renderAx();
+      $("login").setAttribute("aria-checked", String(S().perm.login));
+      $("row-login").dataset.state = S().perm.login ? "on" : "off";   // the icon turns green like a granted row
+      $("sim-mic").value = S().sim.mic;
+      $("sim-ax").textContent = `Accessibility: ${S().sim.ax ? "on" : "off"}`;
+      $("sim-ax").setAttribute("aria-pressed", String(S().sim.ax));
+      if (open === "settings") drawSettings();
+
+      // §5.5: the microphone is the one thing setup cannot go on without
+      const mic = S().sim.mic === "granted";
+      primary.disabled = !mic;
+      $("hint").hidden = mic;
+    }
+
+    // ---- Review bar: what macOS reports ------------------------------------------------------
+    $("sim-mic").addEventListener("change", e => { S().sim.mic = e.target.value; Setup.changed(); });
+    $("sim-ax").addEventListener("click", () => { S().sim.ax = !S().sim.ax; Setup.changed(); });
+
+    primary.addEventListener("click", () => {
+      if (open) return;
+      if (axState() !== "granted") S().perm.ax = "skipped";      // Continue without it = skipping it
+      S().settings.permissions = { microphone: S().sim.mic, accessibility: axState() };
+      S().settings.loginItem = { launchAtLogin: S().perm.login, hasRegisteredLaunchAtLogin: true };
+      Setup.changed();
+      console.info("④ writes", S().settings.loginItem, S().settings.permissions);
+      Setup.go(4);
+    });
+    const back = () => { if (!open) Setup.go(2); };
+    $("back").addEventListener("click", back);
+    addEventListener("keydown", e => { if (e.key === "Escape" && open === "settings") closeSystem(); });
+
+    Setup.init({ step: 3, primary, back });
+    Setup.onChange(render);
+    render();
+  </script>
+</body>
+</html>

@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-variant="c" data-mode="try">
+<head>
+  <meta charset="utf-8">
+  <title>SpeechText Setup · ⑤ Try it</title>
+  <link rel="stylesheet" href="setup.css">
+  <script src="setup.js"></script>
+  <style>
+    /* ---------------------------------------------------------------- ⑤ Try it → Done
+       One window, two states: the test (left: what to do, right: what came out), then Done. */
+
+
+    /* ---- The two views share the content area and cross-fade */
+    .content.view { transition: opacity 0.35s; }
+    :root[data-mode="try"] .view-done,
+    :root[data-mode="done"] .view-try { display: none; }
+    .view.entering { opacity: 0; }
+
+    /* ---- The copy sits in the middle of the card; the panel is ①'s box, its contents centred in it */
+    .view-try .copy, .view-done .copy { justify-content: center; }
+    /* ①'s width too (x664–980): everything here fits it, unlike ②–④'s model and permission rows */
+    :root[data-variant="c"] .choice-screen .content { grid-template-columns: 310px 316px; justify-content: space-between; padding-right: 32px; }
+
+    /* ---- Keys: each symbol its own key, in translucent light green (lit while held) */
+    .caps { display: inline-flex; gap: 5px; vertical-align: -0.12em; }
+    .cap {
+      min-width: 1.5em;
+      height: 1.5em;
+      padding: 0 0.3em;
+      border-radius: 0.3em;
+      display: inline-grid;
+      place-items: center;
+      font: 600 0.62em/1 var(--ui-font);
+      letter-spacing: 0;
+      color: var(--brand);
+      background: color-mix(in srgb, var(--phosphor) 24%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--phosphor) 45%, transparent), 0 1.5px 0 color-mix(in srgb, var(--brand) 25%, transparent);
+      transition: background 0.15s, color 0.15s, transform 0.1s, box-shadow 0.15s;
+    }
+    :root[data-theme="dark"] .cap { color: var(--phosphor); background: color-mix(in srgb, var(--phosphor) 16%, transparent); }
+    /* In the title the keys get a line of their own */
+    .title .caps { display: flex; width: max-content; gap: 8px; margin: 14px 0 8px; }
+    .title .cap { min-width: 52px; height: 52px; border-radius: 13px; font-size: 22px; }
+    .lead .caps { gap: 3px; margin: 0 2px; }
+    .lead .cap { min-width: 22px; height: 22px; border-radius: 6px; font-size: 12px; }
+    .cap.lit { color: var(--screen); background: var(--phosphor); transform: translateY(1px); box-shadow: 0 0 16px color-mix(in srgb, var(--phosphor) 65%, transparent); }
+    .caps.pulsing .cap { animation: cap-pulse 1.1s ease-in-out infinite; }
+    @keyframes cap-pulse { 50% { background: color-mix(in srgb, var(--phosphor) 50%, transparent); } }
+    .caps.ai .cap { color: #6b46e0; background: color-mix(in srgb, var(--ai) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai) 40%, transparent); }
+    :root[data-theme="dark"] .caps.ai .cap { color: #c7b3ff; }
+    .caps.ai .cap.lit { color: #fff; background: var(--ai); box-shadow: 0 0 16px color-mix(in srgb, var(--ai) 60%, transparent); }
+    .try-hint { margin-top: 4px; font-size: 12px; color: var(--label-2); line-height: 1.45; }
+    .try-hint:empty { display: none; }
+    .copy .title .ok { color: #1e8e46; }
+    :root[data-theme="dark"] .copy .title .ok { color: var(--confirmation); }
+
+    /* ---- Right: one result card — what you said, and the microphone it heard */
+    .try-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 14px;
+      gap: 12px;
+      transition: background 0.4s, border-color 0.4s;
+    }
+    /* While SpeechText listens, the grey gives way to a soft green that breathes (violet for ⌃⇧A) */
+    .try-panel.listening { --tint: var(--phosphor); animation: listen-fill 1.8s ease-in-out infinite; }
+    .try-panel.listening.ai { --tint: var(--ai); }
+    @keyframes listen-fill {
+      0%, 100% { background: color-mix(in srgb, var(--tint) 14%, var(--panel-bg)); border-color: color-mix(in srgb, var(--tint) 30%, transparent); }
+      50%      { background: color-mix(in srgb, var(--tint) 30%, var(--panel-bg)); border-color: color-mix(in srgb, var(--tint) 55%, transparent); }
+    }
+    .result-card {
+      border-radius: 13px;
+      background: var(--control-bg);
+      box-shadow: inset 0 0 0 1px var(--panel-border), 0 1px 3px rgba(0, 0, 0, 0.05);
+      transition: box-shadow 0.3s;
+    }
+    .result-card.success { box-shadow: inset 0 0 0 1.5px var(--step-current), 0 0 0 4px color-mix(in srgb, var(--phosphor) 22%, transparent); }
+    .rc-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 0; font-size: 11px; font-weight: 600; color: var(--label-3); text-transform: uppercase; letter-spacing: 0.04em; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 8px; font-size: 10.5px; letter-spacing: 0; text-transform: none; color: var(--label-2); background: var(--separator); }
+    .chip.on { color: var(--brand); background: color-mix(in srgb, var(--phosphor) 24%, transparent); }
+    :root[data-theme="dark"] .chip.on { color: var(--phosphor); }
+    .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: wait-pulse 1.2s ease-in-out infinite; }
+    @keyframes wait-pulse { 50% { opacity: 0.3; } }
+    .chip .spinner { width: 9px; height: 9px; margin: 0; }
+    .result {
+      min-height: calc(7 * 1.45em + 16px);
+      max-height: calc(7 * 1.45em + 16px);
+      overflow: auto;
+      padding: 8px 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      color: var(--label);
+    }
+    /* With the AI card under it, the result gives up the room it doesn't need */
+    .try-panel:has(.ai-card:not([hidden])) .result { min-height: calc(3 * 1.45em + 16px); max-height: calc(3 * 1.45em + 16px); }
+    .result .ph { color: var(--label-3); }
+    .result .live { color: var(--label-2); }
+    .result .busy { display: flex; align-items: center; gap: 8px; color: var(--label-2); }
+
+    /* Live level + device name (spec §6.1: live from the moment the screen opens) */
+    .meter { display: flex; align-items: center; gap: 8px; padding: 8px 14px 9px; border-top: 1px solid var(--separator); font-size: 11.5px; color: var(--label-2); }
+    .meter .mic { flex: none; color: var(--label-3); }
+    .meter .dev { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meter .lv { display: flex; align-items: center; gap: 2px; height: 16px; }
+    .meter .lv i { display: block; width: 3px; height: 3px; border-radius: 1.5px; background: var(--label-3); transition: height 0.08s; }
+    .meter.hot .lv i { background: var(--step-current); }
+    .meter.hot .mic { color: var(--step-current); }
+
+    .status-block { padding: 0 4px; }
+    .status-block:empty { display: none; }
+    .status-block .bar { height: 5px; border-radius: 3px; background: var(--separator); overflow: hidden; }
+    .status-block .bar i { display: block; height: 100%; border-radius: 3px; background: var(--step-current); transition: width 0.3s linear; }
+    .status-block .bar.indeterminate i { width: 30%; animation: slide 1.2s ease-in-out infinite; }
+    .status-block .note { margin-top: 5px; font-size: 11.5px; color: var(--label-2); }
+
+    .links { display: flex; gap: 16px; align-items: center; padding: 0 4px 2px; font-size: 12px; }
+    .links:empty { display: none; }
+    .links .link-btn { height: 26px; }
+    .skip-row { display: flex; justify-content: center; }
+    .skip-row:empty { display: none; }
+
+    /* ---- The AI try-out card: violet, like the AI recording bar */
+    .ai-card {
+      padding: 12px 13px;
+      border-radius: 12px;
+      font-size: 12px;
+      color: var(--label-2);
+      background: color-mix(in srgb, var(--ai) 9%, var(--control-bg));
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai) 28%, transparent);
+    }
+    .ai-card[hidden] { display: none; }
+    .ai-card b { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--label); margin-bottom: 3px; }
+    .ai-card .caps .cap { min-width: 20px; height: 20px; border-radius: 5px; font-size: 11px; }
+    .ai-card .spinner { border-top-color: var(--ai); }
+    .ai-card .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .ai-card .cols div { padding: 8px 10px; border-radius: 9px; font-size: 12px; line-height: 1.4; background: var(--control-bg); color: var(--label); }
+    .ai-card .cols small { display: block; margin-bottom: 2px; font-size: 10.5px; font-weight: 600; color: var(--label-3); }
+    .ai-card .cols .wrote { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai) 45%, transparent); }
+    .ai-card .reason { margin-top: 6px; color: var(--danger); }
+
+    /* ---- The real recording bar, at the bottom-right of the screen while the test listens */
+    .overlay-strip.live {
+      position: fixed;
+      z-index: 12;
+      right: 24px;
+      bottom: 24px;
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+      transition: opacity 0.25s, transform 0.35s cubic-bezier(0.2, 1.3, 0.4, 1);
+      pointer-events: none;
+    }
+    .overlay-strip.live.shown { opacity: 1; transform: none; }
+    .overlay-strip.live.ai { color: var(--ai); }
+    .overlay-strip .bars i { background: currentColor; }
+
+    /* ---- Done */
+    .done-emoji { font-size: 40px; line-height: 1; margin-bottom: 14px; }
+    .menu-note { font-size: 13px; color: var(--label-2); line-height: 1.45; }
+    .menu-note b { display: block; color: var(--label); font-size: 14px; margin-bottom: 2px; }
+    /* The same green as ①'s panel */
+    .done-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 24px 22px;
+      gap: 14px;
+      border: 0;
+      color: #fff;
+      background:
+        radial-gradient(120% 80% at 100% 110%, color-mix(in srgb, var(--phosphor) 45%, transparent), transparent 60%),
+        radial-gradient(90% 70% at 0% 0%, #1f6a48, transparent 70%),
+        linear-gradient(160deg, #134a33, var(--brand-deep));
+    }
+    .done-panel > * { position: relative; z-index: 1; }
+    .done-panel h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .shortcuts {
+      display: flex;
+      flex-direction: column;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.26);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    }
+    .shortcuts { padding: 8px 0; }
+    .shortcut { display: grid; grid-template-columns: 88px 1fr; gap: 10px; align-items: center; padding: 12px 16px; font-size: 13px; }
+    .shortcut + .shortcut { border-top: 1px solid rgba(255, 255, 255, 0.1); }
+    .shortcut .keys { display: flex; gap: 4px; }
+    .shortcut .keys .keycap {
+      min-width: 22px;
+      height: 22px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 5px;
+      color: var(--phosphor);
+      background: color-mix(in srgb, var(--phosphor) 18%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--phosphor) 40%, transparent);
+    }
+    .shortcut .off { color: rgba(255, 255, 255, 0.5); }
+    .done-panel p { margin: 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.72); line-height: 1.45; }
+    .done-panel p b { color: #fff; }
+    .done-panel .preparing { color: #ffd479; }
+
+
+    /* After "Start using SpeechText": the window closes; the app lives on in the menu bar */
+    .stage { transition: opacity 0.4s, transform 0.4s; }
+    :root[data-mode="closed"] .stage { opacity: 0; transform: scale(0.96); pointer-events: none; }
+    .closed-note {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      font-size: 13px;
+      color: var(--label-2);
+      display: none;
+    }
+    :root[data-mode="closed"] .closed-note { display: block; }
+    :root[data-mode="closed"] .view-try, :root[data-mode="closed"] .view-try ~ * { }
+    .status-notice {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 12;
+      padding: 10px 16px;
+      border-radius: 22px;
+      font-size: 12.5px;
+      color: var(--glass-ink);
+      background: var(--glass);
+      backdrop-filter: blur(20px) saturate(1.6);
+      -webkit-backdrop-filter: blur(20px) saturate(1.6);
+      box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18), 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+    .status-notice[hidden] { display: none; }
+    @media (prefers-reduced-motion: reduce) { .caps.pulsing .cap, .try-panel.listening { animation: none; } }
+  </style>
+</head>
+<body class="choice-screen">
+
+
+  <!-- Review toolbar: outside the window, for looking at the design -->
+  <div class="review-bar" role="toolbar" aria-label="Preview options">
+    <button type="button" data-theme-set="light" aria-pressed="true">Light</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+    <span class="sep"></span>
+    <select id="sim-outcome" aria-label="How the test goes">
+      <option value="works">Test: works</option>
+      <option value="nothing">Test: nothing heard</option>
+      <option value="rejected">Test: key rejected</option>
+      <option value="ai-fails">Test: AI fails</option>
+    </select>
+    <button type="button" id="sim-real" aria-pressed="false" title="Use this computer's microphone and the browser's speech recognition">Real microphone</button>
+    <button type="button" id="sim-network">Online</button>
+    <button type="button" id="sim-fail">Fail downloads</button>
+    <span class="sep"></span>
+    <button type="button" id="sim-reset">Start over</button>
+  </div>
+
+  <div class="stage">
+  <div class="aura" aria-hidden="true"><div class="swirl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+
+  <div class="window" role="dialog" aria-label="SpeechText Setup">
+    <div class="card">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+
+      <!-- ============ Try it ============ -->
+      <main class="content view view-try">
+        <section class="copy">
+          <h1 class="title" id="try-title"></h1>
+          <p class="lead" id="try-body"></p>
+          <p class="try-hint" id="try-hint"></p>
+        </section>
+
+        <section class="panel try-panel" aria-label="Test">
+          <div class="result-card" id="result-card">
+            <div class="rc-head"><span>Result</span><span id="chip"></span></div>
+            <div class="result" id="result" aria-live="polite"></div>
+            <div class="meter" id="meter" aria-label="Microphone level">
+              <svg class="mic" width="10" height="14" viewBox="0 0 12 16" fill="currentColor"><rect x="3" y="0" width="6" height="10" rx="3"/><path d="M1 7.5a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="5.2" y="12" width="1.6" height="3.5" rx="0.8"/></svg>
+              <span class="dev" id="device">MacBook Pro Microphone</span>
+              <span class="lv" id="lv"></span>
+            </div>
+          </div>
+          <div class="status-block" id="status-block"></div>
+          <div class="ai-card" id="ai-card" hidden></div>
+          <div class="links" id="links"></div>
+          <div class="skip-row" id="skip-row"></div>
+        </section>
+      </main>
+
+      <!-- ============ Done ============ -->
+      <main class="content view view-done">
+        <section class="copy">
+          <div class="done-emoji" aria-hidden="true">🎉</div>
+          <h1 class="title">You're all set</h1>
+          <p class="menu-note"><b>SpeechText lives in your menu bar</b>There's no Dock icon — click the icon at the top of your screen for settings and history.</p>
+        </section>
+
+        <section class="panel done-panel" aria-label="Your shortcuts">
+          <h2>Your shortcuts</h2>
+          <div class="shortcuts" id="shortcuts"></div>
+          <p>Work in any app. Press once to start, again to stop. Change them any time in <b>Settings</b>.</p>
+          <p class="preparing" id="done-preparing" hidden>Your speech model is still getting ready. We'll show a message when you can start dictating.</p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <ol class="steps steps-bar" aria-label="Setup steps">
+          <li><span class="dot"></span><span class="label">Welcome</span></li>
+          <li><span class="dot"></span><span class="label">Speech</span></li>
+          <li><span class="dot"></span><span class="label">AI</span></li>
+          <li><span class="dot"></span><span class="label">Permissions</span></li>
+          <li class="current" aria-current="step" id="step-try"><span class="dot"></span><span class="label">Try it</span></li>
+        </ol>
+        <button class="btn btn-secondary" type="button" id="back">Back</button>
+        <button class="btn btn-primary" type="button" id="primary" autofocus>Continue</button>
+      </footer>
+    </div>
+  </div>
+  </div>
+
+  <!-- The real recording bar (RecordingOverlayView, minimal skin), bottom-right of the screen -->
+  <div class="overlay-strip live" id="strip" aria-hidden="true">
+    <span class="icon" id="strip-icon"></span>
+    <span class="bars" id="strip-bars"></span>
+    <span class="close"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 1.5l7 7m0-7l-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+  </div>
+  <div class="status-notice" id="notice" role="status" hidden></div>
+  <div class="closed-note">Setup is closed — SpeechText is in the menu bar.<br>Press “Start over” above to see it again.</div>
+
+  <script>
+    // ⑤ Try it → Done (spec §6). The test is simulated unless "Real microphone" is on, in which
+    // case the level is this computer's microphone and the text is the browser's speech recognition.
+    const S = () => Setup.state;
+    const root = document.documentElement;
+    const $ = id => document.getElementById(id);
+    const primary = $("primary");
+    S().settings.onboardingStep = "try";
+    Setup.changed();
+
+    // What the earlier screens decided (defaults for a page opened on its own)
+    const stt = () => S().settings.stt ?? { sttProvider: "local", localSTTModel: "turbo" };
+    const online = () => stt().sttProvider !== "local";
+    const streams = () => stt().elevenLabsModel === "scribe_v2_realtime";
+    const ai = () => S().settings.ai;                           // undefined when ③ was skipped
+    const axSkipped = () => S().settings.permissions?.accessibility === "skipped";
+    const MODEL_NAMES = { "large-v3": "Large v3", turbo: "Turbo", small: "Small", base: "Base", tiny: "Tiny" };
+
+    let outcome = "works";
+    const test = { phase: "ready", text: "", live: "", ai: { phase: "ready", said: "", wrote: "", reason: "" } };
+    let startedAt = 0;
+
+    // ---- The speech model, if it is still arriving (spec §6.2's first three rows) ------------
+    function download() {
+      if (stt().sttProvider !== "local") return null;
+      const d = S().downloads.speech;
+      if (!d || d.id !== stt().localSTTModel) return null;
+      const p = Setup.progress("speech");
+      return p.phase === "ready" ? null : { ...p, name: d.name, id: d.id };
+    }
+    function aiDownload() {
+      if (ai()?.llmProvider !== "ollama") return null;
+      const d = S().downloads.ai;
+      if (!d || d.id !== ai().ollamaModel) return null;
+      const p = Setup.progress("ai");
+      return p.phase === "ready" ? null : p;
+    }
+
+    // ---- The microphone: simulated, or this computer's -------------------------------------------
+    const mic = { real: false, level: 0, analyser: null, stream: null, rec: null, recText: "", recFinal: "" };
+    function simulatedLevel(t) {
+      if (!["listening"].includes(test.phase) && test.ai.phase !== "listening") return 0.03 + Math.random() * 0.04;
+      if (outcome === "nothing" && test.ai.phase !== "listening") return 0.02 + Math.random() * 0.03;
+      const syllable = (Math.sin(t / 90) + Math.sin(t / 37) + 2) / 4;         // speech-like bursts
+      return 0.2 + syllable * 0.7 * (Math.random() * 0.4 + 0.6);
+    }
+    async function useRealMic(on) {
+      if (!on) {
+        mic.stream?.getTracks().forEach(t => t.stop());
+        Object.assign(mic, { real: false, stream: null, analyser: null });
+        $("device").textContent = "MacBook Pro Microphone";
+        return true;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const ctx = new AudioContext();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        Object.assign(mic, { real: true, stream, analyser });
+        $("device").textContent = stream.getAudioTracks()[0]?.label || "Microphone";
+        return true;
+      } catch {
+        Setup.toast("The browser didn't allow the microphone — the test stays simulated.");
+        return false;
+      }
+    }
+    function realLevel() {
+      const buf = new Float32Array(mic.analyser.fftSize);
+      mic.analyser.getFloatTimeDomainData(buf);
+      const rms = Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length);
+      return Math.min(1, Math.pow(Math.max(0, rms - 0.004) * 9, 0.7));    // the app's compressive curve, roughly
+    }
+
+    // The browser's own recogniser stands in for the engine chosen on ②
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    function startRecognition() {
+      mic.recText = ""; mic.recFinal = "";
+      if (!mic.real || !Recognition) return;
+      try {
+        const rec = new Recognition();
+        rec.lang = navigator.language || "en-US";
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.onresult = e => {
+          let final = "", interim = "";
+          for (const r of e.results) (r.isFinal ? (final += r[0].transcript) : (interim += r[0].transcript));
+          mic.recFinal = final; mic.recText = (final + interim).trim();
+        };
+        rec.onerror = () => {};
+        rec.start();
+        mic.rec = rec;
+      } catch { mic.rec = null; }
+    }
+    function stopRecognition() {
+      return new Promise(resolve => {
+        if (!mic.rec) return resolve(null);
+        const rec = mic.rec; mic.rec = null;
+        const t = setTimeout(() => resolve(mic.recText), 1500);
+        rec.onend = () => { clearTimeout(t); resolve(mic.recText); };
+        rec.stop();
+      });
+    }
+
+    // Level meter in the panel + the bars in the recording strip, on their own clock
+    const LV = 22, STRIP = 12;
+    $("lv").innerHTML = "<i></i>".repeat(LV);
+    $("strip-bars").innerHTML = "<i></i>".repeat(STRIP);
+    const jitter = i => 0.55 + 0.45 * Math.abs(Math.sin(i * 12.9898 + Math.floor(performance.now() / 110) * 3.1));
+    (function tick(t) {
+      mic.level = mic.real && mic.analyser ? realLevel() : simulatedLevel(t);
+      $("lv").querySelectorAll("i").forEach((el, i) => el.style.height = Math.max(3, Math.min(16, mic.level * 18 * jitter(i))) + "px");
+      $("meter").classList.toggle("hot", mic.level > 0.15);
+      $("strip-bars").querySelectorAll("i").forEach((el, i) => el.style.height = Math.max(4, Math.min(26, 4 + mic.level * 26 * jitter(i + 5))) + "px");
+      requestAnimationFrame(tick);
+    })(0);
+
+    // ---- The test ------------------------------------------------------------------------------
+    const SAMPLE = "This is my first dictation.";
+    const AI_SAID = "uh, tell John I'll call him tomorrow morning, like, first thing";
+    const AI_WROTE = "Hi John, I'll call you first thing tomorrow morning.";
+    let liveTimer;
+
+    function showStrip(on, aiMode = false) {
+      $("strip").classList.toggle("shown", on);
+      $("strip").classList.toggle("ai", aiMode);
+      $("strip-icon").innerHTML = aiMode
+        ? '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0l1.6 4.8L14.4 6 9.6 7.6 8 12.4 6.4 7.6 1.6 6l4.8-1.2z"/><path d="M13 10l.7 1.8 1.8.7-1.8.7L13 15l-.7-1.8-1.8-.5 1.8-.7z"/></svg>'
+        : '<svg width="12" height="15" viewBox="0 0 12 16" fill="currentColor"><rect x="3" y="0" width="6" height="10" rx="3"/><path d="M1 7.5a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="5.2" y="12" width="1.6" height="3.5" rx="0.8"/></svg>';
+    }
+
+    function pressQ() {
+      if (download() || root.dataset.mode !== "try") return;
+      if (test.phase === "listening") return stopQ();
+      if (["transcribing"].includes(test.phase) || test.ai.phase === "listening" || test.ai.phase === "polishing") return;
+      // ready, or another go after a result / a failure
+      Object.assign(test, { phase: "listening", text: "", live: "" });
+      test.ai.phase = "ready";
+      startedAt = Date.now();
+      showStrip(true);
+      startRecognition();
+      if (streams() && !mic.real && outcome !== "nothing") {
+        // ElevenLabs live: the words appear while speaking
+        const words = SAMPLE.split(" ");
+        let n = 0;
+        clearInterval(liveTimer);
+        liveTimer = setInterval(() => { if (n < words.length) test.live = words.slice(0, ++n).join(" "); render(); }, 380);
+      }
+      render();
+    }
+    async function stopQ() {
+      clearInterval(liveTimer);
+      showStrip(false);
+      test.phase = "transcribing";
+      render();
+      const heard = await stopRecognition();
+      setTimeout(() => {
+        const noNet = online() && S().sim.network === "offline";
+        const real = mic.real && Recognition;
+        if (noNet) test.phase = "offline";
+        else if (outcome === "rejected" && online()) test.phase = "rejected";
+        else if (real ? !heard : outcome === "nothing") test.phase = "nothing";
+        else { test.phase = "success"; test.text = real ? heard : SAMPLE; afterSuccess(); }
+        render();
+      }, stt().sttProvider === "local" ? 1400 : 900);
+    }
+    function afterSuccess() {
+      // No AI set up: go to Done after 1.5 s, so the ✓ is seen (spec §6.3)
+      if (!ai()) setTimeout(() => { if (test.phase === "success") toDone(); }, 1500);
+    }
+
+    function pressA() {
+      if (root.dataset.mode !== "try" || test.phase !== "success" || !ai() || aiDownload()) return;
+      const a = test.ai;
+      if (a.phase === "listening") return stopA();
+      if (a.phase === "polishing") return;
+      Object.assign(a, { phase: "listening", said: "", wrote: "", reason: "" });
+      showStrip(true, true);
+      startRecognition();
+      render();
+    }
+    async function stopA() {
+      const a = test.ai;
+      showStrip(false);
+      a.phase = "polishing";
+      render();
+      const heard = await stopRecognition();
+      a.said = mic.real && Recognition ? (heard || "") : AI_SAID;
+      setTimeout(() => {
+        const provider = ai().llmProvider;
+        const noNet = provider !== "ollama" && S().sim.network === "offline";
+        if (!a.said) { a.phase = "failed"; a.reason = "We didn't hear anything."; }
+        else if (noNet || outcome === "ai-fails") {
+          a.phase = "failed";
+          a.reason = noNet ? "No internet connection" : provider === "ollama" ? "Ollama isn't running" : "Your key didn't work";
+        } else {
+          a.phase = "success";
+          a.wrote = mic.real && Recognition ? tidy(a.said) : AI_WROTE;
+        }
+        render();
+      }, 2200);
+    }
+    // A stand-in for the model when the words are the reviewer's own: drop fillers, capitalise, stop
+    const tidy = s => {
+      const t = s.replace(/\b(uh|um|er|like|you know|so)\b,?\s*/gi, "").replace(/\s+/g, " ").trim();
+      return t ? t[0].toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") : s;
+    };
+
+    // Every key shown on the page lights while ⌃⇧Q / ⌃⇧A is held on the keyboard — the test is
+    // started the way it will be used, by the shortcut itself, never by clicking the drawing of it
+    let held = null;                                   // null | "Q" | "A"
+    function light(key) {
+      held = key;
+      document.querySelectorAll(".caps").forEach(g => g.querySelectorAll(".cap").forEach(c => c.classList.toggle("lit", !!key && g.dataset.key === key)));
+    }
+    addEventListener("keydown", e => {
+      if (!e.ctrlKey || !e.shiftKey || e.repeat) return;
+      if (e.code === "KeyQ") { e.preventDefault(); light("Q"); pressQ(); }
+      if (e.code === "KeyA") { e.preventDefault(); light("A"); pressA(); }
+    });
+    addEventListener("keyup", e => { if (["KeyQ", "KeyA", "ControlLeft", "ShiftLeft", "ControlRight", "ShiftRight"].includes(e.code)) light(null); });
+
+    // ---- Drawing the Try it view -----------------------------------------------------------------
+    const esc = s => s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const set = (el, html) => { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
+    const caps = (key, cls = "") => `<span class="caps ${cls}" data-key="${key}" aria-label="Control Shift ${key}">${["⌃", "⇧", key].map(k => `<span class="cap">${k}</span>`).join("")}</span>`;
+    const kbd = k => caps(k.slice(-1), k.endsWith("A") ? "ai" : "");
+
+    function copyFor(d) {
+      if (d?.phase === "downloading") return ["Almost ready…", `Your speech model is still downloading (${Math.floor(d.fraction * 100)}%). You can wait here or finish setup now — we'll let you know when it's ready.`];
+      if (d?.phase === "preparing") return ["Getting ready for your Mac…", `This happens only once and takes ${["turbo", "large-v3"].includes(d.id) ? "about 10 minutes" : "under a minute"}. You can wait here or finish setup now — we'll let you know when it's ready.`];
+      if (d?.phase === "failed") return ["The download didn't finish", "Check your internet connection and try again."];
+      return {
+        ready:        [`Try it: press ${caps("Q")}`, "Say anything, like <i>“This is my first dictation.”</i> Press the keys again when you're done."],
+        listening:    ["Listening…", `Press ${kbd("⌃⇧Q")} again when you're done.`],
+        transcribing: ["Turning your speech into text…", ""],
+        success:      ['<span class="ok">✓</span> It works!', ai() ? `That's your voice, typed. Now try AI polish: press ${kbd("⌃⇧A")}` : "That's your voice, typed."],
+        nothing:      ["We didn't hear anything", `Check that the right microphone is selected — it's shown on the right. Then press ${kbd("⌃⇧Q")} again.`],
+        rejected:     ["Your key stopped working", "Go back and paste your key again."],
+        offline:      ["No internet connection", `Online services need internet. Connect, then press ${kbd("⌃⇧Q")} again.`],
+      }[test.phase];
+    }
+
+    function render() {
+      if (root.dataset.mode !== "try") return renderDone();
+      const d = download();
+      const [title, body] = copyFor(d);
+      set($("try-title"), title);
+      set($("try-body"), body);
+      document.querySelectorAll(".caps").forEach(g => {
+        g.classList.toggle("pulsing", (g.dataset.key === "Q" && test.phase === "listening") || (g.dataset.key === "A" && test.ai.phase === "listening"));
+        if (held) g.querySelectorAll(".cap").forEach(c => c.classList.toggle("lit", g.dataset.key === held));
+      });
+      set($("try-hint"), test.phase === "listening" ? "See the small bar at the bottom of your screen? That's SpeechText listening." : "");
+
+      // The result box
+      let box;
+      if (test.phase === "transcribing") box = '<span class="busy"><span class="spinner"></span>Turning your speech into text…</span>';
+      else if (test.phase === "listening") {
+        const live = mic.real && streams() ? mic.recText : test.live;
+        box = live ? `<span class="live">${esc(live)}</span>` : '<span class="ph">Listening…</span>';
+      } else if (test.text) box = esc(test.text);
+      else box = '<span class="ph">Your words will appear here.</span>';
+      set($("result"), box);
+      $("result-card").classList.toggle("success", test.phase === "success");
+      const tryPanel = document.querySelector(".try-panel");
+      tryPanel.classList.toggle("listening", test.phase === "listening" || test.ai.phase === "listening");
+      tryPanel.classList.toggle("ai", test.ai.phase === "listening");
+      set($("chip"), {
+        listening:    '<span class="chip on"><span class="dot"></span>Listening</span>',
+        transcribing: '<span class="chip"><span class="spinner"></span>Transcribing</span>',
+        success:      '<span class="chip on">✓ Typed</span>',
+      }[test.phase] ?? (d ? "" : '<span class="chip">Waiting for ⌃⇧Q</span>'));
+
+      // Download progress
+      let status = "";
+      if (d?.phase === "downloading") status = `<div class="bar"><i style="width:${(d.fraction * 100).toFixed(1)}%"></i></div><div class="note">${esc(d.name)} · ${Math.floor(d.fraction * 100)}% · about ${d.secondsLeft} s left</div>`;
+      if (d?.phase === "preparing") status = `<div class="bar indeterminate"><i></i></div><div class="note">Preparing ${esc(d.name)} for your Mac…</div>`;
+      set($("status-block"), status);
+
+      // The AI try-out, after a ⌃⇧Q success (spec §6.3)
+      const card = $("ai-card");
+      card.hidden = !(ai() && test.phase === "success");
+      if (!card.hidden) {
+        const a = test.ai, ad = aiDownload();
+        let html;
+        if (ad?.phase === "downloading") html = `<b>AI model is still downloading (${Math.floor(ad.fraction * 100)}%)</b>You can try it later.`;
+        else if (ad?.phase === "failed") html = `<b>AI model download failed</b>You can try it later — retry from the task at the top.`;
+        else html = {
+          ready:     `<b>✨ Now try AI polish: press ${kbd("⌃⇧A")}</b>Speak casually — for example <i>“uh, tell John I'll call him tomorrow morning.”</i>`,
+          listening: `<b>Listening…</b>Press ${kbd("⌃⇧A")} again when you're done.`,
+          polishing: `<b><span class="spinner"></span>AI is tidying up your text…</b>This takes a few seconds.`,
+          success:   `<b>✓ Here's the AI version</b><div class="cols"><div><small>You said</small>${esc(a.said)}</div><div class="wrote"><small>✨ AI wrote</small>${esc(a.wrote)}</div></div>`,
+          failed:    `<b>AI couldn't answer this time</b>Here's your text as you said it: <i>${esc(a.said || "—")}</i><div class="reason">${esc(a.reason)}</div>`,
+        }[a.phase];
+        set(card, html);
+      }
+
+      // Links under the panel
+      const L = [];
+      if (d?.phase === "downloading" || d?.phase === "preparing") L.push('<button class="inline-link" type="button" data-act="finish">Finish setup</button>');
+      if (d?.phase === "failed") L.push('<button class="link-btn" type="button" data-act="retry">Retry</button>', '<button class="inline-link" type="button" data-act="choose">Choose another option</button>');
+      if (!d && test.phase === "nothing") L.push('<button class="inline-link" type="button" data-act="sound">Open Sound Settings ↗</button>');
+      if (!d && test.phase === "rejected") L.push('<button class="link-btn" type="button" data-act="speech">Back to Speech</button>');
+      set($("links"), L.join(""));
+      // The way past the test: its own centred row, the same capsule as ③ and ④'s "Skip for now"
+      set($("skip-row"),
+        !d && test.phase !== "success" ? '<button class="skip-btn" type="button" data-act="skip">Skip the test</button>'
+        : !card.hidden && test.ai.phase !== "success" ? '<button class="skip-btn" type="button" data-act="finish">Skip AI test</button>' : "");
+
+      primary.textContent = "Continue";
+      primary.disabled = test.phase !== "success" || !ai();
+    }
+
+    const onLink = e => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "finish" || act === "skip") toDone();
+      if (act === "retry") Setup.retryDownload("speech");
+      if (act === "choose" || act === "speech") Setup.go(1);
+      if (act === "sound") window.open("x-apple.systempreferences:com.apple.Sound-Settings.extension?input", "_blank");
+    };
+    $("links").addEventListener("click", onLink);
+    $("skip-row").addEventListener("click", onLink);
+
+    // ---- Done (spec §6.4) --------------------------------------------------------------------
+    function toDone() {
+      clearInterval(liveTimer);
+      showStrip(false);
+      stopRecognition();
+      const next = document.querySelector(".view-done");
+      root.dataset.mode = "done";
+      next.classList.add("entering");
+      requestAnimationFrame(() => requestAnimationFrame(() => next.classList.remove("entering")));
+      const li = $("step-try");
+      li.classList.remove("current");
+      li.classList.add("done");
+      li.removeAttribute("aria-current");
+      S().settings.onboardingStep = "done";
+      Setup.changed();
+      renderDone();
+    }
+
+    const caps3 = k => `<span class="keys"><span class="keycap">⌃</span><span class="keycap">⇧</span><span class="keycap">${k}</span></span>`;
+    function renderDone() {
+      if (root.dataset.mode === "closed") return;
+      set($("shortcuts"), [
+        ["Q", "Dictate"],
+        ["A", ai() ? "Dictate with AI" : '<span class="off">Dictate with AI · off</span>'],
+        ["W", "Dictation window"],
+      ].map(([k, t]) => `<div class="shortcut">${caps3(k)}<span>${t}</span></div>`).join(""));
+      const preparing = !!download();
+      $("done-preparing").hidden = !preparing;
+      primary.disabled = false;
+      primary.textContent = "Start using SpeechText";
+      $("back").style.display = "none";                  // spec §1: no Back on Done
+    }
+
+
+    // Start using SpeechText: onboardingCompleted = true, onboardingStep cleared, the window closes
+    function finish() {
+      S().settings.onboardingCompleted = true;
+      delete S().settings.onboardingStep;
+      Setup.changed();
+      console.info("⑤ writes", { onboardingCompleted: true });
+      root.dataset.mode = "closed";
+      if (download()) watchReady();
+    }
+    // "When it becomes ready, the app shows its status overlay"
+    function watchReady() {
+      const t = setInterval(() => {
+        if (download()) return;
+        clearInterval(t);
+        $("notice").textContent = "SpeechText is ready — press ⌃⇧Q to dictate.";
+        $("notice").hidden = false;
+        setTimeout(() => $("notice").hidden = true, 5000);
+      }, 400);
+    }
+
+    primary.addEventListener("click", () => {
+      if (root.dataset.mode === "done") finish();
+      else if (!primary.disabled) toDone();
+    });
+    const back = () => { if (root.dataset.mode === "try") Setup.go(3); };
+    $("back").addEventListener("click", back);
+
+    // ---- Review bar ------------------------------------------------------------------------
+    $("sim-outcome").addEventListener("change", e => { outcome = e.target.value; });
+    $("sim-real").addEventListener("click", async () => {
+      const on = !mic.real;
+      if (await useRealMic(on)) $("sim-real").setAttribute("aria-pressed", String(on));
+    });
+
+    if (location.hash.includes("done")) toDone();
+    Setup.init({ step: 4, primary, back });
+    Setup.onChange(render);
+    setInterval(render, 250);
+    render();
+  </script>
+</body>
+</html>

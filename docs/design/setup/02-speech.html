@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-variant="c" data-path="local" data-service="groq">
+<head>
+  <meta charset="utf-8">
+  <title>SpeechText Setup · ② Speech</title>
+  <link rel="stylesheet" href="setup.css">
+  <script src="setup.js"></script>
+</head>
+<body class="choice-screen">
+
+  <!-- Review toolbar: outside the window, for looking at the design -->
+  <div class="review-bar" role="toolbar" aria-label="Preview options">
+    <button type="button" data-theme-set="light" aria-pressed="true">Light</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+    <span class="sep"></span>
+    <button type="button" id="sim-network" title="What a key check will find">Online</button>
+    <select id="sim-copy-key" aria-label="Copy a test key">
+      <option value="">Copy a test key…</option>
+      <option value="groq">Groq key</option>
+      <option value="elevenlabs">ElevenLabs key</option>
+      <option value="wrong">A key that won't work</option>
+    </select>
+    <button type="button" id="sim-fail">Fail downloads</button>
+    <span class="sep"></span>
+    <button type="button" id="sim-reset">Start over</button>
+  </div>
+
+  <div class="stage">
+  <!-- The moving glow, under the window and seen through its glass frame -->
+  <div class="aura" aria-hidden="true"><div class="swirl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+
+  <div class="window" role="dialog" aria-label="SpeechText Setup">
+    <div class="card">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+
+      <main class="content">
+
+        <!-- Left: the question and the two answers -->
+        <section class="copy">
+          <h1 class="title" id="step-title">Where should your speech become text?</h1>
+          <p class="lead">On this Mac or online — you can change it later.</p>
+
+          <div class="choices" role="radiogroup" aria-labelledby="step-title">
+            <button class="choice" type="button" role="radio" aria-checked="true" data-path="local">
+              <span class="glyph" aria-hidden="true">
+                <svg width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="1.5" width="14" height="10" rx="1.6"/><path d="M1 14.5h18" stroke-linecap="round"/></svg>
+              </span>
+              <span>
+                <span class="head"><span class="name">On this Mac</span></span>
+                <span class="why" style="display:block">Best choice for your Mac.</span>
+                <span class="facts" style="display:block">Private and free. Your voice stays on your Mac; works offline after one download.</span>
+              </span>
+            </button>
+
+            <button class="choice" type="button" role="radio" aria-checked="false" data-path="online">
+              <span class="glyph" aria-hidden="true">
+                <svg width="20" height="15" viewBox="0 0 20 15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5.5 13.5h9a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 4.6 6.3 3.6 3.6 0 0 0 5.5 13.5z"/></svg>
+              </span>
+              <span>
+                <span class="head"><span class="name">Online service</span></span>
+                <span class="facts" style="display:block">Works on any Mac. Needs internet and a free account; your recording is sent to the service.</span>
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Right: what the chosen way needs -->
+        <section class="panel" aria-label="Details">
+
+          <!-- On this Mac: a speech model -->
+          <div class="details details-local">
+            <p class="eyebrow">Recommended for your <b>MacBook Pro (M1 Pro, 32 GB)</b></p>
+            <div class="rows" id="models" role="radiogroup" aria-label="Speech model"></div>
+            <div id="switch-confirm"></div>
+            <p class="fineprint">Preparing a model for your Mac takes a while the first time — up to 10 minutes. You can continue while it runs.</p>
+          </div>
+
+          <!-- Online service: a service and its key -->
+          <div class="details details-online">
+            <div class="rows" role="radiogroup" aria-label="Online service">
+              <div class="row" role="radio" tabindex="0" aria-checked="true" data-service="groq">
+                <span class="radio"></span>
+                <span><div class="t">Groq <span>· Free plan</span></div><div class="d">The same key also turns on AI text polish.</div></span>
+              </div>
+              <div class="row" role="radio" tabindex="0" aria-checked="false" data-service="elevenlabs">
+                <span class="radio"></span>
+                <span><div class="t">ElevenLabs <span>· Paid</span></div><div class="d">Shows your words live as you speak.</div></span>
+              </div>
+            </div>
+            <div class="key-block" id="key-block"></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <ol class="steps steps-bar" aria-label="Setup steps">
+          <li><span class="dot"></span><span class="label">Welcome</span></li>
+          <li class="current" aria-current="step"><span class="dot"></span><span class="label">Speech</span></li>
+          <li><span class="dot"></span><span class="label">AI</span></li>
+          <li><span class="dot"></span><span class="label">Permissions</span></li>
+          <li><span class="dot"></span><span class="label">Try it</span></li>
+        </ol>
+        <button class="btn btn-secondary" type="button" id="back">Back</button>
+        <button class="btn btn-primary" type="button" id="primary" autofocus>Download and continue</button>
+      </footer>
+    </div>
+  </div>
+  </div>
+
+  <script>
+    // ② Speech → Text (spec §3). Choices live in Setup.state.stt; nothing is "written"
+    // (Setup.state.settings) until Continue, so switching cards keeps what was entered in each.
+    const root = document.documentElement;
+    const S = () => Setup.state;
+    const primary = document.getElementById("primary");
+
+    // localSTTModels, heaviest first; badges for a MacBook Pro M1 Pro 32 GB (spec §3.4)
+    const MODELS = [
+      { id: "large-v3", name: "Whisper Large v3", bytes: 1.6e9,  line: "As accurate as Turbo, about 30% slower. Needs 24 GB of memory.", badge: ["quality", "Best quality"] },
+      { id: "turbo",    name: "Whisper Turbo",    bytes: 632e6,  line: "Great for English and Ukrainian.", badge: ["", "Recommended"] },
+      { id: "small",    name: "Whisper Small",    bytes: 216e6,  line: "Great for English. Makes mistakes in Ukrainian." },
+      { id: "base",     name: "Whisper Base",     bytes: 147e6,  line: "Good for English. Makes mistakes in Ukrainian." },
+      { id: "tiny",     name: "Whisper Tiny",     bytes: 77e6,   line: "Many mistakes. Only for a quick test." },
+    ];
+    const model = id => MODELS.find(m => m.id === id);
+    let pendingSwitch = null;   // a model the user picked while another was downloading
+
+    // ---- Cards
+    document.querySelectorAll(".choice").forEach(card => card.addEventListener("click", () => {
+      S().stt.path = card.dataset.path;
+      Setup.changed();
+    }));
+
+    // ---- Models
+    function pickModel(id) {
+      const d = S().downloads.speech;
+      const busy = d && d.id !== id && ["downloading", "preparing"].includes(Setup.progress("speech")?.phase);
+      if (busy) { pendingSwitch = id; render(); return; }
+      pendingSwitch = null;
+      S().stt.model = id;
+      Setup.changed();
+    }
+    document.getElementById("models").addEventListener("click", e => {
+      const retry = e.target.closest("[data-retry]");
+      if (retry) { e.stopPropagation(); Setup.retryDownload("speech"); return; }
+      const row = e.target.closest(".row");
+      if (row) pickModel(row.dataset.model);
+    });
+    document.getElementById("switch-confirm").addEventListener("click", e => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "switch") { Setup.cancelDownload("speech"); const id = pendingSwitch; pendingSwitch = null; S().stt.model = id; Setup.changed(); }
+      if (act === "keep") { pendingSwitch = null; render(); }
+    });
+
+    // ---- Services
+    document.querySelectorAll(".details-online .row").forEach(row => row.addEventListener("click", () => {
+      S().stt.service = row.dataset.service;
+      Setup.changed();
+    }));
+
+    // Keyboard for the radio-like rows and cards
+    document.querySelectorAll('[role="radio"], [role="checkbox"]').forEach(el => el.addEventListener("keydown", e => {
+      if (e.key === " " || (e.key === "Enter" && el.getAttribute("role") !== "radio")) { e.preventDefault(); e.stopPropagation(); el.click(); }
+    }));
+
+    function renderModels() {
+      const sel = S().stt.model;
+      const d = S().downloads.speech;
+      const p = Setup.progress("speech");
+      document.getElementById("models").innerHTML = MODELS.map(m => {
+        const mine = d && d.id === m.id ? p : null;
+        let extra = "";
+        let badge = m.badge ? `<span class="badge ${m.badge[0]}">${m.badge[1]}</span>` : "";
+        if (mine?.phase === "downloading") extra = `<div class="progress"><i style="width:${(mine.fraction * 100).toFixed(1)}%"></i></div><div class="row-note">Downloading · ${Math.floor(mine.fraction * 100)}%</div>`;
+        if (mine?.phase === "preparing") extra = `<div class="progress indeterminate"><i></i></div><div class="row-note">Getting ready for your Mac…</div>`;
+        if (mine?.phase === "ready") badge = `<span class="badge done">✓ Installed</span>`;
+        if (mine?.phase === "failed") extra = `<div class="row-note bad">Download failed — check your internet. <button type="button" class="inline-link" data-retry>Retry</button></div>`;
+        return `<div class="row" role="radio" tabindex="0" aria-checked="${m.id === sel}" data-model="${m.id}">
+            <span class="radio"></span>
+            <span><div class="t">${m.name} <span>· ${Setup.size(m.bytes)}</span> ${badge}</div><div class="d">${m.line}</div>${extra}</span>
+          </div>`;
+      }).join("");
+      document.querySelectorAll("#models .row").forEach(row => row.addEventListener("keydown", e => {
+        if (e.key === " ") { e.preventDefault(); row.click(); }
+      }));
+
+      const confirm = document.getElementById("switch-confirm");
+      confirm.innerHTML = pendingSwitch ? `<div class="confirm" role="alertdialog">
+          Switch to ${model(pendingSwitch).name}? The current download will stop.
+          <div class="actions"><button class="btn btn-primary" type="button" data-act="switch">Switch</button><button class="btn btn-secondary" type="button" data-act="keep">Keep ${model(d.id).name.replace("Whisper ", "")}</button></div>
+        </div>` : "";
+      if (pendingSwitch) confirm.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+
+    let lastModelsHTML = "";
+    function render() {
+      const stt = S().stt;
+      root.dataset.path = stt.path;
+      root.dataset.service = stt.service;
+      document.querySelectorAll(".choice").forEach(c => c.setAttribute("aria-checked", String(c.dataset.path === stt.path)));
+      document.querySelectorAll(".details-online .row").forEach(r => r.setAttribute("aria-checked", String(r.dataset.service === stt.service)));
+
+      // Rows are redrawn only when what they show changes, so a click is never lost mid-redraw
+      const p = Setup.progress("speech");
+      const sig = JSON.stringify([stt.model, S().downloads.speech?.id, p?.phase, p?.fraction && Math.floor(p.fraction * 100), pendingSwitch]);
+      if (sig !== lastModelsHTML) { lastModelsHTML = sig; renderModels(); }
+
+      Setup.renderKeyBlock(document.getElementById("key-block"), stt.service);
+
+      // One primary button; its label follows the path (spec §3.4 / §3.5 states)
+      if (stt.path === "local") {
+        const d = S().downloads.speech;
+        const mine = d && d.id === stt.model ? p : null;
+        primary.disabled = false;
+        primary.textContent = !mine ? "Download and continue"
+          : mine.phase === "failed" ? "Retry and continue" : "Continue";
+      } else {
+        primary.textContent = "Continue";
+        primary.disabled = !Setup.keyUsable(stt.service);
+      }
+    }
+
+    primary.addEventListener("click", () => {
+      const stt = S().stt;
+      if (stt.path === "local") {
+        const m = model(stt.model);
+        const d = S().downloads.speech;
+        if (!d || d.id !== m.id || d.status === "failed") Setup.startDownload("speech", { id: m.id, name: m.name, bytes: m.bytes });
+        S().settings.stt = { sttProvider: "local", localSTTModel: m.id };
+      } else if (stt.service === "groq") {
+        S().settings.stt = { sttProvider: "groq", groqAPIKey: Setup.keyOf("groq").value };
+      } else {
+        S().settings.stt = { sttProvider: "elevenlabs", elevenLabsAPIKey: Setup.keyOf("elevenlabs").value, elevenLabsModel: "scribe_v2_realtime" };
+      }
+      Setup.changed();
+      console.info("② writes", S().settings.stt);
+      Setup.go(2);   // the download is never awaited here
+    });
+    document.getElementById("back").addEventListener("click", () => Setup.go(0));
+
+    // #dark-online opens the page on that card
+    const hashPath = location.hash.slice(1).split("-")[1];
+    if (["local", "online"].includes(hashPath)) S().stt.path = hashPath;
+
+    Setup.init({ step: 1, primary, back: () => Setup.go(0) });
+    Setup.onChange(render);
+    setInterval(render, 300);   // download progress
+    render();
+  </script>
+</body>
+</html>
