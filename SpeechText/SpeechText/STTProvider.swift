@@ -80,6 +80,15 @@ enum STTTuning {
     /// re-arms the wait. Measured replies for a padded commit are well under this.
     static let streamCommitGraceSeconds: Double = 0.2
 
+    /// A segment whose loudest sample never reached this fraction of full scale
+    /// (about −44 dBFS) is not uploaded. Whisper does not answer silence with nothing:
+    /// it answers with "Thank you for watching" or "Дякую за перегляд", and that would
+    /// be pasted. Peak rather than RMS, and deliberately low: one spoken syllable clears
+    /// it by 20 dB even on a quiet microphone, so what it catches is a muted or dead
+    /// input and a shortcut pressed with nothing said. Room noise above it still goes to
+    /// the model. Chosen from the levels in the Debug Log, not from a measured corpus.
+    static let silencePeakFloor: Float = 0.006
+
     /// Batch upload timeouts. `URLSession.shared` ignores `URLRequest.timeoutInterval`
     /// and enforces its own 60 s default, which a multi-minute FLAC can exceed. 120 s
     /// per request covers a stalled response; 300 s for the whole resource covers a

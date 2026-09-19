@@ -120,6 +120,29 @@ final class AudioBufferWriterTests: XCTestCase {
         }
     }
 
+    func testSilentSegmentHasNoAudibleSignal() {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        for _ in 0 ..< 10 {
+            writer.append(makeSineBuffer(format: mono48k(), frames: 4_800, amplitude: 0.001))
+        }
+        XCTAssertFalse(writer.hasAudibleSignal, "a −60 dBFS hum is a dead microphone, not speech")
+
+        writer.append(makeSineBuffer(format: mono48k(), frames: 4_800, amplitude: 0.05))
+        XCTAssertTrue(writer.hasAudibleSignal, "one quiet syllable is enough to upload")
+
+        writer.reset()
+        XCTAssertFalse(writer.hasAudibleSignal)
+    }
+
+    func testUnmeasuredNativeAudioCountsAsAudible() {
+        // No `prepare`: the native fallback path has no converted samples to measure,
+        // and the guard must not turn that into a skipped upload.
+        let writer = AudioBufferWriter()
+        writer.append(makeSineBuffer(format: mono48k(), frames: 4_800, amplitude: 0.001))
+        XCTAssertTrue(writer.hasAudibleSignal)
+    }
+
     func testResetClearsBufferedAudio() {
         // No `prepare` — the native-copy fallback path, where reset() is fully
         // observable (the converter's delay line can't re-materialise frames).

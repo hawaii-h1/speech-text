@@ -48,6 +48,13 @@ final class BatchRecognitionSession: RecognitionSession {
                                       audioFileURL: nil, cancelled: Task.isCancelled)
         }
 
+        // After the file is written, so the segment is still archived for a History retry
+        // should the guard ever be wrong about a very quiet voice.
+        guard writer.hasAudibleSignal else {
+            dlog("Engine", "BatchRecognitionSession.finish: the segment is silent — not uploaded")
+            return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: Task.isCancelled)
+        }
+
         do {
             dlog("Engine", "BatchRecognitionSession.finish: calling provider, language=\(language ?? "auto")…")
             let text = try await provider.transcribe(audioFileURL: fileURL, language: language).trimmingCharacters(in: .whitespacesAndNewlines)
