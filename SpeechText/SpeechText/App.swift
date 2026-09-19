@@ -128,6 +128,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.rebuildMenu()
             }
         }
+        appState.hotkeyManager.onEditKey = { [weak self] isDown in
+            DispatchQueue.main.async {
+                if isDown {
+                    self?.appState.editHotkeyPressed()
+                } else {
+                    self?.appState.editHotkeyReleased()
+                }
+                self?.updateIcon()
+            }
+        }
         appState.hotkeyManager.onRecordWindowToggle = { [weak self] in
             DispatchQueue.main.async {
                 self?.appState.toggleOrShowDirectRecordingPanel()
@@ -241,6 +251,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aiItem.target = self
         menu.addItem(aiItem)
 
+        let editItem = NSMenuItem(title: "Edit Selection with AI (\(currentEditShortcutDisplayString()))",
+                                  action: #selector(toggleEdit), keyEquivalent: "")
+        editItem.target = self
+        editItem.toolTip = "Rewrites the text selected in the app in front. Speak an instruction, or double-press the shortcut to just polish it."
+        menu.addItem(editItem)
+
         menu.addItem(.separator())
 
         let rwShortcut = currentRecordWindowShortcutDisplayString()
@@ -298,6 +314,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.toggleRecording(aiMode: true)
         updateIcon()
         rebuildMenu()
+    }
+
+    @objc private func toggleEdit() {
+        appState.toggleEdit()
+        updateIcon()
     }
 
     @objc private func openRecordPanel() {
@@ -366,6 +387,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         storedShortcutDisplayString(keyCodeKey: SettingsKeys.aiHotkeyKeyCode,
                                     modifiersKey: SettingsKeys.aiHotkeyModifierFlags,
                                     defaultKeyCode: 0)  // A
+    }
+
+    private func currentEditShortcutDisplayString() -> String {
+        storedShortcutDisplayString(keyCodeKey: SettingsKeys.editHotkeyKeyCode,
+                                    modifiersKey: SettingsKeys.editHotkeyModifierFlags,
+                                    defaultKeyCode: 14)  // E
     }
 
     /// The stored shortcut, or the built-in one (⌃⇧ + `defaultKeyCode`, matching
@@ -444,6 +471,14 @@ final class AppState {
 
     /// A dictation shortcut went down.
     func hotkeyPressed(_ key: DictationHotkey) {
+        // An edit's recording is an instruction, not a dictation: there is nothing for
+        // a dictation shortcut to switch or stop, and the likeliest meaning of the press
+        // is "not this, I want to dictate". It cancels the edit and does nothing more.
+        if isEditMode {
+            dlog("Hotkey", "\(key) pressed during an edit → cancel the edit")
+            cancelEdit()
+            return
+        }
         hotkeyGesture.holdToTalk = UserDefaults.standard.bool(forKey: SettingsKeys.holdToTalk)
         let phase = dictationPhase
         let action = hotkeyGesture.press(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
@@ -454,6 +489,7 @@ final class AppState {
     /// A dictation shortcut came back up. Only acts with hold-to-talk on, and only for the
     /// shortcut that started the dictation.
     func hotkeyReleased(_ key: DictationHotkey) {
+        guard !isEditMode else { return }
         let phase = dictationPhase
         let action = hotkeyGesture.release(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
         dlog("Hotkey", "\(key) released in \(phase) → \(action)")
@@ -462,6 +498,10 @@ final class AppState {
 
     /// The menu's items: a press with nothing held.
     func toggleRecording(aiMode: Bool = false) {
+        if isEditMode {
+            cancelEdit()
+            return
+        }
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
         perform(hotkeyGesture.click(aiMode ? .ai : .inline, in: dictationPhase))
     }
@@ -534,6 +574,7 @@ final class AppState {
         showsLiveTranscript = RecordingConfiguration.current(locale: locale).streams
         dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(locale), aiMode=\(isAIMode), liveTranscript=\(showsLiveTranscript)")
 
+        speechEngine.recordsEmptyOutcomes = true
         beginDeliveryPlan()
         showOverlay()
 
@@ -882,6 +923,438 @@ final class AppState {
         }
     }
 
+    // MARK: - Editing the selection
+
+    /// Where the edit's selected text is.
+    private enum EditRemoval {
+        /// Still in the document, selected.
+        case inPlace
+        /// The ⌘X is on its way.
+        case removing
+        /// Cut. `original` is the pasteboard as the ⌘X left it, formatting included, so an
+        /// edit that fails or is cancelled puts back exactly what was there.
+        case removed(original: [NSPasteboardItem], text: String)
+        /// The ⌘X changed nothing — a read-only field. The rewrite ends on the clipboard.
+        case notRemovable
+    }
+
+    /// The spoken instruction, from the microphone to the text the LLM is given.
+    private enum EditInstruction {
+        case listening
+        case transcribing
+        /// Nil text: none was given (a double press, or nothing said).
+        case ready(String?, recordID: UUID?)
+    }
+
+    /// True from the Edit shortcut's first press until its rewrite is written or dropped.
+    /// The overlay turns violet-filled with the pencil glyph; the dictation shortcuts
+    /// cancel instead of acting.
+    private(set) var isEditMode = false
+    private var editGesture = EditHotkeyGesture()
+    /// The selection being edited, once it has been read.
+    private var editSelection: CapturedSelection?
+    private var isReadingSelection = false
+    private var editRemoval = EditRemoval.inPlace
+    /// The instruction is over: the selection goes as soon as it has been read.
+    private var removesSelection = false
+    private var editInstruction = EditInstruction.listening
+    /// Fires `doubleTapWindow` after a hold-to-talk tap, which cancels unless a second
+    /// press came first.
+    private var editTapTimer: DispatchWorkItem?
+    /// Bumped whenever an edit ends, so a callback from the one before — a ⌘C or ⌘X poll,
+    /// a transcription, an LLM reply — cannot act on the next.
+    private var editGeneration = 0
+
+    /// Where the edit is, in the terms the Edit shortcut cares about.
+    private var editPhase: EditHotkeyGesture.Phase {
+        guard isEditMode else { return .idle }
+        if speechEngine.isStartingEngine { return .starting }
+        if speechEngine.isRecording { return .recording }
+        return .busy
+    }
+
+    /// The Edit shortcut went down.
+    func editHotkeyPressed() {
+        guard isEditMode || dictationPhase == .idle else {
+            dlog("Hotkey", "edit pressed during a dictation → ignored")
+            return
+        }
+        if !isEditMode {
+            editGesture.holdToTalk = UserDefaults.standard.bool(forKey: SettingsKeys.holdToTalk)
+        }
+        let phase = editPhase
+        let action = editGesture.press(in: phase, at: ProcessInfo.processInfo.systemUptime)
+        dlog("Hotkey", "edit pressed in \(phase) → \(action)")
+        perform(action)
+    }
+
+    /// The Edit shortcut came back up.
+    func editHotkeyReleased() {
+        guard isEditMode else { return }
+        let phase = editPhase
+        let action = editGesture.release(in: phase, at: ProcessInfo.processInfo.systemUptime)
+        dlog("Hotkey", "edit released in \(phase) → \(action)")
+        perform(action)
+        if editGesture.awaitsSecondTap {
+            scheduleEditTapTimer()
+        }
+    }
+
+    /// The menu's item: a press with nothing held.
+    func toggleEdit() {
+        guard isEditMode || dictationPhase == .idle else { return }
+        perform(editGesture.click(in: editPhase))
+    }
+
+    private func scheduleEditTapTimer() {
+        editTapTimer?.cancel()
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.editTapTimer = nil
+            let action = self.editGesture.tapWindowExpired(in: self.editPhase, at: ProcessInfo.processInfo.systemUptime)
+            dlog("Hotkey", "edit tap stood alone → \(action)")
+            self.perform(action)
+        }
+        editTapTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + EditHotkeyGesture.doubleTapWindow, execute: timer)
+    }
+
+    private func perform(_ action: EditHotkeyAction) {
+        switch action {
+        case .start:
+            startEdit()
+        case .send:
+            sendEdit()
+        case .sendWithoutInstruction:
+            dlog("Edit", "double press — no instruction")
+            editTapTimer?.cancel()
+            editTapTimer = nil
+            // A microphone still starting may yet fail; that no longer concerns this edit.
+            speechEngine.onStartFailure = nil
+            speechEngine.cancelRecording()
+            editInstruction = .ready(nil, recordID: nil)
+            removesSelection = true
+            advanceEdit()
+        case .cancel:
+            cancelEdit()
+        case .ignore:
+            break
+        }
+    }
+
+    /// Reads the selection and opens the microphone for an instruction, together.
+    private func startEdit() {
+        let front = NSWorkspace.shared.frontmostApplication
+        guard front?.bundleIdentifier != Bundle.main.bundleIdentifier else {
+            editGesture.reset()
+            showStatus(icon: "character.cursor.ibeam", title: "Nothing to edit here",
+                       detail: "Select text in another app, then press the Edit shortcut.", tint: .secondary)
+            return
+        }
+        guard PasteService.isAccessibilityGranted else {
+            editGesture.reset()
+            PasteService.promptAccessibility()
+            showStatus(icon: "hand.raised.fill", title: "Accessibility access needed",
+                       detail: "SpeechText needs it to read the selected text and replace it.", tint: .orange)
+            return
+        }
+        previousApp = front
+        editGeneration += 1
+        let generation = editGeneration
+        isEditMode = true
+        isAIMode = false
+        editSelection = nil
+        isReadingSelection = true
+        editRemoval = .inPlace
+        removesSelection = false
+        editInstruction = .listening
+        // Nothing of the instruction is ever delivered: no spans while speaking, no
+        // finalizing pass at the stop.
+        endInlineDelivery()
+        DictationTraceRecorder.current = nil
+        let locale = resolvedLocale()
+        showsLiveTranscript = RecordingConfiguration.current(locale: locale).streams
+        dlog("Edit", "start: app=\(front?.localizedName ?? "nil"), holdToTalk=\(editGesture.holdToTalk), liveTranscript=\(showsLiveTranscript)")
+        showOverlay()
+
+        // Read first, while the app is certainly in front and before the engine's start
+        // competes with the ⌘C. The answer is handled on a later turn of the run loop even
+        // when AX gave it at once, so the engine below has started by then and a "nothing
+        // selected" cancel stops it rather than running ahead of it.
+        PasteService.readSelection(in: front) { [weak self] read in
+            DispatchQueue.main.async {
+                guard let self, self.isEditMode, self.editGeneration == generation else { return }
+                self.selectionRead(read)
+            }
+        }
+        speechEngine.onStartFailure = { [weak self] message in
+            guard let self, self.isEditMode, self.editGeneration == generation else { return }
+            dlog("Edit", "microphone failed to start: \(message)")
+            self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't start recording",
+                           detail: self.friendlySTTError(message))
+        }
+        // Saying nothing is a request to polish, and the edit writes its own record.
+        speechEngine.recordsEmptyOutcomes = false
+        speechEngine.startRecording(locale: locale)
+        focusContext = PasteService.readFocusContext(in: front)
+    }
+
+    private func selectionRead(_ read: PasteService.SelectionRead) {
+        isReadingSelection = false
+        switch read {
+        case .nothingSelected:
+            abortEdit(icon: "character.cursor.ibeam", title: "No text selected",
+                      detail: "Select the text to rework, then press the Edit shortcut.", tint: .secondary)
+        case .selected(let selection):
+            guard selection.text.count <= SelectionEdit.maxCharacters else {
+                abortEdit(icon: "text.badge.xmark", title: "Selection too long",
+                          detail: "Select up to \(SelectionEdit.maxCharacters.formatted()) characters to edit with AI.")
+                return
+            }
+            editSelection = selection
+            advanceEdit()
+        }
+    }
+
+    /// Closes the microphone and takes the selection out while the instruction is
+    /// transcribed.
+    private func sendEdit() {
+        guard speechEngine.isRecording else {
+            // Stopped before the microphone opened: whatever was said went nowhere, and a
+            // rewrite without it would not be what was asked for.
+            abortEdit(icon: "mic.slash", title: "The microphone wasn't ready",
+                      detail: "Nothing was changed. Try again — or double-press to edit without an instruction.")
+            return
+        }
+        let generation = editGeneration
+        editInstruction = .transcribing
+        removesSelection = true
+        speechEngine.stopRecording()
+        advanceEdit()
+        transcriptionWaitTask?.cancel()
+        transcriptionWaitTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.speechEngine.awaitTranscription()
+            guard !Task.isCancelled, self.isEditMode, self.editGeneration == generation else { return }
+            self.transcriptionWaitTask = nil
+            if let error = self.speechEngine.errorMessage {
+                dlog("Edit", "instruction failed: \(error)")
+                self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't understand the instruction",
+                               detail: self.friendlySTTError(error))
+                return
+            }
+            let instruction = self.speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Nothing said is the same as a double press: polish.
+            self.editInstruction = .ready(instruction.isEmpty ? nil : instruction,
+                                          recordID: instruction.isEmpty ? nil : self.speechEngine.lastRecordID)
+            self.advanceEdit()
+        }
+    }
+
+    /// Moves the edit on as far as what has arrived allows: once the instruction is over
+    /// and the selection read, the selection is cut; once it is cut and the instruction
+    /// transcribed, the LLM gets both. Called whenever one of those lands.
+    private func advanceEdit() {
+        guard isEditMode, let selection = editSelection else { return }
+        if removesSelection, case .inPlace = editRemoval {
+            takeSelection(selection)
+            return
+        }
+        guard case .ready(let instruction, let recordID) = editInstruction, refinementTask == nil else { return }
+        switch editRemoval {
+        case .inPlace, .removing: return
+        case .removed, .notRemovable: runEdit(selection, instruction: instruction, recordID: recordID)
+        }
+    }
+
+    /// The instruction is over: the selection is cut, so nothing the user does while the
+    /// LLM works can make the rewrite land on the wrong text. The rewrite is then pasted
+    /// at the caret the cut leaves.
+    private func takeSelection(_ selection: CapturedSelection) {
+        removeSelection(selection)
+    }
+
+    /// Cuts the selection, and checks that what was cut is what was read: a click
+    /// elsewhere since then would otherwise have taken other text out of the document.
+    private func removeSelection(_ selection: CapturedSelection) {
+        editRemoval = .removing
+        let generation = editGeneration
+        if let record = selection.record, let app = previousApp,
+           PasteService.select(record, in: app) == .changed {
+            abortEdit(icon: "text.badge.xmark", title: "The selected text changed",
+                      detail: "It was left as it was.")
+            return
+        }
+        PasteService.cutSelection { [weak self] cut in
+            guard let self, self.isEditMode, self.editGeneration == generation else {
+                // The edit was cancelled while the ⌘X was landing: nothing may go missing.
+                if case .cut(let items, _) = cut { PasteService.pasteItems(items) }
+                return
+            }
+            switch cut {
+            case .nothing:
+                dlog("Edit", "the selection could not be cut — the rewrite will go to the clipboard")
+                self.editRemoval = .notRemovable
+            case .cut(let items, let text):
+                guard SelectionEdit.cutMatches(text, selection: selection.text) else {
+                    dlog("Edit", "cut \(text.count) chars that are not the selection — putting them back")
+                    PasteService.pasteItems(items)
+                    self.abortEdit(icon: "text.badge.xmark", title: "The selection changed",
+                                   detail: "Nothing was changed.")
+                    return
+                }
+                dlog("Edit", "selection cut (\(text.count) chars)")
+                self.editRemoval = .removed(original: items, text: text)
+            }
+            self.advanceEdit()
+        }
+    }
+
+    /// Sends the selection to the LLM and writes the answer where it was.
+    private func runEdit(_ selection: CapturedSelection, instruction: String?, recordID: UUID?) {
+        guard TextRefinementService.isConfigured else {
+            let type = LLMConfiguration.providerType
+            abortEdit(icon: "key.slash", title: "AI isn't set up",
+                      detail: type.needsAPIKey
+                          ? "Add a \(type.displayName) API key in Settings to edit text with AI."
+                          : "Choose a \(type.displayName) model in Settings to edit text with AI.")
+            return
+        }
+
+        dlog("Edit", "rewriting \(selection.text.count) chars, instruction: \(instruction == nil ? "none" : "\(instruction!.count) chars")")
+        isRefining = true
+        let context = focusContext
+        let generation = editGeneration
+        refinementTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await TextRefinementService.edit(selection.text, instruction: instruction, context: context)
+                guard !Task.isCancelled, self.editGeneration == generation else { return }
+                TranscriptionHistory.shared.recordSelectionEdit(
+                    recordID: recordID, selection: selection.text, output: result.text, error: nil,
+                    presetName: result.presetName, provider: result.provider, model: result.model,
+                    context: context)
+                let removal = self.editRemoval
+                let app = self.previousApp
+                self.refinementTask = nil
+                self.finishEdit()
+                self.writeEdit(result.text, over: selection, removal: removal, in: app)
+            } catch {
+                guard !Task.isCancelled, self.editGeneration == generation else { return }
+                let type = LLMConfiguration.providerType
+                TranscriptionHistory.shared.recordSelectionEdit(
+                    recordID: recordID, selection: selection.text, output: "", error: error.localizedDescription,
+                    presetName: nil, provider: type.rawValue, model: LLMConfiguration.model(for: type),
+                    context: context)
+                dlog("Edit", "rewrite failed: \(error.localizedDescription)")
+                self.refinementTask = nil
+                self.abortEdit(icon: "sparkles", title: "AI edit failed", detail: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Pastes the rewrite where the selection was cut. The caret is wherever the cut left
+    /// it, unless the user has moved it since — then that is where the text goes.
+    private func writeEdit(_ output: String, over selection: CapturedSelection,
+                           removal: EditRemoval, in app: NSRunningApplication?) {
+        switch removal {
+        case .removed(let original, let cutText):
+            guard SelectionEdit.changes(selection.text, to: output) else {
+                putBack(original, in: app)
+                showStatus(icon: "checkmark", title: "Nothing to change",
+                           detail: "The AI left the selected text as it was.", tint: .secondary)
+                return
+            }
+            let text = SelectionEdit.preservingEdges(of: cutText, output)
+            deliverToEditTarget(app, fallback: { PasteService.copyToClipboard(text) }) {
+                dlog("Edit", "pasting the rewrite where the selection was")
+                PasteService.pasteAtCursor(text)
+            }
+        case .notRemovable, .inPlace, .removing:
+            guard SelectionEdit.changes(selection.text, to: output) else {
+                showStatus(icon: "checkmark", title: "Nothing to change",
+                           detail: "The AI left the selected text as it was.", tint: .secondary)
+                return
+            }
+            PasteService.copyToClipboard(output)
+            showStatus(icon: "doc.on.clipboard", title: "Copied instead of replaced",
+                       detail: "\(app?.localizedName ?? "The app") wouldn't let the selected text be removed. The new version is on the clipboard.",
+                       tint: .orange, duration: 8)
+        }
+    }
+
+    /// Puts the cut selection back, formatting and all.
+    private func putBack(_ original: [NSPasteboardItem], in app: NSRunningApplication?) {
+        dlog("Edit", "putting the selected text back")
+        deliverToEditTarget(app, fallback: { PasteService.copyToClipboard(items: original) }) {
+            PasteService.pasteItems(original)
+        }
+    }
+
+    /// Runs `paste` in the edit's app, bringing it back to the front first if it has to.
+    /// With the app gone, `fallback` leaves the text on the clipboard instead.
+    private func deliverToEditTarget(_ app: NSRunningApplication?, fallback: @escaping () -> Void,
+                                     paste: @escaping () -> Void) {
+        guard let app, !app.isTerminated else {
+            fallback()
+            showStatus(icon: "doc.on.clipboard", title: "The text is on the clipboard",
+                       detail: "The app it came from is gone.", tint: .orange, duration: 8)
+            return
+        }
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+            paste()
+        } else {
+            PasteService.activateApp(app)
+            // Blind wait, as for every paste into an app brought back to the front.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: paste)
+        }
+    }
+
+    /// Abandons the edit wherever it is — cancelled.
+    func cancelEdit() {
+        guard isEditMode else { return }
+        dlog("Edit", "cancelled")
+        abortEdit()
+    }
+
+    /// Ends the edit without a rewrite. Text already cut goes back where it was; `title`,
+    /// when given, says why.
+    private func abortEdit(icon: String = "", title: String? = nil, detail: String = "",
+                           tint: Color = .orange) {
+        let removal = editRemoval
+        let app = previousApp
+        transcriptionWaitTask?.cancel()
+        transcriptionWaitTask = nil
+        refinementTask?.cancel()
+        refinementTask = nil
+        speechEngine.cancelRecording()
+        finishEdit()
+        var detail = detail
+        if case .removed(let original, _) = removal {
+            putBack(original, in: app)
+            if title != nil { detail += " The text was put back." }
+        }
+        if let title {
+            showStatus(icon: icon, title: title, detail: detail, tint: tint)
+        }
+    }
+
+    /// Ends the edit's state and takes the overlay down; the engine is already idle.
+    private func finishEdit() {
+        editGeneration += 1
+        editTapTimer?.cancel()
+        editTapTimer = nil
+        editGesture.reset()
+        isRefining = false
+        isEditMode = false
+        editSelection = nil
+        isReadingSelection = false
+        editRemoval = .inPlace
+        removesSelection = false
+        editInstruction = .listening
+        hideOverlay()
+    }
+
     private func showOverlay() {
         // Close any existing panel first to prevent orphaned overlays
         hideOverlay()
@@ -890,6 +1363,10 @@ final class AppState {
         panel.host(ObservedOverlay(speechEngine: speechEngine, appState: self, layout: panel.layout,
                                    onTranscriptHeight: { [weak panel] in panel?.setTranscriptHeight($0) },
                                    onCancel: { [weak self, weak panel] in
+            if self?.isEditMode == true {
+                self?.cancelEdit()
+                return
+            }
             self?.transcriptionWaitTask?.cancel()
             self?.transcriptionWaitTask = nil
             self?.refinementTask?.cancel()
@@ -971,6 +1448,12 @@ final class AppState {
     }
 
     func toggleOrShowDirectRecordingPanel() {
+        // Mid-edit the Record Window would take over `previousApp` from under the edit.
+        if isEditMode {
+            dlog("Hotkey", "record window pressed during an edit → cancel the edit")
+            cancelEdit()
+            return
+        }
         if directRecordingPanel != nil {
             toggleDirectRecordingState()
         } else {
@@ -1082,6 +1565,7 @@ struct ObservedOverlay: View {
             isLoading: speechEngine.isTranscribing || appState.isRefining,
             isPreparing: speechEngine.isStartingEngine,
             isAIMode: appState.isAIMode,
+            isEditMode: appState.isEditMode,
             showsTranscript: appState.showsLiveTranscript,
             growsDown: layout.growsDown,
             transcriptHeight: layout.transcriptHeight,

@@ -119,6 +119,14 @@ struct SettingsView: View {
                 )
 
                 HotkeyRecorderView(
+                    label: "Edit Selection with AI",
+                    keyCodeKey: SettingsKeys.editHotkeyKeyCode,
+                    modifierFlagsKey: SettingsKeys.editHotkeyModifierFlags,
+                    defaultKeyCode: 14,  // E
+                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
+                )
+
+                HotkeyRecorderView(
                     label: "Record Window",
                     keyCodeKey: SettingsKeys.recordWindowHotkeyKeyCode,
                     modifierFlagsKey: SettingsKeys.recordWindowHotkeyModifierFlags,
@@ -139,6 +147,11 @@ struct SettingsView: View {
                 Text(holdToTalk
                      ? "While holding, tap the other recording shortcut to switch between plain text and AI, as often as you like."
                      : "While recording, the other recording shortcut switches the dictation between plain text and AI.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(holdToTalk
+                     ? "Edit Selection with AI: select text, hold the shortcut, say how to change it and let go. Double-press it to just polish the text; a single tap does nothing."
+                     : "Edit Selection with AI: select text, press the shortcut, say how to change it and press it again. Double-press it to just polish the text.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

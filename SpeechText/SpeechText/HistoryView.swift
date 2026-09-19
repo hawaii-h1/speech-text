@@ -120,7 +120,7 @@ struct HistoryView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(primaryLine(record))
                     .font(.system(size: 12))
-                    .foregroundStyle(record.text.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(record.deliveredText.isEmpty ? .secondary : .primary)
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
@@ -136,8 +136,11 @@ struct HistoryView: View {
                     if let refinement = record.refinement {
                         Text("·")
                         Label(
-                            refinement.succeeded ? (refinement.presetName ?? "AI") : "AI failed",
-                            systemImage: refinement.succeeded ? "sparkles" : "sparkles.slash"
+                            refinement.isSelectionEdit
+                                ? (refinement.succeeded ? "Edit" : "Edit failed")
+                                : refinement.succeeded ? (refinement.presetName ?? "AI") : "AI failed",
+                            systemImage: refinement.isSelectionEdit ? "pencil"
+                                : refinement.succeeded ? "sparkles" : "sparkles.slash"
                         )
                         .foregroundStyle(refinement.succeeded ? Color.purple : Color.orange)
                     }
@@ -203,13 +206,25 @@ struct HistoryView: View {
             if let refinement = record.refinement {
                 refinementHeader(refinement)
 
+                if refinement.isSelectionEdit {
+                    Text(record.text.isEmpty ? "No instruction — polished" : "Instruction: \(record.text)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 HStack(alignment: .top, spacing: 10) {
-                    textPane("Dictated", refinement.inputText, tint: .secondary)
+                    textPane(refinement.isSelectionEdit ? "Selected text" : "Dictated",
+                             refinement.inputText, tint: .secondary)
                     textPane(
-                        refinement.succeeded ? "AI output (pasted)" : "AI output",
+                        refinement.isSelectionEdit ? "AI output"
+                            : refinement.succeeded ? "AI output (pasted)" : "AI output",
                         refinement.succeeded ? refinement.outputText : "",
                         tint: refinement.succeeded ? .purple : .secondary,
-                        placeholder: refinement.succeeded ? "(no text)" : "(failed — the dictated text was pasted)"
+                        placeholder: refinement.succeeded ? "(no text)"
+                            : refinement.isSelectionEdit ? "(failed — the selection was left as it was)"
+                            : "(failed — the dictated text was pasted)"
                     )
                 }
                 .frame(height: 150)
@@ -347,6 +362,9 @@ struct HistoryView: View {
     // MARK: Helpers
 
     private func primaryLine(_ record: TranscriptionRecord) -> String {
+        if let refinement = record.refinement, refinement.isSelectionEdit, !refinement.succeeded {
+            return "AI edit failed: \(refinement.inputText)"
+        }
         if !record.deliveredText.isEmpty { return record.deliveredText }
         switch record.status {
         case .failed: return record.errorMessage ?? "Transcription failed"

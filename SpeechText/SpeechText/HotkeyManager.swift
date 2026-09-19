@@ -9,6 +9,7 @@ final class HotkeyManager {
     private var inlineHotKeyRef: EventHotKeyRef?
     private var recordWindowHotKeyRef: EventHotKeyRef?
     private var aiHotKeyRef: EventHotKeyRef?
+    private var editHotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var notificationObserver: Any?
 
@@ -16,6 +17,9 @@ final class HotkeyManager {
     /// what hold-to-talk runs on; `AppState` decides whether one means anything.
     var onDictationKey: ((DictationHotkey, Bool) -> Void)?
     var onRecordWindowToggle: (() -> Void)?
+    /// The Edit shortcut went down (`true`) or came back up (`false`). Both matter: a
+    /// double press sends the selection with no instruction, and a hold is one.
+    var onEditKey: ((Bool) -> Void)?
 
     // Inline recording hotkey
     private var inlineKeyCode: UInt32 = 12  // Q
@@ -29,10 +33,15 @@ final class HotkeyManager {
     private var aiKeyCode: UInt32 = 0  // A
     private var aiModifiers: NSEvent.ModifierFlags = [.control, .shift]
 
+    // Edit hotkey (the selection is rewritten by an LLM)
+    private var editKeyCode: UInt32 = 14  // E
+    private var editModifiers: NSEvent.ModifierFlags = [.control, .shift]
+
     private static let signature: OSType = 0x56504852
     private static let inlineID: UInt32 = 1
     private static let recordWindowID: UInt32 = 2
     private static let aiID: UInt32 = 3
+    private static let editID: UInt32 = 4
 
     func start() {
         loadHotkeys()
@@ -70,6 +79,12 @@ final class HotkeyManager {
         if defaults.object(forKey: SettingsKeys.aiHotkeyKeyCode) != nil {
             aiKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.aiHotkeyKeyCode))
             aiModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.aiHotkeyModifierFlags)))
+        }
+
+        // Edit
+        if defaults.object(forKey: SettingsKeys.editHotkeyKeyCode) != nil {
+            editKeyCode = UInt32(defaults.integer(forKey: SettingsKeys.editHotkeyKeyCode))
+            editModifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: SettingsKeys.editHotkeyModifierFlags)))
         }
     }
 
@@ -112,6 +127,7 @@ final class HotkeyManager {
                     case 1: mgr.onDictationKey?(.inline, isDown)
                     case 2: if isDown { mgr.onRecordWindowToggle?() }
                     case 3: mgr.onDictationKey?(.ai, isDown)
+                    case 4: mgr.onEditKey?(isDown)
                     default: break
                     }
                 }
@@ -146,6 +162,13 @@ final class HotkeyManager {
         let aiStatus = RegisterEventHotKey(aiKeyCode, aiCarbonMods, aiHotKeyID,
                                            GetApplicationEventTarget(), 0, &aiHotKeyRef)
         Self.logRegistration("AI recording", keyCode: aiKeyCode, status: aiStatus)
+
+        // Register edit hotkey (id: 4)
+        let editCarbonMods = Self.cocoaToCarbonModifiers(editModifiers)
+        let editHotKeyID = EventHotKeyID(signature: Self.signature, id: Self.editID)
+        let editStatus = RegisterEventHotKey(editKeyCode, editCarbonMods, editHotKeyID,
+                                             GetApplicationEventTarget(), 0, &editHotKeyRef)
+        Self.logRegistration("edit selection", keyCode: editKeyCode, status: editStatus)
     }
 
     /// A combination another app already owns comes back as an error here and then
@@ -168,6 +191,10 @@ final class HotkeyManager {
         if let ref = aiHotKeyRef {
             UnregisterEventHotKey(ref)
             aiHotKeyRef = nil
+        }
+        if let ref = editHotKeyRef {
+            UnregisterEventHotKey(ref)
+            editHotKeyRef = nil
         }
         if let ref = eventHandlerRef {
             RemoveEventHandler(ref)

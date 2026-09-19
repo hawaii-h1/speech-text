@@ -33,7 +33,11 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
         /// The app, window and field the model was told the text was for. Nil for the
         /// Record Window, for entries older than the setting, and when it was off.
         var context: FocusContext? = nil
+        /// The Edit shortcut's rewrite of text selected in another app: `inputText` is the
+        /// selection, and the record's `text` the spoken instruction ("" with none).
+        var editsSelection: Bool? = nil
 
+        var isSelectionEdit: Bool { editsSelection == true }
         var succeeded: Bool { errorMessage == nil && !outputText.isEmpty }
     }
 
@@ -176,6 +180,27 @@ final class TranscriptionHistory {
             inputText: input, outputText: "", presetName: nil,
             provider: provider, model: model, errorMessage: error, context: context
         ))
+    }
+
+    /// The Edit shortcut's rewrite. It belongs to the spoken instruction's record when
+    /// there was one (`recordID`); an edit with no instruction gets a record of its own,
+    /// whose text — the instruction — is empty.
+    func recordSelectionEdit(recordID: UUID?, selection: String, output: String, error: String?,
+                             presetName: String?, provider: String, model: String,
+                             context: FocusContext?) {
+        let refinement = TranscriptionRecord.Refinement(
+            inputText: selection, outputText: output, presetName: presetName,
+            provider: provider, model: model, errorMessage: error, context: context,
+            editsSelection: true)
+        if let recordID, records.contains(where: { $0.id == recordID }) {
+            updateRefinement(id: recordID, refinement)
+            return
+        }
+        var record = TranscriptionRecord(id: UUID(), date: Date(), text: "", status: .success,
+                                         errorMessage: nil, provider: "edit", locale: nil,
+                                         duration: 0, audioFileName: nil)
+        record.refinement = refinement
+        add(record)
     }
 
     func recordCorrection(id: UUID, applied: Bool) {

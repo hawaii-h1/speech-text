@@ -150,6 +150,10 @@ final class SpeechEngine {
     /// History entry written for the most recent successful transcription, so the LLM
     /// pass (which runs later, in AppState or the Record Window) can attach itself to it.
     private(set) var lastRecordID: UUID?
+    /// Whether a segment that produced no words, with no error, is written to History
+    /// (with its audio kept for a retry). Off for the Edit shortcut's instruction: saying
+    /// nothing there means "just polish", and the edit writes its own record.
+    var recordsEmptyOutcomes = true
 
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -649,6 +653,10 @@ final class SpeechEngine {
             if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
             lastRecordID = history.recordSuccess(text: outcome.text, provider: provider,
                                                  locale: locale, duration: duration)
+            return
+        }
+        if failure == nil, !recordsEmptyOutcomes {
+            if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
             return
         }
         // Nothing came back — preserve the audio so it can be retried. A batch session

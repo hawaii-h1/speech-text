@@ -234,6 +234,231 @@ struct PasteService {
         return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
     }
 
+    // MARK: - Reading a selection (the Edit shortcut)
+
+    /// What `readSelection` found.
+    enum SelectionRead {
+        case selected(CapturedSelection)
+        case nothingSelected
+    }
+
+    /// The selected text of the app in front, for the Edit shortcut to rewrite.
+    ///
+    /// A field whose selection the AX API can read *and* re-select (Tier A, the same probe
+    /// the inline tier uses) is read directly, and the answer carries the range: when the
+    /// instruction is over, `select` finds those words again untouched and re-selects
+    /// them before they are cut. Everything else — Chromium, Electron, terminals — is read
+    /// with a ⌘C, the user's clipboard put back once the copy is in. Reading changes
+    /// nothing: the selection is cut only once the user has finished the instruction.
+    static func readSelection(in app: NSRunningApplication?, completion: @escaping (SelectionRead) -> Void) {
+        let probe = probeFocusedText(in: app)
+        if DeliveryTier.resolve(isOwnSurface: false, probe: probe) == .a,
+           let element = focusedTextElement(of: app),
+           let range = selectedRange(of: element),
+           let document = stringValue(of: element) {
+            guard let record = SelectionEdit.words(in: range, of: document) else {
+                dlog("Edit", "selection: \(range.location)+\(range.length) holds no words")
+                completion(.nothingSelected)
+                return
+            }
+            dlog("Edit", "selection: \(record.text.count) chars at \(record.range.location)+\(record.range.length), read through AX")
+            completion(.selected(CapturedSelection(text: record.text, record: record)))
+            return
+        }
+
+        copySelection { text in
+            guard let text else {
+                completion(.nothingSelected)
+                return
+            }
+            dlog("Edit", "selection: \(text.count) chars, read with ⌘C")
+            completion(.selected(CapturedSelection(text: text, record: nil)))
+        }
+    }
+
+    /// The selected text of the app in front, read with a ⌘C and the user's clipboard put
+    /// back; nil when nothing is selected.
+    private static func copySelection(completion: @escaping (String?) -> Void) {
+        copySelectionItems { completion($0?.text) }
+    }
+
+    /// The same, with every pasteboard type the app wrote.
+    private static func copySelectionItems(completion: @escaping ((text: String, items: [NSPasteboardItem])?) -> Void) {
+        let pasteboard = NSPasteboard.general
+        // A paste's restore still pending means the pasteboard holds our own text, and
+        // the snapshot taken now would be of that rather than of the user's clipboard.
+        restorePendingClipboardNow(pasteboard)
+        let saved = saveClipboard(pasteboard)
+        let before = pasteboard.changeCount
+        simulateCommandKey(0x08, name: "⌘C")  // C
+        awaitChange(of: pasteboard, since: before) { changed in
+            guard changed else {
+                dlog("Edit", "selection: ⌘C changed nothing — nothing selected")
+                completion(nil)
+                return
+            }
+            let text = pasteboard.string(forType: .string) ?? ""
+            let items = saveClipboard(pasteboard)
+            var strings: [String: String] = [:]
+            for type in pasteboard.types ?? [] where type.rawValue.localizedCaseInsensitiveContains("vscode") {
+                if let data = pasteboard.data(forType: type), let value = String(data: data, encoding: .utf8) {
+                    strings[type.rawValue] = value
+                }
+            }
+            restoreClipboard(pasteboard, items: saved)
+
+            if SelectionEdit.isEmptySelectionLineCopy(strings) {
+                dlog("Edit", "selection: the editor copied the caret's line — nothing selected")
+                completion(nil)
+                return
+            }
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                dlog("Edit", "selection: ⌘C copied no text")
+                completion(nil)
+                return
+            }
+            completion((text, items))
+        }
+    }
+
+    /// What `cutSelection` took out of the document.
+    enum CutResult {
+        /// `items` is the pasteboard as the ⌘X left it, every type the app wrote — pasting
+        /// them back restores the text with its formatting.
+        case cut(items: [NSPasteboardItem], text: String)
+        /// The ⌘X changed nothing: nothing selected, or a field that cannot be edited.
+        case nothing
+    }
+
+    /// Cuts the selection of the app in front with a ⌘X, keeping what was cut and putting
+    /// the user's clipboard back.
+    static func cutSelection(completion: @escaping (CutResult) -> Void) {
+        let pasteboard = NSPasteboard.general
+        restorePendingClipboardNow(pasteboard)
+        let saved = saveClipboard(pasteboard)
+        let before = pasteboard.changeCount
+        simulateCommandKey(0x07, name: "⌘X")  // X
+        awaitChange(of: pasteboard, since: before) { changed in
+            guard changed else {
+                dlog("Edit", "cut: ⌘X changed nothing")
+                completion(.nothing)
+                return
+            }
+            let text = pasteboard.string(forType: .string) ?? ""
+            let items = saveClipboard(pasteboard)
+            restoreClipboard(pasteboard, items: saved)
+            completion(.cut(items: items, text: text))
+        }
+    }
+
+    /// Polls the pasteboard until a ⌘C or ⌘X lands. The copy happens in another process
+    /// with no signal of its own.
+    private static func awaitChange(of pasteboard: NSPasteboard, since before: Int, attempt: Int = 0,
+                                    completion: @escaping (Bool) -> Void) {
+        // ~600 ms in 20 ms steps: Chromium takes its time. An app with nothing selected
+        // leaves the pasteboard alone, so running out means nothing was there.
+        let maxAttempts = 30
+        guard pasteboard.changeCount == before else {
+            completion(true)
+            return
+        }
+        guard attempt < maxAttempts else {
+            completion(false)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+            awaitChange(of: pasteboard, since: before, attempt: attempt + 1, completion: completion)
+        }
+    }
+
+    /// Pastes pasteboard items — text cut earlier, with its formatting — at the cursor,
+    /// the user's clipboard preserved as for every paste.
+    static func pasteItems(_ items: [NSPasteboardItem]) {
+        let pasteboard = NSPasteboard.general
+        if pendingRestore == nil || pasteboard.changeCount != stagedChangeCount {
+            savedClipboard = saveClipboard(pasteboard)
+        }
+        pasteboard.clearContents()
+        pasteboard.writeObjects(copies(of: items))
+        stagedChangeCount = pasteboard.changeCount
+        simulatePasteCGEvent()
+        scheduleClipboardRestore(pasteboard)
+    }
+
+    /// Fresh items with the same contents: an `NSPasteboardItem` can be written once.
+    private static func copies(of items: [NSPasteboardItem]) -> [NSPasteboardItem] {
+        items.map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+            }
+            return copy
+        }
+    }
+
+    enum RecordSelection {
+        /// The selected words were found untouched, and are selected.
+        case selected
+        /// They are no longer there as they were.
+        case changed
+        /// They are there, but the field would not confirm them as its selection — the
+        /// ⌘X that follows is checked by what it cuts instead.
+        case unconfirmed
+    }
+
+    /// Selects the Tier A selection `record` again in `app`'s focused field, after finding
+    /// its words untouched (`InsertionLedger.resolve`) — the user may have clicked
+    /// elsewhere while speaking the instruction. Writes nothing but the selection.
+    static func select(_ record: InsertionRecord, in app: NSRunningApplication) -> RecordSelection {
+        guard AXIsProcessTrusted(), let element = focusedTextElement(of: app) else {
+            dlog("Edit", "select: no focused element")
+            return .unconfirmed
+        }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success, pid == app.processIdentifier,
+              let document = stringValue(of: element) else {
+            dlog("Edit", "select: the focused element is not \(app.localizedName ?? "the target")'s, or has no value")
+            return .unconfirmed
+        }
+        var ledger = InsertionLedger()
+        ledger.insert(span: nil, range: record.range, text: record.text)
+        guard let range = ledger.resolve(record, in: document) else {
+            dlog("Edit", "select: the selected words are no longer there untouched")
+            return .changed
+        }
+        if selectedRange(of: element) != range {
+            guard setSelectedRange(range, of: element), selectedRange(of: element) == range else {
+                dlog("Edit", "select: selecting \(range.location)+\(range.length) did not read back")
+                return .unconfirmed
+            }
+        }
+        return .selected
+    }
+
+    /// Leaves `text` on the clipboard for the user — the result that could not be
+    /// written where it belonged.
+    static func copyToClipboard(_ text: String) {
+        let pasteboard = prepareClipboardForUser()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    /// The same, for text cut earlier with its formatting.
+    static func copyToClipboard(items: [NSPasteboardItem]) {
+        let pasteboard = prepareClipboardForUser()
+        pasteboard.writeObjects(copies(of: items))
+    }
+
+    private static func prepareClipboardForUser() -> NSPasteboard {
+        let pasteboard = NSPasteboard.general
+        // A pending restore would find the change count moved and stand down anyway;
+        // cancelled, it cannot put anything back over this either.
+        pendingRestore?.cancel()
+        pendingRestore = nil
+        savedClipboard = nil
+        pasteboard.clearContents()
+        return pasteboard
+    }
+
     // MARK: - Tier probe
 
     /// What the Accessibility API will let us do to this app's focused text element.
@@ -394,21 +619,30 @@ struct PasteService {
     /// restore fires pushes it out rather than stacking a second one behind it.
     private static func scheduleClipboardRestore(_ pasteboard: NSPasteboard) {
         pendingRestore?.cancel()
-        let restore = DispatchWorkItem {
-            defer {
-                savedClipboard = nil
-                pendingRestore = nil
-            }
-            guard pasteboard.changeCount == stagedChangeCount else {
-                dlog("Paste", "Clipboard changed since the paste — leaving it alone")
-                return
-            }
-            let items = savedClipboard ?? []
-            restoreClipboard(pasteboard, items: items)
-            dlog("Paste", "Clipboard restored")
-        }
+        let restore = DispatchWorkItem { finishClipboardRestore(pasteboard) }
         pendingRestore = restore
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: restore)
+    }
+
+    /// Runs a pending restore now instead of when its timer fires.
+    private static func restorePendingClipboardNow(_ pasteboard: NSPasteboard) {
+        guard let pending = pendingRestore else { return }
+        pending.cancel()
+        finishClipboardRestore(pasteboard)
+    }
+
+    private static func finishClipboardRestore(_ pasteboard: NSPasteboard) {
+        defer {
+            savedClipboard = nil
+            pendingRestore = nil
+        }
+        guard pasteboard.changeCount == stagedChangeCount else {
+            dlog("Paste", "Clipboard changed since the paste — leaving it alone")
+            return
+        }
+        let items = savedClipboard ?? []
+        restoreClipboard(pasteboard, items: items)
+        dlog("Paste", "Clipboard restored")
     }
 
     /// Save current clipboard contents so they can be restored later.
@@ -531,16 +765,28 @@ struct PasteService {
     }
 
     private static func simulatePasteCGEvent() {
+        simulateCommandKey(0x09, name: "⌘V")  // V
+    }
+
+    /// Posts ⌘ + `keyCode`. The flags are set outright, so a shortcut's ⌃⇧ still held
+    /// down does not turn ⌘C into ⌘⌃⇧C.
+    private static func simulateCommandKey(_ keyCode: CGKeyCode, name: String) {
+        simulateKey(keyCode, flags: .maskCommand, name: name)
+    }
+
+    /// Posts `keyCode` with exactly `flags` — none at all for a plain ⌫, whatever is
+    /// physically held.
+    private static func simulateKey(_ keyCode: CGKeyCode, flags: CGEventFlags, name: String) {
         let source = CGEventSource(stateID: .combinedSessionState)
 
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-        keyDown?.flags = .maskCommand
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+        keyDown?.flags = flags
 
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-        keyUp?.flags = .maskCommand
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        keyUp?.flags = flags
 
         keyDown?.post(tap: .cgSessionEventTap)
         keyUp?.post(tap: .cgSessionEventTap)
-        dlog("Paste", "CGEvent ⌘V posted")
+        dlog("Paste", "CGEvent \(name) posted")
     }
 }
