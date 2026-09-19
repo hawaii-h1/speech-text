@@ -108,31 +108,9 @@ struct SettingsView: View {
             apiKeysSection
 
             Section("Keyboard Shortcuts") {
-                HotkeyRecorderView(label: "Inline Recording")
-
-                HotkeyRecorderView(
-                    label: "AI Recording",
-                    keyCodeKey: SettingsKeys.aiHotkeyKeyCode,
-                    modifierFlagsKey: SettingsKeys.aiHotkeyModifierFlags,
-                    defaultKeyCode: 0,  // A
-                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
-                )
-
-                HotkeyRecorderView(
-                    label: "Edit Selection with AI",
-                    keyCodeKey: SettingsKeys.editHotkeyKeyCode,
-                    modifierFlagsKey: SettingsKeys.editHotkeyModifierFlags,
-                    defaultKeyCode: 14,  // E
-                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
-                )
-
-                HotkeyRecorderView(
-                    label: "Record Window",
-                    keyCodeKey: SettingsKeys.recordWindowHotkeyKeyCode,
-                    modifierFlagsKey: SettingsKeys.recordWindowHotkeyModifierFlags,
-                    defaultKeyCode: 13,  // W
-                    defaultModifierFlags: Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
-                )
+                ForEach(ShortcutAction.allCases, id: \.self) { action in
+                    HotkeyRecorderView(action: action)
+                }
 
                 Text("Click a shortcut, then press the new key combination.")
                     .font(.caption)
@@ -172,7 +150,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 400, minHeight: 500)
+        .frame(width: 400, height: 648)
         .padding()
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled

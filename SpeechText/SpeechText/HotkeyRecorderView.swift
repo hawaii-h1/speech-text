@@ -6,58 +6,102 @@ import AppKit
 import Carbon.HIToolbox
 
 struct HotkeyRecorderView: View {
-    let label: String
-    let keyCodeKey: String
-    let modifierFlagsKey: String
-    let defaultKeyCode: Int
-    let defaultModifierFlags: Int
+    let action: ShortcutAction
 
     @State private var keyCode: Int
     @State private var modifierFlags: Int
     @State private var isRecording = false
     @State private var localMonitor: Any?
+    /// Why the last combination pressed was not taken. Cleared by the next attempt.
+    @State private var refusal: String?
+    /// Read when the row appears; the user can change them in System Settings meanwhile,
+    /// so a recording re-reads them before checking.
+    @State private var systemShortcuts: Set<KeyShortcut> = []
 
-    init(
-        label: String = "Shortcut",
-        keyCodeKey: String = SettingsKeys.hotkeyKeyCode,
-        modifierFlagsKey: String = SettingsKeys.hotkeyModifierFlags,
-        defaultKeyCode: Int = 12,  // Q
-        defaultModifierFlags: Int = Int(NSEvent.ModifierFlags([.control, .shift]).rawValue)
-    ) {
-        self.label = label
-        self.keyCodeKey = keyCodeKey
-        self.modifierFlagsKey = modifierFlagsKey
-        self.defaultKeyCode = defaultKeyCode
-        self.defaultModifierFlags = defaultModifierFlags
+    private let registration = HotkeyRegistrationStatus.shared
 
-        let defaults = UserDefaults.standard
-        let kc = defaults.object(forKey: keyCodeKey) != nil
-            ? defaults.integer(forKey: keyCodeKey)
-            : defaultKeyCode
-        let mf = defaults.object(forKey: modifierFlagsKey) != nil
-            ? defaults.integer(forKey: modifierFlagsKey)
-            : defaultModifierFlags
-        _keyCode = State(initialValue: kc)
-        _modifierFlags = State(initialValue: mf)
+    init(action: ShortcutAction) {
+        self.action = action
+        let stored = action.stored(in: .standard)
+        _keyCode = State(initialValue: Int(stored.keyCode))
+        _modifierFlags = State(initialValue: Int(stored.modifiers.rawValue))
     }
 
     var body: some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Button(action: toggleRecording) {
-                if isRecording {
-                    Text("Press shortcut...")
-                        .foregroundStyle(.red)
-                        .frame(minWidth: 140)
-                } else {
-                    Text(shortcutDisplayString(keyCode: UInt16(keyCode),
-                                               modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(modifierFlags))))
-                        .frame(minWidth: 140)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(action.title)
+                Spacer()
+                Button(action: toggleRecording) {
+                    if isRecording {
+                        Text("Press shortcut...")
+                            .foregroundStyle(.red)
+                            .frame(minWidth: 140)
+                    } else {
+                        Text(currentDisplayString)
+                            .frame(minWidth: 140)
+                    }
                 }
             }
+            if let warning {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .onAppear { systemShortcuts = HotkeyManager.enabledSystemShortcuts() }
+        // Every global shortcut is off while this listens, so any way out of the window
+        // has to end it — `onDisappear` alone does not fire when a window is closed.
         .onDisappear { stopListening() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in stopListening() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in stopListening() }
+    }
+
+    private var currentShortcut: KeyShortcut {
+        KeyShortcut(keyCode: UInt32(keyCode), modifiers: NSEvent.ModifierFlags(rawValue: UInt(modifierFlags)))
+    }
+
+    private var currentDisplayString: String {
+        shortcutDisplayString(keyCode: UInt16(keyCode), modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(modifierFlags)))
+    }
+
+    /// The refusal of a combination just pressed, else a problem with the one in place:
+    /// macOS would not register it, or it collides with a shortcut that takes it first.
+    private var warning: String? {
+        if let refusal { return refusal }
+        // Before the registration status: one of ours twice fails with the same
+        // `eventHotKeyExistsErr` another app's reservation does, and naming the
+        // shortcut it collides with is the more useful answer.
+        if let conflict = ShortcutConflict.find(currentShortcut, for: action,
+                                                assigned: Self.assignedShortcuts(),
+                                                system: systemShortcuts) {
+            return Self.describe(conflict, display: currentDisplayString)
+        }
+        if let status = registration.failures[action] {
+            return status == OSStatus(eventHotKeyExistsErr)
+                ? "\(currentDisplayString) is reserved by another app, so it won't work. Choose another shortcut."
+                : "macOS refused \(currentDisplayString) (error \(status)). Choose another shortcut."
+        }
+        return nil
+    }
+
+    private static func describe(_ conflict: ShortcutConflict, display: String) -> String {
+        switch conflict {
+        case .action(let other):
+            return "\(display) is already the \(other.title) shortcut. Choose another one."
+        case .system:
+            return "macOS also uses \(display) (System Settings › Keyboard › Keyboard Shortcuts), and may take it first."
+        }
+    }
+
+    private static func assignedShortcuts() -> [ShortcutAction: KeyShortcut] {
+        var assigned: [ShortcutAction: KeyShortcut] = [:]
+        for action in ShortcutAction.allCases {
+            let stored = action.stored(in: .standard)
+            assigned[action] = KeyShortcut(keyCode: stored.keyCode, modifiers: stored.modifiers)
+        }
+        return assigned
     }
 
     private func toggleRecording() {
@@ -70,18 +114,40 @@ struct HotkeyRecorderView: View {
 
     private func startListening() {
         isRecording = true
+        refusal = nil
+        systemShortcuts = HotkeyManager.enabledSystemShortcuts()
+        // Our own shortcuts are unregistered while this listens, or pressing one of them
+        // would start a dictation instead of arriving here as a duplicate.
+        NotificationCenter.default.post(name: .hotkeyRecorderDidStart, object: nil)
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
             guard !modifierKeyCodes.contains(event.keyCode) else { return event }
 
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // A bare ⎋ gives up, since everything is paused until this stops listening.
+            if mods.isEmpty && event.keyCode == 53 {
+                stopListening()
+                return nil
+            }
             guard !mods.isEmpty else { return event }
+
+            // One of our own shortcuts twice cannot work, so it is refused. A system
+            // shortcut is only warned about (below the row, once saved): the ones macOS
+            // really acts on never reach this monitor, so one that did is most likely
+            // bound to a context it is not in, and refusing it would be a false alarm.
+            let candidate = KeyShortcut(keyCode: UInt32(event.keyCode), modifiers: mods)
+            if let conflict = ShortcutConflict.find(candidate, for: action,
+                                                    assigned: Self.assignedShortcuts(), system: []) {
+                refusal = Self.describe(conflict, display: shortcutDisplayString(keyCode: event.keyCode, modifierFlags: mods))
+                stopListening()
+                return nil
+            }
 
             self.keyCode = Int(event.keyCode)
             self.modifierFlags = Int(mods.rawValue)
 
-            UserDefaults.standard.set(self.keyCode, forKey: keyCodeKey)
-            UserDefaults.standard.set(self.modifierFlags, forKey: modifierFlagsKey)
+            UserDefaults.standard.set(self.keyCode, forKey: action.keyCodeKey)
+            UserDefaults.standard.set(self.modifierFlags, forKey: action.modifierFlagsKey)
 
             stopListening()
             NotificationCenter.default.post(name: .hotkeyDidChange, object: nil)
@@ -96,6 +162,7 @@ struct HotkeyRecorderView: View {
         if let monitor = localMonitor {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
+            NotificationCenter.default.post(name: .hotkeyRecorderDidStop, object: nil)
         }
     }
 }
@@ -104,6 +171,10 @@ struct HotkeyRecorderView: View {
 
 extension Notification.Name {
     static let hotkeyDidChange = Notification.Name("hotkeyDidChange")
+    /// A shortcut recorder started or stopped listening; `HotkeyManager` stands aside
+    /// in between.
+    static let hotkeyRecorderDidStart = Notification.Name("hotkeyRecorderDidStart")
+    static let hotkeyRecorderDidStop = Notification.Name("hotkeyRecorderDidStop")
 }
 
 // MARK: - Display Helpers
