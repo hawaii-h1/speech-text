@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-variant="c" data-path="none">
+<head>
+  <meta charset="utf-8">
+  <title>SpeechText Setup · ③ AI</title>
+  <link rel="stylesheet" href="setup.css">
+  <script src="setup.js"></script>
+  <style>
+    /* ---------------------------------------------------------------- ③ AI text polish
+       Same two paths as ②; nothing is picked at first, and "Skip for now" sits under the panel. */
+
+    :root[data-variant="c"] .choice-screen .copy p.lead { font-size: 14.5px; margin-bottom: 16px; }
+    .kbd-inline {
+      display: inline-block;
+      padding: 0 5px;
+      border-radius: 5px;
+      font: 600 12.5px/1.45 var(--ui-font);
+      color: var(--label);
+      background: var(--control-bg);
+      box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.16), 0 1px 0 rgba(0, 0, 0, 0.12);
+      white-space: nowrap;
+    }
+    .choices { gap: 10px; }
+    .choice { padding: 11px 14px; }
+
+    /* The window itself takes a faint violet too, so the whole step reads as "the AI one" */
+    :root { --card-bg: #f8f5ff; }
+    :root[data-theme="dark"] { --card-bg: #2c2a33; }
+
+    /* ---- AI's colour: the app's AI violet (Semantic.ai) instead of the green, inside the window only */
+    .content {
+      --step-current: #7652e8;
+      --phosphor: #b8a2ff;
+      --primary-bg: #6c4ad8;
+    }
+    :root[data-theme="dark"] .content { --step-current: #a98bff; --phosphor: #9e7bff; --primary-bg: #6c4ad8; }
+    .content .badge, :root:not([data-theme="dark"]) .content .row .t .badge:not(.quality):not(.warn):not(.done) { color: #5b3cc4; background: color-mix(in srgb, #9e7bff 18%, transparent); }
+    :root[data-theme="dark"] .content .badge:not(.quality):not(.warn):not(.done) { color: #c4b1ff; background: color-mix(in srgb, #9e7bff 20%, transparent); }
+    /* A faint violet wash on the panel, so the whole step reads as "the AI one" */
+    .content > .right > .panel { background: linear-gradient(170deg, color-mix(in srgb, #9e7bff 9%, var(--panel-bg)), var(--panel-bg) 60%); }
+    .example-label { color: #7652e8 !important; }
+    :root[data-theme="dark"] .example-label { color: #b8a2ff !important; }
+    .choice[aria-checked="true"] .glyph { background: linear-gradient(160deg, #7b5ce6, #3d2491); color: #e4dbff; }
+    .title .spark { display: inline-block; width: 26px; height: 26px; margin-left: 6px; vertical-align: 2px; color: #8f6cf5; }
+    :root[data-theme="dark"] .title .spark { color: #b8a2ff; }
+
+    /* Under the panel: the way out, with the reassurance next to it */
+    .right { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+    .later { margin: 0; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 12px; color: var(--label-2); }
+    /* The cards end where the panel ends, so leave the note's height under them */
+    :root[data-variant="c"] .choice-screen .copy { padding-bottom: 36px; }
+
+    /* The panel ends where the two cards end (the height is measured in the script below),
+       and whatever it shows sits in its middle — the same box for all three answers */
+    :root[data-variant="c"] .choice-screen .content > .panel { align-self: start; }
+    .details-local { justify-content: safe center; }
+
+    :root[data-path="none"] .details-none,
+    :root[data-path="local"] .details-local,
+    :root[data-path="online"] .details-online { display: flex; flex-direction: column; }
+
+    /* ---- The example: what a dictation looks like before and after */
+    .details-none { justify-content: center; gap: 12px; padding: 22px; }
+    .example-label { font-size: 11px; font-weight: 600; color: var(--label-3); text-transform: uppercase; letter-spacing: 0.04em; }
+    .said, .polished {
+      padding: 10px 13px;
+      border-radius: 14px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .said { align-self: flex-start; max-width: 92%; color: var(--label-2); font-style: italic; background: var(--control-bg); box-shadow: inset 0 0 0 1px var(--panel-border); }
+    .polished { align-self: flex-end; max-width: 92%; color: #fff; background: linear-gradient(160deg, #8a6af0, #4a2fb0); box-shadow: 0 6px 18px -8px rgba(90, 60, 200, 0.55); }
+    .said small, .polished small { display: block; margin-bottom: 3px; font-size: 10.5px; font-style: normal; font-weight: 600; opacity: 0.7; }
+    .arrow { align-self: center; color: var(--step-current); font-size: 16px; line-height: 1; }
+
+    /* ---- Ollama's status block */
+    .ollama {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin: 0 0 4px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--control-bg);
+      box-shadow: inset 0 0 0 1px var(--panel-border);
+      font-size: 12px;
+      color: var(--label-2);
+    }
+    .ollama b { display: block; color: var(--label); font-size: 12.5px; margin-bottom: 2px; }
+    .ollama .actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+    .ollama .icon {
+      flex: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: var(--panel-bg);
+      color: var(--label-2);
+    }
+    .ollama.ok { padding: 8px 12px; align-items: center; color: #1e8e46; font-weight: 500; }
+    :root[data-theme="dark"] .ollama.ok { color: var(--confirmation); }
+    .row .row-action { margin-top: 6px; }
+    .row.heavy .t { color: var(--label-2); }
+    /* Three services on one line each, so the key block below fits without scrolling */
+    .details-online .rows .row { padding: 5px 10px; align-items: center; }
+    /* The box ends with the cards, so the key block is packed a little tighter than on ② */
+    .details-online { padding: 10px 12px; }
+    .details-online .key-block { margin-top: 8px; padding-top: 10px; }
+    .details-online .status { min-height: 0; }
+    .details-online .status:empty { display: none; }
+    .details-online .rows .radio { margin-top: 0; }
+  </style>
+</head>
+<body class="choice-screen">
+
+  <!-- Review toolbar: outside the window, for looking at the design -->
+  <div class="review-bar" role="toolbar" aria-label="Preview options">
+    <button type="button" data-theme-set="light" aria-pressed="true">Light</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+    <span class="sep"></span>
+    <select id="sim-ollama" aria-label="What Ollama is doing">
+      <option value="missing">Ollama: not installed</option>
+      <option value="stopped">Ollama: installed, not running</option>
+      <option value="running">Ollama: running</option>
+      <option value="old">Ollama: running, too old (0.18.1)</option>
+    </select>
+    <button type="button" id="sim-network" title="What a key check will find">Online</button>
+    <select id="sim-copy-key" aria-label="Copy a test key">
+      <option value="">Copy a test key…</option>
+      <option value="groq">Groq key</option>
+      <option value="anthropic">Claude key</option>
+      <option value="openai">ChatGPT key</option>
+      <option value="wrong">A key that won't work</option>
+    </select>
+    <button type="button" id="sim-fail">Fail downloads</button>
+    <span class="sep"></span>
+    <button type="button" id="sim-reset">Start over</button>
+  </div>
+
+  <div class="stage">
+  <!-- The moving glow, under the window and seen through its glass frame -->
+  <div class="aura" aria-hidden="true"><div class="swirl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+
+  <div class="window" role="dialog" aria-label="SpeechText Setup">
+    <div class="card">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+
+      <main class="content">
+
+        <!-- Left: the question and the answers -->
+        <section class="copy">
+          <h1 class="title" id="step-title">Want AI to tidy up your text?<svg class="spark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2.5c.5 3.9 2.6 6 6.5 6.5-3.9.5-6 2.6-6.5 6.5-.5-3.9-2.6-6-6.5-6.5 3.9-.5 6-2.6 6.5-6.5z"/><path d="M18.5 13c.3 2.2 1.3 3.2 3.5 3.5-2.2.3-3.2 1.3-3.5 3.5-.3-2.2-1.3-3.2-3.5-3.5 2.2-.3 3.2-1.3 3.5-3.5z" opacity=".7"/></svg></h1>
+          <p class="lead">Optional. Press <span class="kbd-inline">⌃⇧A</span> instead of <span class="kbd-inline">⌃⇧Q</span> and AI turns what you say into clean text for the app you're in.</p>
+
+          <div class="choices" role="radiogroup" aria-labelledby="step-title">
+            <button class="choice" type="button" role="radio" aria-checked="false" data-path="local">
+              <span class="glyph" aria-hidden="true">
+                <svg width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="1.5" width="14" height="10" rx="1.6"/><path d="M1 14.5h18" stroke-linecap="round"/></svg>
+              </span>
+              <span>
+                <span class="head"><span class="name">On this Mac</span></span>
+                <span class="facts" style="display:block">Private and free. Needs the free Ollama app and a 3–80 GB download.</span>
+              </span>
+            </button>
+
+            <button class="choice" type="button" role="radio" aria-checked="false" data-path="online">
+              <span class="glyph" aria-hidden="true">
+                <svg width="20" height="15" viewBox="0 0 20 15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5.5 13.5h9a4 4 0 0 0 .6-7.96A5.5 5.5 0 0 0 4.6 6.3 3.6 3.6 0 0 0 5.5 13.5z"/></svg>
+              </span>
+              <span>
+                <span class="head"><span class="name">Online service</span><span class="badge" id="online-badge" hidden>Ready</span></span>
+                <span class="facts" style="display:block">Fast on any Mac. Needs an account — Groq has a free plan.</span>
+              </span>
+            </button>
+
+          </div>
+        </section>
+
+        <!-- Right: what the chosen option needs -->
+        <div class="right">
+        <section class="panel" aria-label="Details">
+
+          <!-- Nothing picked yet: the example of what AI polish does -->
+          <div class="details details-none">
+            <span class="example-label">For example</span>
+            <div class="said"><small>You say</small>“uh so um tell John that I'm gonna be like— wait no, ten, ten minutes late I think? cause the traffic is just, ugh. yeah sorry”</div>
+            <div class="arrow" aria-hidden="true">↓</div>
+            <div class="polished"><small>✨ AI writes</small>Hi John, I'll be about 10 minutes late — traffic is bad. Sorry!</div>
+          </div>
+
+          <!-- On this Mac: Ollama, then a model -->
+          <div class="details details-local">
+            <div id="ollama"></div>
+            <div id="llm-models" role="radiogroup" aria-label="AI model"></div>
+          </div>
+
+          <!-- Online service: a service and its key -->
+          <div class="details details-online">
+            <div class="rows" role="radiogroup" aria-label="Online service">
+              <div class="row" role="radio" tabindex="0" data-service="groq">
+                <span class="radio"></span>
+                <span><div class="t">Groq <span>· Free plan</span> <span class="badge">Recommended</span></div></span>
+              </div>
+              <div class="row" role="radio" tabindex="0" data-service="anthropic">
+                <span class="radio"></span>
+                <span><div class="t">Claude <span>· Anthropic · Paid</span></div></span>
+              </div>
+              <div class="row" role="radio" tabindex="0" data-service="openai">
+                <span class="radio"></span>
+                <span><div class="t">ChatGPT <span>· OpenAI · Paid</span></div></span>
+              </div>
+            </div>
+            <div class="key-block" id="key-block"></div>
+          </div>
+        </section>
+        <p class="later">You can turn this on later in Settings. <button class="skip-btn" type="button" id="skip">Skip for now</button></p>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <ol class="steps steps-bar" aria-label="Setup steps">
+          <li><span class="dot"></span><span class="label">Welcome</span></li>
+          <li><span class="dot"></span><span class="label">Speech</span></li>
+          <li class="current" aria-current="step"><span class="dot"></span><span class="label">AI</span></li>
+          <li><span class="dot"></span><span class="label">Permissions</span></li>
+          <li><span class="dot"></span><span class="label">Try it</span></li>
+        </ol>
+        <button class="btn btn-secondary" type="button" id="back">Back</button>
+        <button class="btn btn-primary" type="button" id="primary" autofocus disabled>Continue</button>
+      </footer>
+    </div>
+  </div>
+  </div>
+
+  <script>
+    // ③ AI text polish (spec §4). Choices live in Setup.state.ai; Continue writes Setup.state.settings.ai.
+    const root = document.documentElement;
+    const S = () => Setup.state;
+    const primary = document.getElementById("primary");
+
+    // localLLMModels (OllamaProvider.swift) for a MacBook Pro M1 Pro 32 GB — the 24–32 GB tier:
+    // recommended Gemma 4 12B, best quality Qwen3.8 27B; anything whose memory floor is above 32 GB is heavier.
+    const LLM = [
+      { id: "gemma4:12b",      name: "Gemma 4 12B",  bytes: 7.6e9,  min: "0.30.5",  pick: "rec",  line: "Clean text in 2–4 seconds." },
+      { id: "qwen3.8:27b",     name: "Qwen3.8 27B",  bytes: 17.7e9, min: "0.32.12", pick: "best", line: "Writes best, but takes 5–14 seconds." },
+      { id: "qwen3.5:9b",      name: "Qwen3.5 9B",   bytes: 6.6e9,  min: "0.17.4",  line: "A step behind Gemma 4 12B, a little lighter." },
+      { id: "qwen3.5:4b",      name: "Qwen3.5 4B",   bytes: 3.4e9,  min: "0.17.4",  line: "Works, with some mistakes." },
+      { id: "qwen3.5:2b",      name: "Qwen3.5 2B",   bytes: 2.7e9,  min: "0.17.4",  line: "Many mistakes in Ukrainian. Not recommended." },
+      { id: "qwen3.5:0.8b",    name: "Qwen3.5 0.8B", bytes: 1.0e9,  min: "0.17.4",  line: "Not recommended for Ukrainian." },
+      { id: "gemma4:26b",      name: "Gemma 4 26B",  bytes: 18.6e9, min: "0.20.0",  heavy: 36,  line: "Fast and clean. Needs 36 GB of memory." },
+      { id: "gemma4:31b",      name: "Gemma 4 31B",  bytes: 19.9e9, min: "0.20.0",  heavy: 36,  line: "Strong writing, slower. Needs 36 GB of memory." },
+      { id: "qwen3.6:35b-a3b", name: "Qwen3.6 35B",  bytes: 22.6e9, min: "0.24.0",  heavy: 36,  line: "Big-model knowledge at small-model speed. Needs 36 GB." },
+      { id: "gpt-oss:120b",    name: "gpt-oss 120B", bytes: 65.4e9, min: "0.11.0",  heavy: 96,  line: "OpenAI's open model. Needs 96 GB of memory." },
+      { id: "qwen3.5:122b",    name: "Qwen3.5 122B", bytes: 81.4e9, min: "0.17.4",  heavy: 128, line: "The largest model for a Mac. Needs 128 GB." },
+    ];
+    const llm = id => LLM.find(m => m.id === id);
+    const newer = (have, need) => {
+      const a = have.split(".").map(Number), b = need.split(".").map(Number);
+      for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+      return true;
+    };
+    const ollamaVersion = () => S().sim.ollama === "old" ? "0.18.1" : "0.34.1";
+    const needsNewer = m => !newer(ollamaVersion(), m.min);
+
+    // ---- Nothing is picked until the user picks: the panel opens on the example, which sells the feature
+    if (!S().ai.chosen) { S().ai.path = "none"; S().ai.service = "groq"; Setup.changed(); }
+
+    // ---- Ollama detection (simulated; the app polls /api/version every 2 s while this panel shows)
+    let ollamaChecking = false;
+    function checkOllama(after) {
+      ollamaChecking = true;
+      render();
+      setTimeout(() => { ollamaChecking = false; after?.(); Setup.changed(); }, 900);
+    }
+    let awaitingOllama = false;
+    addEventListener("focus", () => {
+      // Back from ollama.com: the reviewer "installed" it
+      if (!awaitingOllama) return;
+      awaitingOllama = false;
+      checkOllama(() => { if (S().sim.ollama === "missing") S().sim.ollama = "stopped"; });
+    });
+
+    const simOllama = document.getElementById("sim-ollama");
+    simOllama.value = S().sim.ollama;
+    simOllama.addEventListener("change", () => { S().sim.ollama = simOllama.value; checkOllama(); });
+
+    document.getElementById("ollama").addEventListener("click", e => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "get") { window.open("https://ollama.com/download", "_blank", "noopener"); awaitingOllama = true; }
+      if (act === "open") checkOllama(() => { S().sim.ollama = "running"; simOllama.value = "running"; });
+    });
+
+    function renderOllama() {
+      const el = document.getElementById("ollama");
+      const state = ollamaChecking ? "checking" : S().sim.ollama;
+      el.innerHTML = {
+        checking: `<div class="ollama"><span class="spinner"></span><span>Looking for Ollama…</span></div>`,
+        missing:  `<div class="ollama"><div><b>Ollama is a free app that runs AI on your Mac.</b>Download it, open it once, and come back — we'll notice.<div class="actions"><button class="link-btn" type="button" data-act="get">Get Ollama ↗</button></div></div></div>`,
+        stopped:  `<div class="ollama"><div><b>Ollama is installed but not running.</b>Open it, and the models will appear here.<div class="actions"><button class="link-btn" type="button" data-act="open">Open Ollama</button></div></div></div>`,
+        running:  `<div class="ollama ok">✓ Ollama is running.</div>`,
+        old:      `<div class="ollama ok">✓ Ollama is running <span style="color:var(--label-2);font-weight:400">· version 0.18.1</span></div>`,
+      }[state];
+      return state === "running" || state === "old";
+    }
+
+    // ---- Models (shown when Ollama runs): picks first, then the rest that fit, then the heavier ones
+    function modelRow(m) {
+      const sel = S().ai.model === m.id;
+      const d = S().downloads.ai;
+      const p = d && d.id === m.id ? Setup.progress("ai") : null;
+      const installed = S().installed.ai.includes(m.id) || p?.phase === "ready";
+      let badge = "";
+      if (installed) badge = '<span class="badge done">✓ Installed</span>';
+      else if (needsNewer(m)) badge = '<span class="badge warn">Needs newer Ollama</span>';
+      else if (m.heavy) badge = '<span class="badge warn">Too heavy for this Mac</span>';
+      else if (m.pick === "rec") badge = '<span class="badge">Recommended</span>';
+      else if (m.pick === "best") badge = '<span class="badge quality">Best quality</span>';
+      let extra = "";
+      if (p?.phase === "downloading") extra = `<div class="progress"><i style="width:${(p.fraction * 100).toFixed(1)}%"></i></div><div class="row-note">Downloading · ${Math.floor(p.fraction * 100)}%</div>`;
+      if (p?.phase === "failed") extra = `<div class="row-note bad">Download failed. <button type="button" class="inline-link" data-retry>Retry</button></div>`;
+      if (sel && needsNewer(m) && !installed) extra += `<div class="row-action"><button class="link-btn" type="button" data-update>Update Ollama ↗</button></div>`;
+      return `<div class="row${m.heavy ? " heavy" : ""}" role="radio" tabindex="0" aria-checked="${sel}" data-model="${m.id}">
+          <span class="radio"></span>
+          <span><div class="t">${m.name} <span>· ${Setup.size(m.bytes)}</span> ${badge}</div><div class="d">${m.line}</div>${extra}</span>
+        </div>`;
+    }
+    function renderModels(show) {
+      const el = document.getElementById("llm-models");
+      if (!show) { el.innerHTML = ""; return; }
+      const picks = LLM.filter(m => m.pick), rest = LLM.filter(m => !m.pick && !m.heavy), heavy = LLM.filter(m => m.heavy);
+      const warn = llm(S().ai.model)?.heavy ? `<p class="panel-note">This model may be slow on your Mac. We recommend Gemma 4 12B.</p>` : "";
+      el.innerHTML = `
+        <p class="list-heading">Recommended for your Mac (M1 Pro, 32 GB)</p>
+        <div class="rows">${picks.map(modelRow).join("")}</div>
+        <p class="list-heading">Other models</p>
+        <div class="rows">${rest.map(modelRow).join("")}</div>
+        <p class="list-heading">Heavier models</p>
+        <div class="rows">${heavy.map(modelRow).join("")}</div>${warn}`;
+    }
+    document.getElementById("llm-models").addEventListener("click", e => {
+      if (e.target.closest("[data-retry]")) { e.stopPropagation(); Setup.retryDownload("ai"); return; }
+      if (e.target.closest("[data-update]")) { e.stopPropagation(); window.open("https://ollama.com/download", "_blank", "noopener"); return; }
+      const row = e.target.closest(".row");
+      if (row) { S().ai.model = row.dataset.model; Setup.changed(); }
+    });
+    document.getElementById("llm-models").addEventListener("keydown", e => {
+      const row = e.target.closest(".row");
+      if (row && e.key === " ") { e.preventDefault(); row.click(); }
+    });
+
+    // ---- Cards and services
+    document.querySelectorAll(".choice").forEach(card => card.addEventListener("click", () => {
+      S().ai.path = card.dataset.path;
+      S().ai.chosen = true;
+      if (card.dataset.path === "local") checkOllama();
+      Setup.changed();
+    }));
+    document.querySelectorAll(".details-online .row").forEach(row => {
+      row.addEventListener("click", () => { S().ai.service = row.dataset.service; Setup.changed(); });
+      row.addEventListener("keydown", e => { if (e.key === " ") { e.preventDefault(); row.click(); } });
+    });
+
+    let lastSig = "";
+    function render() {
+      const ai = S().ai;
+      root.dataset.path = ai.path;
+      document.querySelectorAll(".choice").forEach(c => c.setAttribute("aria-checked", String(c.dataset.path === ai.path)));
+      document.querySelectorAll(".details-online .row").forEach(r => r.setAttribute("aria-checked", String(r.dataset.service === ai.service)));
+
+      // Groq's key from ② is reused as is (spec §4.4)
+      const reuse = ai.service === "groq" && Setup.keyUsable("groq") && S().settings.stt?.sttProvider === "groq";
+      Setup.renderKeyBlock(document.getElementById("key-block"), ai.service,
+        reuse ? { collapsedText: "AI polish is ready — it uses your Groq key." } : {});
+      document.getElementById("online-badge").hidden = !(Setup.keyUsable("groq") && S().settings.stt?.sttProvider === "groq");
+
+      const p = Setup.progress("ai");
+      const sig = JSON.stringify([ai.model, ollamaChecking, S().sim.ollama, S().downloads.ai?.id, p?.phase, p?.fraction && Math.floor(p.fraction * 100)]);
+      if (sig !== lastSig) { lastSig = sig; renderModels(renderOllama()); }
+
+      // The primary button (spec §4.5 states, §4.6 Not now)
+      const running = !ollamaChecking && ["running", "old"].includes(S().sim.ollama);
+      if (ai.path === "none") { primary.textContent = "Continue"; primary.disabled = true; }
+      else if (ai.path === "online") { primary.textContent = "Continue"; primary.disabled = !Setup.keyUsable(ai.service); }
+      else {
+        const m = llm(ai.model), d = S().downloads.ai;
+        const have = S().installed.ai.includes(m.id) || (d && d.id === m.id && p?.phase !== "failed");
+        primary.disabled = !running || (!have && needsNewer(m));
+        primary.textContent = !running || have ? "Continue" : d?.id === m.id && p?.phase === "failed" ? "Retry and continue" : "Download and continue";
+      }
+    }
+
+    document.getElementById("skip").addEventListener("click", () => {
+      delete S().settings.ai;   // Skip for now writes nothing
+      Setup.changed();
+      console.info("③ writes nothing");
+      Setup.go(3);
+    });
+    primary.addEventListener("click", () => {
+      const ai = S().ai;
+      if (ai.path === "none") return;
+      if (ai.path === "online") {
+        const keyName = { groq: "groqAPIKey", anthropic: "anthropicAPIKey", openai: "openAIAPIKey" }[ai.service];
+        S().settings.ai = { llmProvider: ai.service, [keyName]: Setup.keyOf(ai.service).value };
+      } else {
+        const m = llm(ai.model), d = S().downloads.ai;
+        if (!S().installed.ai.includes(m.id) && (!d || d.id !== m.id || d.status === "failed"))
+          Setup.startDownload("ai", { id: m.id, name: m.name, bytes: m.bytes });
+        S().settings.ai = { llmProvider: "ollama", ollamaModel: m.id };
+      }
+      Setup.changed();
+      console.info("③ writes", S().settings.ai ?? "nothing");
+      Setup.go(3);
+    });
+    document.getElementById("back").addEventListener("click", () => Setup.go(1));
+
+    const hashPath = location.hash.slice(1).split("-")[1];
+    if (["none", "local", "online"].includes(hashPath)) S().ai.path = hashPath;
+
+    // The panel's bottom edge lines up with the Online service card's
+    const panel = document.querySelector(".panel");
+    const fitPanel = () => {
+      const card = document.querySelector('.choice[data-path="online"]');
+      panel.style.height = Math.round(card.getBoundingClientRect().bottom - panel.getBoundingClientRect().top) + "px";
+    };
+    addEventListener("resize", fitPanel);
+    document.fonts.ready.then(fitPanel);
+    fitPanel();
+
+    if (S().ai.path === "local") checkOllama();
+    Setup.init({ step: 2, primary, back: () => Setup.go(1) });
+    Setup.onChange(render);
+    setInterval(render, 300);
+    render();
+  </script>
+</body>
+</html>
