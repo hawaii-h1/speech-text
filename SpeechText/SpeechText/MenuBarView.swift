@@ -159,7 +159,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 400, minHeight: 500)
+        .frame(width: 400, height: 648)
         .padding()
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
