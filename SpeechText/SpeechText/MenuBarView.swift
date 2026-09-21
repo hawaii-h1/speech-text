@@ -512,8 +512,8 @@ private struct SpokenLanguagesField: View {
             return "The engine is told you are speaking \(name), which is the most accurate setting — but anything you say in another language may come back translated into \(name)."
         default:
             return stt == .apple
-                ? "Several languages, so the engine picks one. Apple's recogniser cannot detect it, so your keyboard layout chooses among your languages — currently \(resolvedLocale())."
-                : "Several languages, so the speech model detects which one you are speaking. No provider accepts a list, so your choice narrows nothing here yet — it is used when the engine cannot detect a language on its own."
+                ? "Apple's recogniser cannot detect a language, so your keyboard layout picks one of yours — currently \(resolvedLocale())."
+                : "The speech model detects which language you are speaking. No provider accepts a list, so this one is not sent — name a single language to force one."
         }
     }
 }
