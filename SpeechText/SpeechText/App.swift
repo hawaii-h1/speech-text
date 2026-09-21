@@ -1037,7 +1037,14 @@ final class AppState {
 
     /// Pastes into the previously focused app, falling back to the Record Window when
     /// that isn't possible.
-    private func deliver(_ text: String) {
+    private func deliver(_ dictation: String) {
+        // A trailing space, so a dictation continued into the same field does not start
+        // glued to this one — every path upstream trims. It is added here rather than in
+        // `InlineDelivery` so the ledger, History and the span layer keep the transcript
+        // as it was recognised, and before the trace is written so a recorded dictation
+        // replays into the text that really went out — which the Record Window fallback
+        // below inherits, where a trailing space costs nothing.
+        let text = dictation + " "
         DictationTraceRecorder.record(.stopPaste, text: text)
         if !PasteService.isAccessibilityGranted {
             dlog("App", "deliver: no accessibility, showing record panel")
