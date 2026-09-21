@@ -20,6 +20,10 @@ enum SettingsKeys {
     static let groqModel = "groqModel"
     static let elevenLabsAPIKey = "elevenLabsAPIKey"
     static let elevenLabsModel = "elevenLabsModel"
+    /// The transcription model the OpenAI engine uses. Deliberately *not*
+    /// `openAIModel`, which is the chat model for the rewrite pass — the two tiers
+    /// pick independently and share only `openAIAPIKey`.
+    static let openAISTTModel = "openAISTTModel"
     /// `LocalSTTModel.id` (a WhisperKit variant) the local engine transcribes with.
     static let localSTTModel = "localSTTModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
@@ -121,7 +125,8 @@ enum SettingsKeys {
     /// `SUSkippedVersion` would suppress an update the new install never saw offered.
     static let portable: [String] = [
         selectedLanguage, spokenLanguages,
-        sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
+        sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel,
+        openAISTTModel, localSTTModel,
         removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
@@ -191,6 +196,32 @@ let defaultElevenLabsModel = "scribe_v2"
 let elevenLabsModels: [(id: String, name: String)] = [
     ("scribe_v2", "Scribe v2"),
     (elevenLabsRealtimeModel, "Scribe v2 Realtime — live text"),
+]
+
+/// OpenAI's streaming transcription model. Picking it switches the engine from a file
+/// upload after the recording to the realtime WebSocket — see `OpenAIRealtimeProvider`.
+/// It exists only there: the upload endpoint rejects it, so `batchModel` maps it to
+/// `defaultOpenAISTTModel` for the stream's fallback and for History retries.
+let openAIRealtimeSTTModel = "gpt-live-transcribe"
+
+/// The batch model: the default, the stream's fallback and History retries.
+let defaultOpenAISTTModel = "gpt-transcribe"
+
+/// Checked against `GET /v1/models` on 2026-09-21 rather than against the docs.
+///
+/// Two of the models the account can see are deliberately left out.
+/// `gpt-4o-transcribe-diarize` answers in `diarized_json`, a different shape from the
+/// `{text}` this app decodes, and dictation has one speaker. `whisper-1` is the one
+/// that matters: handed two seconds of near-silence it answered
+/// "MBC 뉴스 이덕영입니다." — the classic Whisper silence hallucination, which would be
+/// pasted into the user's document. `gpt-transcribe` answered `{"text":""}` to the same
+/// audio, which is why it is the default. `AudioBufferWriter`'s silence floor catches
+/// most of this, but a model that invents sentences from room noise should not be
+/// offered at all.
+let openAISTTModels: [(id: String, name: String)] = [
+    (defaultOpenAISTTModel, "GPT Transcribe"),
+    ("gpt-4o-mini-transcribe", "GPT-4o mini Transcribe — cheaper"),
+    (openAIRealtimeSTTModel, "GPT Live Transcribe — live text"),
 ]
 
 /// One language the user can say they speak. `id` is the ISO-639-1 code the stored
@@ -371,12 +402,43 @@ func normalizeStoredProviders() {
     // that is no longer offered blanks the picker exactly like a stale provider does.
     normalizeStoredModel(SettingsKeys.groqModel, in: groqModels, fallback: "whisper-large-v3-turbo")
     normalizeStoredModel(SettingsKeys.elevenLabsModel, in: elevenLabsModels, fallback: defaultElevenLabsModel)
+    normalizeStoredModel(SettingsKeys.openAISTTModel, in: openAISTTModels, fallback: defaultOpenAISTTModel)
     normalizeStoredModel(SettingsKeys.groqLLMModel, in: groqChatModels, fallback: defaultGroqLLMModel)
     normalizeStoredModel(SettingsKeys.anthropicModel, in: anthropicChatModels, fallback: defaultAnthropicModel)
     normalizeStoredModel(SettingsKeys.openAIModel, in: openAIChatModels, fallback: defaultOpenAIModel)
+    preserveInstalledLocalModel()
     normalizeStoredModel(SettingsKeys.localSTTModel,
                          in: localSTTModels.map { (id: $0.id, name: $0.displayName) },
                          fallback: defaultLocalSTTModel)
+}
+
+/// Keeps a local-tier user on the model they actually downloaded when the *default*
+/// moves under them.
+///
+/// Nothing writes `localSTTModel` until the user picks a model by hand: both
+/// `@AppStorage` and `RecordingConfiguration.current()` fall back to
+/// `defaultLocalSTTModel` on read, and `normalizeStoredModel` deliberately ignores an
+/// absent key. So when that default moved from Whisper Turbo to Parakeet, every install
+/// running the local tier on the old default — key never written, Turbo on disk and
+/// working — would have been pointed at a model it had not downloaded, and the next
+/// dictation would have failed with "Parakeet v3 isn't installed". A working setup
+/// broken by an update, silently, with no user action.
+///
+/// So an absent key plus a model on disk is read as "they meant this one", and it is
+/// written down. A fresh install has nothing on disk and falls through to the new
+/// default, which is the whole point of moving it.
+private func preserveInstalledLocalModel() {
+    let defaults = UserDefaults.standard
+    guard defaults.string(forKey: SettingsKeys.localSTTModel) == nil else { return }
+    // The old default first, because that is what an untouched install was running; only
+    // then the heaviest installed, for someone who downloaded something else by hand.
+    let previousDefault = "openai_whisper-large-v3-v20240930_turbo_632MB"
+    let keep = isLocalModelInstalled(previousDefault)
+        ? localSTTModel(id: previousDefault)
+        : localSTTModels.first { isLocalModelInstalled($0.id) }
+    guard let keep else { return }
+    dlog("Settings", "localSTTModel was never set and \(keep.id) is installed — keeping it")
+    defaults.set(keep.id, forKey: SettingsKeys.localSTTModel)
 }
 
 private func normalizeStoredModel(

@@ -3,6 +3,7 @@
 
 import XCTest
 import AppKit
+import AVFoundation
 import Carbon.HIToolbox
 
 // These tests compile the app's source files directly into the test bundle (see the
@@ -1487,5 +1488,134 @@ final class ShortcutConflictTests: XCTestCase {
         suite.set(Int(NSEvent.ModifierFlags.command.rawValue), forKey: ShortcutAction.ai.modifierFlagsKey)
         XCTAssertEqual(ShortcutAction.ai.stored(in: suite).keyCode, 7)
         XCTAssertEqual(ShortcutAction.ai.stored(in: suite).modifiers, .command)
+    }
+}
+
+// MARK: - The OpenAI tier
+
+final class OpenAISTTTests: XCTestCase {
+
+    /// Constructed directly — never via `current()`, which reads the real defaults.
+    private func config(provider: STTProviderType = .openai,
+                        openAIModel: String = defaultOpenAISTTModel,
+                        openAIKey: String = "ok") -> RecordingConfiguration {
+        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true,
+                               groqAPIKey: "gk", groqModel: "whisper-large-v3-turbo",
+                               elevenLabsAPIKey: "ek", elevenLabsModel: "scribe_v2",
+                               openAIAPIKey: openAIKey, openAISTTModel: openAIModel)
+    }
+
+    func testStreamsOnlyForTheRealtimeModel() {
+        XCTAssertTrue(config(openAIModel: openAIRealtimeSTTModel).streams)
+        XCTAssertFalse(config(openAIModel: defaultOpenAISTTModel).streams)
+        // The model string alone must not be enough: the provider has to match too.
+        XCTAssertFalse(config(provider: .groq, openAIModel: openAIRealtimeSTTModel).streams)
+    }
+
+    /// The realtime model exists only behind the WebSocket — the upload endpoint rejects
+    /// it — so the stream's fallback and History retries go to the batch model.
+    func testBatchModelMapsRealtimeToTheUploadModel() {
+        XCTAssertEqual(config(openAIModel: openAIRealtimeSTTModel).batchModel, defaultOpenAISTTModel)
+        XCTAssertEqual(config(openAIModel: "gpt-4o-mini-transcribe").batchModel, "gpt-4o-mini-transcribe")
+    }
+
+    func testRetryReadinessNamesTheOpenAIKey() {
+        XCTAssertNil(config().batchUnavailableReason(modelInstalled: { _ in false }))
+        let reason = config(openAIKey: "").batchUnavailableReason()
+        XCTAssertNotNil(reason)
+        XCTAssertTrue(reason!.contains("OpenAI"))
+    }
+
+    /// Auto still means "the model decides" here, as it does for every cloud tier.
+    func testAutoLanguageIsNotForcedOnTheModel() {
+        XCTAssertNil(config().cloudLanguage)
+        XCTAssertEqual(config().historyLocale, autoLanguageID)
+    }
+
+    /// `whisper-1` answered two seconds of near-silence with "MBC 뉴스 이덕영입니다."
+    /// (2026-09-21), which the app would have pasted into the user's document, and
+    /// `gpt-4o-transcribe-diarize` answers in a shape this app does not decode. Neither
+    /// may be offered, however the catalogue is later rearranged.
+    func testCatalogueLeavesOutTheModelsThatCannotBeTrusted() {
+        let ids = openAISTTModels.map(\.id)
+        XCTAssertFalse(ids.contains("whisper-1"))
+        XCTAssertFalse(ids.contains("gpt-4o-transcribe-diarize"))
+        XCTAssertTrue(ids.contains(defaultOpenAISTTModel))
+        XCTAssertTrue(ids.contains(openAIRealtimeSTTModel))
+    }
+
+    // MARK: The realtime session's configuration
+
+    private func sessionUpdate(language: String?) throws -> [String: Any] {
+        let raw = try XCTUnwrap(OpenAIRealtimeProvider.encodeSessionUpdate(
+            model: openAIRealtimeSTTModel, language: language, sampleRate: 24_000))
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+        let session = try XCTUnwrap(json["session"] as? [String: Any])
+        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
+        XCTAssertEqual(json["type"] as? String, "session.update")
+        return try XCTUnwrap(audio["input"] as? [String: Any])
+    }
+
+    /// Everything in this message is load-bearing: a session left unconfigured has
+    /// `transcription: null` and silently transcribes nothing, the rate is refused
+    /// unless it is exactly 24 kHz, and `turn_detection` — which a fresh session
+    /// defaults to — is rejected outright by this model.
+    func testSessionUpdateConfiguresTheTranscription() throws {
+        let input = try sessionUpdate(language: nil)
+
+        let format = try XCTUnwrap(input["format"] as? [String: Any])
+        XCTAssertEqual(format["type"] as? String, "audio/pcm")
+        XCTAssertEqual(format["rate"] as? Int, 24_000)
+
+        XCTAssertTrue(input["turn_detection"] is NSNull)
+
+        let transcription = try XCTUnwrap(input["transcription"] as? [String: Any])
+        XCTAssertEqual(transcription["model"] as? String, openAIRealtimeSTTModel)
+        // Auto: the model is told nothing and detects the language itself.
+        XCTAssertNil(transcription["language"])
+    }
+
+    func testSessionUpdateSendsTheLanguageAsTwoLetters() throws {
+        let transcription = try XCTUnwrap(try sessionUpdate(language: "uk-UA")["transcription"] as? [String: Any])
+        XCTAssertEqual(transcription["language"] as? String, "uk")
+    }
+
+    /// The tier the factory picks, and the rate it asks the engine to convert to. 16 kHz
+    /// — what the upload file is made of — is refused by the service as below minimum.
+    func testTheFactoryBuildsARealtimeProviderAtTwentyFourKilohertz() {
+        let streaming = makeStreamingProvider(configuration: config(openAIModel: openAIRealtimeSTTModel))
+        XCTAssertTrue(streaming is OpenAIRealtimeProvider)
+        XCTAssertEqual(streaming?.sampleRate, 24_000)
+        XCTAssertNil(makeStreamingProvider(configuration: config(openAIModel: defaultOpenAISTTModel)))
+    }
+}
+
+// MARK: - The assumption the streaming resampler rests on
+
+final class AVAudioFormatEqualityTests: XCTestCase {
+
+    /// `StreamingRecognitionSession` rebuilds its converter when the tap's format
+    /// changes, and decides that with `!=`. The tap hands out a *new* `AVAudioFormat`
+    /// instance for every buffer, so this only works because `NSObject`'s `==` is
+    /// `isEqual:` — an identity comparison would rebuild the converter per buffer,
+    /// discarding the resampler's delay line fifty times a second.
+    func testEqualFormatsCompareEqualEvenAsDistinctInstances() throws {
+        let a = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000,
+                                            channels: 1, interleaved: false))
+        let b = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000,
+                                            channels: 1, interleaved: false))
+        XCTAssertFalse(a === b)
+        let held: AVAudioFormat? = a
+        XCTAssertFalse(held != b)
+    }
+
+    func testADifferentRateIsSeenAsAChange() throws {
+        let held: AVAudioFormat? = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000,
+                                                 channels: 1, interleaved: false)
+        let changed = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44_100,
+                                                  channels: 1, interleaved: false))
+        XCTAssertTrue(held != changed)
+        let none: AVAudioFormat? = nil
+        XCTAssertTrue(none != changed)
     }
 }

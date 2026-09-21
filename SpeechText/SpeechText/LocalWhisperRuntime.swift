@@ -152,11 +152,5 @@ struct WhisperKitLocalProvider: BatchSTTProvider {
     }
 }
 
-/// Points the `LocalSTT` seam at the real engine. Called once from
-/// `applicationDidFinishLaunching`; without it the local tier reports itself unavailable,
-/// which is exactly what the test target wants.
-func registerLocalSTT() {
-    LocalSTT.providerFactory = { WhisperKitLocalProvider(modelID: $0) }
-    LocalSTT.releaseModel = { Task { await WhisperKitPipelineCache.shared.unload() } }
-    dlog("LocalModel", "local speech engine registered (WhisperKit)")
-}
+// `registerLocalSTT()` used to live here, when WhisperKit was the only local engine.
+// It now wires two of them and so belongs to neither — see `LocalModelStore.swift`.

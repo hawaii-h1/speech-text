@@ -438,7 +438,8 @@ private func macDescription(_ caps: SystemCapabilities) -> String {
 private func speechModelLine(_ model: LocalSTTModel) -> String {
     switch model.id {
     case "openai_whisper-large-v3-v20240930": "As accurate as Turbo, about 30% slower. Needs 24 GB of memory."
-    case defaultLocalSTTModel: "Great for English and Ukrainian."
+    case parakeetV3ModelID: "Great for English and Ukrainian, and the quickest to answer."
+    case "openai_whisper-large-v3-v20240930_turbo_632MB": "Great for English and Ukrainian. Slower to answer than Parakeet."
     case "openai_whisper-small_216MB": "Great for English. Makes mistakes in Ukrainian."
     case "openai_whisper-base": "Good for English. Makes mistakes in Ukrainian."
     case "openai_whisper-tiny": "Many mistakes. Only for a quick test."
@@ -447,7 +448,7 @@ private func speechModelLine(_ model: LocalSTTModel) -> String {
 }
 
 private func speechModelName(_ model: LocalSTTModel) -> String {
-    model.id == defaultLocalSTTModel ? "Whisper Turbo" : model.displayName
+    model.id == "openai_whisper-large-v3-v20240930_turbo_632MB" ? "Whisper Turbo" : model.displayName
 }
 
 private struct SpeechScreen: View {
@@ -572,6 +573,8 @@ private struct SpeechScreen: View {
                          isSelected: model.speechService == .groq) { model.speechService = .groq }
                 SetupRow(title: "ElevenLabs", subtitle: "Paid", detail: "Shows your words live as you speak.",
                          isSelected: model.speechService == .elevenLabs) { model.speechService = .elevenLabs }
+                SetupRow(title: "OpenAI", subtitle: "Paid", detail: "Shows your words live too. The same key also turns on AI text polish.",
+                         isSelected: model.speechService == .openAI) { model.speechService = .openAI }
                 SetupKeyBlock(model: model, service: model.speechService)
                     .padding(.horizontal, 10)
                     .padding(.top, 12)

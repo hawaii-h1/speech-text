@@ -22,6 +22,11 @@ struct RecordingConfiguration {
     let groqModel: String
     let elevenLabsAPIKey: String
     let elevenLabsModel: String
+    /// Shared with the rewrite pass — one OpenAI key, two consumers, as with Groq.
+    /// Defaulted so a configuration built by hand (the tests, written before this tier
+    /// existed) still describes a valid session.
+    var openAIAPIKey: String = ""
+    var openAISTTModel: String = defaultOpenAISTTModel
     /// `LocalSTTModel.id`. Defaulted so a configuration built without it (the tests,
     /// written before the local tier existed) still describes a valid session.
     var localModel: String = defaultLocalSTTModel
@@ -58,8 +63,16 @@ struct RecordingConfiguration {
     /// language that was never requested.
     var historyLocale: String { provider == .apple ? locale : (cloudLanguage ?? autoLanguageID) }
 
-    /// True when the selected model is served over the realtime WebSocket.
-    var streams: Bool { provider == .elevenlabs && elevenLabsModel == elevenLabsRealtimeModel }
+    /// True when the selected model is served over a realtime WebSocket rather than an
+    /// upload endpoint. Two engines have one; whether live text appears is a function of
+    /// the stored *model*, not of the engine.
+    var streams: Bool {
+        switch provider {
+        case .elevenlabs: elevenLabsModel == elevenLabsRealtimeModel
+        case .openai: openAISTTModel == openAIRealtimeSTTModel
+        case .apple, .groq, .local: false
+        }
+    }
 
     /// Model ID used for any file upload: the stream's fallback, and History retries.
     /// The realtime model only exists behind the WebSocket, so it maps to scribe_v2;
@@ -67,6 +80,7 @@ struct RecordingConfiguration {
     var batchModel: String {
         switch provider {
         case .elevenlabs: elevenLabsModel == elevenLabsRealtimeModel ? defaultElevenLabsModel : elevenLabsModel
+        case .openai: openAISTTModel == openAIRealtimeSTTModel ? defaultOpenAISTTModel : openAISTTModel
         case .groq, .apple: groqModel
         case .local: localModel
         }
@@ -76,7 +90,7 @@ struct RecordingConfiguration {
     /// History retry asks this instead of testing the key itself: the local tier needs a
     /// model on disk rather than a key, and "add a Groq key" would be the wrong advice.
     /// `modelInstalled` is a parameter so the check stays testable without a filesystem.
-    func batchUnavailableReason(modelInstalled: (String) -> Bool = isLocalModelInstalled) -> String? {
+    func batchUnavailableReason(modelInstalled: (String) -> Bool = { isLocalModelInstalled($0) }) -> String? {
         switch provider {
         case .local:
             guard !modelInstalled(localModel) else { return nil }
@@ -84,6 +98,8 @@ struct RecordingConfiguration {
             return "\(name) isn't installed — download it in Settings."
         case .elevenlabs:
             return elevenLabsAPIKey.isEmpty ? "Retry needs an ElevenLabs API key — add one in Settings." : nil
+        case .openai:
+            return openAIAPIKey.isEmpty ? "Retry needs an OpenAI API key — add one in Settings." : nil
         case .groq, .apple:
             return groqAPIKey.isEmpty ? "Retry needs a Groq API key — add one in Settings." : nil
         }
@@ -102,6 +118,8 @@ struct RecordingConfiguration {
             groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
             elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
             elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? defaultElevenLabsModel,
+            openAIAPIKey: defaults.string(forKey: SettingsKeys.openAIAPIKey) ?? "",
+            openAISTTModel: defaults.string(forKey: SettingsKeys.openAISTTModel) ?? defaultOpenAISTTModel,
             localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
             dashStyle: .current
