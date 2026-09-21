@@ -6,7 +6,6 @@ import ServiceManagement
 import AppKit
 
 struct SettingsView: View {
-    @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
@@ -298,21 +297,7 @@ struct SettingsView: View {
                 }
             }
 
-            Picker("Language", selection: $selectedLanguage) {
-                ForEach(supportedLanguages) { lang in
-                    Text(lang.displayName).tag(lang.localeIdentifier)
-                }
-            }
-            if selectedLanguage == autoLanguageID {
-                // Auto means two different things, and saying so matters: a cloud model
-                // detects the language from the audio, while Apple's recogniser has no
-                // auto mode and has to be handed the keyboard layout's guess.
-                Text(stt == .apple
-                     ? "Follows your active keyboard layout — currently \(resolvedLocale())."
-                     : "Detected from what you say, by the speech model itself.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            SpokenLanguagesField(stt: stt)
             Toggle("Remove hesitation sounds", isOn: $removeDisfluencies)
             Text("Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.")
                 .font(.caption)
@@ -487,5 +472,82 @@ struct SettingsView: View {
         window.makeKeyAndOrderFront(nil)
         presetsWindow = window
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+
+// MARK: - Spoken languages
+
+/// "Languages I speak", and the caption that says what it actually does.
+///
+/// The caption is not decoration. Naming one language forces it on every engine; naming
+/// several cannot be passed to any provider (no API takes a set), so it only narrows the
+/// guess Apple has to make. A control whose effect changes with the count — and with the
+/// engine — has to say so, or it reads as a setting that does nothing.
+private struct SpokenLanguagesField: View {
+    @AppStorage(SettingsKeys.spokenLanguages) private var stored = ""
+    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
+    let stt: STTProviderType
+
+    private var selected: [String] { parseSpokenLanguages(stored) }
+
+    /// The one engine that takes a *set* rather than a single language, so the only one
+    /// where naming several changes what is sent — see `OpenAIRealtimeProvider`.
+    private var narrowsToTheSet: Bool {
+        stt == .openai && openAISTTModel == openAIRealtimeSTTModel
+    }
+
+    var body: some View {
+        LabeledContent("Languages I speak") {
+            Menu {
+                Button("Auto — detect every time") { stored = "" }
+                Divider()
+                ForEach(spokenLanguageCatalog) { language in
+                    Toggle(language.displayName, isOn: binding(for: language.id))
+                }
+            } label: {
+                Text(summary)
+            }
+            .frame(maxWidth: 260, alignment: .leading)
+        }
+        Text(caption)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private func binding(for code: String) -> Binding<Bool> {
+        Binding(
+            get: { selected.contains(code) },
+            // Appending rather than rebuilding from the catalogue keeps the user's own
+            // order, which is what `resolveLocale` falls back to when the keyboard layout
+            // matches none of them.
+            set: { isOn in
+                stored = encodeSpokenLanguages(isOn ? selected + [code] : selected.filter { $0 != code })
+            }
+        )
+    }
+
+    private var summary: String {
+        let names = selected.compactMap { spokenLanguage(id: $0)?.displayName }
+        return names.isEmpty ? "Auto — detect every time" : names.joined(separator: ", ")
+    }
+
+    private var caption: String {
+        switch selected.count {
+        case 0:
+            return stt == .apple
+                ? "Follows your active keyboard layout — currently \(resolvedLocale()). Apple's recogniser has no detect mode, so it always needs a language."
+                : "Detected from what you say, by the speech model itself."
+        case 1:
+            let name = spokenLanguage(id: selected[0])?.displayName ?? selected[0]
+            return "The engine is told you are speaking \(name), which is the most accurate setting — but anything you say in another language may come back translated into \(name)."
+        default:
+            if narrowsToTheSet {
+                return "GPT Live Transcribe is told to choose among these languages instead of all of them — the only engine here that accepts a list."
+            }
+            return stt == .apple
+                ? "Apple's recogniser cannot detect a language, so your keyboard layout picks one of yours — currently \(resolvedLocale())."
+                : "The speech model detects which language you are speaking. This engine accepts only one language, so the list is not sent — name a single language to force one."
+        }
     }
 }

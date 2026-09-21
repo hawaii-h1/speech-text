@@ -102,6 +102,64 @@ final class RecordingConfigurationTests: XCTestCase {
         XCTAssertEqual(config(provider: .elevenlabs).cloudLanguage, "en-US")
     }
 
+    // MARK: - Spoken languages
+
+    func testParseDropsUnknownCodesAndDuplicates() {
+        XCTAssertEqual(parseSpokenLanguages("uk,en"), ["uk", "en"])
+        XCTAssertEqual(parseSpokenLanguages(" UK , en "), ["uk", "en"])
+        XCTAssertEqual(parseSpokenLanguages("uk,uk,en"), ["uk", "en"])
+        // A code no engine in the catalogue speaks must never reach a request.
+        XCTAssertEqual(parseSpokenLanguages("uk,klingon,en"), ["uk", "en"])
+        XCTAssertEqual(parseSpokenLanguages(""), [])
+    }
+
+    func testMigrationFromTheSingleLanguageSetting() {
+        XCTAssertEqual(spokenLanguagesMigrating(from: "uk-UA"), ["uk"])
+        XCTAssertEqual(spokenLanguagesMigrating(from: "en-US"), ["en"])
+        // "Auto" stated nothing, and neither does a fresh install.
+        XCTAssertEqual(spokenLanguagesMigrating(from: autoLanguageID), [])
+        XCTAssertEqual(spokenLanguagesMigrating(from: nil), [])
+    }
+
+    /// One named language is the only case that forces anything on an engine that can
+    /// detect a language itself.
+    func testOneLanguageIsForcedOnEveryTier() {
+        XCTAssertEqual(resolveLocale(spoken: ["uk"], keyboardLanguage: "en", systemLocale: "fr-FR"),
+                       "uk-UA")
+    }
+
+    /// Several languages cannot be sent anywhere — no provider API takes a set — so the
+    /// answer exists only for Apple, and the layout chooses *among* them.
+    func testSeveralLanguagesLetTheLayoutChooseAmongThem() {
+        XCTAssertEqual(resolveLocale(spoken: ["uk", "en"], keyboardLanguage: "en", systemLocale: "fr-FR"),
+                       "en-US")
+        // A layout the user never listed does not get to pick the language: the bug this
+        // guards is a Russian layout selecting Russian for a Ukrainian speaker.
+        XCTAssertEqual(resolveLocale(spoken: ["uk", "en"], keyboardLanguage: "ru", systemLocale: "fr-FR"),
+                       "uk-UA")
+        XCTAssertEqual(resolveLocale(spoken: ["uk", "en"], keyboardLanguage: nil, systemLocale: "fr-FR"),
+                       "uk-UA")
+    }
+
+    func testNoLanguageStatedKeepsTheOldLayoutBehaviour() {
+        XCTAssertEqual(resolveLocale(spoken: [], keyboardLanguage: "uk", systemLocale: "fr-FR"), "uk")
+        XCTAssertEqual(resolveLocale(spoken: [], keyboardLanguage: nil, systemLocale: "fr-FR"), "fr-FR")
+    }
+
+    /// Every catalogue entry has to be usable by both halves: an ISO-639-1 code for the
+    /// cloud tiers, and a regional locale for Apple, which takes nothing else.
+    func testCatalogueEntriesAreWellFormed() {
+        XCTAssertFalse(spokenLanguageCatalog.isEmpty)
+        for language in spokenLanguageCatalog {
+            XCTAssertEqual(language.id.count, 2, "\(language.id) is not an ISO-639-1 code")
+            XCTAssertTrue(language.localeIdentifier.hasPrefix("\(language.id)-")
+                          // Norwegian's locale is nb-NO, whose language subtag is not "no".
+                          || language.id == "no",
+                          "\(language.id) does not match \(language.localeIdentifier)")
+        }
+        XCTAssertEqual(Set(spokenLanguageCatalog.map(\.id)).count, spokenLanguageCatalog.count)
+    }
+
     /// Apple's recogniser has no auto mode, so the keyboard-layout guess is all it can
     /// be given — and History records what was actually requested of each tier.
     func testHistoryLocaleRecordsWhatWasRequested() {
@@ -1488,9 +1546,9 @@ final class OpenAISTTTests: XCTestCase {
 
     // MARK: The realtime session's configuration
 
-    private func sessionUpdate(language: String?) throws -> [String: Any] {
+    private func sessionUpdate(languages: [String]) throws -> [String: Any] {
         let raw = try XCTUnwrap(OpenAIRealtimeProvider.encodeSessionUpdate(
-            model: openAIRealtimeSTTModel, language: language, sampleRate: 24_000))
+            model: openAIRealtimeSTTModel, languages: languages, sampleRate: 24_000))
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
         let session = try XCTUnwrap(json["session"] as? [String: Any])
         let audio = try XCTUnwrap(session["audio"] as? [String: Any])
@@ -1503,7 +1561,7 @@ final class OpenAISTTTests: XCTestCase {
     /// unless it is exactly 24 kHz, and `turn_detection` — which a fresh session
     /// defaults to — is rejected outright by this model.
     func testSessionUpdateConfiguresTheTranscription() throws {
-        let input = try sessionUpdate(language: nil)
+        let input = try sessionUpdate(languages: [])
 
         let format = try XCTUnwrap(input["format"] as? [String: Any])
         XCTAssertEqual(format["type"] as? String, "audio/pcm")
@@ -1517,9 +1575,20 @@ final class OpenAISTTTests: XCTestCase {
         XCTAssertNil(transcription["language"])
     }
 
-    func testSessionUpdateSendsTheLanguageAsTwoLetters() throws {
-        let transcription = try XCTUnwrap(try sessionUpdate(language: "uk-UA")["transcription"] as? [String: Any])
+    func testSessionUpdateSendsOneLanguageInTheSingularForm() throws {
+        let transcription = try XCTUnwrap(try sessionUpdate(languages: ["uk"])["transcription"] as? [String: Any])
         XCTAssertEqual(transcription["language"] as? String, "uk")
+        XCTAssertNil(transcription["languages"])
+    }
+
+    /// `gpt-live-transcribe` is the one endpoint in this app that takes a candidate set
+    /// (`languages: ["en", "fr"]`), so it is the one place the user's whole list is worth
+    /// more than its first entry — everywhere else two languages mean "detect it".
+    func testSessionUpdateSendsSeveralLanguagesAsACandidateSet() throws {
+        let transcription = try XCTUnwrap(try sessionUpdate(languages: ["uk", "en"])["transcription"] as? [String: Any])
+        XCTAssertEqual(transcription["languages"] as? [String], ["uk", "en"])
+        // Not both: the plural field replaces the singular one for this model.
+        XCTAssertNil(transcription["language"])
     }
 
     /// The tier the factory picks, and the rate it asks the engine to convert to. 16 kHz

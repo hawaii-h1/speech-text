@@ -21,7 +21,7 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
                                             writer: writer, language: configuration.cloudLanguage)
         if let streamer = makeStreamingProvider(configuration: configuration) {
             return StreamingRecognitionSession(provider: streamer, writer: writer,
-                                               language: configuration.cloudLanguage, fallback: batch)
+                                               languages: configuration.languages, fallback: batch)
         }
         return batch
     }

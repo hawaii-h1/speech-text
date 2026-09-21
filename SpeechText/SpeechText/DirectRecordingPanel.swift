@@ -281,7 +281,7 @@ struct DirectRecordingPanelView: View {
     @State private var keyboardObserverID: UUID?
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
-    @AppStorage(SettingsKeys.selectedLanguage) private var selectedLanguage = autoLanguageID
+    @AppStorage(SettingsKeys.spokenLanguages) private var spokenLanguages = ""
     @AppStorage(SettingsKeys.aiModeInRecordWindow) private var aiMode = false
 
     /// True while the LLM is rewriting the panel's text.
@@ -351,7 +351,7 @@ struct DirectRecordingPanelView: View {
             refinementPending = false
             refineTask?.cancel()
         }
-        .onChange(of: selectedLanguage) { refreshLangLabel() }
+        .onChange(of: spokenLanguages) { refreshLangLabel() }
         .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
             if let text = newValue, !text.isEmpty {
                 // One insertion per span where the engine could name them, so each

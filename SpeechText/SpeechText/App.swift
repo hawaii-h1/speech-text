@@ -141,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Carry the pre-rename settings over, then drop provider values left over from
         // removed engines — both before any UI reads them, the setup gate included.
         adoptPreRenameDefaults()
+        migrateSelectedLanguageIfNeeded()
         normalizeStoredProviders()
         let setupGate = decideSetupGate()
 

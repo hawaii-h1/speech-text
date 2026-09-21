@@ -25,7 +25,14 @@ protocol StreamingSTTProvider: AnyObject {
     var events: AsyncStream<StreamingSTTEvent> { get }
 
     /// Opens the connection. Safe to call once per instance.
-    func connect(language: String?)
+    ///
+    /// `languages` is the user's own list of ISO-639-1 codes, empty when they named none,
+    /// and the count is the whole contract. Each provider honours as much of it as its
+    /// API allows: exactly one language is forced, and a *set* reaches only the endpoint
+    /// that accepts one. Everywhere else two or more means the same as none — let the
+    /// model detect — because sending one of several would be a guess, and a guessed
+    /// language is not a mis-spelling but a translation of what was said.
+    func connect(languages: [String])
     /// Pushes mono 16-bit little-endian PCM. May be called from the audio thread.
     func send(pcm16: Data)
     /// Commits whatever audio is still pending, waits (bounded) for the provider's last
@@ -131,7 +138,7 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         self.continuation = continuation
     }
 
-    func connect(language: String?) {
+    func connect(languages: [String]) {
         var components = URLComponents(string: "https://api.elevenlabs.io/v1/speech-to-text/realtime")!
         components.scheme = "wss"
         var items = [
@@ -145,15 +152,17 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
                          value: String(STTTuning.vadSilenceThresholdSeconds)),
             URLQueryItem(name: "no_verbatim", value: STTTuning.noVerbatim ? "true" : "false"),
         ]
-        if let language {
-            items.append(URLQueryItem(name: "language_code", value: String(language.prefix(2))))
+        // Scribe's query string has `language_code` and nothing plural, so a set cannot
+        // be narrowed here: two or more languages go unsent and the model detects.
+        if languages.count == 1 {
+            items.append(URLQueryItem(name: "language_code", value: languages[0]))
         }
         components.queryItems = items
 
         var request = URLRequest(url: components.url!)
         request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
 
-        dlog("ElevenLabs", "realtime: connecting, model=\(model), language=\(language ?? "nil")")
+        dlog("ElevenLabs", "realtime: connecting, model=\(model), language=\(languages.count == 1 ? languages[0] : "auto")")
         let task = Self.session.webSocketTask(with: request)
         lock.lock()
         self.task = task
@@ -556,9 +565,9 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
     private var preSessionBytes = 0
     private var sessionReady = false
     private var isClosed = false
-    /// The language `connect` was given, kept until `session.created` asks for the
+    /// The languages `connect` was given, kept until `session.created` asks for the
     /// configuration. Written once before the socket opens, read on the receive loop.
-    private var language: String?
+    private var languages: [String] = []
     /// Resumed by the transcript of the commit `finish()` asked for.
     private var finishContinuation: CheckedContinuation<Void, Never>?
     private var awaitingCommit = false
@@ -594,15 +603,15 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         self.continuation = continuation
     }
 
-    func connect(language: String?) {
+    func connect(languages: [String]) {
         var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime?intent=transcription")!)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
-        dlog("OpenAI", "realtime: connecting, model=\(model), language=\(language ?? "nil")")
+        dlog("OpenAI", "realtime: connecting, model=\(model), languages=\(languages.isEmpty ? "auto" : languages.joined(separator: ","))")
         let task = Self.session.webSocketTask(with: request)
         lock.lock()
         self.task = task
-        self.language = language
+        self.languages = languages
         lock.unlock()
         task.resume()
 
@@ -734,12 +743,22 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         return (held, chunk, task)
     }
 
-    static func encodeSessionUpdate(model: String, language: String?, sampleRate: Double) -> String? {
+    static func encodeSessionUpdate(model: String, languages: [String], sampleRate: Double) -> String? {
         var transcription: [String: Any] = ["model": model]
-        if let language {
+        switch languages.count {
+        case 0:
+            break
+        case 1:
             // Accepted as the singular form and normalised by the server into
             // `languages: ["uk"]`, which `session.updated` echoes back.
-            transcription["language"] = String(language.prefix(2))
+            transcription["language"] = languages[0]
+        default:
+            // The one endpoint in this app that takes a *candidate set*: gpt-live-transcribe
+            // picks among the languages the user says they speak instead of among all of
+            // them. Every other engine here takes a single value, which is why two or more
+            // languages reach them as "detect it yourself" — so this is the only place the
+            // list is worth more than its first entry.
+            transcription["languages"] = languages
         }
         let input: [String: Any] = [
             "format": ["type": "audio/pcm", "rate": Int(sampleRate)],
@@ -819,11 +838,11 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
             // 100–300 ms the microphone takes to come up) and asks nothing of
             // URLSession's queueing of sends made before the handshake finishes.
             lock.lock()
-            let language = self.language
+            let languages = self.languages
             let task = self.task
             lock.unlock()
             dlog("OpenAI", "realtime: session created — configuring")
-            if let task, let update = Self.encodeSessionUpdate(model: model, language: language,
+            if let task, let update = Self.encodeSessionUpdate(model: model, languages: languages,
                                                               sampleRate: sampleRate) {
                 sendMessages([update], over: task)
             }
