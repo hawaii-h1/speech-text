@@ -94,6 +94,13 @@
 		B1000001000000000000001E /* TranscriptCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002D /* TranscriptCleanup.swift */; };
 		B1000001000000000000001F /* FocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002E /* FocusContext.swift */; };
 		B10000010000000000000021 /* OverlayPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000030 /* OverlayPlacement.swift */; };
+		E100020000000000000001 /* OnboardingChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = E100010000000000000001 /* OnboardingChrome.swift */; };
+		E200020000000000000001 /* OnboardingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E200010000000000000001 /* OnboardingScreens.swift */; };
+		E300020000000000000001 /* OnboardingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E300010000000000000001 /* OnboardingWindow.swift */; };
+		E400020000000000000001 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E400010000000000000001 /* Onboarding.swift */; };
+		E500020000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
+		E500030000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
+		E6000200000000000000001A /* OnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6000100000000000000001A /* OnboardingTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -158,6 +165,12 @@
 		B20000010000000000000001 /* PureLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PureLogicTests.swift; sourceTree = "<group>"; };
 		B20000010000000000000002 /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
 		B2000001000000000000000C /* SpeechTextTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpeechTextTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E100010000000000000001 /* OnboardingChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingChrome.swift; sourceTree = "<group>"; };
+		E200010000000000000001 /* OnboardingScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingScreens.swift; sourceTree = "<group>"; };
+		E300010000000000000001 /* OnboardingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindow.swift; sourceTree = "<group>"; };
+		E400010000000000000001 /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
+		E500010000000000000001 /* SetupServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupServices.swift; sourceTree = "<group>"; };
+		E6000100000000000000001A /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -241,6 +254,11 @@
 				D20000990000000000000001 /* DictationHotkeys.swift */,
 				D200009A0000000000000001 /* ShortcutConflicts.swift */,
 				D200009C0000000000000001 /* SelectionEdit.swift */,
+				E100010000000000000001 /* OnboardingChrome.swift */,
+				E200010000000000000001 /* OnboardingScreens.swift */,
+				E300010000000000000001 /* OnboardingWindow.swift */,
+				E400010000000000000001 /* Onboarding.swift */,
+				E500010000000000000001 /* SetupServices.swift */,
 				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
 				D20000010000000000000005 /* DictationTrace.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
@@ -264,6 +282,7 @@
 			children = (
 				B20000010000000000000001 /* PureLogicTests.swift */,
 				C20000010000000000000100 /* LocalModelsTests.swift */,
+				E6000100000000000000001A /* OnboardingTests.swift */,
 				B20000010000000000000002 /* AudioPipelineTests.swift */,
 				D20000010000000000000003 /* DictationReplay.swift */,
 				D20000010000000000000004 /* DictationReplayTests.swift */,
@@ -408,6 +427,11 @@
 				D10000990000000000000001 /* DictationHotkeys.swift in Sources */,
 				D100009A0000000000000001 /* ShortcutConflicts.swift in Sources */,
 				D100009C0000000000000001 /* SelectionEdit.swift in Sources */,
+				E100020000000000000001 /* OnboardingChrome.swift in Sources */,
+				E200020000000000000001 /* OnboardingScreens.swift in Sources */,
+				E300020000000000000001 /* OnboardingWindow.swift in Sources */,
+				E400020000000000000001 /* Onboarding.swift in Sources */,
+				E500020000000000000001 /* SetupServices.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
 				D10000010000000000000005 /* DictationTrace.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
@@ -445,6 +469,8 @@
 				D30000990000000000000001 /* DictationHotkeys.swift in Sources */,
 				D300009A0000000000000001 /* ShortcutConflicts.swift in Sources */,
 				D300009C0000000000000001 /* SelectionEdit.swift in Sources */,
+				E500030000000000000001 /* SetupServices.swift in Sources */,
+				E6000200000000000000001A /* OnboardingTests.swift in Sources */,
 				D30000010000000000000003 /* RecognitionSession.swift in Sources */,
 				D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */,
 				D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */,
