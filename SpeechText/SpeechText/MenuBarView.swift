@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
     @AppStorage(SettingsKeys.elevenLabsAPIKey) private var elevenLabsAPIKey = ""
     @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
+    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
     @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
     @AppStorage(SettingsKeys.dashStyle) private var dashStyle = DashStyle.default.rawValue
@@ -52,7 +53,7 @@ struct SettingsView: View {
     /// `AppState` acts on — rather than re-derived here. The body re-renders on the
     /// `sttProvider` / `elevenLabsModel` storage it already reads.
     private var streamsLive: Bool {
-        _ = (sttProvider, elevenLabsModel)
+        _ = (sttProvider, elevenLabsModel, openAISTTModel)
         return RecordingConfiguration.current(locale: autoLanguageID).streams
     }
 
@@ -65,6 +66,15 @@ struct SettingsView: View {
         var uses: [String] = []
         if stt == .groq { uses.append("speech recognition") }
         if llm == .groq { uses.append("AI text generation") }
+        return uses
+    }
+
+    /// OpenAI, like Groq, is one key with two possible consumers — the speech engine
+    /// and the rewrite pass — so the row names whichever are actually selected.
+    private var openAIKeyUses: [String] {
+        var uses: [String] = []
+        if stt == .openai { uses.append("speech recognition") }
+        if llm == .openai { uses.append("AI text generation") }
         return uses
     }
 
@@ -275,6 +285,17 @@ struct SettingsView: View {
                 Text("Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            case .openai:
+                Picker("Speech Model", selection: $openAISTTModel) {
+                    ForEach(openAISTTModels, id: \.id) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+                if openAISTTModel == openAIRealtimeSTTModel {
+                    Text("Streams audio over a WebSocket, so words appear on the recording overlay as you say them, and are pasted in one go as soon as you stop. It transcribes the whole recording as one phrase — there is no pause detection — and if the stream drops, the recording is uploaded to GPT Transcribe instead. Realtime is billed per streamed minute — check your plan.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Picker("Language", selection: $selectedLanguage) {
@@ -410,12 +431,15 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            if llm == .openai {
+            if !openAIKeyUses.isEmpty {
                 SecureField("OpenAI", text: $openAIAPIKey)
                     .textFieldStyle(.roundedBorder)
+                Text("One key, used for \(openAIKeyUses.joined(separator: " and ")).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            if groqKeyUses.isEmpty, stt != .elevenlabs, !llm.needsAPIKey {
+            if groqKeyUses.isEmpty, openAIKeyUses.isEmpty, stt != .elevenlabs, !llm.needsAPIKey {
                 Text("Nothing to enter — everything you've selected runs on this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

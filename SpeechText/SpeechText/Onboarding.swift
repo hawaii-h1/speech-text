@@ -164,6 +164,7 @@ final class OnboardingModel {
         switch STTProviderType(rawValue: defaults.string(forKey: SettingsKeys.sttProvider) ?? "") {
         case .groq?: speechPath = .online; speechService = .groq
         case .elevenlabs?: speechPath = .online; speechService = .elevenLabs
+        case .openai?: speechPath = .online; speechService = .openAI
         case .local?:
             if let stored = defaults.string(forKey: SettingsKeys.localSTTModel), localSTTModel(id: stored) != nil {
                 speechModelID = stored
@@ -270,12 +271,18 @@ final class OnboardingModel {
             defaults.set(model.id, forKey: SettingsKeys.localSTTModel)
         case .online:
             saveKey(speechService)
-            if speechService == .groq {
-                defaults.set(STTProviderType.groq.rawValue, forKey: SettingsKeys.sttProvider)
-            } else {
+            switch speechService {
+            case .elevenLabs:
                 defaults.set(STTProviderType.elevenlabs.rawValue, forKey: SettingsKeys.sttProvider)
                 // What the card promises: the words while speaking.
                 defaults.set(elevenLabsRealtimeModel, forKey: SettingsKeys.elevenLabsModel)
+            case .openAI:
+                defaults.set(STTProviderType.openai.rawValue, forKey: SettingsKeys.sttProvider)
+                defaults.set(openAIRealtimeSTTModel, forKey: SettingsKeys.openAISTTModel)
+            case .groq, .anthropic:
+                // Anthropic has no speech service and no card on this step; it can only
+                // be reached by a stored value that should not have selected it.
+                defaults.set(STTProviderType.groq.rawValue, forKey: SettingsKeys.sttProvider)
             }
         }
         dlog("Setup", "speech: \(speechPath == .local ? "local \(speechModelID)" : speechService.rawValue)")

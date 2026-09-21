@@ -9,6 +9,7 @@ enum STTProviderType: String, CaseIterable, Identifiable {
     case apple = "apple"
     case groq = "groq"
     case elevenlabs = "elevenlabs"
+    case openai = "openai"
     case local = "local"
 
     var id: String { rawValue }
@@ -18,6 +19,7 @@ enum STTProviderType: String, CaseIterable, Identifiable {
         case .apple: "Apple — on-device"
         case .groq: "Groq Whisper — cloud"
         case .elevenlabs: "ElevenLabs Scribe — cloud"
+        case .openai: "OpenAI — cloud"
         case .local: "Whisper — local model"
         }
     }
@@ -31,6 +33,8 @@ enum STTProviderType: String, CaseIterable, Identifiable {
             "Cloud Whisper. Usually more accurate, needs an API key, and text only appears once you stop speaking."
         case .elevenlabs:
             "Cloud Scribe. Strongest on accents and noisy audio, needs an API key. Scribe v2 Realtime shows text live while you speak; Scribe v2 only after you stop."
+        case .openai:
+            "Cloud GPT Transcribe. Needs an API key — the same one the AI rewrite uses. GPT Live Transcribe shows text live while you speak; the others only after you stop."
         case .local:
             "An open-source Whisper model downloaded to your Mac. Private, free, no key, works offline; text appears once you stop speaking."
         }
@@ -134,6 +138,8 @@ func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvide
     switch configuration.provider {
     case .elevenlabs:
         ElevenLabsSTTProvider(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel)
+    case .openai:
+        OpenAISTTProvider(apiKey: configuration.openAIAPIKey, model: configuration.batchModel)
     case .groq, .apple:
         GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel)
     case .local:
@@ -309,6 +315,119 @@ enum ElevenLabsError: LocalizedError {
         case .invalidResponse: "Invalid response from ElevenLabs API"
         case .httpError(let code, let body): "ElevenLabs API error HTTP \(code): \(body)"
         case .realtime(let type, let detail): "ElevenLabs realtime \(type): \(detail)"
+        }
+    }
+}
+
+// MARK: - OpenAI Implementation
+
+/// `POST /v1/audio/transcriptions` — the same multipart shape and Bearer auth as Groq,
+/// whose endpoint is literally `api.groq.com/openai/v1/...`, but a separate type: the
+/// reply carries a `languages` field Groq's does not, and `GroqError`'s text is shown
+/// to the user ("Groq API error HTTP 401" under an OpenAI key would be a puzzle).
+///
+/// Uploads stay FLAC. OpenAI's documented format list (mp3, mp4, mpeg, mpga, m4a, wav,
+/// webm) omits it, but the endpoint accepts it — verified with a real request on
+/// 2026-09-21 against `gpt-transcribe` and `whisper-1`. Do not "fix" this to WAV on the
+/// strength of the docs: WAV is twice the bytes against a 25 MB ceiling.
+struct OpenAISTTProvider: BatchSTTProvider {
+    let apiKey: String
+    let model: String
+
+    /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = STTTuning.batchRequestTimeoutSeconds
+        config.timeoutIntervalForResource = STTTuning.batchResourceTimeoutSeconds
+        return URLSession(configuration: config)
+    }()
+
+    init(apiKey: String, model: String = defaultOpenAISTTModel) {
+        self.apiKey = apiKey
+        self.model = model
+    }
+
+    func transcribe(audioFileURL: URL, language: String?) async throws -> String {
+        let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+        let boundary = UUID().uuidString
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let audioData = try Data(contentsOf: audioFileURL)
+        let part = multipartAudioPart(for: audioFileURL)
+        dlog("OpenAI", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")")
+
+        var body = Data()
+
+        body.appendMultipartFile(boundary: boundary, name: "file",
+                                 filename: part.filename, mimeType: part.mimeType,
+                                 data: audioData)
+        body.appendMultipartField(boundary: boundary, name: "model", value: model)
+
+        if let language {
+            // `language` (singular) is what whisper-1 documents; gpt-transcribe documents
+            // `languages` but accepts this one too and normalises it — verified against
+            // the live endpoint, which answered `"languages":[{"code":"uk"}]` to it.
+            let iso639 = String(language.prefix(2))
+            body.appendMultipartField(boundary: boundary, name: "language", value: iso639)
+        }
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        dlog("OpenAI", "transcribe: sending request…")
+        let (data, response) = try await Self.session.data(for: request)
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        dlog("OpenAI", "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
+
+        try validatedHTTPResponse(response, data: data, log: "OpenAI", label: "transcribe",
+                                  bodyLimit: 200,
+                                  nonHTTPMessage: "transcribe: invalid response (not HTTP)",
+                                  invalidResponse: OpenAISTTError.invalidResponse,
+                                  httpError: OpenAISTTError.httpError)
+
+        let decoded = try JSONDecoder().decode(OpenAITranscriptionResponse.self, from: data)
+        // The detected language is logged, never decoded into a typed field: the batch
+        // reply spells it `[{"code":"uk"}]` and the realtime session `["uk"]`, and a
+        // transcript must not be lost to a vendor changing the shape of a field the app
+        // only prints. It is worth printing — this project shipped a data-loss bug from
+        // forcing the keyboard layout's language on a cloud model, and on Auto this line
+        // is the record of what the model decided instead.
+        dlog("OpenAI", "transcribe: success, text=\(decoded.text.count) chars, detected=\(Self.detectedLanguages(in: data) ?? "?")")
+        return decoded.text
+    }
+
+    /// The `languages` field as a log line, whatever shape it arrived in.
+    private static func detectedLanguages(in data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = json["languages"] else { return nil }
+        if let codes = raw as? [String] { return codes.joined(separator: ",") }
+        if let objects = raw as? [[String: Any]] {
+            return objects.compactMap { $0["code"] as? String }.joined(separator: ",")
+        }
+        return String(describing: raw)
+    }
+}
+
+private struct OpenAITranscriptionResponse: Decodable {
+    let text: String
+}
+
+enum OpenAISTTError: LocalizedError {
+    case invalidResponse
+    case httpError(Int, String)
+    /// The realtime socket reported an error, or sent something unusable.
+    case realtime(String, String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse: "Invalid response from OpenAI API"
+        case .httpError(let code, let body): "OpenAI API error HTTP \(code): \(body)"
+        case .realtime(let code, let detail): "OpenAI realtime \(code): \(detail)"
         }
     }
 }

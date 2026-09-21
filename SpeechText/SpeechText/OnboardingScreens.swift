@@ -572,6 +572,8 @@ private struct SpeechScreen: View {
                          isSelected: model.speechService == .groq) { model.speechService = .groq }
                 SetupRow(title: "ElevenLabs", subtitle: "Paid", detail: "Shows your words live as you speak.",
                          isSelected: model.speechService == .elevenLabs) { model.speechService = .elevenLabs }
+                SetupRow(title: "OpenAI", subtitle: "Paid", detail: "Shows your words live too. The same key also turns on AI text polish.",
+                         isSelected: model.speechService == .openAI) { model.speechService = .openAI }
                 SetupKeyBlock(model: model, service: model.speechService)
                     .padding(.horizontal, 10)
                     .padding(.top, 12)
