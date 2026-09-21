@@ -28,7 +28,7 @@ Saying no early saves everyone time:
 - **Third-party dependencies, beyond the two we have.** The app is Apple frameworks plus [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) for local speech models and [Sparkle](https://sparkle-project.org) for updates. Running Whisper needs a tokenizer and a decode loop that Core ML does not provide; updating an app outside the App Store needs a downloader, a signature check and an installer that can replace a running app, and getting that wrong breaks every user at once. Each is imported by exactly one file — `LocalWhisperRuntime.swift` and `UpdateChecker.swift` — and everything else stays Apple-only. A third dependency needs an issue first.
 - **iOS / iPadOS.** The whole design rests on pasting into another app on a desktop.
 - **Windows / Linux.** Different project entirely.
-- **A general audio-file transcription tool.** That is a different kind of app. SpeechText is about dictation into the cursor.
+- **A general audio-file transcription tool.** Other apps do that well. SpeechText is about dictation into the cursor.
 - **Telemetry or analytics of any kind.**
 
 ## Want to help?

@@ -736,12 +736,33 @@ final class SpeechEngine {
     /// replaced before its audio was ever written, and a batch session's `cancel()` is a
     /// no-op — so with Groq or a local model the first half of a dictation vanished
     /// without a History row when AirPods connected mid-sentence.
+    /// When the engine was last rebuilt for a device change under a live recording.
+    private var recentDeviceRestarts: [Date] = []
+    /// Plugging in a headset raises two or three notifications in a second; five in ten
+    /// seconds is a device that will not settle.
+    private static let deviceRestartBudget = 5
+    private static let deviceRestartWindow: TimeInterval = 10
+
     private func handleAudioConfigChange() {
         dlog("Engine", "handleAudioConfigChange: audio device changed, phase=\(phase)")
         seLog.warning("handleAudioConfigChange: audio device changed, phase=\(String(describing: self.phase), privacy: .public)")
 
         switch phase {
         case .recording:
+            // A device that keeps announcing itself — a Bluetooth headset renegotiating
+            // its profile, an aggregate device whose input is not the system's — restarts
+            // the engine, and the restart raises the next notification. Past the budget
+            // the recording ends with what was said, rather than looping until the app is
+            // force-quit.
+            let now = Date()
+            recentDeviceRestarts = recentDeviceRestarts.filter { now.timeIntervalSince($0) < Self.deviceRestartWindow }
+            recentDeviceRestarts.append(now)
+            guard recentDeviceRestarts.count <= Self.deviceRestartBudget else {
+                dlog("Engine", "handleAudioConfigChange: \(recentDeviceRestarts.count) device changes in \(Int(Self.deviceRestartWindow)) s — stopping")
+                recentDeviceRestarts.removeAll()
+                stopRecording()
+                return
+            }
             if providerType != .apple, audioBufferWriter?.isConvertingLive == true {
                 // The cloud and local tiers only ever see the writer's 16 kHz bytes, so
                 // the segment carries straight on across the new device.

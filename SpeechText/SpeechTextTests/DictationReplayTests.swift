@@ -643,12 +643,56 @@ final class DictationHotkeyGestureTests: XCTestCase {
         XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 12), .stop)
     }
 
-    func testATapCancels() {
+    func testALoneTapCancelsWhenItsWindowRunsOut() {
         var g = DictationHotkeyGesture(holdToTalk: true)
         _ = g.press(.inline, in: .idle, at: 10)
-        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 10.1), .cancel)
+        // Not yet: it may be the first half of a double tap.
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 10.1), .ignore)
         XCTAssertNil(g.owner)
-        XCTAssertEqual(g.release(.inline, in: .idle, at: 10.2), .ignore)
+        XCTAssertTrue(g.awaitsSecondTap)
+        XCTAssertEqual(g.tapWindowExpired(in: .recording(ai: false), at: 10.2), .ignore, "a timer that fired early")
+        XCTAssertEqual(g.tapWindowExpired(in: .recording(ai: false), at: 10.45), .cancel)
+        XCTAssertFalse(g.awaitsSecondTap)
+        XCTAssertEqual(g.tapWindowExpired(in: .idle, at: 10.5), .ignore)
+    }
+
+    func testADoubleTapLocksTheDictationOn() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.ai, in: .idle, at: 10)
+        _ = g.release(.ai, in: .starting(ai: true), at: 10.1)
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: true), at: 10.3), .lock)
+        XCTAssertFalse(g.awaitsSecondTap)
+        // Hands-free from here: the second tap's release and the stale timer do nothing,
+        // and the next press stops it as the table says.
+        XCTAssertEqual(g.release(.ai, in: .recording(ai: true), at: 10.4), .ignore)
+        XCTAssertEqual(g.tapWindowExpired(in: .recording(ai: true), at: 10.45), .ignore)
+        XCTAssertEqual(g.press(.inline, in: .recording(ai: true), at: 12), .switchTo(ai: false))
+        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 20), .stop)
+    }
+
+    func testASecondPressAfterTheWindowIsNotADoubleTap() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        _ = g.release(.inline, in: .recording(ai: false), at: 10.1)
+        // The timer should have cancelled by now; a press that beats it cancels too.
+        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 10.6), .cancel)
+    }
+
+    func testTheOtherShortcutIsNotTheSecondHalfOfATap() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        _ = g.release(.inline, in: .recording(ai: false), at: 10.1)
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 10.2), .cancel)
+        XCTAssertFalse(g.awaitsSecondTap)
+    }
+
+    func testATapCancelledByItsTimerLeavesTheNextPressAFreshStart() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        _ = g.release(.inline, in: .recording(ai: false), at: 10.1)
+        _ = g.tapWindowExpired(in: .recording(ai: false), at: 10.45)
+        XCTAssertEqual(g.press(.inline, in: .idle, at: 10.5), .start(ai: false))
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 13), .stop)
     }
 
     func testAHeldDictationSwitchesModeAndStopsOnTheOwnersRelease() {

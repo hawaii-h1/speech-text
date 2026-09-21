@@ -65,6 +65,10 @@ enum SettingsKeys {
     /// toggles, so this only adds the hold. Off by default.
     static let holdToTalk = "holdToTalk"
 
+    /// ⎋ cancels a dictation or an edit while its overlay is up. Off by default: the
+    /// shortcut is global for that time, so ⎋ reaches no other app.
+    static let escapeCancelsDictation = "escapeCancelsDictation"
+
     /// Bumped when the built-in hotkey layout changes, so stored shortcuts can be
     /// migrated once instead of silently keeping the old assignment.
     static let hotkeyLayoutVersion = "hotkeyLayoutVersion"

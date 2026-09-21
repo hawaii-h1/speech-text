@@ -76,6 +76,8 @@ final class AudioBufferWriter {
     private var downsampler: PCMDownsampler?
     private var pcm16 = Data()
     private var pcm16Frames = 0
+    /// The loudest converted sample so far, as a fraction of full scale.
+    private var pcm16Peak: Float = 0
     /// The converter's delay line has been drained into `pcm16`; `append` must not run again.
     private var flushed = false
 
@@ -112,10 +114,12 @@ final class AudioBufferWriter {
 
         if let downsampler {
             if let pcm = downsampler.convert(buffer) {
+                let peak = Self.peak(ofPCM16: pcm)
                 lock.lock()
                 if !flushed {
                     pcm16.append(pcm)
                     pcm16Frames += pcm.count / MemoryLayout<Int16>.size
+                    pcm16Peak = max(pcm16Peak, peak)
                 }
                 lock.unlock()
                 return pcm
@@ -276,6 +280,27 @@ final class AudioBufferWriter {
     }
 
     /// Total duration of the buffered audio, in seconds.
+    /// False only when every sample of the segment stayed under
+    /// `STTTuning.silencePeakFloor` — a muted or dead microphone, a hotkey pressed and
+    /// nothing said. Audio kept on the native fallback path is not measured and counts
+    /// as audible: the guard may skip an upload, never lose speech to a guess.
+    var hasAudibleSignal: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if nativeBuffers.contains(where: { $0.frameLength > 0 }) { return true }
+        return pcm16Peak >= STTTuning.silencePeakFloor
+    }
+
+    static func peak(ofPCM16 data: Data) -> Float {
+        data.withUnsafeBytes { raw in
+            var peak: Int32 = 0
+            for sample in raw.bindMemory(to: Int16.self) {
+                peak = max(peak, abs(Int32(sample)))
+            }
+            return Float(peak) / Float(Int16.max)
+        }
+    }
+
     var bufferedDuration: TimeInterval {
         lock.lock()
         defer { lock.unlock() }
@@ -397,6 +422,7 @@ final class AudioBufferWriter {
         lock.lock()
         pcm16 = Data()
         pcm16Frames = 0
+        pcm16Peak = 0
         nativeBuffers.removeAll()
         nativeFormat = nil
         flushed = false

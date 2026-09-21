@@ -29,6 +29,11 @@ final class HotkeyManager {
     /// The Edit shortcut went down (`true`) or came back up (`false`). Both matter: a
     /// double press sends the selection with no instruction, and a hold is one.
     var onEditKey: ((Bool) -> Void)?
+    /// Bare ⎋, which exists only while `setEscapeShortcut(active: true)`.
+    var onEscape: (() -> Void)?
+    private var escapeRef: EventHotKeyRef?
+    private var escapeWanted = false
+    private static let escapeHotKeyID: UInt32 = 5
 
     private var shortcuts: [ShortcutAction: KeyShortcut] = [:]
 
@@ -119,6 +124,7 @@ final class HotkeyManager {
                     case 2: if isDown { mgr.onRecordWindowToggle?() }
                     case 3: mgr.onDictationKey?(.ai, isDown)
                     case 4: mgr.onEditKey?(isDown)
+                    case HotkeyManager.escapeHotKeyID: if isDown { mgr.onEscape?() }
                     default: break
                     }
                 }
@@ -151,11 +157,42 @@ final class HotkeyManager {
             }
         }
         HotkeyRegistrationStatus.shared.failures = failures
+        applyEscapeShortcut()
+    }
+
+    /// Registers bare ⎋ as a global shortcut for as long as a dictation is on screen. A
+    /// Carbon hotkey is exclusive: while it stands, ⎋ reaches no other app — no dialog
+    /// dismissed, no vim mode left — which is why this is a setting, off by default, and
+    /// why it is dropped the moment the overlay goes.
+    func setEscapeShortcut(active: Bool) {
+        escapeWanted = active
+        applyEscapeShortcut()
+    }
+
+    private func applyEscapeShortcut() {
+        // No handler means a recorder is listening, and ⎋ is how it gives up.
+        let shouldExist = escapeWanted && eventHandlerRef != nil
+        if shouldExist, escapeRef == nil {
+            var ref: EventHotKeyRef?
+            let status = RegisterEventHotKey(UInt32(kVK_Escape), 0,
+                                             EventHotKeyID(signature: Self.signature, id: Self.escapeHotKeyID),
+                                             GetApplicationEventTarget(), 0, &ref)
+            if status == noErr { escapeRef = ref } else {
+                dlog("Hotkey", "⎋ could not be registered: status \(status)")
+            }
+        } else if !shouldExist, let ref = escapeRef {
+            UnregisterEventHotKey(ref)
+            escapeRef = nil
+        }
     }
 
     private func unregisterHotkeys() {
         for ref in hotKeyRefs.values { UnregisterEventHotKey(ref) }
         hotKeyRefs = [:]
+        if let ref = escapeRef {
+            UnregisterEventHotKey(ref)
+            escapeRef = nil
+        }
         if let ref = eventHandlerRef {
             RemoveEventHandler(ref)
             eventHandlerRef = nil
