@@ -213,7 +213,7 @@ final class ScriptedStreamingProvider: StreamingSTTProvider {
 
     func emit(_ event: StreamingSTTEvent) { continuation.yield(event) }
 
-    func connect(language: String?) {}
+    func connect(languages: [String]) {}
     func send(pcm16: Data) {}
     func finish() async {
         eventsAtFinish.forEach { continuation.yield($0) }
@@ -453,7 +453,7 @@ final class DictationReplay {
         layer.beginSegment()
 
         session = StreamingRecognitionSession(provider: provider, writer: AudioBufferWriter(),
-                                              language: nil, fallback: fallback)
+                                              languages: [], fallback: fallback)
         // Sessions deliver events on the main thread, which is where this replay runs.
         session.onEvent = { [unowned self] event in
             MainActor.assumeIsolated { self.handle(event) }

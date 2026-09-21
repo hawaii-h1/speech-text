@@ -16,8 +16,9 @@ final class StreamingRecognitionSession: RecognitionSession {
 
     private let provider: StreamingSTTProvider
     private let writer: AudioBufferWriter
-    /// nil leaves the language to the model — see `RecordingConfiguration.cloudLanguage`.
-    private let language: String?
+    /// The user's stated languages, handed to the provider whole — see
+    /// `StreamingSTTProvider.connect(languages:)` for what each one does with the count.
+    private let languages: [String]
     /// A `BatchRecognitionSession` over the same writer in the app. Typed by the protocol
     /// so a replay can stand in the upload's answer without a network or an audio file.
     private let fallback: RecognitionSession
@@ -60,18 +61,18 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// a second and throw away its delay line each time.
     private var resamplerFormat: AVAudioFormat?
 
-    init(provider: StreamingSTTProvider, writer: AudioBufferWriter, language: String?,
+    init(provider: StreamingSTTProvider, writer: AudioBufferWriter, languages: [String],
          fallback: RecognitionSession) {
         self.needsResampling = provider.sampleRate != AudioBufferWriter.uploadSampleRate
         self.provider = provider
         self.writer = writer
-        self.language = language
+        self.languages = languages
         self.fallback = fallback
     }
 
     func start() throws {
         connected = true
-        provider.connect(language: language)
+        provider.connect(languages: languages)
         let provider = self.provider
         eventsTask = Task { [weak self] in
             for await event in provider.events {

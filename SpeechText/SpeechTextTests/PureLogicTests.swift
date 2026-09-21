@@ -1546,9 +1546,9 @@ final class OpenAISTTTests: XCTestCase {
 
     // MARK: The realtime session's configuration
 
-    private func sessionUpdate(language: String?) throws -> [String: Any] {
+    private func sessionUpdate(languages: [String]) throws -> [String: Any] {
         let raw = try XCTUnwrap(OpenAIRealtimeProvider.encodeSessionUpdate(
-            model: openAIRealtimeSTTModel, language: language, sampleRate: 24_000))
+            model: openAIRealtimeSTTModel, languages: languages, sampleRate: 24_000))
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
         let session = try XCTUnwrap(json["session"] as? [String: Any])
         let audio = try XCTUnwrap(session["audio"] as? [String: Any])
@@ -1561,7 +1561,7 @@ final class OpenAISTTTests: XCTestCase {
     /// unless it is exactly 24 kHz, and `turn_detection` — which a fresh session
     /// defaults to — is rejected outright by this model.
     func testSessionUpdateConfiguresTheTranscription() throws {
-        let input = try sessionUpdate(language: nil)
+        let input = try sessionUpdate(languages: [])
 
         let format = try XCTUnwrap(input["format"] as? [String: Any])
         XCTAssertEqual(format["type"] as? String, "audio/pcm")
@@ -1575,9 +1575,20 @@ final class OpenAISTTTests: XCTestCase {
         XCTAssertNil(transcription["language"])
     }
 
-    func testSessionUpdateSendsTheLanguageAsTwoLetters() throws {
-        let transcription = try XCTUnwrap(try sessionUpdate(language: "uk-UA")["transcription"] as? [String: Any])
+    func testSessionUpdateSendsOneLanguageInTheSingularForm() throws {
+        let transcription = try XCTUnwrap(try sessionUpdate(languages: ["uk"])["transcription"] as? [String: Any])
         XCTAssertEqual(transcription["language"] as? String, "uk")
+        XCTAssertNil(transcription["languages"])
+    }
+
+    /// `gpt-live-transcribe` is the one endpoint in this app that takes a candidate set
+    /// (`languages: ["en", "fr"]`), so it is the one place the user's whole list is worth
+    /// more than its first entry — everywhere else two languages mean "detect it".
+    func testSessionUpdateSendsSeveralLanguagesAsACandidateSet() throws {
+        let transcription = try XCTUnwrap(try sessionUpdate(languages: ["uk", "en"])["transcription"] as? [String: Any])
+        XCTAssertEqual(transcription["languages"] as? [String], ["uk", "en"])
+        // Not both: the plural field replaces the singular one for this model.
+        XCTAssertNil(transcription["language"])
     }
 
     /// The tier the factory picks, and the rate it asks the engine to convert to. 16 kHz

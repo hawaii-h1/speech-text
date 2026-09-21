@@ -13,6 +13,14 @@ struct RecordingConfiguration {
     /// `SpeechEngine.resumeRecording(locale:)` follows the keyboard layout across
     /// segments; everything else is fixed for the session.
     var locale: String
+    /// The languages the user says they speak, as ISO-639-1 codes, in their own order.
+    /// Empty when none were named.
+    ///
+    /// Kept whole alongside `cloudLanguage` because one API takes a *set*: OpenAI's
+    /// `gpt-live-transcribe` narrows detection to a list of candidates, where every
+    /// other engine here takes a single value or nothing. Defaulted so a configuration
+    /// built by hand still describes a valid session.
+    var languages: [String] = []
     /// True when no single language was named, so `locale` is a guess — read off the
     /// keyboard layout, or picked from the several languages the user listed — rather
     /// than the one language they said they were speaking. Only a *single* stated
@@ -110,10 +118,12 @@ struct RecordingConfiguration {
     static func current(locale: String = resolvedLocale()) -> RecordingConfiguration {
         let defaults = UserDefaults.standard
         let raw = defaults.string(forKey: SettingsKeys.sttProvider) ?? "apple"
+        let spoken = storedSpokenLanguages()
         return RecordingConfiguration(
             provider: STTProviderType(rawValue: raw) ?? .apple,
             locale: locale,
-            localeIsAutomatic: storedSpokenLanguages().count != 1,
+            languages: spoken,
+            localeIsAutomatic: spoken.count != 1,
             groqAPIKey: defaults.string(forKey: SettingsKeys.groqAPIKey) ?? "",
             groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
             elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",

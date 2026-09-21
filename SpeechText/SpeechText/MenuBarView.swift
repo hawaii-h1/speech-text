@@ -486,9 +486,16 @@ struct SettingsView: View {
 /// engine — has to say so, or it reads as a setting that does nothing.
 private struct SpokenLanguagesField: View {
     @AppStorage(SettingsKeys.spokenLanguages) private var stored = ""
+    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
     let stt: STTProviderType
 
     private var selected: [String] { parseSpokenLanguages(stored) }
+
+    /// The one engine that takes a *set* rather than a single language, so the only one
+    /// where naming several changes what is sent — see `OpenAIRealtimeProvider`.
+    private var narrowsToTheSet: Bool {
+        stt == .openai && openAISTTModel == openAIRealtimeSTTModel
+    }
 
     var body: some View {
         LabeledContent("Languages I speak") {
@@ -535,9 +542,12 @@ private struct SpokenLanguagesField: View {
             let name = spokenLanguage(id: selected[0])?.displayName ?? selected[0]
             return "The engine is told you are speaking \(name), which is the most accurate setting — but anything you say in another language may come back translated into \(name)."
         default:
+            if narrowsToTheSet {
+                return "GPT Live Transcribe is told to choose among these languages instead of all of them — the only engine here that accepts a list."
+            }
             return stt == .apple
                 ? "Apple's recogniser cannot detect a language, so your keyboard layout picks one of yours — currently \(resolvedLocale())."
-                : "The speech model detects which language you are speaking. No provider accepts a list, so this one is not sent — name a single language to force one."
+                : "The speech model detects which language you are speaking. This engine accepts only one language, so the list is not sent — name a single language to force one."
         }
     }
 }
