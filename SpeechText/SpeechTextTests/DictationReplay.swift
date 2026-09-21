@@ -140,9 +140,11 @@ final class FakeApp: InlineDeliveryTarget {
     }
 
     /// The stop's ordinary paste (`AppState.deliver`): bring the app forward, then ⌘V.
+    /// The trailing space is `deliver`'s, so a dictation continued into the same field
+    /// does not start glued to this one.
     func activateAndPaste(_ text: String) {
         isInFront = true
-        _ = insertAtCaret(text)
+        _ = insertAtCaret(text + " ")
     }
 
     func captureFocusedField() { capturedField = focusedField }

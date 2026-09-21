@@ -8,6 +8,15 @@ import XCTest
 // is named after its checklist row. The row still exists for what a replay cannot show:
 // whether the real app answers the Accessibility API the way `FakeApp` was told to.
 
+/// The document a dictation leaves when its stop pasted the tail: `text`, followed by the
+/// trailing space `AppState.deliver` adds so a dictation continued into the same field does
+/// not start glued to this one. A recording whose every word went out while the user spoke
+/// has no stop paste, and is asserted with a plain `XCTAssertEqual`.
+private func assertDocument(_ document: String, _ text: String,
+                            file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertEqual(document, text + " ", file: file, line: line)
+}
+
 // MARK: - Tiers (T)
 
 @MainActor
@@ -68,7 +77,7 @@ final class TierReplayTests: XCTestCase {
             .partial("Друге ще"),
         ], atStop: [.committed("Друге ще не закінчене.")])
 
-        XCTAssertEqual(run.document, "Перше. Друге ще не закінчене.")
+        assertDocument(run.document, "Перше. Друге ще не закінчене.")
     }
 
     /// T5: switched to another app mid-dictation and back. Nothing goes into the other
@@ -115,7 +124,7 @@ final class TierReplayTests: XCTestCase {
         ])
 
         XCTAssertEqual(app.elsewhere, "")
-        XCTAssertEqual(run.document, "Перше речення. Друге, поки я деінде. І третє.")
+        assertDocument(run.document, "Перше речення. Друге, поки я деінде. І третє.")
     }
 
     /// T7: a cancel keeps what was pasted and pastes nothing more.
@@ -154,7 +163,7 @@ final class TierReplayTests: XCTestCase {
             .partial("Ііі далі"),
         ], atStop: [.committed("Ііі далі йдемо.")])
 
-        XCTAssertEqual(run.document, "Ну що, поїха. Ііі далі йдемо.")
+        assertDocument(run.document, "Ну що, поїха. Ііі далі йдемо.")
         XCTAssertTrue(run.logged("left to paste"))
     }
 
@@ -243,7 +252,7 @@ final class LiveTranscriptReplayTests: XCTestCase {
         let app = FakeApp(.terminal)
         let run = await DictationReplay.run(live, in: app, pauseMidSentence)
 
-        XCTAssertEqual(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
+        assertDocument(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
         XCTAssertEqual(app.pastes.count, 1)
         XCTAssertTrue(run.logged("shown on the overlay, pasted at the stop"))
     }
@@ -253,7 +262,7 @@ final class LiveTranscriptReplayTests: XCTestCase {
         let app = FakeApp(.textEdit)
         let run = await DictationReplay.run(live, in: app, pauseMidSentence)
 
-        XCTAssertEqual(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
+        assertDocument(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
         XCTAssertEqual(app.pastes.count, 1)
         XCTAssertNil(run.correctionApplied)
     }
@@ -265,7 +274,7 @@ final class LiveTranscriptReplayTests: XCTestCase {
         let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true, livePreview: true),
                                             in: app, pauseMidSentence, llm: .rewrites("Зробимо, потім перевіримо."))
 
-        XCTAssertEqual(run.document, "Зробимо, потім перевіримо.")
+        assertDocument(run.document, "Зробимо, потім перевіримо.")
         XCTAssertEqual(app.pastes.count, 1)
     }
 }
@@ -301,7 +310,7 @@ final class FinalizeReplayTests: XCTestCase {
         let run = await DictationReplay.run(in: FakeApp(.terminal), beforeTheDrop,
                                             fallback: ScriptedSegment(text: batchVersion))
 
-        XCTAssertEqual(run.document, "Зроблю це ввечері, коли повернусь додому. І ще одне речення.")
+        assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. І ще одне речення.")
         XCTAssertEqual(run.correctionApplied, false)
         XCTAssertTrue(run.logged("finalize: leave"))
     }
@@ -333,7 +342,7 @@ final class FinalizeReplayTests: XCTestCase {
         XCTAssertTrue(run.logged("not delivering now — the target app is not in front; the stop will"))
         XCTAssertTrue(run.logged("the app or the focused field changed since the recording started — not correcting"))
         XCTAssertEqual(run.correctionApplied, false)
-        XCTAssertEqual(run.document, "Зроблю це ввечері, коли повернусь додому. А ще подзвоню.")
+        assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. А ще подзвоню.")
     }
 
     /// F5: another document of the same app. Recorded as it behaves today: the check
@@ -377,7 +386,7 @@ final class FinalizeReplayTests: XCTestCase {
         let run = await DictationReplay.run(in: FakeApp(.electronThatLies), beforeTheDrop,
                                             fallback: ScriptedSegment(text: batchVersion))
 
-        XCTAssertEqual(run.document, "Зроблю це ввечері, коли повернусь додому. І ще одне речення.")
+        assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. І ще одне речення.")
         XCTAssertEqual(run.correctionApplied, false)
     }
 
@@ -417,7 +426,7 @@ final class AIReplayTests: XCTestCase {
         let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: FakeApp(.textEdit),
                                             dictation, llm: .rewrites(rewrite))
 
-        XCTAssertEqual(run.document, rewrite)
+        assertDocument(run.document, rewrite)
         XCTAssertTrue(run.logged("buffering until the stop"))
     }
 
@@ -436,7 +445,7 @@ final class AIReplayTests: XCTestCase {
         let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
                                             in: FakeApp(.terminal), dictation, llm: .rewrites(rewrite))
 
-        XCTAssertEqual(run.document, rewrite)
+        assertDocument(run.document, rewrite)
         XCTAssertTrue(run.logged("tier B (append-only)"))
         XCTAssertTrue(run.logged("buffering until the stop"))
     }
@@ -447,7 +456,7 @@ final class AIReplayTests: XCTestCase {
         let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
                                             in: FakeApp(.electronThatLies), dictation, llm: .rewrites(rewrite))
 
-        XCTAssertEqual(run.document, "ну короче напиши що я буду за пів години \(rewrite)")
+        assertDocument(run.document, "ну короче напиши що я буду за пів години \(rewrite)")
         XCTAssertTrue(run.logged("AI draft could not be replaced — pasting the AI result as well"))
         XCTAssertEqual(run.correctionApplied, false)
     }
@@ -459,7 +468,7 @@ final class AIReplayTests: XCTestCase {
                                             dictation + [.userTypes("!", after: "короче"), .caretToEnd],
                                             llm: .rewrites(rewrite))
 
-        XCTAssertEqual(run.document, "ну короче! напиши що я буду за пів години \(rewrite)")
+        assertDocument(run.document, "ну короче! напиши що я буду за пів години \(rewrite)")
         XCTAssertTrue(run.logged("correction refused"))
     }
 
@@ -516,7 +525,7 @@ final class RecordedTraceTests: XCTestCase {
         recorder.record(.targetNotInFront)
         recorder.record(.stop)
         recorder.record(.committed, text: "І ще одне речення.")
-        recorder.record(.stopPaste, text: " Подзвоню з дороги. І ще одне речення.")
+        recorder.record(.stopPaste, text: " Подзвоню з дороги. І ще одне речення. ")
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -527,7 +536,7 @@ final class RecordedTraceTests: XCTestCase {
 
         let run = await DictationReplay.run(trace)
         XCTAssertEqual(run.app.pastes, DictationReplay.recordedPastes(trace))
-        XCTAssertEqual(run.document, "Зроблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
+        assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
     }
 
     /// Apple and plain batch dictations have no events to replay, and are not written.
@@ -570,7 +579,7 @@ final class ModeSwitchReplayTests: XCTestCase {
         ], llm: .rewrites(rewrite))
 
         XCTAssertFalse(run.switchRefused)
-        XCTAssertEqual(run.document, rewrite)
+        assertDocument(run.document, rewrite)
     }
 
     /// Plain → AI once a terminal holds text: refused, because the rewrite could only go
@@ -608,7 +617,7 @@ final class ModeSwitchReplayTests: XCTestCase {
             .committed("ну короче напиши що я запізнюсь"),
         ], llm: .rewrites(rewrite))
 
-        XCTAssertEqual(run.document, "ну короче напиши що я запізнюсь")
+        assertDocument(run.document, "ну короче напиши що я запізнюсь")
         XCTAssertEqual(run.stop, .paste("ну короче напиши що я запізнюсь"))
     }
 }
