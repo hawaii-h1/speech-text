@@ -1198,6 +1198,60 @@ final class DashStyleTests: XCTestCase {
     }
 }
 
+// MARK: - Characters that disguise themselves (TranscriptCleanup.swift)
+
+final class ConfusablePunctuationTests: XCTestCase {
+
+    func testTheMeasuredSubstitutionIsUndone() {
+        // A hosted model returned this for a transcript that had an ASCII hyphen, and
+        // nothing on screen told the two apart.
+        let fromTheModel = "по\u{2011}перше, будь\u{2011}які"
+        XCTAssertEqual(replacingConfusablePunctuation(fromTheModel), "по-перше, будь-які")
+    }
+
+    func testACommandSurvivesIntact() {
+        let mangled = "git\u{00A0}commit\u{00A0}-m \u{2011}-amend"
+        XCTAssertEqual(replacingConfusablePunctuation(mangled), "git commit -m --amend")
+    }
+
+    func testInvisibleMarksAreRemoved() {
+        XCTAssertEqual(replacingConfusablePunctuation("\u{FEFF}при\u{00AD}віт\u{200B}"), "привіт")
+    }
+
+    func testCleanTextIsReturnedUnchanged() {
+        let text = "Зустрінемось о 5. Ось список:\n- перше\n- друге"
+        XCTAssertEqual(replacingConfusablePunctuation(text), text)
+    }
+
+    func testAFamilyEmojiIsNotTakenApart() {
+        // U+200D is what holds it together; removing it would leave three people.
+        let family = "👨‍👩‍👧 і 🇺🇦"
+        XCTAssertEqual(replacingConfusablePunctuation(family), family)
+    }
+
+    func testVisibleTypographyIsLeftAlone() {
+        // Curly quotes and "…" are ordinary typography the user may well want, and the
+        // en and em dashes are `DashStyle`'s business, not this rule's.
+        let text = "«Книга» — це “щось”, ти ж знаєш… 2–5 сторінок"
+        XCTAssertEqual(replacingConfusablePunctuation(text), text)
+    }
+
+    func testNoWordIsJoinedToItsNeighbour() {
+        // Every mapping is one scalar to one scalar or to nothing, so a text that had
+        // three words still has three.
+        let mangled = "одне\u{202F}друге\u{00A0}третє"
+        XCTAssertEqual(replacingConfusablePunctuation(mangled).split(separator: " ").count, 3)
+    }
+
+    func testTheRefinementPathAppliesItAlongsideTheDashStyle() {
+        // Both passes run on an LLM reply: the look-alike hyphen goes back to ASCII and
+        // the em dash is still redrawn in the user's style.
+        let reply = "по\u{2011}перше — це так"
+        let filtered = replacingConfusablePunctuation(reply)
+        XCTAssertEqual(DashStyle.enDash.applied(to: filtered), "по-перше – це так")
+    }
+}
+
 // MARK: - Segment joins (TranscriptMerge.swift, TranscriptSpan.swift, InsertionLedger.swift)
 
 /// 17.09: Scribe closed a segment inside a word — "…база дани" | "х, звідки…".

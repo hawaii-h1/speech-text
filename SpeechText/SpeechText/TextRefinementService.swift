@@ -43,8 +43,9 @@ enum TextRefinementService {
 
         let parsed = parse(raw, presetNames: presets.map(\.name))
         // Models love "—" as much as Scribe does, and the prompt cannot be trusted to stop
-        // them; the paste gets the user's dash either way.
-        let text = DashStyle.current.applied(to: parsed.text)
+        // them; the paste gets the user's dash either way. The model also quietly swaps
+        // ordinary characters for look-alikes — see `replacingConfusablePunctuation`.
+        let text = DashStyle.current.applied(to: replacingConfusablePunctuation(parsed.text))
         dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(text.count) chars")
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
@@ -66,7 +67,7 @@ enum TextRefinementService {
         )
 
         let parsed = parse(raw, presetNames: presets.map(\.name) + [editDefaultModeName, editCustomModeName])
-        let text = DashStyle.current.applied(to: parsed.text)
+        let text = DashStyle.current.applied(to: replacingConfusablePunctuation(parsed.text))
         dlog("Refine", "edit: mode=\(parsed.presetName ?? "—"), instruction=\(spoken?.isEmpty == false ? "yes" : "no"), in=\(selection.count) chars, out=\(text.count) chars")
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
