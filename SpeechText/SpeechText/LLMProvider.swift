@@ -106,7 +106,9 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
         /// Groq: classic Chat Completions — `max_tokens` and sampling params accepted.
         case classic
         /// OpenAI's GPT-5.x reasoning models: `max_tokens` and `temperature` are both
-        /// rejected with HTTP 400. The output cap moved to `max_completion_tokens`.
+        /// rejected with HTTP 400. The output cap moved to `max_completion_tokens`, and
+        /// how hard the model thinks before answering is `reasoning_effort` — see
+        /// `reasoningEffort(for:)`.
         case reasoning
     }
 
@@ -116,13 +118,12 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
     let model: String
     let dialect: Dialect
 
-    func complete(system: String, user: String) async throws -> String {
-        var request = URLRequest(url: baseURL)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var payload: [String: Any] = [
+    /// The request body, built apart from the network so it can be asserted directly.
+    /// Which switches a model accepts is exactly the part of this provider that goes
+    /// wrong, and the wrong one is an HTTP 400 — the whole rewrite lost — rather than
+    /// something quietly ignored.
+    func payload(system: String, user: String) -> [String: Any] {
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": system],
@@ -131,23 +132,51 @@ struct OpenAICompatibleLLMProvider: LLMChatProvider {
         ]
         switch dialect {
         case .classic:
-            payload["max_tokens"] = 8192
-            payload["temperature"] = 0.3
+            body["max_tokens"] = 8192
+            body["temperature"] = 0.3
             // Groq's reasoning models take different switches, and the wrong one is an
             // HTTP 400 rather than something ignored: gpt-oss rejects `reasoning_format`
             // and has no `none` effort; Qwen defaults to `raw`, which puts `<think>` into
             // the content ahead of the `<<mode:NAME>>` marker.
             if model.hasPrefix("openai/gpt-oss") {
-                payload["reasoning_effort"] = "low"
-                payload["include_reasoning"] = false
+                body["reasoning_effort"] = "low"
+                body["include_reasoning"] = false
             } else if model.hasPrefix("qwen/") {
-                payload["reasoning_effort"] = "none"
-                payload["reasoning_format"] = "hidden"
+                body["reasoning_effort"] = "none"
+                body["reasoning_format"] = "hidden"
             }
         case .reasoning:
-            payload["max_completion_tokens"] = 8192
+            body["max_completion_tokens"] = 8192
+            if let effort = Self.reasoningEffort(for: model) {
+                body["reasoning_effort"] = effort
+            }
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        return body
+    }
+
+    /// How hard a GPT-5.x model is asked to think before rewriting a dictation: not at
+    /// all. Sent nothing, it runs on its own default effort and spends about 0.6 s per
+    /// dictation on reasoning no one reads — measured 2026-09-21 on `gpt-5.6-luna`
+    /// against the live API: median 1.63 s on the default, 0.98 s with `none`, and `low`
+    /// matched that median with a longer tail. The user is waiting for the paste, and a
+    /// clean-up is not a task that thinking improves.
+    ///
+    /// The accepted values are `none / low / medium / high / xhigh`; `minimal` is
+    /// rejected. Only the 5.6 family was measured, so any other model is sent nothing at
+    /// all: an unsupported value costs the whole rewrite, while a default effort only
+    /// costs time. Should a later model refuse `none`, the request fails with HTTP 400
+    /// and the dictation falls back to the raw transcript with a notice.
+    static func reasoningEffort(for model: String) -> String? {
+        model.hasPrefix("gpt-5.6") ? "none" : nil
+    }
+
+    func complete(system: String, user: String) async throws -> String {
+        var request = URLRequest(url: baseURL)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload(system: system, user: user))
 
         let start = CFAbsoluteTimeGetCurrent()
         dlog("LLM", "\(label): sending request, model=\(model), input=\(user.count) chars")
