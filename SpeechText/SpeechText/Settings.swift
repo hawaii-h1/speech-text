@@ -4,7 +4,15 @@
 import Foundation
 
 enum SettingsKeys {
+    /// Pre-list single language choice. Read once by `migrateSelectedLanguageIfNeeded()`
+    /// and never again; kept in `portable` so the migration still has its source after a
+    /// bundle-identifier change.
     static let selectedLanguage = "selectedLanguage"
+    /// The languages the user says they speak, as ISO-639-1 codes joined by commas
+    /// ("uk,en"). Empty means none stated, which is what leaves an engine to detect one.
+    /// A list rather than a single value because a model is only *forced* onto one
+    /// language when exactly one is named — see `resolveLocale`.
+    static let spokenLanguages = "spokenLanguages"
 
     // STT Provider
     static let sttProvider = "sttProvider"
@@ -112,7 +120,7 @@ enum SettingsKeys {
     /// new identity re-defaults to checking for updates, whereas a carried-over
     /// `SUSkippedVersion` would suppress an update the new install never saw offered.
     static let portable: [String] = [
-        selectedLanguage,
+        selectedLanguage, spokenLanguages,
         sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel, localSTTModel,
         removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
@@ -185,20 +193,110 @@ let elevenLabsModels: [(id: String, name: String)] = [
     (elevenLabsRealtimeModel, "Scribe v2 Realtime — live text"),
 ]
 
-struct SupportedLanguage: Identifiable, Hashable {
+/// One language the user can say they speak. `id` is the ISO-639-1 code the stored
+/// list holds and the cloud providers are sent; `localeIdentifier` is the regional
+/// locale Apple's recogniser needs, since it takes nothing else.
+struct SpokenLanguage: Identifiable, Hashable {
     let id: String
     let displayName: String
     let localeIdentifier: String
 }
 
-/// Special value meaning "use the macOS system language".
+/// Special value meaning "no language was requested" — what History records when the
+/// model was left to detect one.
 let autoLanguageID = "auto"
 
-let supportedLanguages: [SupportedLanguage] = [
-    SupportedLanguage(id: autoLanguageID, displayName: "Auto (System)", localeIdentifier: autoLanguageID),
-    SupportedLanguage(id: "en-US", displayName: "English (US)", localeIdentifier: "en-US"),
-    SupportedLanguage(id: "uk-UA", displayName: "Ukrainian", localeIdentifier: "uk-UA"),
+/// The languages offerable in Settings: supported by Whisper and Scribe, and each with
+/// a locale `SFSpeechRecognizer` knows, so a selection means the same thing on every
+/// engine. One entry per language rather than per region — the regional identifier only
+/// exists because Apple demands one, and the cloud tiers are sent the ISO code alone.
+let spokenLanguageCatalog: [SpokenLanguage] = [
+    SpokenLanguage(id: "en", displayName: "English", localeIdentifier: "en-US"),
+    SpokenLanguage(id: "uk", displayName: "Ukrainian", localeIdentifier: "uk-UA"),
+    SpokenLanguage(id: "ar", displayName: "Arabic", localeIdentifier: "ar-SA"),
+    SpokenLanguage(id: "zh", displayName: "Chinese", localeIdentifier: "zh-CN"),
+    SpokenLanguage(id: "hr", displayName: "Croatian", localeIdentifier: "hr-HR"),
+    SpokenLanguage(id: "cs", displayName: "Czech", localeIdentifier: "cs-CZ"),
+    SpokenLanguage(id: "da", displayName: "Danish", localeIdentifier: "da-DK"),
+    SpokenLanguage(id: "nl", displayName: "Dutch", localeIdentifier: "nl-NL"),
+    SpokenLanguage(id: "fi", displayName: "Finnish", localeIdentifier: "fi-FI"),
+    SpokenLanguage(id: "fr", displayName: "French", localeIdentifier: "fr-FR"),
+    SpokenLanguage(id: "de", displayName: "German", localeIdentifier: "de-DE"),
+    SpokenLanguage(id: "el", displayName: "Greek", localeIdentifier: "el-GR"),
+    SpokenLanguage(id: "he", displayName: "Hebrew", localeIdentifier: "he-IL"),
+    SpokenLanguage(id: "hi", displayName: "Hindi", localeIdentifier: "hi-IN"),
+    SpokenLanguage(id: "hu", displayName: "Hungarian", localeIdentifier: "hu-HU"),
+    SpokenLanguage(id: "id", displayName: "Indonesian", localeIdentifier: "id-ID"),
+    SpokenLanguage(id: "it", displayName: "Italian", localeIdentifier: "it-IT"),
+    SpokenLanguage(id: "ja", displayName: "Japanese", localeIdentifier: "ja-JP"),
+    SpokenLanguage(id: "ko", displayName: "Korean", localeIdentifier: "ko-KR"),
+    SpokenLanguage(id: "ms", displayName: "Malay", localeIdentifier: "ms-MY"),
+    SpokenLanguage(id: "no", displayName: "Norwegian", localeIdentifier: "nb-NO"),
+    SpokenLanguage(id: "pl", displayName: "Polish", localeIdentifier: "pl-PL"),
+    SpokenLanguage(id: "pt", displayName: "Portuguese", localeIdentifier: "pt-BR"),
+    SpokenLanguage(id: "ro", displayName: "Romanian", localeIdentifier: "ro-RO"),
+    SpokenLanguage(id: "ru", displayName: "Russian", localeIdentifier: "ru-RU"),
+    SpokenLanguage(id: "sk", displayName: "Slovak", localeIdentifier: "sk-SK"),
+    SpokenLanguage(id: "es", displayName: "Spanish", localeIdentifier: "es-ES"),
+    SpokenLanguage(id: "sv", displayName: "Swedish", localeIdentifier: "sv-SE"),
+    SpokenLanguage(id: "th", displayName: "Thai", localeIdentifier: "th-TH"),
+    SpokenLanguage(id: "tr", displayName: "Turkish", localeIdentifier: "tr-TR"),
+    SpokenLanguage(id: "vi", displayName: "Vietnamese", localeIdentifier: "vi-VN"),
 ]
+
+func spokenLanguage(id: String) -> SpokenLanguage? {
+    spokenLanguageCatalog.first { $0.id == id }
+}
+
+// MARK: - The spoken-language list
+
+/// Reads the stored `"uk,en"` form. Unknown codes are dropped and duplicates collapsed,
+/// so a list hand-edited in defaults — or carried over from an older catalogue — cannot
+/// put a code into a request that no engine would accept. Order is the user's.
+func parseSpokenLanguages(_ raw: String) -> [String] {
+    var seen = Set<String>()
+    return raw.split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        .filter { spokenLanguage(id: $0) != nil && seen.insert($0).inserted }
+}
+
+func encodeSpokenLanguages(_ codes: [String]) -> String {
+    parseSpokenLanguages(codes.joined(separator: ",")).joined(separator: ",")
+}
+
+/// What the old single-value `selectedLanguage` becomes: "auto" (or anything unknown)
+/// means nothing was stated, and a locale identifier keeps its language.
+func spokenLanguagesMigrating(from selectedLanguage: String?) -> [String] {
+    guard let selectedLanguage, selectedLanguage != autoLanguageID else { return [] }
+    return parseSpokenLanguages(String(selectedLanguage.prefix(2)))
+}
+
+/// The locale to hand a recogniser, given the languages the user says they speak.
+///
+/// Three cases, and only the first one forces anything on an engine that can detect a
+/// language itself (see `RecordingConfiguration.cloudLanguage`):
+///
+/// - **one language** — that language, on every tier. The user named it, so it is not a
+///   guess, and forcing it is the accuracy win the setting exists for.
+/// - **several** — the engine detects; this answer is only for Apple, which cannot. The
+///   keyboard layout decides *among the stated languages*, so a Russian layout no longer
+///   selects Russian for someone who never listed it; with no match, the first stated
+///   language beats a layout the user did not claim to speak.
+/// - **none stated** — the pre-existing behaviour: the layout's language, else the
+///   system's.
+func resolveLocale(spoken: [String], keyboardLanguage: String?, systemLocale: String) -> String {
+    if spoken.count == 1, let only = spokenLanguage(id: spoken[0]) {
+        return only.localeIdentifier
+    }
+    if spoken.count > 1 {
+        if let keyboardLanguage, spoken.contains(keyboardLanguage),
+           let match = spokenLanguage(id: keyboardLanguage) {
+            return match.localeIdentifier
+        }
+        return spokenLanguage(id: spoken[0])?.localeIdentifier ?? systemLocale
+    }
+    return keyboardLanguage ?? systemLocale
+}
 
 /// Map of macOS keyboard layout names → ISO 639-1 language codes.
 /// Layout names come from `com.apple.HIToolbox` AppleSelectedInputSources.
@@ -294,16 +392,38 @@ private func normalizeStoredModel(
     defaults.set(fallback, forKey: key)
 }
 
-/// Resolves the effective locale identifier for speech recognition.
-/// When set to "auto", reads the active keyboard input source so the language
-/// follows whichever keyboard the user has switched to.
+/// The languages the user says they speak, newest storage format.
+func storedSpokenLanguages() -> [String] {
+    parseSpokenLanguages(UserDefaults.standard.string(forKey: SettingsKeys.spokenLanguages) ?? "")
+}
+
+func setStoredSpokenLanguages(_ codes: [String]) {
+    UserDefaults.standard.set(encodeSpokenLanguages(codes), forKey: SettingsKeys.spokenLanguages)
+}
+
+/// Turns the pre-list `selectedLanguage` into `spokenLanguages`, once.
+///
+/// Guarded on the *absence* of the new key rather than on a marker of its own: an empty
+/// list is a meaningful answer ("let the model detect"), so it has to be written and then
+/// left alone, and a user who clears the list must not have their old single choice
+/// restored on the next launch.
+func migrateSelectedLanguageIfNeeded() {
+    let defaults = UserDefaults.standard
+    guard defaults.object(forKey: SettingsKeys.spokenLanguages) == nil else { return }
+    let codes = spokenLanguagesMigrating(from: defaults.string(forKey: SettingsKeys.selectedLanguage))
+    defaults.set(encodeSpokenLanguages(codes), forKey: SettingsKeys.spokenLanguages)
+    dlog("Settings", "spoken languages initialised to [\(codes.joined(separator: ", "))]")
+}
+
+/// Resolves the effective locale identifier for speech recognition — see `resolveLocale`
+/// for the three cases. The UserDefaults read lives here so the decision itself stays a
+/// pure function the tests can drive without touching the user's real settings.
 func resolvedLocale() -> String {
-    let stored = UserDefaults.standard.string(forKey: SettingsKeys.selectedLanguage) ?? autoLanguageID
-    if stored == autoLanguageID {
-        return currentInputSourceLanguage()
-            ?? Locale.current.identifier.replacingOccurrences(of: "_", with: "-")
-    }
-    return stored
+    resolveLocale(
+        spoken: storedSpokenLanguages(),
+        keyboardLanguage: currentInputSourceLanguage(),
+        systemLocale: Locale.current.identifier.replacingOccurrences(of: "_", with: "-")
+    )
 }
 
 // MARK: - Keyboard Change Observer

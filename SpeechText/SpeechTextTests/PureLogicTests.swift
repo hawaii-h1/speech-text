@@ -101,6 +101,64 @@ final class RecordingConfigurationTests: XCTestCase {
         XCTAssertEqual(config(provider: .elevenlabs).cloudLanguage, "en-US")
     }
 
+    // MARK: - Spoken languages
+
+    func testParseDropsUnknownCodesAndDuplicates() {
+        XCTAssertEqual(parseSpokenLanguages("uk,en"), ["uk", "en"])
+        XCTAssertEqual(parseSpokenLanguages(" UK , en "), ["uk", "en"])
+        XCTAssertEqual(parseSpokenLanguages("uk,uk,en"), ["uk", "en"])
+        // A code no engine in the catalogue speaks must never reach a request.
+        XCTAssertEqual(parseSpokenLanguages("uk,klingon,en"), ["uk", "en"])
+        XCTAssertEqual(parseSpokenLanguages(""), [])
+    }
+
+    func testMigrationFromTheSingleLanguageSetting() {
+        XCTAssertEqual(spokenLanguagesMigrating(from: "uk-UA"), ["uk"])
+        XCTAssertEqual(spokenLanguagesMigrating(from: "en-US"), ["en"])
+        // "Auto" stated nothing, and neither does a fresh install.
+        XCTAssertEqual(spokenLanguagesMigrating(from: autoLanguageID), [])
+        XCTAssertEqual(spokenLanguagesMigrating(from: nil), [])
+    }
+
+    /// One named language is the only case that forces anything on an engine that can
+    /// detect a language itself.
+    func testOneLanguageIsForcedOnEveryTier() {
+        XCTAssertEqual(resolveLocale(spoken: ["uk"], keyboardLanguage: "en", systemLocale: "fr-FR"),
+                       "uk-UA")
+    }
+
+    /// Several languages cannot be sent anywhere — no provider API takes a set — so the
+    /// answer exists only for Apple, and the layout chooses *among* them.
+    func testSeveralLanguagesLetTheLayoutChooseAmongThem() {
+        XCTAssertEqual(resolveLocale(spoken: ["uk", "en"], keyboardLanguage: "en", systemLocale: "fr-FR"),
+                       "en-US")
+        // A layout the user never listed does not get to pick the language: the bug this
+        // guards is a Russian layout selecting Russian for a Ukrainian speaker.
+        XCTAssertEqual(resolveLocale(spoken: ["uk", "en"], keyboardLanguage: "ru", systemLocale: "fr-FR"),
+                       "uk-UA")
+        XCTAssertEqual(resolveLocale(spoken: ["uk", "en"], keyboardLanguage: nil, systemLocale: "fr-FR"),
+                       "uk-UA")
+    }
+
+    func testNoLanguageStatedKeepsTheOldLayoutBehaviour() {
+        XCTAssertEqual(resolveLocale(spoken: [], keyboardLanguage: "uk", systemLocale: "fr-FR"), "uk")
+        XCTAssertEqual(resolveLocale(spoken: [], keyboardLanguage: nil, systemLocale: "fr-FR"), "fr-FR")
+    }
+
+    /// Every catalogue entry has to be usable by both halves: an ISO-639-1 code for the
+    /// cloud tiers, and a regional locale for Apple, which takes nothing else.
+    func testCatalogueEntriesAreWellFormed() {
+        XCTAssertFalse(spokenLanguageCatalog.isEmpty)
+        for language in spokenLanguageCatalog {
+            XCTAssertEqual(language.id.count, 2, "\(language.id) is not an ISO-639-1 code")
+            XCTAssertTrue(language.localeIdentifier.hasPrefix("\(language.id)-")
+                          // Norwegian's locale is nb-NO, whose language subtag is not "no".
+                          || language.id == "no",
+                          "\(language.id) does not match \(language.localeIdentifier)")
+        }
+        XCTAssertEqual(Set(spokenLanguageCatalog.map(\.id)).count, spokenLanguageCatalog.count)
+    }
+
     /// Apple's recogniser has no auto mode, so the keyboard-layout guess is all it can
     /// be given — and History records what was actually requested of each tier.
     func testHistoryLocaleRecordsWhatWasRequested() {
