@@ -39,8 +39,16 @@ protocol StreamingSTTProvider: AnyObject {
 /// selected engine/model works in batch mode.
 func makeStreamingProvider(configuration: RecordingConfiguration) -> StreamingSTTProvider? {
     guard configuration.streams else { return nil }
-    return ElevenLabsRealtimeProvider(apiKey: configuration.elevenLabsAPIKey,
-                                      model: configuration.elevenLabsModel)
+    switch configuration.provider {
+    case .elevenlabs:
+        return ElevenLabsRealtimeProvider(apiKey: configuration.elevenLabsAPIKey,
+                                          model: configuration.elevenLabsModel)
+    case .openai:
+        return OpenAIRealtimeProvider(apiKey: configuration.openAIAPIKey,
+                                      model: configuration.openAISTTModel)
+    case .apple, .groq, .local:
+        return nil
+    }
 }
 
 // MARK: - ElevenLabs Scribe v2 Realtime
@@ -473,6 +481,453 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         if awaitingCommit { commitArrived = true }
         commitGrace?.cancel()
         commitGrace = nil
+        let cont = finishContinuation
+        finishContinuation = nil
+        lock.unlock()
+        cont?.resume()
+    }
+
+    private func close(with error: Error?) {
+        lock.lock()
+        guard !isClosed else {
+            lock.unlock()
+            return
+        }
+        isClosed = true
+        let task = self.task
+        self.task = nil
+        lock.unlock()
+
+        resumeFinish()
+        receiveLoop?.cancel()
+        task?.cancel(with: .normalClosure, reason: nil)
+        continuation.finish()
+    }
+}
+
+// MARK: - OpenAI GPT Live Transcribe
+
+/// WebSocket client for `wss://api.openai.com/v1/realtime?intent=transcription`.
+///
+/// Three things make it a different shape from Scribe's socket, all of them established
+/// against the live service on 2026-09-21 rather than read off the docs:
+///
+/// 1. **It runs no voice-activity detection.** `turn_detection` is rejected outright for
+///    `gpt-live-transcribe` ("Turn detection is not supported for this transcription
+///    model"), so nothing is ever committed on a pause: one item stays open, growing,
+///    until we ask for it. There is no mid-dictation `.committed` and no VAD threshold
+///    to tune — the whole segment arrives at `finish()`.
+/// 2. **Transcripts arrive as increments, not restatements.** Each
+///    `...transcription.delta` carries only the newly decoded text. The caller's merge
+///    layer is written against cumulative strings, so the accumulation happens here and
+///    `.partial` is always the whole segment so far. `.completed` carries the
+///    authoritative transcript of the item and wins over the deltas that built it —
+///    the deltas stopped a word short of it in every run.
+/// 3. **The session must be configured before audio counts.** A fresh session has
+///    `transcription: null`, so audio appended before the server acknowledges our
+///    `session.update` is transcribed by nobody. `session.updated` — not the
+///    `session.created` that precedes it — is therefore the "server is ready" signal
+///    the pre-session buffer waits for.
+///
+/// The audio format is not negotiable: the session rejects any rate but exactly 24 kHz
+/// (16 kHz is "below minimum", 48 kHz "above maximum"), which is why
+/// `StreamingRecognitionSession` resamples for this provider instead of handing over
+/// the 16 kHz bytes the upload file is made of.
+final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
+    /// Fixed by the service — see the class comment.
+    let sampleRate: Double = 24_000
+    let events: AsyncStream<StreamingSTTEvent>
+
+    private let apiKey: String
+    private let model: String
+    private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
+
+    private let lock = NSLock()
+    /// Serialises the socket's `send` calls — same discipline as
+    /// `ElevenLabsRealtimeProvider`: always acquired before `lock`, never while holding
+    /// it, because a send completion URLSession runs synchronously re-enters `fail` →
+    /// `close`, which take `lock`.
+    private let sendLock = NSLock()
+    private var task: URLSessionWebSocketTask?
+    private var receiveLoop: Task<Void, Never>?
+    private var pendingAudio = Data()
+    /// Chunks encoded on the audio thread and held until `session.updated`.
+    private var preSessionMessages: [String] = []
+    private var preSessionBytes = 0
+    private var sessionReady = false
+    private var isClosed = false
+    /// The language `connect` was given, kept until `session.created` asks for the
+    /// configuration. Written once before the socket opens, read on the receive loop.
+    private var language: String?
+    /// Resumed by the transcript of the commit `finish()` asked for.
+    private var finishContinuation: CheckedContinuation<Void, Never>?
+    private var awaitingCommit = false
+    private var commitArrived = false
+    /// Deltas accumulated per `item_id`. Touched only from `handle`, which runs serially
+    /// on the receive loop, so it needs no lock.
+    private var deltas: [String: String] = [:]
+    /// Every item completed so far, joined. `.committed` has to be *cumulative* — that
+    /// is the shape the caller's `mergedTranscript` is written against, where a commit
+    /// restating everything replaces what is held. Without turn detection there is only
+    /// ever one item, so this is the same string either way today; it is kept here so
+    /// that a second item — if the service ever commits on a pause — appends instead of
+    /// being merged against text it does not restate.
+    private var completedText = ""
+
+    /// Bytes of 16-bit mono PCM for a given duration at `sampleRate`.
+    private func bytes(forSeconds seconds: Double) -> Int { Int(sampleRate * seconds) * 2 }
+    private var minimumChunkBytes: Int { bytes(forSeconds: STTTuning.streamChunkSeconds) }
+    private var maxPreSessionBytes: Int { bytes(forSeconds: STTTuning.streamPreSessionBufferSeconds) }
+
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 60 * 60
+        return URLSession(configuration: config)
+    }()
+
+    init(apiKey: String, model: String) {
+        self.apiKey = apiKey
+        self.model = model
+        var continuation: AsyncStream<StreamingSTTEvent>.Continuation!
+        events = AsyncStream { continuation = $0 }
+        self.continuation = continuation
+    }
+
+    func connect(language: String?) {
+        var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime?intent=transcription")!)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        dlog("OpenAI", "realtime: connecting, model=\(model), language=\(language ?? "nil")")
+        let task = Self.session.webSocketTask(with: request)
+        lock.lock()
+        self.task = task
+        self.language = language
+        lock.unlock()
+        task.resume()
+
+        receiveLoop = Task { [weak self] in
+            await self?.runReceiveLoop(task)
+        }
+    }
+
+    func send(pcm16: Data) {
+        sendLock.lock()
+        defer { sendLock.unlock() }
+        lock.lock()
+        guard !isClosed, let task else {
+            lock.unlock()
+            return
+        }
+        pendingAudio.append(pcm16)
+        guard pendingAudio.count >= minimumChunkBytes else {
+            lock.unlock()
+            return
+        }
+        let chunk = pendingAudio
+        pendingAudio = Data()
+        guard sessionReady else {
+            // Held rather than sent: until `session.updated` the session transcribes
+            // with `transcription: null`, so audio sent now is audio thrown away. If the
+            // bound fills the server is not coming — fail, and let the stop upload the
+            // file rather than report a transcript missing its opening seconds.
+            guard preSessionBytes + chunk.count <= maxPreSessionBytes else {
+                lock.unlock()
+                fail(OpenAISTTError.realtime("no_session",
+                    "no session.updated within \(STTTuning.streamPreSessionBufferSeconds)s of audio"))
+                return
+            }
+            if let message = Self.encodeAudio(chunk) {
+                preSessionMessages.append(message)
+                preSessionBytes += chunk.count
+            }
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
+        if let message = Self.encodeAudio(chunk) {
+            enqueue(message, over: task)
+        }
+    }
+
+    /// `session.updated` arrived: release everything held for it, in order, ahead of any
+    /// chunk `send` produces from now on.
+    private func flushPreSessionAudio() {
+        sendLock.lock()
+        defer { sendLock.unlock() }
+
+        lock.lock()
+        guard !sessionReady else {
+            lock.unlock()
+            return
+        }
+        sessionReady = true
+        let held = preSessionMessages
+        preSessionMessages = []
+        preSessionBytes = 0
+        let task = self.task
+        lock.unlock()
+
+        guard let task, !held.isEmpty else { return }
+        dlog("OpenAI", "realtime: flushing \(held.count) chunk(s) buffered before session.updated")
+        for message in held {
+            enqueue(message, over: task)
+        }
+    }
+
+    func finish() async {
+        guard let (held, chunk, task) = takePendingForFinish() else { return }
+
+        // The tail is padded with silence because the server refuses a commit holding
+        // under 100 ms of audio (`input_audio_buffer_commit_empty`) — and the tail of a
+        // dictation is exactly where the buffer can be nearly empty. Silence costs the
+        // transcript nothing; see `STTTuning.streamCommitPaddingSeconds`.
+        var tail = chunk
+        tail.append(Data(count: bytes(forSeconds: STTTuning.streamCommitPaddingSeconds)))
+        dlog("OpenAI", "realtime: finishing, committing \(tail.count) bytes")
+        var messages = held
+        if let audio = Self.encodeAudio(tail) { messages.append(audio) }
+        if let commit = Self.encode(["type": "input_audio_buffer.commit"]) { messages.append(commit) }
+        sendMessages(messages, over: task)
+
+        // Wait for that commit's transcript, but never hang the paste on it.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    guard let self else { cont.resume(); return }
+                    self.installFinishWait(cont)
+                }
+            }
+            group.addTask { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamFinishTimeoutSeconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                dlog("OpenAI", "realtime: no transcript within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have")
+                self?.resumeFinish()
+            }
+            await group.next()
+            group.cancelAll()
+        }
+
+        resumeFinish()
+        close(with: nil)
+    }
+
+    func cancel() {
+        dlog("OpenAI", "realtime: cancelled")
+        close(with: nil)
+    }
+
+    // MARK: Internals
+
+    /// Locks can't be taken inside an async function, so `finish()` grabs its state here.
+    private func takePendingForFinish() -> ([String], Data, URLSessionWebSocketTask)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClosed, let task else { return nil }
+        let held = preSessionMessages
+        preSessionMessages = []
+        preSessionBytes = 0
+        let chunk = pendingAudio
+        pendingAudio = Data()
+        awaitingCommit = true
+        return (held, chunk, task)
+    }
+
+    static func encodeSessionUpdate(model: String, language: String?, sampleRate: Double) -> String? {
+        var transcription: [String: Any] = ["model": model]
+        if let language {
+            // Accepted as the singular form and normalised by the server into
+            // `languages: ["uk"]`, which `session.updated` echoes back.
+            transcription["language"] = String(language.prefix(2))
+        }
+        let input: [String: Any] = [
+            "format": ["type": "audio/pcm", "rate": Int(sampleRate)],
+            "transcription": transcription,
+            // Explicitly off: a fresh session defaults to `server_vad`, which this model
+            // rejects. Sending null is accepted and is what the echo confirms.
+            "turn_detection": NSNull(),
+        ]
+        return encode(["type": "session.update",
+                       "session": ["type": "transcription", "audio": ["input": input]]])
+    }
+
+    private static func encodeAudio(_ pcm: Data) -> String? {
+        encode(["type": "input_audio_buffer.append", "audio": pcm.base64EncodedString()])
+    }
+
+    private static func encode(_ payload: [String: Any]) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Puts the whole batch on the socket with nothing of another thread's in between.
+    private func sendMessages(_ messages: [String], over task: URLSessionWebSocketTask) {
+        sendLock.lock()
+        defer { sendLock.unlock() }
+        for message in messages {
+            enqueue(message, over: task)
+        }
+    }
+
+    private func enqueue(_ text: String, over task: URLSessionWebSocketTask) {
+        task.send(.string(text)) { [weak self] error in
+            if let error {
+                self?.fail(error)
+            }
+        }
+    }
+
+    private func runReceiveLoop(_ task: URLSessionWebSocketTask) async {
+        while !Task.isCancelled {
+            let message: URLSessionWebSocketTask.Message
+            do {
+                message = try await task.receive()
+            } catch {
+                lock.lock()
+                let closed = isClosed
+                lock.unlock()
+                if !closed {
+                    fail(error)
+                }
+                return
+            }
+
+            let text: String
+            switch message {
+            case .string(let s): text = s
+            case .data(let d): text = String(data: d, encoding: .utf8) ?? ""
+            @unknown default: continue
+            }
+            handle(text)
+        }
+    }
+
+    private func handle(_ raw: String) {
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else {
+            dlog("OpenAI", "realtime: unreadable message: \(raw.prefix(120))")
+            return
+        }
+
+        switch type {
+        case "session.created":
+            // The session exists, but with `transcription: null` — it transcribes nothing
+            // until it is configured. Configuring here rather than straight after
+            // `resume()` costs one frame's latency (measured at about 10 ms, against the
+            // 100–300 ms the microphone takes to come up) and asks nothing of
+            // URLSession's queueing of sends made before the handshake finishes.
+            lock.lock()
+            let language = self.language
+            let task = self.task
+            lock.unlock()
+            dlog("OpenAI", "realtime: session created — configuring")
+            if let task, let update = Self.encodeSessionUpdate(model: model, language: language,
+                                                              sampleRate: sampleRate) {
+                sendMessages([update], over: task)
+            }
+        case "session.updated":
+            dlog("OpenAI", "realtime: session configured (\(Self.transcriptionConfig(in: json)))")
+            flushPreSessionAudio()
+        case "conversation.item.input_audio_transcription.delta":
+            guard let item = json["item_id"] as? String else { return }
+            let accumulated = (deltas[item] ?? "") + (json["delta"] as? String ?? "")
+            deltas[item] = accumulated
+            // Leading whitespace: the first delta of an item opens with a space. The
+            // partial carries everything completed before it for the same reason
+            // `.committed` does — it is read as the whole segment so far, not as an
+            // increment on it.
+            let text = joinedSegments(completedText, accumulated.trimmingCharacters(in: .whitespacesAndNewlines))
+            continuation.yield(.partial(text))
+        case "conversation.item.input_audio_transcription.completed":
+            let item = json["item_id"] as? String
+            // The item's authoritative text. It has been a word or two ahead of the
+            // deltas every time it was measured, so it replaces them rather than
+            // extending them; the caller's `mergedTranscript` does that replacement.
+            let transcript = (json["transcript"] as? String)
+                ?? item.flatMap { deltas[$0] }
+                ?? ""
+            if let item { deltas[item] = nil }
+            let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                completedText = joinedSegments(completedText, trimmed)
+            }
+            dlog("OpenAI", "realtime: transcript complete, \(trimmed.count) chars")
+            continuation.yield(.committed(completedText))
+            resumeFinish()
+        case "conversation.item.input_audio_transcription.failed":
+            let detail = Self.errorDetail(in: json) ?? raw
+            dlog("OpenAI", "realtime: transcription failed: \(detail.prefix(200))")
+            fail(OpenAISTTError.realtime("transcription_failed", detail))
+        case "error":
+            let error = json["error"] as? [String: Any] ?? [:]
+            let code = error["code"] as? String ?? "error"
+            let detail = error["message"] as? String ?? raw
+            if code == "input_audio_buffer_commit_empty" {
+                // The commit held too little audio to be honoured — the recording was
+                // over before anything reached the socket. Nothing further is coming for
+                // it, so stop waiting; the stream itself is fine and the stop falls back
+                // to the upload, which has the whole segment on disk.
+                dlog("OpenAI", "realtime: \(detail.prefix(160))")
+                resumeFinish()
+                return
+            }
+            dlog("OpenAI", "realtime: error \(code): \(detail.prefix(200))")
+            fail(OpenAISTTError.realtime(code, detail))
+        default:
+            // The realtime vocabulary is large and mostly about conversations rather
+            // than transcription (`input_audio_buffer.speech_started`,
+            // `conversation.item.added`, …). Failing on anything unrecognised would turn
+            // an informational event into a silent degrade where every recording pays
+            // for the streamed minutes *and* a batch re-upload; a socket that genuinely
+            // breaks still reaches `fail` through `runReceiveLoop`'s catch.
+            break
+        }
+    }
+
+    /// The transcription block `session.updated` echoes, for the log line — the same
+    /// reason Scribe's config is printed: a typo in what we sent is visible here rather
+    /// than silently ignored.
+    private static func transcriptionConfig(in json: [String: Any]) -> String {
+        guard let session = json["session"] as? [String: Any],
+              let audio = session["audio"] as? [String: Any],
+              let input = audio["input"] as? [String: Any] else { return "?" }
+        let transcription = input["transcription"] as? [String: Any] ?? [:]
+        let rate = (input["format"] as? [String: Any])?["rate"] ?? "?"
+        let languages = transcription["languages"] ?? transcription["language"] ?? "auto"
+        return "model=\(transcription["model"] ?? "?"), rate=\(rate), language=\(languages)"
+    }
+
+    private static func errorDetail(in json: [String: Any]) -> String? {
+        guard let error = json["error"] as? [String: Any] else { return nil }
+        return error["message"] as? String
+    }
+
+    private func fail(_ error: Error) {
+        lock.lock()
+        let alreadyClosed = isClosed
+        lock.unlock()
+        guard !alreadyClosed else { return }
+        dlog("OpenAI", "realtime: failed: \(error.localizedDescription)")
+        continuation.yield(.failed(error))
+        close(with: error)
+    }
+
+    private func installFinishWait(_ cont: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        if isClosed || commitArrived {
+            lock.unlock()
+            cont.resume()
+            return
+        }
+        finishContinuation = cont
+        lock.unlock()
+    }
+
+    private func resumeFinish() {
+        lock.lock()
+        if awaitingCommit { commitArrived = true }
         let cont = finishContinuation
         finishContinuation = nil
         lock.unlock()

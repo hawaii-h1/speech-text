@@ -6,9 +6,11 @@ import AVFoundation
 
 // MARK: - Streaming with batch fallback
 
-/// Pushes the writer's 16 kHz bytes over the realtime socket and mirrors its events into
-/// committed / partial text. When the stream breaks or ends with nothing, `finish()`
-/// hands the segment to the wrapped batch session, which uploads the same writer's file.
+/// Pushes the tap's audio over the realtime socket — the writer's own 16 kHz bytes when
+/// the provider wants that rate, a converted copy of the native buffer when it wants
+/// another — and mirrors its events into committed / partial text. When the stream
+/// breaks or ends with nothing, `finish()` hands the segment to the wrapped batch
+/// session, which uploads the same writer's file.
 final class StreamingRecognitionSession: RecognitionSession {
     var onEvent: ((RecognitionEvent) -> Void)?
 
@@ -36,8 +38,31 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// is pushed into a stream that will be discarded.
     private var sendEnabled = true
 
+    // Audio-thread state. `feed` is the only thing that touches these, and the tap
+    // calls it serially, so they need no lock.
+    //
+    // A provider whose socket wants a rate other than the writer's owns a converter of
+    // its own, fed from the *native* tap buffer rather than from the writer's output:
+    // 48 kHz → 24 kHz in one step is both cheaper and cleaner than 48 → 16 → 24. This is
+    // what `StreamingSTTProvider.sampleRate` was declared for ("the engine converts the
+    // mic feed to it"); before OpenAI's realtime tier, every provider happened to want
+    // the writer's 16 kHz and the mismatch simply skipped the stream.
+    private let needsResampling: Bool
+    private var resampler: PCMDownsampler?
+    /// The format `resampler` was built for. A device change hands the tap a new one
+    /// mid-recording (see `SpeechEngine.restartAudioEngine`), and the converter cannot
+    /// be re-pointed, so it is rebuilt — losing only the handful of frames in its delay
+    /// line, at a boundary where the hardware just changed anyway.
+    ///
+    /// Compared with `!=`, which on an `AVAudioFormat` is `isEqual:` and not object
+    /// identity (`AVAudioFormatEqualityTests` pins that down): the tap hands out a fresh
+    /// instance per buffer, so an identity test would rebuild the converter fifty times
+    /// a second and throw away its delay line each time.
+    private var resamplerFormat: AVAudioFormat?
+
     init(provider: StreamingSTTProvider, writer: AudioBufferWriter, language: String?,
          fallback: RecognitionSession) {
+        self.needsResampling = provider.sampleRate != AudioBufferWriter.uploadSampleRate
         self.provider = provider
         self.writer = writer
         self.language = language
@@ -45,11 +70,6 @@ final class StreamingRecognitionSession: RecognitionSession {
     }
 
     func start() throws {
-        guard provider.sampleRate == AudioBufferWriter.uploadSampleRate else {
-            dlog("Engine", "stream wants \(provider.sampleRate) Hz, tap converts to \(AudioBufferWriter.uploadSampleRate) — stream will be skipped")
-            markFailed("Could not convert audio for streaming")
-            return
-        }
         connected = true
         provider.connect(language: language)
         let provider = self.provider
@@ -96,6 +116,20 @@ final class StreamingRecognitionSession: RecognitionSession {
 
     func feed(native: AVAudioPCMBuffer, pcm16: Data?) {
         guard sendEnabled else { return }
+        if needsResampling {
+            // The writer's bytes are the wrong rate for this socket, so the stream does
+            // not depend on the writer converting at all — only on this converter.
+            guard let converted = resampled(native) else {
+                DispatchQueue.main.async {
+                    guard self.failure == nil else { return }
+                    dlog("Engine", "stream: cannot convert \(native.format.sampleRate) Hz to \(self.provider.sampleRate) Hz — stream discarded, batch fallback at stop")
+                    self.markFailed("Could not convert audio for streaming")
+                }
+                return
+            }
+            if !converted.isEmpty { provider.send(pcm16: converted) }
+            return
+        }
         if let pcm16 {
             provider.send(pcm16: pcm16)
         } else if !writer.isConvertingLive {
@@ -107,6 +141,21 @@ final class StreamingRecognitionSession: RecognitionSession {
                 self.markFailed("Could not convert audio for streaming")
             }
         }
+    }
+
+    /// One tap buffer at the provider's rate. Returns an empty `Data` while the
+    /// converter primes (it has taken the audio and not emitted any yet), and nil only
+    /// when no converter can be made for this hardware format.
+    private func resampled(_ buffer: AVAudioPCMBuffer) -> Data? {
+        if resampler == nil || resamplerFormat != buffer.format {
+            resampler = PCMDownsampler(sourceFormat: buffer.format, targetRate: provider.sampleRate)
+            resamplerFormat = resampler == nil ? nil : buffer.format
+            if resampler != nil {
+                dlog("Engine", "stream: converting \(buffer.format.sampleRate) Hz tap to \(provider.sampleRate) Hz")
+            }
+        }
+        guard let resampler else { return nil }
+        return resampler.convert(buffer)
     }
 
     func pause() -> String? { nil }
