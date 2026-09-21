@@ -10,9 +10,10 @@ import Foundation
 /// Everything else here — the catalogue, the hardware read, the recommendation, the
 /// download bookkeeping, the Settings UI — is Foundation only. Keeping inference behind
 /// a protocol means `import WhisperKit` appears in exactly one file
-/// (`LocalWhisperRuntime.swift`), so the rest stays compilable by the test target and a
-/// different engine later is one conforming type rather than a rewrite.
-protocol LocalSTTRuntime {
+/// (`LocalWhisperRuntime.swift`) and `import FluidAudio` in exactly one other
+/// (`LocalParakeetRuntime.swift`), so the rest stays compilable by the test target — and
+/// the second engine, when it came, was one conforming type rather than a rewrite.
+protocol LocalSTTRuntime: Sendable {
     /// Fetches `variant` into `base` and returns the folder it landed in. Progress is
     /// reported 0…1 on an arbitrary thread.
     func download(variant: String, into base: URL, progress: @escaping (Double) -> Void) async throws -> URL
@@ -64,9 +65,19 @@ final class LocalModelStore {
     private(set) var states: [String: InstallState] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
 
-    /// Injected so a future engine swap — or a test — does not have to go through
-    /// WhisperKit. Defaults to the real one.
-    var runtime: LocalSTTRuntime = WhisperKitRuntime()
+    /// The runtime each engine installs and transcribes through. Injectable as one
+    /// closure rather than one property, because the catalogue now holds two families at
+    /// once: a download is dispatched per *model*, not once for the store.
+    var runtime: (LocalSTTEngine) -> LocalSTTRuntime = defaultRuntime
+
+    /// The real pairing, named once so a test that swaps `runtime` can put it back, and
+    /// so the two engines are listed in one place rather than at each call site.
+    static let defaultRuntime: (LocalSTTEngine) -> LocalSTTRuntime = { engine in
+        switch engine {
+        case .whisperKit: WhisperKitRuntime()
+        case .parakeet: ParakeetRuntime()
+        }
+    }
 
     private init() {
         refresh()
@@ -119,7 +130,7 @@ final class LocalModelStore {
         // each other's half-written files.
         let staging = Self.modelsDirectory.appendingPathComponent(".downloads", isDirectory: true)
             .appendingPathComponent(model.id, isDirectory: true)
-        let runtime = runtime
+        let runtime = runtime(model.engine)
 
         tasks[model.id] = Task { [weak self] in
             do {
@@ -192,4 +203,33 @@ final class LocalModelStore {
     var installedBytes: Int64 {
         installedModels.reduce(0) { $0 + $1.downloadBytes }
     }
+}
+
+// MARK: - Registration
+
+/// Points the `LocalSTT` seam at the real engines. Called once from
+/// `applicationDidFinishLaunching`; without it the local tier reports itself unavailable,
+/// which is exactly what the test target wants.
+///
+/// It lives here rather than in either runtime file because it now names both, and
+/// neither of those may see the other's framework. The dispatch is by catalogue entry:
+/// an ID that is not in the catalogue at all falls through to the unavailable provider,
+/// which throws rather than returning empty text, so the audio is kept for a retry.
+func registerLocalSTT() {
+    LocalSTT.providerFactory = { modelID in
+        switch localSTTModel(id: modelID)?.engine {
+        case .whisperKit: WhisperKitLocalProvider(modelID: modelID)
+        case .parakeet: ParakeetLocalProvider(modelID: modelID)
+        case nil: UnavailableLocalSTTProvider(modelID: modelID)
+        }
+    }
+    // Both, unconditionally: Settings removed *a* model and we are not told which engine
+    // it belonged to, and unloading one that was never loaded costs nothing.
+    LocalSTT.releaseModel = {
+        Task {
+            await WhisperKitPipelineCache.shared.unload()
+            await ParakeetPipelineCache.shared.unload()
+        }
+    }
+    dlog("LocalModel", "local speech engines registered (WhisperKit, FluidAudio/Parakeet)")
 }

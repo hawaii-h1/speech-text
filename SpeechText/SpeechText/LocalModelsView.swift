@@ -4,7 +4,7 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Speech (WhisperKit)
+// MARK: - Speech (local models)
 
 /// The Settings rows for the local speech tier: what this Mac is, which model it should
 /// run, and one button per model to install, cancel or remove it.

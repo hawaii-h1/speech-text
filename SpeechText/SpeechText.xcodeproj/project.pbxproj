@@ -32,11 +32,13 @@
 		C30000010000000000000003 /* OllamaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000003 /* OllamaProvider.swift */; };
 		C10000010000000000000004 /* LocalModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000004 /* LocalModelStore.swift */; };
 		C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000005 /* LocalWhisperRuntime.swift */; };
+		C10000010000000000000091 /* LocalParakeetRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000091 /* LocalParakeetRuntime.swift */; };
 		C10000010000000000000008 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000008 /* UpdateChecker.swift */; };
 		C10000010000000000000006 /* LocalModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000006 /* LocalModelsView.swift */; };
 		C10000010000000000000007 /* DockIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000007 /* DockIcon.swift */; };
 		C40000010000000000000001 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = C60000010000000000000001 /* WhisperKit */; };
 		C40000010000000000000002 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C60000010000000000000002 /* Sparkle */; };
+		C40000010000000000000003 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = C60000010000000000000003 /* FluidAudio */; };
 		A10000010000000000000001 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001 /* App.swift */; };
 		A10000010000000000000002 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000002 /* MenuBarView.swift */; };
 		A10000010000000000000003 /* RecordingOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000003 /* RecordingOverlay.swift */; };
@@ -118,6 +120,7 @@
 		C20000010000000000000003 /* OllamaProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
 		C20000010000000000000004 /* LocalModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelStore.swift; sourceTree = "<group>"; };
 		C20000010000000000000005 /* LocalWhisperRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperRuntime.swift; sourceTree = "<group>"; };
+		C20000010000000000000091 /* LocalParakeetRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalParakeetRuntime.swift; sourceTree = "<group>"; };
 		C20000010000000000000008 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		C20000010000000000000006 /* LocalModelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsView.swift; sourceTree = "<group>"; };
 		C20000010000000000000007 /* DockIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockIcon.swift; sourceTree = "<group>"; };
@@ -180,6 +183,7 @@
 			files = (
 				C40000010000000000000001 /* WhisperKit in Frameworks */,
 				C40000010000000000000002 /* Sparkle in Frameworks */,
+				C40000010000000000000003 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -241,6 +245,7 @@
 				C20000010000000000000003 /* OllamaProvider.swift */,
 				C20000010000000000000004 /* LocalModelStore.swift */,
 				C20000010000000000000005 /* LocalWhisperRuntime.swift */,
+				C20000010000000000000091 /* LocalParakeetRuntime.swift */,
 				C20000010000000000000008 /* UpdateChecker.swift */,
 				C20000010000000000000006 /* LocalModelsView.swift */,
 				C20000010000000000000007 /* DockIcon.swift */,
@@ -309,6 +314,7 @@
 			packageProductDependencies = (
 				C60000010000000000000001 /* WhisperKit */,
 				C60000010000000000000002 /* Sparkle */,
+				C60000010000000000000003 /* FluidAudio */,
 			);
 			productName = SpeechText;
 			productReference = A2000001000000000000000C /* SpeechText.app */;
@@ -352,6 +358,7 @@
 			packageReferences = (
 				C50000010000000000000001 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				C50000010000000000000002 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				C50000010000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			productRefGroup = A40000010000000000000003 /* Products */;
 			projectDirPath = "";
@@ -414,6 +421,7 @@
 				C10000010000000000000003 /* OllamaProvider.swift in Sources */,
 				C10000010000000000000004 /* LocalModelStore.swift in Sources */,
 				C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */,
+				C10000010000000000000091 /* LocalParakeetRuntime.swift in Sources */,
 				C10000010000000000000008 /* UpdateChecker.swift in Sources */,
 				C10000010000000000000006 /* LocalModelsView.swift in Sources */,
 				C10000010000000000000007 /* DockIcon.swift in Sources */,
@@ -725,6 +733,14 @@
 				minimumVersion = 2.10.0;
 			};
 		};
+		C50000010000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.15.8;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -737,6 +753,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C50000010000000000000002 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		C60000010000000000000003 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C50000010000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -41,9 +41,9 @@ Pick per your priorities — all configurable in Settings:
 | **Apple** (on-device) | free | Nothing leaves your Mac |
 | **Groq** (Whisper) | ~$0.04/hour | Fast, accurate, needs an API key |
 | **ElevenLabs** (Scribe v2) | pay-as-you-go | Realtime streaming, live partial text |
-| **Whisper, local** | free | Open-source model downloaded to your Mac in one click; no key, works offline |
+| **Local model** | free | Parakeet or Whisper, downloaded to your Mac in one click; no key, works offline |
 
-For local models, Settings reads your Mac's chip, memory and free disk, places it in a class from an 8 GB MacBook Neo to a 512 GB Mac Studio, and marks two models for it: a **recommended** one (the fastest of good quality) and a **best quality** one. Heavier models stay available, labelled.
+For local models, Settings reads your Mac's chip, memory and free disk, places it in a class from an 8 GB MacBook Neo to a 512 GB Mac Studio, and marks two models for it: a **recommended** one (the fastest of good quality) and a **best quality** one. Heavier models stay available, labelled. On Apple Silicon both are **Parakeet v3** — NVIDIA's multilingual model, 25 European languages, 483 MB, and on our Ukrainian test it matched the best cloud engine in under a second. Intel Macs have no Neural Engine and are pointed at the small Whisper models instead.
 
 For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** with your own key — or run it locally through [Ollama](https://ollama.com), where Settings offers Qwen3.5 / 3.6 / 3.8, Gemma 4 and gpt-oss models from 1 GB to 81 GB, recommends a pair for your Mac, and downloads them in one click.
 
@@ -56,7 +56,9 @@ For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** with your own 
 - Optional: API keys for the cloud engines you want to use
 - Optional: [Ollama](https://ollama.com) for local AI processing
 
-One Swift package — [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift), for local speech models — resolved by Xcode on the first build. Everything else is Apple frameworks.
+Three Swift packages, resolved by Xcode on the first build: [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) and [FluidAudio](https://github.com/FluidInference/FluidAudio) for the two local speech engines, and [Sparkle](https://sparkle-project.org) for updates. Each is imported by exactly one file. Everything else is Apple frameworks.
+
+Local speech models are third-party weights: Whisper is MIT, and Parakeet v3 is [NVIDIA's `parakeet-tdt-0.6b-v3`](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) under CC-BY-4.0, run through FluidAudio's Core ML conversion.
 
 ---
 

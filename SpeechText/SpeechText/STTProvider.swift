@@ -20,7 +20,7 @@ enum STTProviderType: String, CaseIterable, Identifiable {
         case .groq: "Groq Whisper — cloud"
         case .elevenlabs: "ElevenLabs Scribe — cloud"
         case .openai: "OpenAI — cloud"
-        case .local: "Whisper — local model"
+        case .local: "Local model — on your Mac"
         }
     }
 
@@ -36,7 +36,7 @@ enum STTProviderType: String, CaseIterable, Identifiable {
         case .openai:
             "Cloud GPT Transcribe. Needs an API key — the same one the AI rewrite uses. GPT Live Transcribe shows text live while you speak; the others only after you stop."
         case .local:
-            "An open-source Whisper model downloaded to your Mac. Private, free, no key, works offline; text appears once you stop speaking."
+            "An open-source model — Parakeet or Whisper — downloaded to your Mac. Private, free, no key, works offline; text appears once you stop speaking."
         }
     }
 }
