@@ -130,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var debugLogWindow: DebugLogWindow?
     private var historyWindow: HistoryWindow?
     private var dockIcon: DockIconController?
+    private var setupWindow: OnboardingWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
@@ -137,26 +138,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = Self.menuBarIcon(recording: false)
         settingsOpener = MainActor.assumeIsolated { SettingsOpener() }
 
+        // Carry the pre-rename settings over, then drop provider values left over from
+        // removed engines — both before any UI reads them, the setup gate included.
+        adoptPreRenameDefaults()
+        normalizeStoredProviders()
+        let setupGate = decideSetupGate()
+
         // Build the menu
         rebuildMenu()
 
-        // Request microphone access on first launch
-        appState.speechEngine.requestMicrophoneAccess { granted in
-            if !granted {
-                dlog("App", "Microphone access denied")
+        if setupGate == .show {
+            // Setup asks for the microphone and Accessibility itself, on a screen that
+            // says what they are for — not in two unexplained alerts at launch.
+            DispatchQueue.main.async { [weak self] in self?.openSetup() }
+        } else {
+            // Request microphone access on launch
+            appState.speechEngine.requestMicrophoneAccess { granted in
+                if !granted {
+                    dlog("App", "Microphone access denied")
+                }
+            }
+
+            // Prompt for accessibility permission on launch if not already granted.
+            // This is required for pasting text at the cursor via the inline recorder.
+            if !PasteService.isAccessibilityGranted {
+                PasteService.promptAccessibility()
             }
         }
 
-        // Prompt for accessibility permission on first launch if not already granted.
-        // This is required for pasting text at the cursor via the inline recorder.
-        if !PasteService.isAccessibilityGranted {
-            PasteService.promptAccessibility()
-        }
-
-        // Carry the pre-rename settings over, then drop provider values left over from
-        // removed engines — both before any UI reads them.
-        adoptPreRenameDefaults()
-        normalizeStoredProviders()
         registerLocalSTT()
         registerSpellCheckedJoins()
         dockIcon = DockIconController()
@@ -218,6 +227,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !UserDefaults.standard.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) {
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
             try? SMAppService.mainApp.register()
+        }
+    }
+
+    /// Whether the setup window opens at launch — see `OnboardingGate`. Read before the
+    /// login item is registered below, which is one of the signs of an earlier launch.
+    private func decideSetupGate() -> OnboardingGate {
+        let defaults = UserDefaults.standard
+        let usedBefore = defaults.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
+            || SettingsKeys.portable.contains { defaults.object(forKey: $0) != nil }
+        let gate = OnboardingGate.decide(
+            completed: defaults.object(forKey: SettingsKeys.onboardingCompleted) as? Bool,
+            hasUsedTheAppBefore: usedBefore)
+        if gate == .markCompleted {
+            defaults.set(true, forKey: SettingsKeys.onboardingCompleted)
+            dlog("Setup", "an existing install — setup marked as done")
+        }
+        return gate
+    }
+
+    @objc private func openSetup() {
+        MainActor.assumeIsolated {
+            if setupWindow == nil {
+                setupWindow = OnboardingWindow(appState: appState) { [weak self] in
+                    self?.setupWindow = nil
+                    self?.rebuildMenu()
+                }
+            }
+            setupWindow?.present()
         }
     }
 
@@ -328,6 +365,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let historyItem = NSMenuItem(title: "History...", action: #selector(openHistory), keyEquivalent: "y")
         historyItem.target = self
         menu.addItem(historyItem)
+
+        // Setup can be run again at any time; unfinished, it picks up where it was left.
+        let setupDone = UserDefaults.standard.bool(forKey: SettingsKeys.onboardingCompleted)
+        let setupItem = NSMenuItem(title: setupDone ? "Set Up SpeechText..." : "Continue Setup...",
+                                   action: #selector(openSetup), keyEquivalent: "")
+        setupItem.target = self
+        menu.addItem(setupItem)
 
         let debugItem = NSMenuItem(title: "Debug Log...", action: #selector(openDebugLog), keyEquivalent: "")
         debugItem.target = self
@@ -472,6 +516,13 @@ final class AppState {
     /// The app the user was in before recording started (paste target)
     var previousApp: NSRunningApplication?
 
+    /// Setup's Try it step. While it is on screen a dictation's result goes to it
+    /// instead of being pasted — the app never pastes into its own windows.
+    let dictationTest = DictationTest()
+    /// The current inline dictation was started from the Try it step. Captured at the
+    /// start, so leaving the step mid-dictation cannot send the test's text anywhere.
+    private var isTestDictation = false
+
     /// True when the current inline session is in AI mode — started with the AI hotkey or
     /// switched to it — so the transcription gets routed through `TextRefinementService`
     /// before pasting.
@@ -507,16 +558,28 @@ final class AppState {
         return .idle
     }
 
+    /// Without an AI provider the AI shortcut is simply a second dictation shortcut: a
+    /// dictation that ends in "AI processing skipped" every time teaches the user nothing.
+    private func effectiveKey(_ key: DictationHotkey) -> DictationHotkey {
+        key == .ai && !TextRefinementService.isConfigured ? .inline : key
+    }
+
     /// A dictation shortcut went down.
-    func hotkeyPressed(_ key: DictationHotkey) {
+    func hotkeyPressed(_ pressed: DictationHotkey) {
+        if dictationTest.isActive { dictationTest.heldKey = pressed }
         // An edit's recording is an instruction, not a dictation: there is nothing for
         // a dictation shortcut to switch or stop, and the likeliest meaning of the press
         // is "not this, I want to dictate". It cancels the edit and does nothing more.
         if isEditMode {
-            dlog("Hotkey", "\(key) pressed during an edit → cancel the edit")
+            dlog("Hotkey", "\(pressed) pressed during an edit → cancel the edit")
             cancelEdit()
             return
         }
+        if dictationTest.isBlocked && dictationPhase == .idle {
+            dlog("Hotkey", "\(pressed) pressed while setup waits for the speech model → ignored")
+            return
+        }
+        let key = effectiveKey(pressed)
         hotkeyGesture.holdToTalk = UserDefaults.standard.bool(forKey: SettingsKeys.holdToTalk)
         let phase = dictationPhase
         let action = hotkeyGesture.press(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
@@ -526,8 +589,10 @@ final class AppState {
 
     /// A dictation shortcut came back up. Only acts with hold-to-talk on, and only for the
     /// shortcut that started the dictation.
-    func hotkeyReleased(_ key: DictationHotkey) {
+    func hotkeyReleased(_ released: DictationHotkey) {
+        if dictationTest.heldKey == released { dictationTest.heldKey = nil }
         guard !isEditMode else { return }
+        let key = effectiveKey(released)
         let phase = dictationPhase
         let action = hotkeyGesture.release(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
         dlog("Hotkey", "\(key) released in \(phase) → \(action)")
@@ -560,7 +625,7 @@ final class AppState {
             return
         }
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
-        perform(hotkeyGesture.click(aiMode ? .ai : .inline, in: dictationPhase))
+        perform(hotkeyGesture.click(effectiveKey(aiMode ? .ai : .inline), in: dictationPhase))
     }
 
     private func perform(_ action: DictationHotkeyAction) {
@@ -626,8 +691,13 @@ final class AppState {
     }
 
     private func startRecording() {
+        isTestDictation = dictationTest.isActive
         let front = NSWorkspace.shared.frontmostApplication
-        if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
+        if isTestDictation {
+            // The result goes to the setup window; there is no app to paste into.
+            previousApp = nil
+            dictationTest.began(ai: isAIMode)
+        } else if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = front
         }
         let locale = resolvedLocale()
@@ -676,7 +746,9 @@ final class AppState {
     private func beginDeliveryPlan() {
         // A live-transcript recording delivers nothing early, so its tier is never used —
         // and the probe is AX round trips to a possibly slow app ahead of the microphone.
-        let probe = showsLiveTranscript ? AXTextProbe.unavailable : PasteService.probeFocusedText(in: previousApp)
+        // A test dictation delivers nothing early either: its text goes to setup at the stop.
+        let buffered = showsLiveTranscript || isTestDictation
+        let probe = buffered ? AXTextProbe.unavailable : PasteService.probeFocusedText(in: previousApp)
         let tier = DeliveryTier.resolve(isOwnSurface: false, probe: probe)
         let aiDraft = UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking)
         DictationTraceRecorder.current = DictationTraceRecorder.isEnabled
@@ -690,7 +762,7 @@ final class AppState {
                              rangeReadsBack: probe.rangeReadsBack)))
             : nil
         let progressive = inlineDelivery.begin(
-            tier: tier, aiMode: isAIMode, aiDraft: aiDraft, livePreview: showsLiveTranscript,
+            tier: tier, aiMode: isAIMode, aiDraft: aiDraft, livePreview: buffered,
             target: AccessibilityDeliveryTarget(app: previousApp),
             targetName: previousApp?.localizedName)
 
@@ -768,6 +840,10 @@ final class AppState {
                                                failed: speechEngine.errorMessage != nil,
                                                aiMode: isAIMode,
                                                recordingText: speechEngine.spanLayer.text)
+        if isTestDictation, reportTestResult(result) {
+            finishTrace()
+            return
+        }
         switch result {
         case .failed(let partial):
             // A failed transcription used to end here silently — the user just saw nothing
@@ -833,6 +909,26 @@ final class AppState {
         finishTrace()
     }
 
+    /// Hands a test dictation's result to setup instead of pasting it or raising a notice:
+    /// the Try it step says in its own words what happened. False for an AI rewrite,
+    /// which `refine` reports once the model has answered.
+    private func reportTestResult(_ result: InlineDelivery.StopResult) -> Bool {
+        let outcome: DictationTest.Outcome
+        switch result {
+        case .failed:
+            outcome = .failed(friendlySTTError(speechEngine.errorMessage ?? ""))
+        case .noSpeech, .alreadyDelivered, .nothingLeft, .notPasted:
+            outcome = .nothingHeard
+        case .paste(let text):
+            outcome = .typed(text)
+        case .refine:
+            return false
+        }
+        hideOverlay()
+        dictationTest.finished(outcome, ai: isAIMode)
+        return true
+    }
+
     /// Writes the dictation's trace, when one is being recorded.
     private func finishTrace() {
         guard let recorder = DictationTraceRecorder.current else { return }
@@ -867,6 +963,7 @@ final class AppState {
         isRefining = true
         let recordID = speechEngine.lastRecordID
         let context = focusContext
+        let isTest = isTestDictation
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var output = aiInput
@@ -894,6 +991,13 @@ final class AppState {
                     )
                 }
                 DictationTraceRecorder.record(.refinement, error: error.localizedDescription)
+                if isTest {
+                    self.isRefining = false
+                    self.refinementTask = nil
+                    self.hideOverlay()
+                    self.dictationTest.rewritten(said: aiInput, result: .failure(error))
+                    return
+                }
                 // Never lose the dictation: fall back to the raw transcript, but say so
                 // rather than pasting unrewritten text with no explanation.
                 dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript")
@@ -907,6 +1011,11 @@ final class AppState {
             self.isRefining = false
             self.refinementTask = nil
             self.hideOverlay()
+            if isTest {
+                self.dictationTest.rewritten(said: aiInput, result: .success(output))
+                self.finishTrace()
+                return
+            }
             self.deliverAIResult(output, recordID: recordID)
             self.finishTrace()
         }

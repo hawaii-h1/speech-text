@@ -68,12 +68,14 @@ final class DockIconController {
 
     /// Settings, History and the other titled windows — not the recording overlay, the
     /// status notice or the Record Window, which are panels floating over another app's
-    /// work and must not pull a Dock icon in with them.
+    /// work and must not pull a Dock icon in with them. Setup draws its own frame, so it
+    /// is borderless, but it is an ordinary window the user leaves for a browser and
+    /// comes back to.
     static func hasOpenWindow(excluding excluded: NSWindow? = nil) -> Bool {
         NSApp.windows.contains { window in
             window !== excluded
                 && !(window is NSPanel)
-                && window.styleMask.contains(.titled)
+                && (window.styleMask.contains(.titled) || window is OnboardingWindow)
                 && (window.isVisible || window.isMiniaturized)
         }
     }

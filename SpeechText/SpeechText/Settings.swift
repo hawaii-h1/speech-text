@@ -93,6 +93,14 @@ enum SettingsKeys {
     /// Marks that settings were carried over from the pre-rename preference domain.
     static let didAdoptPreRenameDefaults = "didAdoptPreRenameDefaults"
 
+    // Setup
+    /// Whether the setup window was finished (or the install predates it). Absent on a
+    /// new install. Not in `portable`: it describes this identity's permission grants,
+    /// which a rename asks for again.
+    static let onboardingCompleted = "onboardingCompleted"
+    /// `OnboardingStep.rawValue` the setup window was left on, so it reopens there.
+    static let onboardingStep = "onboardingStep"
+
     /// Everything worth carrying across a rename.
     ///
     /// Deliberately not the whole domain: `hasRegisteredLaunchAtLogin` and the
