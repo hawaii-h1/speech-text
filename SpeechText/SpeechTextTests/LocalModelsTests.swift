@@ -56,33 +56,115 @@ final class LocalSTTRecommendationTests: XCTestCase {
         }
     }
 
-    func testAppleSiliconIsRecommendedTurboFromNeoToStudio() {
+    func testAppleSiliconIsRecommendedParakeetFromNeoToStudio() {
         for ram: UInt64 in [8, 16, 32, 64, 128, 512] {
-            XCTAssertEqual(recommendedLocalSTTModel(for: mac(ram: ram))?.id, defaultLocalSTTModel, "\(ram) GB")
+            XCTAssertEqual(recommendedLocalSTTModel(for: mac(ram: ram))?.id, parakeetV3ModelID, "\(ram) GB")
         }
+        // The stored default is what a Mac with no stored choice gets, so the two must
+        // not drift apart: a default nobody is recommended would install one model and
+        // then advise a different one.
+        XCTAssertEqual(defaultLocalSTTModel, parakeetV3ModelID)
     }
 
-    /// The full model measured no more accurate than Turbo and slower, so no tier is
-    /// steered to it — it is only there to be chosen by hand.
-    func testNoTierIsSteeredToTheFullModel() {
+    /// Neither Whisper model is a quality upgrade on Parakeet — the full Large v3 only
+    /// reproduced Turbo's errors more slowly, and Turbo itself now sits behind Parakeet —
+    /// so no tier is steered past it. Both stay in the catalogue to be chosen by hand.
+    func testNoTierIsSteeredToAWhisperModelForQuality() {
         for ram: UInt64 in [8, 16, 24, 64, 512] {
-            XCTAssertEqual(bestQualityLocalSTTModel(for: mac(ram: ram))?.id, defaultLocalSTTModel, "\(ram) GB")
+            XCTAssertEqual(bestQualityLocalSTTModel(for: mac(ram: ram))?.id, parakeetV3ModelID, "\(ram) GB")
         }
     }
 
+    /// Intel has no Neural Engine, so it gets neither the large Whisper models nor
+    /// Parakeet, whose encoder is a 0.6B Core ML graph built for the same hardware.
     func testIntelNeverGetsTheLargeModelsWhateverItsMemory() {
-        XCTAssertEqual(recommendedLocalSTTModel(for: mac(ram: 64, appleSilicon: false))?.id, "openai_whisper-base")
-        XCTAssertEqual(bestQualityLocalSTTModel(for: mac(ram: 64, appleSilicon: false))?.id, "openai_whisper-small_216MB")
+        let intel = mac(ram: 64, appleSilicon: false)
+        XCTAssertEqual(recommendedLocalSTTModel(for: intel)?.id, "openai_whisper-base")
+        XCTAssertEqual(bestQualityLocalSTTModel(for: intel)?.id, "openai_whisper-small_216MB")
+        let picks = localSTTPicks(for: .intel)
+        XCTAssertFalse((picks.recommended + picks.bestQuality).contains(parakeetV3ModelID))
     }
 
     func testDiskSpaceStepsDownAndKeepsHeadroom() {
         // 1 GB free is all headroom: nothing fits.
         XCTAssertNil(recommendedLocalSTTModel(for: mac(ram: 32, disk: 1)))
-        // 1.5 GB free leaves 0.5 GB usable — the 646 MB turbo model must not be offered.
+        // 1.5 GB free leaves 0.5 GB usable: too little for the 646 MB turbo model, but
+        // Parakeet is 483 MB and still fits — which is the point of putting it first.
+        let snug = SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
+                                      memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 2)
+        XCTAssertEqual(recommendedLocalSTTModel(for: snug)?.id, parakeetV3ModelID)
+        // 1.25 GB free leaves 0.25 GB usable, and now even Parakeet has to step down.
         let tight = SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
-                                       memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 2)
+                                       memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 4)
         XCTAssertEqual(recommendedLocalSTTModel(for: tight)?.id, "openai_whisper-small_216MB")
     }
+
+    /// Both engines are actually reachable from the catalogue. A Parakeet entry whose
+    /// `engine` was left at the Whisper default would be handed to WhisperKit, which
+    /// would fail on a model folder it cannot read.
+    func testCatalogueCoversBothEngines() {
+        XCTAssertEqual(localSTTModel(id: parakeetV3ModelID)?.engine, .parakeet)
+        for model in localSTTModels where model.id != parakeetV3ModelID {
+            XCTAssertEqual(model.engine, .whisperKit, model.id)
+        }
+    }
+
+}
+
+// MARK: - Installed-on-disk test
+
+/// `isLocalModelInstalled` against a temporary directory, never the real
+/// `Application Support` folder — what the user has installed is not a fixture.
+final class LocalModelInstalledTests: XCTestCase {
+
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("SpeechTextModelTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private func put(_ names: [String], under modelID: String) throws {
+        for name in names {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent(modelID).appendingPathComponent(name),
+                withIntermediateDirectories: true)
+        }
+    }
+
+    func testNothingOnDiskIsNotInstalled() {
+        XCTAssertFalse(isLocalModelInstalled(parakeetV3ModelID, in: root))
+        XCTAssertFalse(isLocalModelInstalled("openai_whisper-tiny", in: root))
+    }
+
+    /// Whisper resolves its own file set, so any compiled bundle is enough — the check
+    /// is only there to catch a move that left an empty folder behind.
+    func testOneBundleIsEnoughForWhisper() throws {
+        try put(["AudioEncoder.mlmodelc"], under: "openai_whisper-tiny")
+        XCTAssertTrue(isLocalModelInstalled("openai_whisper-tiny", in: root))
+    }
+
+    /// Parakeet's install is four separate fetches, so a folder holding only the 433 MB
+    /// encoder must not count: calling it installed turns the next dictation into a
+    /// missing-decoder error instead of an offer to download the model.
+    func testParakeetNeedsEveryBundleNotJustOne() throws {
+        try put(["Encoder.mlmodelc"], under: parakeetV3ModelID)
+        XCTAssertFalse(isLocalModelInstalled(parakeetV3ModelID, in: root))
+
+        try put(["Preprocessor.mlmodelc", "Decoder.mlmodelc"], under: parakeetV3ModelID)
+        XCTAssertFalse(isLocalModelInstalled(parakeetV3ModelID, in: root))
+
+        try put(["JointDecisionv3.mlmodelc"], under: parakeetV3ModelID)
+        XCTAssertTrue(isLocalModelInstalled(parakeetV3ModelID, in: root))
+    }
+}
+
+final class LocalSTTReasonTests: XCTestCase {
 
     func testReasonNamesTheCase() {
         XCTAssertTrue(localSTTRecommendationReason(for: mac(ram: 64, appleSilicon: false)).contains("Neural Engine"))

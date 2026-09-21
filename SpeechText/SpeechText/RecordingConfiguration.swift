@@ -83,7 +83,7 @@ struct RecordingConfiguration {
     /// History retry asks this instead of testing the key itself: the local tier needs a
     /// model on disk rather than a key, and "add a Groq key" would be the wrong advice.
     /// `modelInstalled` is a parameter so the check stays testable without a filesystem.
-    func batchUnavailableReason(modelInstalled: (String) -> Bool = isLocalModelInstalled) -> String? {
+    func batchUnavailableReason(modelInstalled: (String) -> Bool = { isLocalModelInstalled($0) }) -> String? {
         switch provider {
         case .local:
             guard !modelInstalled(localModel) else { return nil }

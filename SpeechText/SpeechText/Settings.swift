@@ -308,9 +308,39 @@ func normalizeStoredProviders() {
     normalizeStoredModel(SettingsKeys.groqLLMModel, in: groqChatModels, fallback: defaultGroqLLMModel)
     normalizeStoredModel(SettingsKeys.anthropicModel, in: anthropicChatModels, fallback: defaultAnthropicModel)
     normalizeStoredModel(SettingsKeys.openAIModel, in: openAIChatModels, fallback: defaultOpenAIModel)
+    preserveInstalledLocalModel()
     normalizeStoredModel(SettingsKeys.localSTTModel,
                          in: localSTTModels.map { (id: $0.id, name: $0.displayName) },
                          fallback: defaultLocalSTTModel)
+}
+
+/// Keeps a local-tier user on the model they actually downloaded when the *default*
+/// moves under them.
+///
+/// Nothing writes `localSTTModel` until the user picks a model by hand: both
+/// `@AppStorage` and `RecordingConfiguration.current()` fall back to
+/// `defaultLocalSTTModel` on read, and `normalizeStoredModel` deliberately ignores an
+/// absent key. So when that default moved from Whisper Turbo to Parakeet, every install
+/// running the local tier on the old default — key never written, Turbo on disk and
+/// working — would have been pointed at a model it had not downloaded, and the next
+/// dictation would have failed with "Parakeet v3 isn't installed". A working setup
+/// broken by an update, silently, with no user action.
+///
+/// So an absent key plus a model on disk is read as "they meant this one", and it is
+/// written down. A fresh install has nothing on disk and falls through to the new
+/// default, which is the whole point of moving it.
+private func preserveInstalledLocalModel() {
+    let defaults = UserDefaults.standard
+    guard defaults.string(forKey: SettingsKeys.localSTTModel) == nil else { return }
+    // The old default first, because that is what an untouched install was running; only
+    // then the heaviest installed, for someone who downloaded something else by hand.
+    let previousDefault = "openai_whisper-large-v3-v20240930_turbo_632MB"
+    let keep = isLocalModelInstalled(previousDefault)
+        ? localSTTModel(id: previousDefault)
+        : localSTTModels.first { isLocalModelInstalled($0.id) }
+    guard let keep else { return }
+    dlog("Settings", "localSTTModel was never set and \(keep.id) is installed — keeping it")
+    defaults.set(keep.id, forKey: SettingsKeys.localSTTModel)
 }
 
 private func normalizeStoredModel(
