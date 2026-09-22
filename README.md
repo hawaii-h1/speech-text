@@ -41,6 +41,7 @@ Pick per your priorities — all configurable in Settings:
 | **Apple** (on-device) | free | Nothing leaves your Mac |
 | **Groq** (Whisper) | ~$0.04/hour | Fast, accurate, needs an API key |
 | **ElevenLabs** (Scribe v2) | pay-as-you-go | Realtime streaming, live partial text |
+| **OpenAI** | pay-as-you-go | Upload or realtime streaming, needs an API key; the newest engine, and the least exercised |
 | **Local model** | free | Parakeet or Whisper, downloaded to your Mac in one click; no key, works offline |
 
 For local models, Settings reads your Mac's chip, memory and free disk, places it in a class from an 8 GB MacBook Neo to a 512 GB Mac Studio, and marks two models for it: a **recommended** one (the fastest of good quality) and a **best quality** one. Heavier models stay available, labelled. On Apple Silicon both are **Parakeet v3** — NVIDIA's multilingual model, 25 European languages, 483 MB, and on our Ukrainian test it matched the best cloud engine in under a second. Intel Macs have no Neural Engine and are pointed at the small Whisper models instead.
@@ -52,7 +53,7 @@ For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** with your own 
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- Xcode 15+ to build
+- Xcode 15+ — only if you build from source
 - Optional: API keys for the cloud engines you want to use
 - Optional: [Ollama](https://ollama.com) for local AI processing
 
@@ -64,7 +65,44 @@ Local speech models are third-party weights: Whisper is MIT, and Parakeet v3 is 
 
 ## Install
 
-Signed release builds and a Homebrew cask are coming. For now, build from source:
+**SpeechText is a beta.** It does what this page describes and is used daily by its author, but it has not been through a public release yet: some settings will move, some rough edges are known, and you may be the first person to hit a given one. It updates itself, so a fix reaches you without a second download. If something breaks, [open an issue](https://github.com/yavno/speech-text/issues) — that is what the beta is for.
+
+### Download it
+
+1. Download `SpeechText-<version>.dmg` from the [latest release](https://github.com/yavno/speech-text/releases/latest).
+2. Open the image and drag **SpeechText** into your **Applications** folder.
+3. Open it from Applications. Because it came from the Internet, macOS checks it before the first launch and asks *"SpeechText is an app downloaded from the Internet. Are you sure you want to open it?"*, naming the developer — click **Open**. One question, and the app opens: that is what signing and notarization are for. Every release is signed with an Apple Developer ID certificate and notarized by Apple before it is published, and until the project's Apple account becomes an organization, the developer macOS names is Vladyslav Husakov, the author. If your Mac says something stronger than that — an unidentified developer, or a trip through System Settings › Privacy & Security to open it at all — then that download did not pass the check, and we would like to know: please [open an issue](https://github.com/yavno/speech-text/issues).
+4. SpeechText has no window of its own — look for the microphone in the menu bar, at the top right. A setup window opens on the first run and walks through the rest: which speech engine to use, an optional AI provider, the keys those need, the permissions below, and a dictation to try before you rely on it.
+
+After that, SpeechText keeps itself up to date: it checks once a day, shows you what changed, and installs the update when you agree. *Check for Updates…* in the menu asks straight away.
+
+If you want to verify the download, each release carries a `.sha256` file beside the image:
+
+```bash
+shasum -a 256 -c SpeechText-<version>.dmg.sha256
+```
+
+A Homebrew cask is not available yet — it needs a published release to point at. It is tracked in [issue #63](https://github.com/yavno/speech-text/issues/63).
+
+### Permissions
+
+The setup window explains each of these as it asks for it, and Settings shows what is still missing.
+
+**Required**
+
+- **Microphone** — to hear you. Nothing works without it.
+- **Accessibility** — to paste at the cursor in another app, which is how the text gets where you want it. Without it a dictation opens the Record Window instead, so you can copy the text out by hand. macOS ties this permission to the app's signature, so an update or an OS upgrade can quietly drop it; SpeechText asks again whenever it is missing, rather than once ever, because a paste that silently does nothing is worse than a prompt.
+
+**Asked only if you use the feature**
+
+- **Speech Recognition** — only for the Apple on-device engine, and only the first time it transcribes something. Pick a cloud engine or a downloaded model and macOS never asks.
+- **Automation** — only when returning to the app you dictated into needs an AppleScript nudge, because the ordinary way of bringing it back failed. macOS asks once per app.
+
+SpeechText runs as a menu bar agent. It shows a Dock icon while one of its own windows is open, so Settings can be found again once something covers it; Settings › General can make that never or always.
+
+### Build it yourself
+
+You need macOS 14 or later and Xcode 15+:
 
 ```bash
 git clone https://github.com/yavno/speech-text.git
@@ -72,17 +110,7 @@ cd speech-text
 open SpeechText/SpeechText.xcodeproj
 ```
 
-Then press `Cmd+R` in Xcode. See [docs/development.md](docs/development.md) for details.
-
-### Permissions
-
-macOS will ask for three permissions on first run. All three are required for the app to work:
-
-- **Microphone** — to record you
-- **Speech Recognition** — for the on-device Apple engine
-- **Accessibility** — to paste at the cursor in other apps
-
-The app runs as a menu bar agent with no dock icon and no main window.
+Then press `Cmd+R` in Xcode. A build from Xcode has no updater and is not signed for distribution — see [docs/development.md](docs/development.md), and [docs/releasing.md](docs/releasing.md) for how a release is signed, notarized and published.
 
 ---
 
@@ -91,7 +119,8 @@ The app runs as a menu bar agent with no dock icon and no main window.
 This matters, so it is stated plainly:
 
 - **Apple engine** — audio never leaves your Mac.
-- **Groq / ElevenLabs** — audio is uploaded to that provider, using *your* API key, under *their* privacy policy. SpeechText has no server and never sees your audio or your keys.
+- **Local model** (Parakeet or Whisper) — audio never leaves your Mac either; the model runs on it, and no key is involved.
+- **Groq / ElevenLabs / OpenAI** — audio is uploaded to that provider, using *your* API key, under *their* privacy policy. SpeechText has no server and never sees your audio or your keys.
 - **AI mode** — the transcript text (not the audio) is sent to the LLM provider you selected, with your key.
 - **History** — transcripts are stored locally in `~/Library/Application Support/SpeechText/`. Failed recordings keep their audio for 7 days so you can retry, then it is deleted.
 - **API keys** — stored in your local user defaults. Never transmitted anywhere except to the provider they belong to.
