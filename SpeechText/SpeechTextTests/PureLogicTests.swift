@@ -210,6 +210,81 @@ final class TextRefinementParseTests: XCTestCase {
     }
 }
 
+// MARK: - The chat request body (LLMProvider.swift)
+
+final class LLMRequestPayloadTests: XCTestCase {
+
+    private func provider(_ model: String, _ dialect: OpenAICompatibleLLMProvider.Dialect)
+        -> OpenAICompatibleLLMProvider
+    {
+        OpenAICompatibleLLMProvider(label: "Test", baseURL: URL(string: "https://example.invalid")!,
+                                    apiKey: "k", model: model, dialect: dialect)
+    }
+
+    private func body(_ model: String, _ dialect: OpenAICompatibleLLMProvider.Dialect) -> [String: Any] {
+        provider(model, dialect).payload(system: "system", user: "user")
+    }
+
+    // MARK: The reasoning dialect
+
+    func testReasoningModelIsToldNotToThink() {
+        // Unsent, `reasoning_effort` leaves the model on its default effort, which a
+        // dictation clean-up pays for in latency and gains nothing from.
+        let payload = body("gpt-5.6-luna", .reasoning)
+        XCTAssertEqual(payload["reasoning_effort"] as? String, "none")
+        XCTAssertEqual(payload["max_completion_tokens"] as? Int, 8192)
+    }
+
+    func testEveryCatalogueReasoningModelGetsTheEffort() {
+        for (id, _) in openAIChatModels {
+            XCTAssertEqual(OpenAICompatibleLLMProvider.reasoningEffort(for: id), "none", id)
+        }
+    }
+
+    func testAnUnmeasuredModelIsSentNoEffortAtAll() {
+        // Only the 5.6 family was measured against the live API. A value a later model
+        // rejects is an HTTP 400 and costs the whole rewrite; a default effort only
+        // costs time, so anything unknown is sent nothing.
+        XCTAssertNil(OpenAICompatibleLLMProvider.reasoningEffort(for: "gpt-6-astra"))
+        XCTAssertNil(body("gpt-6-astra", .reasoning)["reasoning_effort"])
+    }
+
+    func testReasoningDialectSendsNeitherRejectedParameter() {
+        let payload = body("gpt-5.6-luna", .reasoning)
+        XCTAssertNil(payload["max_tokens"])
+        XCTAssertNil(payload["temperature"])
+    }
+
+    // MARK: The classic dialect is unchanged
+
+    func testGroqOSSKeepsItsOwnSwitches() {
+        let payload = body("openai/gpt-oss-120b", .classic)
+        XCTAssertEqual(payload["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(payload["include_reasoning"] as? Bool, false)
+        XCTAssertNil(payload["reasoning_format"])
+        XCTAssertEqual(payload["max_tokens"] as? Int, 8192)
+    }
+
+    func testGroqQwenKeepsItsOwnSwitches() {
+        let payload = body("qwen/qwen3.8-27b", .classic)
+        XCTAssertEqual(payload["reasoning_effort"] as? String, "none")
+        XCTAssertEqual(payload["reasoning_format"] as? String, "hidden")
+    }
+
+    func testAClassicModelWithNoDocumentedSwitchIsSentNone() {
+        let payload = body("minimaxai/minimax-m2.7", .classic)
+        XCTAssertNil(payload["reasoning_effort"])
+        XCTAssertNil(payload["reasoning_format"])
+    }
+
+    func testTheMessagesAreTheSystemAndUserTurns() {
+        let messages = body("gpt-5.6-luna", .reasoning)["messages"] as? [[String: String]]
+        XCTAssertEqual(messages?.count, 2)
+        XCTAssertEqual(messages?.first?["role"], "system")
+        XCTAssertEqual(messages?.last?["content"], "user")
+    }
+}
+
 // MARK: - Focus context (FocusContext.swift, TextRefinementService prompt)
 
 final class FocusContextTests: XCTestCase {
