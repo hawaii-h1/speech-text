@@ -149,3 +149,71 @@ jobs:
             exit 1
           fi
           echo "All commits are signed off."
+
+  base:
+    name: Base branch
+    # Reads the pull request's metadata and nothing from the tree, so it can run
+    # anywhere. It follows the rest of ci.yml: the self-hosted Mac while the
+    # repository is private, Linux once it is public and a stranger's pull
+    # request could reach it. See #59.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    steps:
+      # No checkout: the answer is in the pull request's metadata, not in the tree.
+      - name: The base is main, or the stack says where this lands
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$BASE" = "main" ]; then
+            echo "Base is main."
+            exit 0
+          fi
+
+          # Read the labels now rather than out of the event payload: a pull request
+          # is usually labelled *after* CI has already refused it, and the payload a
+          # re-run replays is the one the run started with.
+          labels=$(gh pr view "$NUMBER" --json labels --jq '.labels[].name')
+          if ! printf '%s\n' "$labels" | grep -qx 'stacked'; then
+            echo "::error::This pull request is based on '$BASE', not main."
+            echo
+            echo "A pull request based on another branch is a stack, and a stack is how"
+            echo "#43 happened: the base landed in main first, this one then merged into"
+            echo "a branch nobody was watching, and its commits never reached main."
+            echo
+            echo "Either retarget this pull request at main, or label it 'stacked' and"
+            echo "re-run this job — the label is a promise that someone lands it afterwards."
+            exit 1
+          fi
+
+          # Labelled. The base branch must still be an *open* pull request: if its own
+          # pull request has already merged, this one is #43 in the making.
+          open=$(gh pr list --head "$BASE" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            echo "Stacked, and the stack is intact."
+            echo
+            echo "  PR #$open  ($BASE)  →  main          lands first"
+            echo "  PR #$NUMBER  (this one)  →  $BASE   lands after it, retargeted at main"
+            echo
+            echo "::notice::PR #$NUMBER must land after PR #$open, retargeted at main."
+            exit 0
+          fi
+
+          merged=$(gh pr list --head "$BASE" --state merged --json number --jq '.[0].number // empty')
+          if [ -n "$merged" ]; then
+            echo "::error::PR #$merged already merged '$BASE' into main, so this pull request would merge into a branch that main has stopped following. That is exactly #43."
+            echo
+            echo "Retarget this pull request at main and push."
+            exit 1
+          fi
+
+          echo "::error::No pull request has '$BASE' as its head, so nothing is going to carry this work into main."
+          echo
+          echo "Open the base's pull request first, or retarget this one at main."
+          exit 1

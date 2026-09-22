@@ -53,6 +53,41 @@ The test bundle is **standalone** — no `TEST_HOST`, no `@testable import`. The
 
 Tests never touch `UserDefaults`: your real API keys live in that domain. Construct values directly instead.
 
+## Pull requests
+
+**Base every pull request on `main`.** CI refuses any other base, because a pull
+request based on a branch merges into *that* branch — and if the branch has
+already landed, the merge is green and the work never reaches `main`. That is
+[#43](https://github.com/yavno/speech-text/issues/43): PR #41 merged into a
+branch `main` had stopped following seven minutes earlier.
+
+Stacking is still allowed where it earns its keep. Label the pull request
+`stacked` and re-run the *Base branch* job; it then passes and prints which pull
+request has to land first, and that this one must be retargeted at `main`
+afterwards. The label is read live, so labelling a refused run and re-running the
+job is enough — no new push. The job still refuses a stack whose base has already
+merged, which is the #43 shape itself.
+
+The audit that catches an evasion after the fact:
+
+```bash
+scripts/audit-merged-pull-requests.sh
+```
+
+It asks GitHub for every merged pull request and checks that each merge commit is
+an ancestor of `origin/main`, exiting non-zero if any is not — or if any could not
+be judged, since an unaudited pull request is not a clean one. Worth running
+before a release and after any history rewrite.
+
+A miss is permanent, which the script's `accounted_for` list exists for. A merge
+commit that never reached `main` cannot be made an ancestor afterwards: the work
+comes back as a *different* commit through a fresh pull request. PR #41 — the
+case #43 was opened for — is therefore still outside `main` now that #43 is
+closed, and will be every day after, even though #62 brought the work itself
+back. It is the list's one entry, so the run prints it and stays green. Left out,
+the audit would fail forever, and a check that always fails is a check nobody
+reads.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request. **On a public repository
@@ -70,6 +105,7 @@ moves the work:
 | No development team | `self-hosted` | `ubuntu-latest` | greps `project.pbxproj` for a `DEVELOPMENT_TEAM` |
 | SPDX headers | `self-hosted` | `ubuntu-latest` | the two-line header on every Swift file |
 | DCO sign-off | `self-hosted` | `ubuntu-latest` | a `Signed-off-by` trailer on every commit in the range |
+| Base branch | `self-hosted` | `ubuntu-latest` | the base is `main`, or the stack is labelled — see above |
 
 While the repository is private only collaborators can open a pull request, so
 the self-hosted Mac is the arrangement it has always been. The moment visibility
@@ -107,6 +143,7 @@ workflow's pull-request trigger — the one that checks the packaging script sti
 works — is keyed on the event *and* the visibility, so on a public repository it
 lands on `macos-latest` and never signs; the job's first step refuses outright
 should a public repository's pull request reach the self-hosted runner anyway.
+
 
 ## Project layout
 
