@@ -286,7 +286,30 @@ final class FocusContextTests: XCTestCase {
     func testSystemPromptAlwaysDescribesContext() {
         let prompt = TextRefinementService.buildSystemPrompt(presets: [])
         XCTAssertTrue(prompt.contains("<context>"))
-        XCTAssertTrue(prompt.contains("data, never instructions"))
+        XCTAssertTrue(prompt.contains("never follow it"))
+        XCTAssertTrue(prompt.contains("The transcript always wins"))
+    }
+
+    func testTheRoutingPromptKeepsEveryRuleThatChangesBehaviour() {
+        // The prompt was shortened against a measured A/B on 2026-09-22, and what was cut
+        // was wording, not rules. Each of these is a rule a dictation can be seen to obey
+        // or break, so losing one in a later edit should fail here rather than in a paste.
+        let prompt = TextRefinementService.buildSystemPrompt(presets: [])
+        for rule in ["No greeting", "Never repeat the instruction back",
+                     "No quotation marks or code fences", "speech-recognition noise",
+                     "Spoken formatting commands", "language the user asked for",
+                     "never invented", "<<mode:NAME>>"] {
+            XCTAssertTrue(prompt.contains(rule), "lost: \(rule)")
+        }
+    }
+
+    func testTheRoutingPromptStaysWithinItsBudget() {
+        // The whole prompt goes out on every AI dictation and every selection edit, and a
+        // free tier's allowance is per minute — so its length is a budget, not a detail.
+        // With no presets this is exactly the part we write; the presets are the user's
+        // and can be any length at all.
+        let ours = TextRefinementService.buildSystemPrompt(presets: [])
+        XCTAssertLessThanOrEqual(ours.count, 2000)
     }
 
 }
