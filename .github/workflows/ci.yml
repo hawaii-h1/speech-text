@@ -1,9 +1,31 @@
 name: CI
 
 # Pull requests only: main takes nothing but merged PRs, whose head already
-# passed these jobs. Every job runs on the organisation's self-hosted Mac, so
-# none of them spends included Actions minutes (the repository is private —
-# a public one must not run pull requests on a self-hosted runner).
+# passed these jobs.
+#
+# Once this repository is public, nothing here may run on the organisation's
+# self-hosted Mac. A pull request is code, and on a public repository anyone may
+# open one: `xcodebuild test` on that machine would be a stranger's code running
+# against someone's own keychain, SSH keys and the app's `com.speechtext.app`
+# defaults domain, which is where the API keys live.
+#
+# So every `runs-on` below is keyed on the repository's visibility rather than
+# hard-coded, and the flip is what moves the work: while private, where only
+# collaborators can open a pull request, the jobs run on the self-hosted Mac as
+# they always have; the moment visibility changes, the tests go to a
+# GitHub-hosted Mac — a throwaway VM — and the three checks that need no Mac at
+# all go to Linux, where they are faster and cost a tenth as much. Nobody has to
+# remember a second pull request, and there is no window in which the
+# arrangement is wrong.
+#
+# The polarity is deliberate: an unrecognised visibility falls through to the
+# hosted runner, so the failure is a job that does not start rather than a
+# stranger's code on someone's Mac.
+#
+# Actions minutes are free for a public repository on the standard runners, so
+# what was once a cost saving costs nothing to give up. The self-hosted Mac then
+# keeps only the tag-triggered packaging in release.yml, which no pull request
+# can reach.
 on:
   pull_request:
 
@@ -14,12 +36,15 @@ concurrency:
 jobs:
   test:
     name: Tests
-    runs-on: self-hosted
+    # The one job that needs a Mac, and the one that runs a pull request's own
+    # code. Public: it gets a disposable Mac.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
 
-      # Hosted images carry several Xcodes; the self-hosted Mac uses the one
-      # it has, and must not be asked for a sudo password.
+      # Hosted images carry several Xcodes; the self-hosted Mac uses the one it
+      # has and must not be asked for a sudo password. The job runs in both
+      # places, so the step is written for both.
       - name: Select the newest Xcode
         if: runner.environment == 'github-hosted'
         run: |
@@ -32,17 +57,29 @@ jobs:
           fi
           xcodebuild -version
 
+      # A hosted runner starts empty, so WhisperKit, FluidAudio and Sparkle are
+      # cloned from scratch on every run unless they are kept. Package.resolved
+      # pins all three, so its hash is exactly the right key. It is a no-op on
+      # the self-hosted Mac, which has them already.
+      - name: Cache the resolved packages
+        uses: actions/cache@v4
+        with:
+          path: .swiftpm-cache
+          key: spm-${{ runner.os }}-${{ hashFiles('SpeechText/SpeechText.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
       - name: Test
         run: |
           xcodebuild test \
             -project SpeechText/SpeechText.xcodeproj \
             -scheme SpeechText \
             -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .swiftpm-cache \
             CODE_SIGNING_ALLOWED=NO
 
   pbxproj:
     name: No development team
-    runs-on: self-hosted
+    # Greps a tracked file. No Mac involved.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +94,8 @@ jobs:
 
   spdx:
     name: SPDX headers
-    runs-on: self-hosted
+    # Reads the first two lines of every Swift file. No Mac involved.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +120,8 @@ jobs:
 
   dco:
     name: DCO sign-off
-    runs-on: self-hosted
+    # Reads commit messages. No Mac involved.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4

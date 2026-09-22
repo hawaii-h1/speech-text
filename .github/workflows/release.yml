@@ -6,12 +6,19 @@ name: Release
 # A pull request that touches the packaging runs the same script unsigned, so a
 # broken release pipeline is found in review rather than on release day.
 #
-# It runs on the organisation's self-hosted Mac, like CI. That machine is someone's
-# own Mac, not a throwaway VM, so the job leaves nothing behind: no sudo, the
-# signing keychain taken back out of the user's search list, and the notary key
-# deleted — whether the job succeeds, fails or is cancelled. A pull request never
-# sees a secret at all (every secret below is gated on the event), and the
-# repository must stay private: a public one must not run pull requests here.
+# A tag runs on the organisation's self-hosted Mac, because that is where the
+# signing certificate is. That machine is someone's own Mac, not a throwaway VM,
+# so the job leaves nothing behind: no sudo, the signing keychain taken back out
+# of the user's search list, and the notary key deleted — whether the job
+# succeeds, fails or is cancelled. Only someone who can push a tag can start it.
+#
+# On a public repository a pull request runs the same job on a GitHub-hosted Mac
+# instead, and never signs. Anyone may open a pull request there, and a pull
+# request is code: run on the self-hosted Mac it would be a stranger's code
+# against someone's own keychain and SSH keys. `runs-on` is therefore chosen by
+# the event *and* the repository's visibility, and the job's first step refuses
+# outright if the three ever disagree. The secrets were already gated on the
+# event, and GitHub withholds them from a fork regardless.
 #
 # Secrets (docs/releasing.md explains where each comes from):
 #   DEVELOPER_ID_P12_BASE64, DEVELOPER_ID_P12_PASSWORD   the signing certificate
@@ -43,8 +50,22 @@ concurrency:
 jobs:
   package:
     name: Package
-    runs-on: self-hosted
+    # A tag needs the certificate, so it goes to the Mac that holds it, and only
+    # someone who can push a tag can start it. A pull request on a public
+    # repository is something a stranger can trigger, so it goes to a machine
+    # that can be thrown away.
+    runs-on: ${{ github.event_name == 'pull_request' && github.repository_visibility != 'private' && 'macos-latest' || 'self-hosted' }}
     steps:
+      # The expression above is the guard; this is the assertion that it held.
+      # A pull request that reached the self-hosted Mac must stop before it runs
+      # any of the repository's own code, so this is the first step and it does
+      # not even check the tree out.
+      - name: A public repository's pull request never runs on the self-hosted Mac
+        if: github.event_name == 'pull_request' && github.repository_visibility != 'private' && runner.environment != 'github-hosted'
+        run: |
+          echo "::error::This pull request landed on a self-hosted runner. Refusing to build it."
+          exit 1
+
       - uses: actions/checkout@v4
         with:
           # The build number is the commit count.
@@ -110,6 +131,9 @@ jobs:
           echo "::error::No Developer ID certificate is configured, so this tag cannot become a release. See docs/releasing.md."
           exit 1
 
+      # On a pull request this is the whole point of the trigger: the packaging
+      # script really builds the app and really makes the image, unsigned, so a
+      # broken pipeline is found in review rather than on release day.
       - name: Package
         env:
           SPT_DEVELOPER_ID: ${{ steps.signing.outputs.identity }}

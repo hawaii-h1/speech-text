@@ -53,6 +53,61 @@ The test bundle is **standalone** — no `TEST_HOST`, no `@testable import`. The
 
 Tests never touch `UserDefaults`: your real API keys live in that domain. Construct values directly instead.
 
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request. **On a public repository
+no job may run on the organisation's self-hosted Mac.** A pull request is code,
+and anyone can open one; building and running it on someone's own Mac would hand
+a stranger that machine's keychain, SSH keys and the app's `com.speechtext.app`
+defaults domain, which is where the API keys live.
+
+So every `runs-on` is keyed on the repository's visibility, and the flip is what
+moves the work:
+
+| Job | While private | Once public | What it does |
+|---|---|---|---|
+| Tests | `self-hosted` | `macos-latest` | `xcodebuild test` — the only job that needs a Mac |
+| No development team | `self-hosted` | `ubuntu-latest` | greps `project.pbxproj` for a `DEVELOPMENT_TEAM` |
+| SPDX headers | `self-hosted` | `ubuntu-latest` | the two-line header on every Swift file |
+| DCO sign-off | `self-hosted` | `ubuntu-latest` | a `Signed-off-by` trailer on every commit in the range |
+
+While the repository is private only collaborators can open a pull request, so
+the self-hosted Mac is the arrangement it has always been. The moment visibility
+changes, every job moves by itself — nobody has to remember a second pull
+request, and there is no window in which the arrangement is wrong. The polarity
+is deliberate: an unrecognised visibility falls through to the hosted runner, so
+the failure is a job that does not start rather than a stranger's code on
+someone's Mac.
+
+Actions minutes are free for a public repository on the standard runners. The
+three cheap jobs then run on Linux, where they are faster and cost a tenth as
+much, and stop competing for a runner with the tests.
+
+A hosted runner starts empty, so WhisperKit, FluidAudio and Sparkle would be
+cloned on every run. `-clonedSourcePackagesDirPath .swiftpm-cache` puts them
+somewhere `actions/cache` can keep, keyed on the hash of `Package.resolved` —
+which pins all three, so it is exactly the right key.
+
+<!-- ci-timings -->
+**Run time on a hosted runner: not yet measured.** As of 2026-09-22 this account
+cannot start a GitHub-hosted runner at all — every such job fails in three
+seconds with *"the job was not started because recent account payments have
+failed or your spending limit needs to be increased"* — so the figure cannot be
+taken while the repository is private. It becomes measurable the moment the
+repository is public, since standard runners are then free, and the first
+pull-request run after the flip belongs here. Do not anchor on the self-hosted
+Mac's number: that build is warm and incremental (16 s on 2026-09-22), whereas a
+hosted run resolves and builds all three Swift packages from nothing, which is
+exactly what the cache above exists for.
+
+The self-hosted Mac keeps the tag-triggered packaging in
+[`release.yml`](../.github/workflows/release.yml), because that is where the
+signing certificate lives and only someone who can push a tag can start it. That
+workflow's pull-request trigger — the one that checks the packaging script still
+works — is keyed on the event *and* the visibility, so on a public repository it
+lands on `macos-latest` and never signs; the job's first step refuses outright
+should a public repository's pull request reach the self-hosted runner anyway.
+
 ## Project layout
 
 ```
