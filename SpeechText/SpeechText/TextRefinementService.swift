@@ -37,7 +37,8 @@ enum TextRefinementService {
         // it stays the same from one recording to the next, and a missing block needs
         // no explanation.
         let raw = try await provider.complete(
-            system: buildSystemPrompt(presets: presets),
+            system: buildSystemPrompt(presets: presets,
+                                      defaultPresetID: PromptPresetStore.storedDefaultPresetID()),
             user: userMessage(transcript: source, context: context)
         )
 
@@ -166,8 +167,12 @@ enum TextRefinementService {
         return "\(context.promptBlock)\n\n\(body)"
     }
 
-    static func buildSystemPrompt(presets: [PromptPreset]) -> String {
-        let fallback = PromptPresetStore.defaultPreset(in: presets)
+    /// `defaultPresetID` is the user's chosen fallback, and it is a parameter rather than
+    /// a read: the prompt is pure logic in both targets, and the tests may not go near the
+    /// user's own settings. There is no default value on purpose — a caller that forgot it
+    /// would silently drop the `(DEFAULT)` marker, and nothing downstream would say so.
+    static func buildSystemPrompt(presets: [PromptPreset], defaultPresetID: UUID?) -> String {
+        let fallback = PromptPresetStore.defaultPreset(in: presets, storedID: defaultPresetID)
 
         let modes = presets.map { preset -> String in
             let marker = preset.id == fallback?.id ? "  (DEFAULT — use when nothing else clearly fits)" : ""
@@ -264,12 +269,21 @@ enum TextRefinementService {
         var body = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         var presetName: String?
 
+        var tookMarker = false
         if let (value, rest) = takeMarker(prefix: "<<mode:", from: body) {
-            presetName = value.trimmingCharacters(in: .whitespaces)
+            // The marker comes off whatever it names — left in, it would be pasted into
+            // the user's document, which is worse than not knowing which preset ran. Only
+            // the *name* is checked, and only the name can be dropped.
+            tookMarker = true
+            presetName = canonicalPresetName(value.trimmingCharacters(in: .whitespaces),
+                                             in: presetNames)
             body = rest.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        if presetName == nil, let (name, rest) = takeLooseModeMarker(from: body, presetNames: presetNames) {
+        // Only when there was no marker of our own to take: the loose forms are guesses at
+        // what a model wrote instead of the marker, and running one over a body a real
+        // marker was already stripped from would cut text the model meant to keep.
+        if !tookMarker, let (name, rest) = takeLooseModeMarker(from: body, presetNames: presetNames) {
             presetName = name
             body = rest
         }
@@ -278,6 +292,25 @@ enum TextRefinementService {
         body = stripWrappingCodeFence(body)
         return Result(text: body, presetName: presetName?.isEmpty == false ? presetName : nil,
                       provider: "", model: "")
+    }
+
+    /// The preset a marker names, spelled as the presets spell it — or nil when it names
+    /// none of them.
+    ///
+    /// Models abbreviate. `<<mode:Technical>>` was measured for the preset actually
+    /// applied, `Technical / Prompt` (2026-09-22, on two of three such dictations), and
+    /// taken at face value that is written to `Refinement.presetName` as the name of a
+    /// preset the user does not have — in the one field that exists so a routing choice
+    /// which looks wrong can be traced back to a preset. So a name matching nothing is
+    /// dropped rather than recorded: History shows no preset instead of one that is not
+    /// there. The text is unaffected either way.
+    ///
+    /// With no `presetNames` the caller has not said what the presets are, so there is
+    /// nothing to check against and the name is taken as given.
+    private static func canonicalPresetName(_ raw: String, in presetNames: [String]) -> String? {
+        guard !raw.isEmpty else { return nil }
+        guard !presetNames.isEmpty else { return raw }
+        return presetNames.first { $0.caseInsensitiveCompare(raw) == .orderedSame }
     }
 
     /// `<<NAME>>`, `<mode:NAME>`, `<NAME>` on the first line, when NAME is a preset — plus

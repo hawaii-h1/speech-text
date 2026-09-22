@@ -141,14 +141,26 @@ enum PromptPresetStore {
         UserDefaults.standard.removeObject(forKey: SettingsKeys.defaultPresetID)
     }
 
-    /// The preset the model falls back to when nothing else clearly matches.
-    static func defaultPreset(in presets: [PromptPreset]) -> PromptPreset? {
-        if let stored = UserDefaults.standard.string(forKey: SettingsKeys.defaultPresetID),
-           let id = UUID(uuidString: stored),
-           let match = presets.first(where: { $0.id == id }) {
+    /// The preset the model falls back to when nothing else clearly matches, given what
+    /// the user chose. Pure, so the routing prompt can be built without reading the user's
+    /// settings — the split is the same one `resolveLocale` / `resolvedLocale()` makes,
+    /// and for the same reason: the tests must not touch `UserDefaults`.
+    static func defaultPreset(in presets: [PromptPreset], storedID: UUID?) -> PromptPreset? {
+        if let storedID, let match = presets.first(where: { $0.id == storedID }) {
             return match
         }
         return presets.first(where: { $0.id == cleanupPresetID }) ?? presets.first
+    }
+
+    /// The same answer for the app, which has the user's settings to read.
+    static func defaultPreset(in presets: [PromptPreset]) -> PromptPreset? {
+        defaultPreset(in: presets, storedID: storedDefaultPresetID())
+    }
+
+    /// The chosen fallback's id as stored, or nil when the user never picked one.
+    static func storedDefaultPresetID() -> UUID? {
+        UserDefaults.standard.string(forKey: SettingsKeys.defaultPresetID)
+            .flatMap(UUID.init(uuidString:))
     }
 
     static func setDefaultPreset(_ id: UUID) {

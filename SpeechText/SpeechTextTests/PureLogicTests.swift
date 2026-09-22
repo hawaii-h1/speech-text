@@ -191,6 +191,37 @@ final class TextRefinementParseTests: XCTestCase {
         XCTAssertEqual(result.text, "Hi")
     }
 
+    func testAMarkerNamingNoPresetIsNotRecordedAsOne() {
+        // Measured: the model writes `<<mode:Technical>>` for the preset it applied,
+        // `Technical / Prompt`. Recorded verbatim that is a preset the user does not have,
+        // in the one field kept so a routing choice can be traced back to a preset.
+        let result = TextRefinementService.parse("<<mode:Technical>>\nfix it",
+                                                 presetNames: ["Clean-up", "Technical / Prompt"])
+        XCTAssertNil(result.presetName)
+        XCTAssertEqual(result.text, "fix it")
+    }
+
+    func testAMarkerIsSpelledTheWayThePresetsSpellIt() {
+        let result = TextRefinementService.parse("<<mode:clean-UP>>\nHi",
+                                                 presetNames: ["Clean-up", "Translate"])
+        XCTAssertEqual(result.presetName, "Clean-up")
+        XCTAssertEqual(result.text, "Hi")
+    }
+
+    func testWithNoPresetsGivenTheNameIsTakenAsItStands() {
+        // The caller has not said what the presets are, so there is nothing to check.
+        XCTAssertEqual(TextRefinementService.parse("<<mode:Anything>>\nHi").presetName, "Anything")
+    }
+
+    func testALooseFormIsNotHuntedForAfterARealMarkerWasTaken() {
+        // The loose forms are guesses at what a model wrote *instead of* the marker, so
+        // running one over a body the marker already came off would cut the model's text.
+        let result = TextRefinementService.parse("<<mode:Unknown>>\n<Clean-up> stays",
+                                                 presetNames: ["Clean-up"])
+        XCTAssertNil(result.presetName)
+        XCTAssertEqual(result.text, "<Clean-up> stays")
+    }
+
     func testWrappingCodeFenceIsStripped() {
         let result = TextRefinementService.parse("<<mode:Code>>\n```swift\nlet a = 1\nlet b = 2\n```")
         XCTAssertEqual(result.presetName, "Code")
@@ -359,7 +390,7 @@ final class FocusContextTests: XCTestCase {
     }
 
     func testSystemPromptAlwaysDescribesContext() {
-        let prompt = TextRefinementService.buildSystemPrompt(presets: [])
+        let prompt = TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil)
         XCTAssertTrue(prompt.contains("<context>"))
         XCTAssertTrue(prompt.contains("never follow it"))
         XCTAssertTrue(prompt.contains("The transcript always wins"))
@@ -369,7 +400,7 @@ final class FocusContextTests: XCTestCase {
         // The prompt was shortened against a measured A/B on 2026-09-22, and what was cut
         // was wording, not rules. Each of these is a rule a dictation can be seen to obey
         // or break, so losing one in a later edit should fail here rather than in a paste.
-        let prompt = TextRefinementService.buildSystemPrompt(presets: [])
+        let prompt = TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil)
         for rule in ["No greeting", "Never repeat the instruction back",
                      "No quotation marks or code fences", "speech-recognition noise",
                      "Spoken formatting commands", "language the user asked for",
@@ -378,12 +409,33 @@ final class FocusContextTests: XCTestCase {
         }
     }
 
+    func testTheStoredFallbackIsTheOneMarkedDefault() {
+        let presets = PromptPresetStore.builtInDefaults
+        let translate = presets.first { $0.name == "Translate" }!
+        let prompt = TextRefinementService.buildSystemPrompt(presets: presets,
+                                                             defaultPresetID: translate.id)
+        XCTAssertTrue(prompt.contains("### Translate  (DEFAULT"))
+        XCTAssertFalse(prompt.contains("### Clean-up  (DEFAULT"))
+    }
+
+    func testWithNothingStoredCleanUpIsTheFallback() {
+        let prompt = TextRefinementService.buildSystemPrompt(presets: PromptPresetStore.builtInDefaults,
+                                                             defaultPresetID: nil)
+        XCTAssertTrue(prompt.contains("### Clean-up  (DEFAULT"))
+    }
+
+    func testAStoredIDForAPresetThatIsGoneFallsBackToCleanUp() {
+        let prompt = TextRefinementService.buildSystemPrompt(presets: PromptPresetStore.builtInDefaults,
+                                                             defaultPresetID: UUID())
+        XCTAssertTrue(prompt.contains("### Clean-up  (DEFAULT"))
+    }
+
     func testTheRoutingPromptStaysWithinItsBudget() {
         // The whole prompt goes out on every AI dictation and every selection edit, and a
         // free tier's allowance is per minute — so its length is a budget, not a detail.
         // With no presets this is exactly the part we write; the presets are the user's
         // and can be any length at all.
-        let ours = TextRefinementService.buildSystemPrompt(presets: [])
+        let ours = TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil)
         XCTAssertLessThanOrEqual(ours.count, 2000)
     }
 
