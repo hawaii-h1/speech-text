@@ -191,3 +191,52 @@ enum DashStyle: String, CaseIterable, Identifiable, Codable {
         return output
     }
 }
+
+// MARK: - Characters that disguise themselves
+
+/// Characters a language model writes where the user's keyboard would have written an
+/// ordinary one — and which nothing on screen tells apart from it.
+///
+/// Measured on 2026-09-21: asked to tidy a Ukrainian dictation, a hosted model returned
+/// "по‑перше" with **U+2011 NON-BREAKING HYPHEN** in place of the ASCII hyphen it was
+/// given, and the reply looked identical to its input. The same dictation carried a
+/// shell command; the same substitution inside `git commit -m` or an identifier is a
+/// command that fails for no reason the user can see.
+///
+/// This is therefore a correctness guard and is always applied, unlike `DashStyle`,
+/// which offers a choice between three dashes the user can all recognise. The two jobs
+/// are kept apart on that line: a dash that reads as a dash belongs to `DashStyle`, and
+/// what is handled here is only what passes itself off as an ASCII character, or as
+/// nothing at all.
+///
+/// Deliberately left out:
+/// - curly quotes and "…" — visible, ordinary typography, and the user may want them;
+/// - U+200D ZERO WIDTH JOINER, which is what holds 👨‍👩‍👧 together as one emoji rather
+///   than three people, and U+200C, which separates letters in the scripts that need it;
+/// - the en, em and figure dashes, which are visibly dashes and are `DashStyle`'s.
+private let confusablePunctuation: [Unicode.Scalar: String] = [
+    "\u{2010}": "-",   // HYPHEN — the typographic one, indistinguishable from ASCII
+    "\u{2011}": "-",   // NON-BREAKING HYPHEN — measured, see above
+    "\u{00A0}": " ",   // NO-BREAK SPACE
+    "\u{202F}": " ",   // NARROW NO-BREAK SPACE
+    "\u{00AD}": "",    // SOFT HYPHEN — invisible until a line wraps on it
+    "\u{200B}": "",    // ZERO WIDTH SPACE
+    "\u{FEFF}": "",    // ZERO WIDTH NO-BREAK SPACE, a byte-order mark inside the text
+]
+
+/// `text` with every disguised character redrawn as the one it imitates. Each mapping is
+/// one scalar to one scalar or to nothing, so no word is joined to its neighbour and none
+/// is split.
+func replacingConfusablePunctuation(_ text: String) -> String {
+    guard text.unicodeScalars.contains(where: { confusablePunctuation[$0] != nil }) else { return text }
+    var output = ""
+    output.reserveCapacity(text.count)
+    for scalar in text.unicodeScalars {
+        if let replacement = confusablePunctuation[scalar] {
+            output += replacement
+        } else {
+            output.unicodeScalars.append(scalar)
+        }
+    }
+    return output
+}
