@@ -24,6 +24,37 @@ image reaches anyone.
 The team's name is what users see in the installer's and System Settings' "developer"
 line, and the account holder is the one Apple holds responsible for what is signed.
 
+### The decision, taken 2026-09-22
+
+**The first release is signed by the owner's individual Apple Developer account**, with
+a migration to an organization account planned later.
+
+That is only safe because of what the migration does *not* change. Apple's path from an
+individual membership to an organization keeps the same team, so the team ID — and with
+it the designated requirement every permission grant is keyed to — survives the move.
+This was checked by the account holder before the decision was made, not assumed from
+the general rule above.
+
+Two consequences follow, and both matter more than they look:
+
+- **Re-confirm the team ID at migration time**, against the certificate rather than
+  against the account page: `codesign -dvvv /Applications/SpeechText.app` names it in
+  the authority line, and it must read the same before and after. If it ever differs,
+  the release that follows re-asks every existing user for microphone, speech
+  recognition and Accessibility, and the only honest response is to say so in the
+  release notes rather than let it look like a fault.
+- **The account holder's own name is what users see** in the installer and in System
+  Settings' developer line until the migration happens.
+
+**The repository will be made public.** Two things must happen first, and neither is
+optional:
+
+1. The history rewrite that removes the competitive research (issue #45). `git log -p`
+   reaches every deleted blob; making the repository public publishes them.
+2. The continuous-integration rework (issue #59). `ci.yml` runs `on: pull_request` on a
+   self-hosted Mac, which is the organisation's own machine. On a public repository a
+   pull request from any stranger would execute there.
+
 ## One-time setup
 
 Everything here is done by someone with the right role on the Apple Developer account.
