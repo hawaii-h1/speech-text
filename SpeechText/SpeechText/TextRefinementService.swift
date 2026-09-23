@@ -76,6 +76,44 @@ enum TextRefinementService {
                       provider: providerType.rawValue, model: modelID)
     }
 
+    // MARK: - Collapse guard
+
+    /// Below this share of its input's length, a rewrite is not applied on its own say-so.
+    static let collapseRatio = 0.5
+    /// Shorter inputs are not judged: a short, filler-heavy phrase legitimately halves
+    /// under Clean-up ("ну е-е, так, давай" → "Так, давай."), and nothing much is at stake.
+    static let collapseMinimumInput = 40
+
+    /// Whether `output` is so much shorter than `input` that applying it would be losing
+    /// text rather than rewriting it — the Record Window replaced 129 characters with a
+    /// 27-character list (#70). Measured in characters of the trimmed strings.
+    ///
+    /// `allowsSummary`: the preset was picked for exactly this input, so a preset whose
+    /// job is to shorten (see `isSummarising`) may do so. The caller passes false when the
+    /// input is more than the dictation the model routed on — a whole text area — since a
+    /// list preset chosen for its last sentence is precisely the collapse this catches.
+    static func isCollapse(input: String, output: String, presetName: String?,
+                           presets: [PromptPreset], allowsSummary: Bool) -> Bool {
+        let inLength = input.trimmingCharacters(in: .whitespacesAndNewlines).count
+        let outLength = output.trimmingCharacters(in: .whitespacesAndNewlines).count
+        guard inLength >= collapseMinimumInput,
+              Double(outLength) < Double(inLength) * collapseRatio else { return false }
+        if allowsSummary, let presetName,
+           let preset = presets.first(where: { $0.name.caseInsensitiveCompare(presetName) == .orderedSame }),
+           isSummarising(preset) {
+            return false
+        }
+        return true
+    }
+
+    /// A preset whose own description says it summarises — the built-in Notes / Bullets
+    /// ("asked for a summary, notes…"). Read off the words because presets are the user's
+    /// to write; an English or Ukrainian stem is enough.
+    static func isSummarising(_ preset: PromptPreset) -> Bool {
+        let words = (preset.name + " " + preset.whenToUse).lowercased()
+        return ["summar", "підсум"].contains { words.contains($0) }
+    }
+
     // MARK: - Prompt construction
 
     /// The mode an edit with no instruction reports.

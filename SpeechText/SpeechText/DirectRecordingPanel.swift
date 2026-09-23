@@ -73,9 +73,22 @@ final class DirectRecordingPanelWindow: NSPanel {
     /// The techno skin has no titlebar and the app has no menu bar, so the usual ways
     /// out of a window have to be wired up by hand.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "w" {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if flags.contains(.command), key == "w" {
             performClose(nil)
+            return true
+        }
+        // Undo is wired by hand for the same reason: an agent app has no Edit menu for
+        // ⌘Z to find, and ⌘Z is how an AI rewrite of a segment is taken back.
+        // The focused text view's manager: that is the one its edits were registered on.
+        if key == "z", flags == [.command] || flags == [.command, .shift],
+           let undoManager = (firstResponder ?? self).undoManager {
+            if flags.contains(.shift) {
+                if undoManager.canRedo { undoManager.redo() }
+            } else if undoManager.canUndo {
+                undoManager.undo()
+            }
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -108,8 +121,10 @@ final class TextInsertionHandler {
         dlog("Span", "insertion ledger cleared")
     }
 
-    func insert(_ text: String, span: TranscriptSpanID? = nil) {
-        guard let textView, !text.isEmpty else { return }
+    /// Returns what landed and where, or nil when nothing was inserted.
+    @discardableResult
+    func insert(_ text: String, span: TranscriptSpanID? = nil) -> InsertionRecord? {
+        guard let textView, !text.isEmpty else { return nil }
         let range = textView.selectedRange()
 
         // Add a space before the new text if the character before cursor is not whitespace
@@ -123,6 +138,8 @@ final class TextInsertionHandler {
         }
 
         textView.insertText(prefix + text, replacementRange: range)
+        // Each segment its own undo step, rather than one typing run with the next.
+        textView.breakUndoCoalescing()
 
         // What the view holds is what gets recorded, not what we sent: substitutions are
         // off in both editors, but a record that describes the document rather than our
@@ -130,11 +147,44 @@ final class TextInsertionHandler {
         let landed = NSRange(location: range.location + (prefix as NSString).length,
                              length: (text as NSString).length)
         let document = textView.string as NSString
-        guard NSMaxRange(landed) <= document.length else { return }
-        ledger.insert(span: span, range: landed, text: document.substring(with: landed))
+        guard NSMaxRange(landed) <= document.length else { return nil }
+        let record = InsertionRecord(span: span, range: landed, text: document.substring(with: landed))
+        ledger.insert(span: span, range: landed, text: record.text)
         if let span {
             dlog("Span", "inserted \(span) at \(landed.location)+\(landed.length)")
         }
+        return record
+    }
+
+    /// The text view's whole content as one record, for a pass over all of it.
+    func wholeText() -> InsertionRecord? {
+        guard let textView else { return nil }
+        let document = textView.string as NSString
+        let trimmed = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let range = document.range(of: trimmed)
+        guard range.location != NSNotFound else { return nil }
+        return InsertionRecord(span: nil, range: range, text: trimmed)
+    }
+
+    /// Writes `records`' replacement where `FinalizePass.plan` finds them untouched, as
+    /// one undoable edit — ⌘Z puts back what was dictated. Nil when the text there is no
+    /// longer what was recorded (the user edited it meanwhile, or it is gone): then the
+    /// document is left exactly as it is.
+    func replace(_ records: [InsertionRecord], with text: String) -> TextReplacement? {
+        guard let textView else { return nil }
+        var ledger = InsertionLedger()
+        for record in records {
+            ledger.insert(span: record.span, range: record.range, text: record.text)
+        }
+        guard let plan = FinalizePass.plan(ledger: ledger, document: textView.string, replacement: text),
+              textView.shouldChangeText(in: plan.range, replacementString: plan.text) else { return nil }
+        textView.breakUndoCoalescing()
+        textView.textStorage?.replaceCharacters(in: plan.range, with: plan.text)
+        textView.didChangeText()
+        textView.undoManager?.setActionName("AI Rewrite")
+        dlog("Refine", "replaced \(plan.range.location)+\(plan.range.length) with \((plan.text as NSString).length) chars")
+        return plan
     }
 
     /// Replaces one span's text in place, but only where it is provably still the text
@@ -209,6 +259,7 @@ struct LCDTextEditor: NSViewRepresentable {
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
+        textView.allowsUndo = true
         textView.textColor = NSColor(textColor)
         textView.insertionPointColor = NSColor(TechnoSkin.phosphor)
         textView.selectedTextAttributes = [
@@ -232,6 +283,9 @@ struct LCDTextEditor: NSViewRepresentable {
         if textView.string != text {
             context.coordinator.isUpdating = true
             let range = textView.selectedRange()
+            // A wholesale replacement is not undoable, and the steps recorded before it
+            // describe ranges of text that is gone.
+            textView.undoManager?.removeAllActions()
             textView.string = text
             let safeLoc = min(range.location, (text as NSString).length)
             textView.setSelectedRange(NSRange(location: safeLoc, length: 0))
@@ -287,9 +341,9 @@ struct DirectRecordingPanelView: View {
     /// True while the LLM is rewriting the panel's text.
     @State private var isRefining = false
     @State private var refineTask: Task<Void, Never>?
-    /// A segment landed while a pass was in flight — run one more when it finishes,
-    /// or that segment's words never reach the LLM.
-    @State private var refinementPending = false
+    /// Passes waiting for the one in flight, oldest first: each segment is refined on
+    /// its own, in order, so one never overtakes another in the text.
+    @State private var refineQueue: [PendingRefinement] = []
     /// Which preset the last refinement routed to, shown under the text area.
     @State private var refineStatus: String?
     /// Set when the last refinement failed, so the status line can be shown in red.
@@ -348,8 +402,7 @@ struct DirectRecordingPanelView: View {
         }
         .onDisappear {
             if let id = keyboardObserverID { KeyboardChangeObserver.shared.removeHandler(id: id) }
-            refinementPending = false
-            refineTask?.cancel()
+            dropRefinements()
         }
         .onChange(of: spokenLanguages) { refreshLangLabel() }
         .onChange(of: speechEngine.pendingInsertionText) { _, newValue in
@@ -358,19 +411,22 @@ struct DirectRecordingPanelView: View {
                 // carries its own range and the finalizing pass can replace one without
                 // touching its neighbours; otherwise one untracked piece.
                 let spans = speechEngine.pendingInsertionSpans
+                var landed: [InsertionRecord] = []
                 if spans.isEmpty {
-                    insertionHandler.insert(text)
+                    if let record = insertionHandler.insert(text) { landed.append(record) }
                 } else {
                     for id in spans {
-                        guard let span = speechEngine.spanLayer.span(id) else { continue }
-                        insertionHandler.insert(span.text, span: id)
+                        guard let span = speechEngine.spanLayer.span(id),
+                              let record = insertionHandler.insert(span.text, span: id) else { continue }
+                        landed.append(record)
                     }
                 }
                 speechEngine.pendingInsertionText = nil
-                if aiMode {
-                    // insertText() drives the text view's delegate, which writes back
-                    // into editedText — refine on the next runloop so we see it.
-                    DispatchQueue.main.async { runRefinement() }
+                if aiMode, !landed.isEmpty {
+                    // Only this segment: the text before it is already refined, and a
+                    // preset that fits these words is not one to apply to the rest (#70).
+                    enqueueRefinement(PendingRefinement(records: landed, wholeText: false,
+                                                        recordID: speechEngine.lastRecordID))
                 }
             }
         }
@@ -647,6 +703,7 @@ struct DirectRecordingPanelView: View {
             // A new recording: the ranges recorded for the old one describe text that is
             // no longer this recording's to rewrite.
             insertionHandler.reset()
+            dropRefinements()
             withAnimation(spring) { speechEngine.startRecording(locale: resolvedLocale()) }
         }
     }
@@ -747,12 +804,12 @@ struct DirectRecordingPanelView: View {
         // Turning it on with text already dictated should act on that text now,
         // otherwise the toggle would appear to do nothing.
         if aiMode, !speechEngine.isRecording, !speechEngine.isTranscribing {
-            runRefinement()
+            if let whole = insertionHandler.wholeText() {
+                enqueueRefinement(PendingRefinement(records: [whole], wholeText: true,
+                                                    recordID: speechEngine.lastRecordID))
+            }
         } else if !aiMode {
-            refineTask?.cancel()
-            refineTask = nil
-            isRefining = false
-            refinementPending = false
+            dropRefinements()
             refineStatus = nil
             refineFailed = false
         }
@@ -778,15 +835,21 @@ struct DirectRecordingPanelView: View {
 
     // MARK: - LLM Refinement
 
-    /// Sends the whole text area through the LLM and replaces it with the result.
-    private func runRefinement() {
-        let source = speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty else { return }
-        guard !isRefining else {
-            // The pass already running was given an older copy of the text area.
-            refinementPending = true
-            return
+    /// Text the ✨ pass is to rewrite: where it landed, so the result replaces exactly it.
+    private struct PendingRefinement {
+        var records: [InsertionRecord]
+        /// The whole text area, when ✨ was turned on over text already there. Several
+        /// dictations routed as one, so a summarising preset gets no pass on length.
+        let wholeText: Bool
+        /// The History entry of the segment the pass belongs to.
+        let recordID: UUID?
+
+        var source: String {
+            records.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
+
+    private func enqueueRefinement(_ pending: PendingRefinement) {
         guard TextRefinementService.isConfigured else {
             refineStatus = LLMConfiguration.providerType.needsAPIKey
                 ? "Set an LLM API key in Settings to use AI mode"
@@ -794,29 +857,70 @@ struct DirectRecordingPanelView: View {
             refineFailed = true
             return
         }
+        refineQueue.append(pending)
+        runNextRefinement()
+    }
 
+    private func dropRefinements() {
+        refineQueue.removeAll()
         refineTask?.cancel()
+        refineTask = nil
+        isRefining = false
+    }
+
+    /// Refines the oldest queued text and writes the result over it — only where that
+    /// text is still exactly what was inserted, as one undoable edit, and only when the
+    /// result is not a collapse of it (`TextRefinementService.isCollapse`). Anything else
+    /// leaves the text as dictated and says why under it.
+    private func runNextRefinement() {
+        guard !isRefining, !refineQueue.isEmpty else { return }
+        let pending = refineQueue.removeFirst()
+        let source = pending.source
+        guard !source.isEmpty else { return runNextRefinement() }
+
         isRefining = true
         refineStatus = nil
         refineFailed = false
-        // Anchor the entry for the segment that triggered this pass. The input recorded
-        // below is the whole text area, which may span several segments and manual edits.
-        let recordID = speechEngine.lastRecordID
+        let recordID = pending.recordID
         refineTask = Task { @MainActor in
             // Runs on the cancellation paths below too, which would otherwise leave
             // the panel stuck in its "rewriting" state.
             defer {
-                isRefining = false
-                refineTask = nil
-                if refinementPending {
-                    refinementPending = false
-                    if aiMode { runRefinement() }
+                if !Task.isCancelled {
+                    isRefining = false
+                    refineTask = nil
+                    if aiMode { runNextRefinement() }
                 }
             }
             do {
                 let result = try await TextRefinementService.refine(source)
                 guard !Task.isCancelled else { return }
-                speechEngine.editedText = result.text
+
+                if TextRefinementService.isCollapse(input: source, output: result.text,
+                                                    presetName: result.presetName,
+                                                    presets: PromptPresetStore.load(),
+                                                    allowsSummary: !pending.wholeText) {
+                    let share = Int((Double(result.text.count) / Double(source.count) * 100).rounded())
+                    dlog("Refine", "refused: \(result.presetName ?? "no preset") left \(share)% of \(source.count) chars")
+                    refineStatus = "AI cut this to \(share)% of its length — kept what you dictated"
+                    refineFailed = true
+                    if let recordID {
+                        TranscriptionHistory.shared.recordRefinementFailure(
+                            id: recordID, input: source,
+                            error: "Not applied: \(result.presetName ?? "the rewrite") cut the text to \(share)% of its length",
+                            provider: result.provider, model: result.model)
+                    }
+                    return
+                }
+
+                if source != result.text.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    guard let applied = insertionHandler.replace(pending.records, with: result.text) else {
+                        refineStatus = "The text changed while AI was working — left as it is"
+                        refineFailed = true
+                        return
+                    }
+                    shiftQueue(after: applied)
+                }
                 refineStatus = result.presetName.map { "AI · \($0)" } ?? "AI"
                 refineFailed = false
                 if let recordID {
@@ -828,7 +932,7 @@ struct DirectRecordingPanelView: View {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                // The raw transcription stays in the text area — nothing is lost.
+                // The dictated text stays in the text area — nothing is lost.
                 refineStatus = "AI failed: \(error.localizedDescription)"
                 refineFailed = true
                 if let recordID {
@@ -838,6 +942,21 @@ struct DirectRecordingPanelView: View {
                         provider: type.rawValue, model: LLMConfiguration.model(for: type)
                     )
                 }
+            }
+        }
+    }
+
+    /// A replacement changed the length of the text: move the queued records that sit
+    /// after it by the same amount, so they are found where they now are. (Without this,
+    /// `InsertionLedger.resolve` would still find each by its text — unless it repeats.)
+    private func shiftQueue(after replacement: TextReplacement) {
+        let original = replacement.range
+        let delta = (replacement.text as NSString).length - original.length
+        guard delta != 0 else { return }
+        for index in refineQueue.indices {
+            for r in refineQueue[index].records.indices
+            where refineQueue[index].records[r].range.location >= NSMaxRange(original) {
+                refineQueue[index].records[r].range.location += delta
             }
         }
     }

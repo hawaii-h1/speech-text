@@ -206,6 +206,7 @@ struct PlainTextEditor: NSViewRepresentable {
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
+        textView.allowsUndo = true
         textView.textColor = .labelColor
         insertionHandler.textView = textView
         scrollView.drawsBackground = false
@@ -220,6 +221,8 @@ struct PlainTextEditor: NSViewRepresentable {
         if textView.string != text {
             context.coordinator.isUpdating = true
             let range = textView.selectedRange()
+            // See `LCDTextEditor.updateNSView`.
+            textView.undoManager?.removeAllActions()
             textView.string = text
             let safeLoc = min(range.location, (text as NSString).length)
             textView.setSelectedRange(NSRange(location: safeLoc, length: 0))

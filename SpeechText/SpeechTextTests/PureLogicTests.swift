@@ -243,6 +243,51 @@ final class TextRefinementParseTests: XCTestCase {
 
 // MARK: - The chat request body (LLMProvider.swift)
 
+// MARK: - TextRefinementService.isCollapse
+
+final class RefinementCollapseTests: XCTestCase {
+    private let presets = PromptPresetStore.builtInDefaults
+    /// The #70 record: several sentences, and a list preset picked for the last of them.
+    private let input = "Завтра зранку подзвоню клієнту щодо договору. Потім треба закінчити звіт. Купити молоко, хліб і яйця."
+
+    func testAWholeTextCollapsedIntoAListIsRefused() {
+        XCTAssertTrue(TextRefinementService.isCollapse(
+            input: input, output: "- молоко\n- хліб\n- яйця", presetName: "Notes / Bullets",
+            presets: presets, allowsSummary: false))
+    }
+
+    func testASegmentRoutedToASummarisingPresetMayShrink() {
+        XCTAssertFalse(TextRefinementService.isCollapse(
+            input: input, output: "- молоко\n- хліб\n- яйця", presetName: "notes / bullets",
+            presets: presets, allowsSummary: true))
+    }
+
+    func testOtherPresetsMayNotHalveASegment() {
+        XCTAssertTrue(TextRefinementService.isCollapse(
+            input: input, output: "Подзвонити клієнту.", presetName: "Clean-up",
+            presets: presets, allowsSummary: true))
+        XCTAssertTrue(TextRefinementService.isCollapse(
+            input: input, output: "Подзвонити клієнту.", presetName: "Not a preset",
+            presets: presets, allowsSummary: true))
+    }
+
+    func testAnOrdinaryRewriteIsApplied() {
+        XCTAssertFalse(TextRefinementService.isCollapse(
+            input: input, output: "Завтра зранку подзвоню клієнту щодо договору, потім закінчу звіт.",
+            presetName: "Clean-up", presets: presets, allowsSummary: false))
+    }
+
+    func testAShortPhraseIsNotJudged() {
+        XCTAssertFalse(TextRefinementService.isCollapse(
+            input: "ну е-е, так, давай", output: "Так.", presetName: "Clean-up",
+            presets: presets, allowsSummary: false))
+    }
+
+    func testOnlyNotesAndBulletsSummarisesAmongTheBuiltIns() {
+        XCTAssertEqual(presets.filter(TextRefinementService.isSummarising).map(\.name), ["Notes / Bullets"])
+    }
+}
+
 final class LLMRequestPayloadTests: XCTestCase {
 
     private func provider(_ model: String, _ dialect: OpenAICompatibleLLMProvider.Dialect)
