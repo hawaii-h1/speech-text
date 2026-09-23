@@ -99,9 +99,12 @@ func transcriptWords(_ text: String) -> [TranscriptWord] {
 
 /// How much of `head` the start of `tail` repeats.
 ///
-/// `words` is the number of words; `restatesHead` says the repeat covers all of `head`,
-/// so `tail` is a fuller version of it rather than a continuation that happens to open
-/// with the same words.
+/// `words` is the number of *`tail`'s* words the repeat takes up — what to drop from
+/// `tail` to be left with what it adds. A restatement that revised a word into several
+/// (or several into one) takes up a different number of words than `head` holds.
+/// `restatesHead` says the repeat covers all of `head`, through its last word, so `tail`
+/// is a fuller version of it rather than a continuation that happens to open with the
+/// same words.
 func transcriptOverlap(head: [TranscriptWord], tail: [TranscriptWord]) -> (words: Int, restatesHead: Bool) {
     guard !head.isEmpty, !tail.isEmpty else { return (0, false) }
 
@@ -115,6 +118,17 @@ func transcriptOverlap(head: [TranscriptWord], tail: [TranscriptWord]) -> (words
         }
     }
 
+    // The same, when the revision changed the word count. Compared position by position,
+    // every word after "FN+Q" → "FN плюс Q" (one word become three) is shifted by two, and
+    // a restatement with a single revision reads as 8 matches out of 12 — new speech,
+    // joined on, the dictation pasted twice (#67). Held to the unmistakable-repeat floor,
+    // because in-order words are far easier to find than words in place: "Так, так"
+    // would otherwise be restated by "Так, я сказав так".
+    if head.count >= TranscriptMergeTuning.minimumRepeatedWords, head[0].text == tail[0].text,
+       let restatement = revisedRestatement(of: head, in: tail) {
+        return (restatement.end, restatement.reachesEnd)
+    }
+
     // Otherwise only an unmistakable repeat counts: a run long enough that the user
     // cannot plausibly have said those words twice across a segment boundary.
     let maximum = min(head.count, tail.count)
@@ -124,6 +138,55 @@ func transcriptOverlap(head: [TranscriptWord], tail: [TranscriptWord]) -> (words
         return (k, false)
     }
     return (0, false)
+}
+
+/// Where a re-worded restatement of `head` ends inside `tail` — or nil when `tail` is
+/// not one.
+///
+/// Judged by the words' longest common subsequence rather than position by position, so
+/// a word revised into three, or three into one, costs only the words it changed. It
+/// counts when the subsequence keeps `restatementAgreement` of `head`'s words in order —
+/// the tolerance `InsertionLedger.remainder` already falls back to for the same reason.
+///
+/// `end` is the number of `tail`'s words the restatement takes up: the shortest prefix
+/// holding every match, plus one word for each of `head`'s words after its last match,
+/// which were revised into the words that follow rather than dropped. `reachesEnd` is
+/// false when `tail` ran out first — a partial that has not caught up with the commit
+/// yet, whose words are an echo but must not replace the words it has not reached.
+func revisedRestatement(of head: [TranscriptWord], in tail: [TranscriptWord]) -> (end: Int, reachesEnd: Bool)? {
+    guard !head.isEmpty, !tail.isEmpty else { return nil }
+    let rows = head.count, columns = tail.count
+
+    // lcs[i, j]: common subsequence of head[..<i] and tail[..<j], in one flat buffer.
+    let width = columns + 1
+    var lcs = [Int](repeating: 0, count: (rows + 1) * width)
+    for i in 1...rows {
+        for j in 1...columns {
+            lcs[i * width + j] = head[i - 1].text == tail[j - 1].text
+                ? lcs[(i - 1) * width + (j - 1)] + 1
+                : max(lcs[(i - 1) * width + j], lcs[i * width + (j - 1)])
+        }
+    }
+
+    let best = lcs[rows * width + columns]
+    guard best > 0,
+          Double(best) >= Double(rows) * TranscriptMergeTuning.restatementAgreement else { return nil }
+
+    let matchedEnd = (0...columns).first { lcs[rows * width + $0] == best } ?? columns
+    var i = rows, j = matchedEnd
+    var lastMatchedHead = -1
+    while i > 0, j > 0 {
+        if head[i - 1].text == tail[j - 1].text {
+            lastMatchedHead = i - 1
+            break
+        } else if lcs[(i - 1) * width + j] >= lcs[i * width + (j - 1)] {
+            i -= 1
+        } else {
+            j -= 1
+        }
+    }
+    let end = matchedEnd + (rows - 1 - lastMatchedHead)
+    return (min(end, columns), end <= columns)
 }
 
 enum TranscriptMergeTuning {

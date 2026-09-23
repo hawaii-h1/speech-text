@@ -765,6 +765,52 @@ final class TranscriptMergeTests: XCTestCase {
     func testAShortRepeatIsLeftAlone() {
         XCTAssertEqual(mergedTranscript("Так, так", "так, добре"), "Так, так так, добре")
     }
+
+    // A revision that changes the word count (#67). Position by position, every word after
+    // it is shifted and the restatement reads as new speech; by their longest common
+    // subsequence the words still agree.
+
+    private let fnCommitted = "Так, треба перевірити шорткати, де їх немає. Можливо, FN+Q, A, W, E."
+    private let fnPartial = "Так, треба перевірити шорткати, де їх немає. Можливо, FN плюс Q, A, W."
+
+    /// One word revised into three — the partial Scribe sent right after the commit it
+    /// restates. It adds nothing, so nothing is joined onto the commit.
+    func testARestatementWhereOneWordSplitsIntoThreeAddsNothing() {
+        XCTAssertEqual(transcriptContinuation(of: fnCommitted, in: fnPartial), "")
+        XCTAssertEqual(transcriptContinuation(of: fnCommitted, in: fnCommitted.replacingOccurrences(of: "FN+Q", with: "FN плюс Q") + " А потім збережи."),
+                       "А потім збережи.")
+    }
+
+    /// The same restatement as a commit that went on to say more: it replaces what we
+    /// hold, its version of the revised word included.
+    func testACommitWhereOneWordSplitsIntoThreeReplacesTheHead() {
+        let restated = "Так, треба перевірити шорткати, де їх немає. Можливо, FN плюс Q, A, W, E. А потім збережи."
+        XCTAssertEqual(mergedTranscript(fnCommitted, restated), restated)
+    }
+
+    /// Three words revised into one. The head is long enough that three changed words
+    /// still leave `restatementAgreement` of it in order; a short one stays on the strict
+    /// comparison.
+    func testARestatementWhereThreeWordsMergeIntoOneIsRecognised() {
+        let head = "Так, треба перевірити шорткати, де їх немає. Можливо, FN плюс Q, A, W, E, і тоді перевір, чи працює"
+        let tail = "Так, треба перевірити шорткати, де їх немає. Можливо, FN+Q, A, W, E, і тоді перевір, чи працює. Добре."
+        XCTAssertEqual(mergedTranscript(head, tail), tail)
+        XCTAssertEqual(transcriptContinuation(of: head, in: tail), "Добре.")
+    }
+
+    /// A partial that has not caught up with the commit — the issue's own — is an echo,
+    /// but merged as a commit it must not cut off the words it has not reached.
+    func testARestatementThatStopsShortDoesNotShortenTheHead() {
+        XCTAssertEqual(mergedTranscript(fnCommitted, fnPartial), fnCommitted)
+    }
+
+    /// In-order words are easy to find: a next sentence reusing a few of them is still
+    /// a next sentence.
+    func testANextSentenceSharingSomeWordsInOrderIsAppended() {
+        let head = "Я думаю, що це добре"
+        let tail = "Я не знаю, що ти думаєш про це"
+        XCTAssertEqual(mergedTranscript(head, tail), head + " " + tail)
+    }
 }
 
 // MARK: - Insertion ledger (InsertionLedger.swift)
