@@ -88,6 +88,50 @@ back. It is the list's one entry, so the run prints it and stays green. Left out
 the audit would fail forever, and a check that always fails is a check nobody
 reads.
 
+## Sign-off
+
+Every commit you author carries a `Signed-off-by` trailer (see
+[CONTRIBUTING.md](../CONTRIBUTING.md#signing-your-commits-dco)). The repository
+settings take care of the rest:
+
+- **Squash merging only.** Merge commits and rebase merging are off, so the merge
+  button makes one commit on `main` per pull request and never a merge commit.
+- **The squash message is the pull request's title and description.** GitHub
+  appends the trailers of the commits being squashed, so the squash commit carries
+  their `Signed-off-by`. Leave those lines in when you merge: the `dco` job checks
+  the pull request's commits, and nothing checks the squash commit afterwards.
+- **Head branches are deleted on merge**, so merged branches do not pile up.
+
+The `dco` job fails a pull request with an unsigned commit. On this private
+repository, though, that failure does not block anything: branch protection and
+required checks need GitHub Pro or a public repository. A red *DCO sign-off* check
+therefore means "do not merge", and pushing straight to `main` skips it
+altogether.
+
+### Known unsigned history
+
+Before squash-only, `main` gathered 42 commits with no trailer. None of them will
+be rewritten to add one: that would change every hash after them. They are:
+
+- **39 merge commits** made by the *Merge pull request* button, the last one
+  `2b8a471` (PR #42, 2026-09-22). GitHub writes those itself and cannot add a
+  trailer, and CI never sees them because they are made after the pull request's
+  range. Squash-only removes this kind of commit.
+- **Three ordinary commits**, all made after the `dco` job (2026-09-13) and the
+  sign-off hook (2026-09-15) existed:
+  - `ee3eeaf` *Document phase A completion and add offline test runner*
+    (2026-09-16). It came in through PR #2, which was merged with its
+    *DCO sign-off* check failing.
+  - `9ff846e` *Add rebuild skill and build identity stamping* (2026-09-16), and
+  - `9f82d63` *Move rebuild skill into user-run script and docs* (2026-09-17).
+    Both were pushed straight to `main` with no pull request, so no check ran.
+
+  `ee3eeaf` and `9ff846e` are authored as `Vladyslav Husakov <vladhskv@gmail.com>`,
+  and `9f82d63` as Vladyslav Husakov.
+
+A script that counts unsigned commits on `main` should report exactly these 42.
+If it finds any others, that is a new gap.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request. **On a public repository

@@ -16,7 +16,7 @@ Both configurations build with the **hardened runtime**, and `SpeechText.entitle
 
 ## Commits
 
-Every commit is signed off — `git commit -s` (and `git commit --amend -s` for one that was not), merge commits included. CI's `DCO sign-off` job fails a pull request if any commit in its range lacks the `Signed-off-by:` trailer. `git config core.hooksPath .githooks` turns on the `prepare-commit-msg` hook that adds it automatically (see CONTRIBUTING.md › Hooks), but a worktree without the hooks enabled commits unsigned, so pass `-s` regardless.
+Every commit you author is signed off — `git commit -s` (and `git commit --amend -s` for one that was not). The repository allows squash merging only, so there are no merge commits: the squash commit GitHub writes onto `main` keeps the `Signed-off-by:` trailers of the pull request's commits, and whoever merges must leave them in the message, because nothing checks the squash commit itself. CI's `DCO sign-off` job fails a pull request if any commit in its range lacks the trailer; on this private repository that is a red check, not a block (see docs/development.md › Sign-off). `git config core.hooksPath .githooks` turns on the `prepare-commit-msg` hook that adds it automatically (see CONTRIBUTING.md › Hooks), but a worktree without the hooks enabled commits unsigned, so pass `-s` regardless.
 
 ## Naming
 

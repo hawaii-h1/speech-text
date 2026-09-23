@@ -42,7 +42,7 @@ The test suite is deliberately not in a hook — CI runs it on every pull reques
 
 ## Signing your commits (DCO)
 
-Every commit must carry a `Signed-off-by` line. Turn the hooks on (above) and it is added for you; otherwise Git adds it when asked:
+Every commit you author must carry a `Signed-off-by` line. Turn the hooks on (above) and it is added for you; otherwise Git adds it when asked:
 
 ```bash
 git commit -s -m "Fix hotkey re-registration after sleep"
@@ -52,7 +52,9 @@ This is the [Developer Certificate of Origin](https://developercertificate.org/)
 
 That is a commitment, not a current convenience: no CLA will be introduced later, and the client will not be relicensed under closed terms. Your contribution stays yours, under GPL-3.0-or-later.
 
-If you forget, `git commit --amend -s` fixes the last commit.
+If you forget, `git commit --amend -s` fixes the last commit, and `git rebase --signoff main` fixes every commit on the branch.
+
+Pull requests are merged as squashes — the only merge method the repository allows — so there is no merge commit to sign. The squash commit keeps the `Signed-off-by` trailers of the commits it replaces; when merging, leave them in the message.
 
 ## Pull request checklist
 
@@ -63,7 +65,7 @@ Short on purpose. Anything a machine can refuse for you is not on it:
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
 - The description says what changed and why.
 
-Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, and requires a `Signed-off-by` on every commit. The hooks above catch the same things before you push, and add the sign-off itself.
+Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, and add the sign-off itself.
 
 ## Setting up
 
