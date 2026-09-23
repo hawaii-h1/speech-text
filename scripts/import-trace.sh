@@ -34,9 +34,9 @@ python3 - "$DEST_DIR/$name.json" <<'PY'
 import json, sys
 trace = json.load(open(sys.argv[1]))
 setup = trace["setup"]
-print(f"app: {setup.get('app')}, aiMode: {setup['aiMode']}, aiDraft: {setup['aiDraft']}")
+print(f"app: {setup.get('app')} → {setup.get('destination') or setup.get('app')}, aiMode: {setup['aiMode']}")
 for event in trace["events"]:
-    detail = event.get("text") or event.get("error") or event.get("landing") or event.get("applied")
+    detail = event.get("text") or event.get("error")
     print(f"  {event['t']:7.2f}  {event['kind']:<16} {'' if detail is None else detail}")
 PY
 echo

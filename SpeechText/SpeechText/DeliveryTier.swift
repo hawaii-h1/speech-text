@@ -20,23 +20,27 @@ struct AXTextProbe: Equatable {
     /// Nothing is known — no accessibility permission, or no focused element at all.
     static let unavailable = AXTextProbe()
 
-    /// Everything phase C needs to find its own text again and re-select it.
+    /// Everything needed to find text again and re-select it.
     var supportsReplacement: Bool { valueReadable && rangeReadable && rangeReadsBack }
 }
 
-/// Which sink this recording is delivering into. Decided once, at the start of the
-/// recording, and never revisited — a tier that changed halfway would mean text already
-/// issued under one set of rules being corrected under another.
+/// How far the Accessibility API can be trusted in the field in front. The Edit shortcut
+/// asks when it reads the selection: Tier A's selection is read directly, with its range,
+/// and re-selected before it is cut; everything else is read with a ⌘C.
 ///
 /// Pure logic, so the decision is testable without an app to focus: `PasteService` does
 /// the Accessibility I/O and hands the answers in as an `AXTextProbe`.
+///
+/// It used to decide much more — whether an inline dictation was pasted span by span
+/// while the user spoke, and whether the stop could correct what was already pasted.
+/// Every inline dictation is now shown on the overlay and pasted once, at the stop, so
+/// only the selection read is left.
 enum DeliveryTier: String, Equatable, CustomStringConvertible {
     /// Our own surface, or a foreign app whose text the Accessibility API can read and
-    /// re-select. Issued text can be found again and replaced.
+    /// re-select. Text there can be found again and replaced.
     case a
-    /// A foreign app we can paste into but cannot correct: Chromium and Electron, which
-    /// answer inconsistently for `contenteditable`, and terminals, which never answer at
-    /// all. Only committed text goes here, and it is never rewritten.
+    /// Everything else: Chromium and Electron, which answer inconsistently for
+    /// `contenteditable`, and terminals, which never answer at all.
     case b
 
     var description: String {
@@ -52,23 +56,4 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
         if isOwnSurface { return .a }
         return probe.supportsReplacement ? .a : .b
     }
-
-    /// Whether committed spans are handed over while the user is still speaking.
-    ///
-    /// AI mode buffers by default: the LLM rewrites the whole dictation, so text issued
-    /// during the recording has to be taken back at the stop. `aiDraft` (the user's
-    /// opt-in) lifts that in Tier A only, the one tier where the raw draft can be replaced
-    /// by the rewrite; in Tier B the draft would stay under the rewrite, two versions of
-    /// one dictation.
-    func deliversDuringRecording(aiMode: Bool, aiDraft: Bool = false) -> Bool {
-        switch self {
-        case .a: return !aiMode || aiDraft
-        case .b: return !aiMode
-        }
-    }
-
-    /// Whether the sink is worth keeping an `InsertionLedger` for. Tier B cannot be
-    /// corrected, so recording ranges there would only be bookkeeping for a pass that
-    /// will always refuse to run.
-    var recordsRanges: Bool { self == .a }
 }

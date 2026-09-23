@@ -73,6 +73,16 @@ final class RecordingConfigurationTests: XCTestCase {
         XCTAssertFalse(config(provider: .apple).streams)
     }
 
+    /// The overlay shows what the tier says while the user speaks: a stream's text, and
+    /// Apple's on-device partials. An upload tier has nothing to show until the stop.
+    func testLiveTextForAStreamAndForApple() {
+        XCTAssertTrue(config(provider: .elevenlabs, elevenLabsModel: elevenLabsRealtimeModel).hasLiveText)
+        XCTAssertTrue(config(provider: .apple).hasLiveText)
+        XCTAssertFalse(config(provider: .elevenlabs, elevenLabsModel: "scribe_v2").hasLiveText)
+        XCTAssertFalse(config(provider: .groq).hasLiveText)
+        XCTAssertFalse(config(provider: .local).hasLiveText)
+    }
+
     /// scribe_v1 is deprecated, so the stream's fallback — and History retries of a
     /// realtime recording — upload to scribe_v2.
     func testBatchModelMapsRealtimeToScribeV2() {
@@ -910,7 +920,7 @@ final class InsertionLedgerTests: XCTestCase {
         ledger.insert(span: span(2), range: NSRange(location: 5, length: 3), text: "два")
         ledger.replaced(span: span(2), at: NSRange(location: 5, length: 3), with: "двоє")
         XCTAssertEqual(ledger.records.first?.range.location, NSNotFound)
-        XCTAssertEqual(ledger.deliveredText, "Один двоє")
+        XCTAssertEqual(ledger.records.map(\.text), ["Один", "двоє"])
     }
 
     func testAnUnknownSpanResolvesToNothing() {
@@ -939,13 +949,6 @@ final class InsertionLedgerTests: XCTestCase {
         XCTAssertEqual(ledger.record(for: span(3))?.range.location, 15)
     }
 
-    func testDeliveredTextJoinsTheRecordsTheWaySpansJoin() {
-        var ledger = InsertionLedger()
-        ledger.insert(span: span(1), range: NSRange(location: 0, length: 6), text: "Привіт")
-        ledger.insert(span: span(2), range: NSRange(location: 7, length: 4), text: "світ")
-        XCTAssertEqual(ledger.deliveredText, "Привіт світ")
-    }
-
     func testClearingLeavesNothingToResolve() {
         var ledger = InsertionLedger()
         ledger.insert(span: span(1), range: NSRange(location: 0, length: 6), text: "Привіт")
@@ -961,15 +964,14 @@ final class InsertionLedgerTests: XCTestCase {
         ledger.insert(span: span(1), range: NSRange(location: 0, length: 4), text: "світ")
         ledger.insert(span: nil, range: NSRange(location: 0, length: 7), text: "Привіт ")
         XCTAssertEqual(ledger.record(for: span(1))?.range.location, 7)
-        XCTAssertEqual(ledger.deliveredText, "світ Привіт ")
     }
 }
 
 // MARK: - Delivery tiers (DeliveryTier.swift)
 
-/// The tier decides what a recording is allowed to hand over while the user is still
-/// speaking. It is taken once, at the start, from what the Accessibility API proved it
-/// can do — and the proof is the read-back, not the return code.
+/// The tier decides how the Edit shortcut reads a selection: through AX, with its range,
+/// or with a ⌘C. It comes from what the Accessibility API proved it can do — and the
+/// proof is the read-back, not the return code.
 final class DeliveryTierTests: XCTestCase {
 
     private let correctable = AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: true)
@@ -1002,173 +1004,95 @@ final class DeliveryTierTests: XCTestCase {
         probe.valueReadable = false
         XCTAssertEqual(DeliveryTier.resolve(isOwnSurface: false, probe: probe), .b)
     }
+}
 
-    func testPlainDictationDeliversDuringRecordingInBothForeignTiers() {
-        XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: false))
-        XCTAssertTrue(DeliveryTier.b.deliversDuringRecording(aiMode: false))
+// MARK: - What the stop still has to deliver (InlineDelivery.stopResult)
+
+/// This repo has shipped a doubled dictation twice, and pasting spans while the user
+/// spoke added a third way to do it — the stop pasting the whole text again over what the
+/// app already had — which a ledger subtraction guarded here. Nothing is pasted before
+/// the stop any more (#75), so what the stop owes is simply the whole dictation, once:
+/// these pin down which text that is.
+final class UndeliveredRemainderTests: XCTestCase {
+
+    private func stop(final: String, recording: String, failed: Bool = false,
+                      aiMode: Bool = false) -> InlineDelivery.StopResult {
+        InlineDelivery.stopResult(finalText: final, failed: failed, aiMode: aiMode, recordingText: recording)
     }
 
-    /// AI mode rewrites the whole dictation at the stop, so by default nothing is issued
-    /// early in any tier.
-    func testAIModeBuffersInEveryTierByDefault() {
-        XCTAssertFalse(DeliveryTier.a.deliversDuringRecording(aiMode: true))
-        XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true))
+    /// The ordinary shape: the whole text, once.
+    func testTheWholeTextIsOwed() {
+        XCTAssertEqual(stop(final: "Привіт, як справи?", recording: "Привіт, як справи?"),
+                       .paste("Привіт, як справи?"))
     }
 
-    /// The opt-in draft goes only where the rewrite can replace it.
-    func testAnAIDraftIsDeliveredOnlyInTierA() {
-        XCTAssertTrue(DeliveryTier.a.deliversDuringRecording(aiMode: true, aiDraft: true))
-        XCTAssertFalse(DeliveryTier.b.deliversDuringRecording(aiMode: true, aiDraft: true))
+    /// A device change closed a segment mid-dictation, so `finalText` is only the last
+    /// one: the stop owes the whole recording, not the part after the restart.
+    func testTheWholeRecordingIsOwedNotItsLastSegment() {
+        XCTAssertEqual(stop(final: "Третє речення.", recording: "Перше речення. Друге. Третє речення."),
+                       .paste("Перше речення. Друге. Третє речення."))
     }
 
-    func testOnlyTierAIsWorthAnInsertionLedger() {
-        XCTAssertTrue(DeliveryTier.a.recordsRanges)
-        XCTAssertFalse(DeliveryTier.b.recordsRanges)
+    /// Nothing transcribed: whatever ghost text the span layer still holds, a failed
+    /// stream took back — nothing is owed.
+    func testAnEmptyFinalTextOwesNothing() {
+        XCTAssertEqual(stop(final: "  ", recording: "Зроблю це"), .noSpeech)
+        XCTAssertEqual(stop(final: "", recording: ""), .noSpeech)
+    }
+
+    /// AI mode rewrites the whole recording too.
+    func testAIModeRewritesTheWholeRecording() {
+        XCTAssertEqual(stop(final: "Друге.", recording: "Перше. Друге.", aiMode: true),
+                       .refine(input: "Перше. Друге."))
+    }
+
+    /// A failure pastes nothing, and hands the Record Window what there is — the whole
+    /// recording, even when the final text came back empty.
+    func testAFailureHandsOverWhatThereIs() {
+        XCTAssertEqual(stop(final: "", recording: "Перше речення.", failed: true),
+                       .failed(partial: "Перше речення."))
+        XCTAssertEqual(stop(final: "Друге.", recording: "Перше. Друге.", failed: true),
+                       .failed(partial: "Перше. Друге."))
+        XCTAssertEqual(stop(final: "", recording: "", failed: true), .failed(partial: ""))
+    }
+
+    /// Every path upstream trims, and so does this — the one space `AppState.deliver`
+    /// adds is its own.
+    func testTheTextIsTrimmed() {
+        XCTAssertEqual(stop(final: " Привіт. \n", recording: " Привіт. \n"), .paste("Привіт."))
     }
 }
 
-// MARK: - What the stop still has to deliver (InsertionLedger.remainder)
+// MARK: - Where the stop pastes (InlineDelivery.destination)
 
-/// This repo has shipped a doubled dictation twice. Delivering spans while the user is
-/// still speaking adds a third way to do it — the stop pasting the whole text again over
-/// what the app already has — so the subtraction gets its own tests.
-final class UndeliveredRemainderTests: XCTestCase {
+/// #77: the app in front at the stop, unless that is SpeechText itself.
+final class PasteDestinationTests: XCTestCase {
 
-    private func ledger(delivered: [String]) -> InsertionLedger {
-        var ledger = InsertionLedger()
-        var location = 0
-        for (index, text) in delivered.enumerated() {
-            ledger.insert(span: TranscriptSpanID(rawValue: UInt64(index + 1)),
-                          range: NSRange(location: location, length: (text as NSString).length),
-                          text: text)
-            location += (text as NSString).length + 1
-        }
-        return ledger
+    func testTheAppInFrontAtTheStopIsTheDestination() {
+        XCTAssertEqual(InlineDelivery.destination(front: "Slack", frontIsSpeechText: false, origin: "Mail"), "Slack")
+        XCTAssertEqual(InlineDelivery.destination(front: "Mail", frontIsSpeechText: false, origin: "Mail"), "Mail")
     }
 
-    /// Nothing delivered yet: the stop pastes everything, exactly as it always has.
-    func testWithNothingDeliveredTheWholeTextIsStillOwed() {
-        let ledger = InsertionLedger()
-        XCTAssertEqual(ledger.remainder(of: "Привіт, як справи?"), "Привіт, як справи?")
+    func testSpeechTextInFrontFallsBackToTheOrigin() {
+        XCTAssertEqual(InlineDelivery.destination(front: "SpeechText", frontIsSpeechText: true, origin: "Mail"), "Mail")
     }
 
-    /// The ordinary shape: the stream committed the opening while the user spoke, and
-    /// the final text is that plus the tail it never committed.
-    ///
-    /// The subtraction is by word, so punctuation the final text added to a word already
-    /// delivered goes with that word and is not pasted on its own — the "?" here stays
-    /// missing rather than arriving as a fragment. Same trade the streaming merge makes.
-    func testOnlyTheTailTheAppHasNotSeenIsOwed() {
-        let ledger = self.ledger(delivered: ["Привіт, як справи"])
-        let final = "Привіт, як справи? Давно не бачилися."
-        XCTAssertEqual(ledger.remainder(of: final), "Давно не бачилися.")
+    /// No origin either — a dictation started from our own window: the Record Window.
+    func testSpeechTextInFrontWithNoOriginIsNoDestination() {
+        XCTAssertNil(InlineDelivery.destination(front: "SpeechText", frontIsSpeechText: true, origin: String?.none))
     }
 
-    /// Several deliveries join the way spans join, so the subtraction sees all of them.
-    func testEveryDeliveryCountsTowardsWhatTheAppAlreadyHas() {
-        let ledger = self.ledger(delivered: ["Один два три", "чотири п'ять шість"])
-        let final = "Один два три чотири п'ять шість сім вісім"
-        XCTAssertEqual(ledger.remainder(of: final), "сім вісім")
-    }
-
-    /// The whole dictation went out as it was committed. Nothing is owed — and that is
-    /// the feature working, not a failure to deliver.
-    func testATextFullyDeliveredLeavesNothingOwed() {
-        let ledger = self.ledger(delivered: ["Привіт, як справи?"])
-        XCTAssertEqual(ledger.remainder(of: "Привіт, як справи?"), "")
-    }
-
-    /// A word or two revised by a provider that heard more audio is still the same
-    /// dictation, not a new one — the tail is owed, the opening is not re-pasted.
-    func testARevisedWordDoesNotMakeTheOpeningOwedAgain() {
-        let ledger = self.ledger(delivered: ["Що там узагалі нового? Це"])
-        let final = "Що там узагалі нового? Це нові задачі?"
-        XCTAssertEqual(ledger.remainder(of: final), "нові задачі?")
-    }
-
-    /// The batch fallback re-transcribing a segment the stream had already committed:
-    /// the final text disagrees with what the app holds rather than extending it. Nil,
-    /// because phase A cannot replace what is already in a foreign document, and pasting
-    /// the second wording underneath the first is worse than leaving the first standing.
-    func testAFinalTextThatDisagreesIsNotPastedUnderneathWhatIsThere() {
-        let ledger = self.ledger(delivered: ["Сьогодні дуже гарна погода"])
-        XCTAssertNil(ledger.remainder(of: "Завтра буде дощ і сильний вітер"))
-    }
-
-    /// Untracked deliveries (a paste whose landing could not be read) count too — the
-    /// question the ledger answers is what the app was given, not what can be corrected.
-    func testUntrackedDeliveriesAlsoCountAsDelivered() {
-        var ledger = InsertionLedger()
-        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "Один два три")
-        XCTAssertEqual(ledger.remainder(of: "Один два три чотири п'ять"), "чотири п'ять")
-    }
-
-    /// 17.09, a Wi-Fi cut: the batch fallback re-worded the delivered text from its first
-    /// word, so the restatement test (which needs that word unchanged) saw no overlap and
-    /// the sentence said after the cut was never pasted. The re-wording keeps 27 of its
-    /// 29 words in order, so the tail is found.
-    func testARevisedFirstWordDoesNotLoseTheTail() {
-        let ledger = self.ledger(delivered: [
-            "Почну перевірку нового тесту з назвою «Demo, one replacement». Зараз я ще говорю і продовжую говорити. Хочу зробити невелику паузу, щоб з'явився перший шматок тексту.",
-            "Тепер мережу вимкнено.",
-        ])
-        let final = "Почну перевірку нового тесту з назвою TextEdit Demo Replacement. Зараз я ще говорю і продовжую говорити. Хочу зробити невелику паузу, щоб з'явився перший шматок тексту. Тепер мережу вимкнено. Мережа знову є, фокус у TextEdit, зупиняюсь."
-        XCTAssertEqual(ledger.remainder(of: final), "Мережа знову є, фокус у TextEdit, зупиняюсь.")
-    }
-
-    /// A revised last word is not pasted again as if it were new.
-    func testARevisedLastWordIsNotOwedAgain() {
-        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту з назвою текст і пишу сьогодні"])
-        XCTAssertEqual(ledger.remainder(of: "Почну перевірку нового тесту з назвою текст і пишу зараз. І ще одне речення."),
-                       "І ще одне речення.")
-    }
-
-    /// In a short text two revised words out of five are too many to call it the same
-    /// dictation — refused, as before.
-    func testTwoRevisedWordsInAShortTextAreStillRefused() {
-        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту сьогодні"])
-        XCTAssertNil(ledger.remainder(of: "Почну перевірку нового тесту зараз. І ще одне речення."))
-    }
-
-    /// Nothing new said: a re-wording of everything owes nothing — not the whole text again.
-    func testAReWordingWithNothingNewOwesNothing() {
-        let ledger = self.ledger(delivered: ["Почну перевірку нового тесту з назвою"])
-        XCTAssertEqual(ledger.remainder(of: "Почну перевірку нового тесту з назвою"), "")
-    }
-
-    /// Too few words in common is a different text, and a different text is still not
-    /// pasted under the one already there.
-    func testAFinalTextSharingOnlyAFewWordsIsStillRefused() {
-        let ledger = self.ledger(delivered: ["Я думаю що завтра буде дуже гарна погода"])
-        XCTAssertNil(ledger.remainder(of: "Ти знаєш, завтра буде дощ і вітер, а не погода"))
-    }
-
-    /// The tail pasted at the stop opens with a space, like every delivery before it —
-    /// found in cmux, where it landed as "Поїха.Ііі як воно…".
-    func testTheTailIsPastedWithTheSpaceThatSeparatesIt() {
-        let ledger = self.ledger(delivered: ["Ще одна перевірка вставлення в термі.", "Поїха."])
-        let final = "Ще одна перевірка вставлення в термі. Поїха. Ііі як воно тут працює в терміналі?"
-        let rest = ledger.remainder(of: final)
-        XCTAssertEqual(rest, "Ііі як воно тут працює в терміналі?")
-        XCTAssertEqual(ledger.separated(rest ?? ""), " Ііі як воно тут працює в терміналі?")
-    }
-
-    /// Nothing delivered: the whole text goes in as it is, with nothing glued on front.
-    func testTheWholeTextIsNotGivenALeadingSpace() {
-        XCTAssertEqual(InsertionLedger().separated("Привіт"), "Привіт")
-    }
-
-    /// Nothing owed: no stray space is pasted either.
-    func testAnEmptyTailStaysEmpty() {
-        XCTAssertEqual(self.ledger(delivered: ["Привіт"]).separated(""), "")
+    func testNothingInFrontFallsBackToTheOrigin() {
+        XCTAssertEqual(InlineDelivery.destination(front: String?.none, frontIsSpeechText: false, origin: "Mail"), "Mail")
     }
 }
 
 // MARK: - Finalizing pass (FinalizePass.swift)
 
-/// The stop's single write. The plan must find the delivered text as one range and
-/// refuse — leaving the document exactly as it is — whenever it cannot be sure the whole
-/// range is still ours.
+/// A single write over text a sink recorded — the Record Window's ✨ writes a refined
+/// segment over the one it came from this way. The plan must find the recorded text as
+/// one range and refuse — leaving the document exactly as it is — whenever it cannot be
+/// sure the whole range is still ours.
 final class FinalizePassTests: XCTestCase {
 
     private func span(_ id: UInt64) -> TranscriptSpanID { TranscriptSpanID(rawValue: id) }
@@ -1222,61 +1146,10 @@ final class FinalizePassTests: XCTestCase {
         XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Так. Ні. Так.", replacement: "Так, так."))
     }
 
-    /// An untracked piece no longer decides against a correction by itself; the plan does.
-    func testAnUntrackedPieceStillAllowsACorrectionInTierA() {
-        var ledger = badlyCut()
-        ledger.insert(span: nil, range: NSRange(location: NSNotFound, length: 0), text: "завтра.")
-        XCTAssertEqual(FinalizePass.decide(ledger: ledger, authoritative: "Олександр прийде завтра.",
-                                           tier: .a, hasFrozenSpans: false), .replace)
-    }
-
     func testNothingToWriteWhenTheDocumentAlreadyHoldsTheFinalText() {
         var ledger = InsertionLedger()
         ledger.insert(span: span(1), range: NSRange(location: 0, length: 9), text: "Олександр")
         XCTAssertNil(FinalizePass.plan(ledger: ledger, document: "Олександр", replacement: "Олександр"))
-    }
-
-    // MARK: Decision
-
-    func testNothingDeliveredMeansTheOrdinaryPaste() {
-        XCTAssertEqual(FinalizePass.decide(ledger: InsertionLedger(), authoritative: "Привіт",
-                                           tier: .a, hasFrozenSpans: false), .nothingDelivered)
-    }
-
-    func testAFinalTextThatOnlyAddsWordsIsAnExtensionNotACorrection() {
-        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олек сандр прийде завтра",
-                                           tier: .a, hasFrozenSpans: false), .extend)
-    }
-
-    func testARevisedWordIsACorrectionInTierA() {
-        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
-                                           tier: .a, hasFrozenSpans: false), .replace)
-    }
-
-    /// Terminal: the delivered text stays exactly as it is.
-    func testTierBNeverCorrects() {
-        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
-                                           tier: .b, hasFrozenSpans: false), .leave)
-    }
-
-    func testFrozenTextIsNeverCorrected() {
-        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "Олександр прийде",
-                                           tier: .a, hasFrozenSpans: true), .leave)
-    }
-
-    func testAnEmptyResultLeavesTheDeliveredTextStanding() {
-        XCTAssertEqual(FinalizePass.decide(ledger: badlyCut(), authoritative: "  ",
-                                           tier: .a, hasFrozenSpans: false), .leave)
-    }
-
-    /// After the write the stop must have nothing left to paste — the anti-duplication
-    /// guard sees the replacement as delivered.
-    func testACollapsedLedgerLeavesNoRemainder() {
-        var ledger = badlyCut()
-        let replacement = TextReplacement(range: NSRange(location: 6, length: 17), text: "Олександр прийде.")
-        ledger.collapse(into: replacement, landed: "Олександр прийде.")
-        XCTAssertEqual(ledger.remainder(of: "Олександр прийде."), "")
-        XCTAssertEqual(ledger.records.count, 1)
     }
 }
 
@@ -1493,7 +1366,7 @@ final class ConfusablePunctuationTests: XCTestCase {
     }
 }
 
-// MARK: - Segment joins (TranscriptMerge.swift, TranscriptSpan.swift, InsertionLedger.swift)
+// MARK: - Segment joins (TranscriptMerge.swift, TranscriptSpan.swift, InlineDelivery.swift)
 
 /// 17.09: Scribe closed a segment inside a word — "…база дани" | "х, звідки…".
 /// Every boundary used to get a space, so History read "дани х" and the live paste would
@@ -1573,38 +1446,16 @@ final class SegmentJoinTests: XCTestCase {
         XCTAssertEqual(layer.text, "Привіт. Як справи?")
     }
 
-    /// The stop's tail after a cut word goes on with no space — what the old build did by
-    /// accident, now on purpose.
-    func testTheStopTailFinishesACutWordWithoutASpace() {
-        var ledger = InsertionLedger()
-        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 20), text: "Ось нова база дани")
-        XCTAssertEqual(ledger.pasteableRemainder(of: "Ось нова база даних, звідки ми все читаємо."),
-                       "х, звідки ми все читаємо.")
-    }
-
-    /// …and after an ordinary boundary, with one.
-    func testTheStopTailAfterAWholeWordOpensWithASpace() {
-        var ledger = InsertionLedger()
-        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 6), text: "Поїха.")
-        XCTAssertEqual(ledger.pasteableRemainder(of: "Поїха. Ііі як воно тут працює?"), " Ііі як воно тут працює?")
-        XCTAssertEqual(ledger.pasteableRemainder(of: "Поїха."), "")
-    }
-
-    /// A glued record joins what the ledger reports as delivered, so the stop's
-    /// subtraction lines up with the document.
-    func testDeliveredTextHonoursAGluedRecord() {
-        var ledger = InsertionLedger()
-        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 9), text: "база дани")
-        ledger.insert(span: TranscriptSpanID(rawValue: 2), range: NSRange(location: 9, length: 12), text: "х, звідки", joinsPrevious: true)
-        XCTAssertEqual(ledger.deliveredText, "база даних, звідки")
-    }
-
-    /// Completing a cut word is an extension, not a revision to correct.
-    func testCompletingACutWordIsAnExtension() {
-        var ledger = InsertionLedger()
-        ledger.insert(span: TranscriptSpanID(rawValue: 1), range: NSRange(location: 0, length: 20), text: "Ось нова база дани")
-        XCTAssertEqual(FinalizePass.decide(ledger: ledger, authoritative: "Ось нова база даних, звідки",
-                                           tier: .a, hasFrozenSpans: false), .extend)
+    /// The stop pastes the layer's text, so a word the stream cut goes into the document
+    /// whole.
+    func testTheStopPastesACutWordWhole() {
+        TranscriptJoin.isWord = isWord
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: "Ось нова база дани", partial: "")
+        layer.ingest(committed: "Ось нова база даних, звідки ми", partial: "")
+        XCTAssertEqual(InlineDelivery.stopResult(finalText: "Ось нова база даних, звідки ми", failed: false,
+                                                 aiMode: false, recordingText: layer.text),
+                       .paste("Ось нова база даних, звідки ми"))
     }
 }
 

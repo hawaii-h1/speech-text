@@ -514,8 +514,15 @@ final class AppState {
     /// `removeObserver(self, …)` does nothing for a block observer, and a leaked one from
     /// a previous panel cleared the *new* panel's references when the old one closed.
     private var directRecordingCloseObserver: NSObjectProtocol?
-    /// The app the user was in before recording started (paste target)
+    /// The app the user was in when the recording started. An inline dictation's *origin*
+    /// — it is pasted where it ended (`pasteDestination`), and here only when that was
+    /// SpeechText's own window. The Edit shortcut and the Record Window paste here.
     var previousApp: NSRunningApplication?
+    /// Where the current inline dictation goes: the app in front when the user stopped,
+    /// fixed at the stop (`InlineDelivery.destination`). Every step after the stop is
+    /// handed this app, not `previousApp` — the paste, the AI prompt's `<context>`,
+    /// History and the trace. Nil until the stop.
+    private var pasteDestination: NSRunningApplication?
 
     /// Setup's Try it step. While it is on screen a dictation's result goes to it
     /// instead of being pasted — the app never pastes into its own windows.
@@ -528,11 +535,13 @@ final class AppState {
     /// switched to it — so the transcription gets routed through `TextRefinementService`
     /// before pasting.
     private(set) var isAIMode = false
-    /// Where the dictation is going, read when its recording started. Sent only with an
-    /// AI rewrite.
+    /// Where the text is going: for an AI dictation, read at the stop from
+    /// `pasteDestination`; for an edit, at its start from the app in front. Sent only with
+    /// an AI rewrite.
     private var focusContext: FocusContext?
-    /// The current inline recording streams, so its text is built on the overlay and
-    /// pasted once at the stop rather than span by span into the target app.
+    /// The current recording's tier reports text while the user speaks (a stream, or
+    /// Apple's on-device recogniser), so the overlay shows it. Nothing is pasted before
+    /// the stop either way.
     private(set) var showsLiveTranscript = false
     /// True while the LLM is rewriting the transcription — keeps the overlay spinning.
     private(set) var isRefining = false
@@ -542,10 +551,6 @@ final class AppState {
     /// waiter, and without the cancel it would run `handleTranscriptionResult()` over
     /// the cleared texts and pop "No speech detected" for an action the user asked for.
     private var transcriptionWaitTask: Task<Void, Never>?
-
-    /// This recording's delivery into the app it was started in: the tier, the spans
-    /// pasted while the user speaks, the ledger, and the stop's correction.
-    private let inlineDelivery = InlineDelivery()
 
     /// Presses and releases of the two dictation shortcuts, and whether the one that
     /// started a dictation is still held.
@@ -656,23 +661,9 @@ final class AppState {
     }
 
     /// The dictation carries on in the other mode. What is said stays one dictation;
-    /// only its handling at the stop changes.
+    /// only its handling at the stop changes — nothing has been pasted yet, in either
+    /// direction, so there is nothing to take back.
     private func switchMode(toAI: Bool) {
-        if toAI {
-            guard inlineDelivery.switchToAI() else {
-                showStatus(
-                    icon: "sparkles",
-                    title: "Can't switch to AI now",
-                    detail: "\(previousApp?.localizedName ?? "This app") already has the dictated text, and it can't be replaced with the AI version.",
-                    tint: .orange
-                )
-                return
-            }
-            // Whatever is already in the document is now an AI draft, replaced at the stop.
-            speechEngine.onSpansCommitted = nil
-        }
-        // Switching to plain text changes nothing while recording: the stop pastes what
-        // was not delivered, which after an AI start is everything.
         dlog("App", "switching the dictation to \(toAI ? "AI" : "plain text")")
         isAIMode = toAI
         DictationTraceRecorder.record(.modeSwitch, text: toAI ? "ai" : "inline")
@@ -685,7 +676,7 @@ final class AppState {
         refinementTask?.cancel()
         refinementTask = nil
         isRefining = false
-        endInlineDelivery()
+        pasteDestination = nil
         DictationTraceRecorder.current = nil
         speechEngine.cancelRecording()
         hideOverlay()
@@ -701,13 +692,15 @@ final class AppState {
         } else if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = front
         }
+        pasteDestination = nil
+        focusContext = nil
         let locale = resolvedLocale()
         // The same settings the engine snapshots a moment later, read the same way.
-        showsLiveTranscript = RecordingConfiguration.current(locale: locale).streams
+        showsLiveTranscript = RecordingConfiguration.current(locale: locale).hasLiveText
         dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(locale), aiMode=\(isAIMode), liveTranscript=\(showsLiveTranscript)")
 
         speechEngine.recordsEmptyOutcomes = true
-        beginDeliveryPlan()
+        beginTrace()
         showOverlay()
 
         // A start that fails (microphone refused, no input device, a stream that could
@@ -717,20 +710,10 @@ final class AppState {
             self?.handleStartFailure(message)
         }
         speechEngine.startRecording(locale: locale)
-
-        // After the engine start, not before: nothing reads it until the stop. Read for
-        // a plain dictation too, because the AI shortcut can switch it over mid-way; it
-        // leaves the machine only with an AI rewrite.
-        focusContext = PasteService.readFocusContext(in: previousApp)
-        if let focusContext {
-            // The window title stays out of the system log — it can be a mail subject.
-            dlog("Refine", "focus context: \(focusContext.appName ?? "?") (\(focusContext.bundleID ?? "?")), window title \(focusContext.windowTitle == nil ? "absent" : "present")")
-        }
     }
 
     private func handleStartFailure(_ message: String) {
         dlog("App", "startRecording failed: \(message)")
-        endInlineDelivery()
         DictationTraceRecorder.current = nil
         hideOverlay()
         showStatus(
@@ -741,73 +724,58 @@ final class AppState {
         )
     }
 
-    // MARK: - Delivering while the user is still speaking
-
-    /// Decides the tier for this recording and wires the engine up to it.
-    private func beginDeliveryPlan() {
-        // A live-transcript recording delivers nothing early, so its tier is never used —
-        // and the probe is AX round trips to a possibly slow app ahead of the microphone.
-        // A test dictation delivers nothing early either: its text goes to setup at the stop.
-        let buffered = showsLiveTranscript || isTestDictation
-        let probe = buffered ? AXTextProbe.unavailable : PasteService.probeFocusedText(in: previousApp)
-        let tier = DeliveryTier.resolve(isOwnSurface: false, probe: probe)
-        let aiDraft = UserDefaults.standard.bool(forKey: SettingsKeys.aiDraftWhileSpeaking)
+    /// Starts this dictation's trace, when Debug Log › Record traces is on.
+    private func beginTrace() {
         DictationTraceRecorder.current = DictationTraceRecorder.isEnabled
             ? DictationTraceRecorder(setup: DictationTrace.Setup(
-                aiMode: isAIMode, aiDraft: aiDraft,
+                aiMode: isAIMode,
                 removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
                 dashStyle: .current,
-                livePreview: showsLiveTranscript,
-                app: previousApp?.localizedName,
-                probe: .init(valueReadable: probe.valueReadable, rangeReadable: probe.rangeReadable,
-                             rangeReadsBack: probe.rangeReadsBack)))
+                app: previousApp?.localizedName))
             : nil
-        let progressive = inlineDelivery.begin(
-            tier: tier, aiMode: isAIMode, aiDraft: aiDraft, livePreview: buffered,
-            target: AccessibilityDeliveryTarget(app: previousApp),
-            targetName: previousApp?.localizedName)
-
-        speechEngine.onSpansCommitted = progressive
-            ? { [weak self] spans in self?.inlineDelivery.enqueue(spans) }
-            : nil
-        speechEngine.onFinalize = { [weak self] input in self?.finalizeDelivery(input) }
-    }
-
-    /// The finalizing pass (`InlineDelivery.finalize`), with its outcome written to History.
-    private func finalizeDelivery(_ input: SpeechEngine.FinalizeInput) {
-        // An AI draft is not corrected to the raw transcript first: that would be two
-        // writes where one will do. `deliverAIResult` replaces it once the rewrite is in.
-        guard !isAIMode else { return }
-        let applied = inlineDelivery.finalize(text: input.text, hasFrozenSpans: input.hasFrozenSpans)
-        if let applied { DictationTraceRecorder.record(.correction, applied: applied) }
-        if let applied, let id = input.recordID {
-            TranscriptionHistory.shared.recordCorrection(id: id, applied: applied)
-        }
-    }
-
-    /// Stops offering spans. The ledger is kept: the stop still has to know what the
-    /// app was given so it can hand over the rest and not the whole thing again.
-    private func stopOfferingSpans() {
-        speechEngine.onSpansCommitted = nil
-        inlineDelivery.stopOffering()
-    }
-
-    /// The recording was abandoned. Nothing more goes out, and the ledger goes with it.
-    private func endInlineDelivery() {
-        speechEngine.onSpansCommitted = nil
-        speechEngine.onFinalize = nil
-        inlineDelivery.end()
     }
 
     private func stopRecording() {
         dlog("App", "stopRecording")
+        // First, while the app the user stopped in is certainly the one in front.
+        choosePasteDestination()
         DictationTraceRecorder.record(.stop)
-        // From here the authoritative text arrives through the result path, and anything
-        // still queued would be delivered twice. The ledger stays — the stop needs it to
-        // know what the app has already been given.
-        stopOfferingSpans()
         speechEngine.stopRecording()
+        // After the engine stop, not before: these are round trips to another process, and
+        // only the LLM pass reads the answer. The mode cannot change past this point —
+        // every press while the stop is transcribing cancels.
+        if isAIMode {
+            readFocusContext(of: pasteDestination)
+        }
         waitForTranscription()
+    }
+
+    /// Fixes where this dictation goes: the app in front now, unless that is SpeechText
+    /// itself (`InlineDelivery.destination`). A test dictation goes nowhere — its result
+    /// belongs to the setup window.
+    private func choosePasteDestination() {
+        let front = NSWorkspace.shared.frontmostApplication
+        pasteDestination = isTestDictation ? nil : InlineDelivery.destination(
+            front: front,
+            frontIsSpeechText: front?.bundleIdentifier == Bundle.main.bundleIdentifier,
+            origin: previousApp)
+        let destination = pasteDestination?.localizedName ?? "nil"
+        if pasteDestination?.processIdentifier != previousApp?.processIdentifier {
+            dlog("App", "paste target: \(destination) (started in \(previousApp?.localizedName ?? "nil"))")
+        } else {
+            dlog("App", "paste target: \(destination)")
+        }
+        DictationTraceRecorder.recordDestination(pasteDestination?.localizedName)
+    }
+
+    /// Reads what the AI prompt is told about where the text is going. Never with a nil
+    /// app: `readFocusContext(in: nil)` would describe whatever is frontmost.
+    private func readFocusContext(of app: NSRunningApplication?) {
+        focusContext = app.flatMap { PasteService.readFocusContext(in: $0) }
+        if let focusContext {
+            // The window title stays out of the system log — it can be a mail subject.
+            dlog("Refine", "focus context: \(focusContext.appName ?? "?") (\(focusContext.bundleID ?? "?")), window title \(focusContext.windowTitle == nil ? "absent" : "present")")
+        }
     }
 
     /// Suspends until the engine reports that transcription has finished, then handles
@@ -823,11 +791,6 @@ final class AppState {
             // A cancel resumed us by moving the engine to `.idle` — there is no result
             // to handle, and reporting the cleared texts would claim "No speech detected".
             guard !Task.isCancelled else { return }
-            // A span pasted just before the stop reaches the ledger only once it has landed.
-            await withCheckedContinuation { continuation in
-                self.inlineDelivery.whenIdle { continuation.resume() }
-            }
-            guard !Task.isCancelled else { return }
             dlog("App", "waitForTranscription: done (\(String(format: "%.2f", Date().timeIntervalSince(started)))s)")
             handleTranscriptionResult()
         }
@@ -835,9 +798,9 @@ final class AppState {
 
     private func handleTranscriptionResult() {
         let text = speechEngine.finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        dlog("App", "handleTranscriptionResult: text=\(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil"), aiMode=\(isAIMode)")
+        dlog("App", "handleTranscriptionResult: text=\(text.count) chars, destination=\(pasteDestination?.localizedName ?? "nil"), aiMode=\(isAIMode)")
 
-        let result = inlineDelivery.stopResult(finalText: text,
+        let result = InlineDelivery.stopResult(finalText: text,
                                                failed: speechEngine.errorMessage != nil,
                                                aiMode: isAIMode,
                                                recordingText: speechEngine.spanLayer.text)
@@ -874,40 +837,26 @@ final class AppState {
                 tint: .secondary
             )
 
-        case .alreadyDelivered:
-            dlog("App", "handleTranscriptionResult: empty text")
+        case .paste(let text):
             hideOverlay()
-            dlog("App", "handleTranscriptionResult: empty final text, but the dictation was already delivered")
-
-        case .notPasted:
-            hideOverlay()
-            // The final text re-words what is already in the document too much to tell
-            // where it ends, so nothing more was pasted rather than a second copy. The
-            // words are in History; say so instead of dropping them silently.
-            showStatus(
-                icon: "text.badge.xmark",
-                title: "Part of the dictation wasn't pasted",
-                detail: "The final transcript differs from what was already typed. Click to see it in History.",
-                tint: .orange,
-                duration: 8
-            )
-
-        case .nothingLeft:
-            hideOverlay()
-            // Everything was already pasted as it was committed — which is the point of
-            // the exercise, not a failure of it.
-            dlog("App", "handleTranscriptionResult: nothing left to paste")
-
-        case .paste(let remainder):
-            hideOverlay()
-            deliver(remainder)
+            recordApps()
+            deliver(text)
 
         case .refine(let aiInput):
+            recordApps()
             // The trace is finished once the rewrite has been delivered.
             refine(aiInput)
             return
         }
         finishTrace()
+    }
+
+    /// Writes where the dictation started and where it is going to History — only for one
+    /// that is about to be pasted: a failure or an empty result went nowhere.
+    private func recordApps() {
+        guard !isTestDictation, let id = speechEngine.lastRecordID else { return }
+        TranscriptionHistory.shared.recordApps(id: id, origin: previousApp?.localizedName,
+                                               destination: pasteDestination?.localizedName)
     }
 
     /// Hands a test dictation's result to setup instead of pasting it or raising a notice:
@@ -918,7 +867,7 @@ final class AppState {
         switch result {
         case .failed:
             outcome = .failed(friendlySTTError(speechEngine.errorMessage ?? ""))
-        case .noSpeech, .alreadyDelivered, .nothingLeft, .notPasted:
+        case .noSpeech:
             outcome = .nothingHeard
         case .paste(let text):
             outcome = .typed(text)
@@ -955,7 +904,7 @@ final class AppState {
                 tint: .orange
             )
             DictationTraceRecorder.record(.refinement, error: "not configured")
-            deliverAIResult(aiInput, recordID: speechEngine.lastRecordID)
+            deliver(aiInput)
             finishTrace()
             return
         }
@@ -1017,31 +966,17 @@ final class AppState {
                 self.finishTrace()
                 return
             }
-            self.deliverAIResult(output, recordID: recordID)
+            self.deliver(output)
             self.finishTrace()
         }
     }
 
-    /// Where an AI dictation's final text goes — see `InlineDelivery.deliverAIResult`.
-    private func deliverAIResult(_ output: String, recordID: UUID?) {
-        let hasFrozenSpans = speechEngine.spanLayer.spans.contains { $0.state == .frozen }
-        let (paste, applied) = inlineDelivery.deliverAIResult(output, hasFrozenSpans: hasFrozenSpans)
-        if let applied { DictationTraceRecorder.record(.correction, applied: applied) }
-        if let applied, let recordID {
-            TranscriptionHistory.shared.recordCorrection(id: recordID, applied: applied)
-        }
-        if let paste {
-            deliver(paste)
-        }
-    }
-
-    /// Pastes into the previously focused app, falling back to the Record Window when
-    /// that isn't possible.
+    /// Pastes into the app the dictation ended in (`pasteDestination`), falling back to
+    /// the Record Window when that isn't possible.
     private func deliver(_ dictation: String) {
         // A trailing space, so a dictation continued into the same field does not start
-        // glued to this one — every path upstream trims. It is added here rather than in
-        // `InlineDelivery` so the ledger, History and the span layer keep the transcript
-        // as it was recognised, and before the trace is written so a recorded dictation
+        // glued to this one — every path upstream trims. It is added here, at the paste,
+        // so History and the span layer keep the transcript as it was recognised, and before the trace is written so a recorded dictation
         // replays into the text that really went out — which the Record Window fallback
         // below inherits, where a trailing space costs nothing.
         let text = dictation + " "
@@ -1053,14 +988,16 @@ final class AppState {
             return
         }
 
-        guard let app = previousApp else {
-            dlog("App", "deliver: no previousApp, showing record panel")
+        // The origin only when the stop chose nothing — the engine ended the recording on
+        // its own, which does not pass through `stopRecording`.
+        guard let app = pasteDestination ?? previousApp else {
+            dlog("App", "deliver: no destination, showing record panel")
             showDirectRecordingPanel(withText: text)
             return
         }
 
-        // Paste into the previous app. If the focused element is a known non-text
-        // role (button, table, list, etc.), fall back to the Record Window instead.
+        // Paste into the destination. If the focused element is a known non-text role
+        // (button, table, list, etc.), fall back to the Record Window instead.
         let alreadyFocused = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier
 
         let tryPaste = { [weak self] in
@@ -1246,9 +1183,7 @@ final class AppState {
         editRemoval = .inPlace
         removesSelection = false
         editInstruction = .listening
-        // Nothing of the instruction is ever delivered: no spans while speaking, no
-        // finalizing pass at the stop.
-        endInlineDelivery()
+        // Nothing of the instruction is ever pasted, and it is not traced.
         DictationTraceRecorder.current = nil
         let locale = resolvedLocale()
         showsLiveTranscript = RecordingConfiguration.current(locale: locale).streams
@@ -1550,7 +1485,6 @@ final class AppState {
             self?.refinementTask?.cancel()
             self?.refinementTask = nil
             self?.isRefining = false
-            self?.endInlineDelivery()
             self?.speechEngine.cancelRecording()
             // Close this specific panel regardless of what overlayPanel points to
             panel?.close()

@@ -54,13 +54,11 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     var audioFileName: String?
     /// Optional, so history written before AI mode existed still decodes.
     var refinement: Refinement?
-    /// Whether the stop's correction of text already delivered during the recording
-    /// went through. Nil when there was nothing to correct — nothing was delivered early,
-    /// or the final text only added to it. False explains a dictation whose pasted words
-    /// do not match `text`: the app could not be corrected (Tier B), a paste during the
-    /// recording could not be range-tracked (its landing was unreadable, or the app
-    /// changed the text), the user had edited it, or the focus moved before the stop.
-    var correctionApplied: Bool?
+    /// The app an inline dictation started in, and the one it was pasted into — the app
+    /// in front at the stop (#77). Nil for the Record Window, for an edit, and for entries
+    /// written before the stop chose where the text went.
+    var originApp: String?
+    var destinationApp: String?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
 
@@ -161,6 +159,14 @@ final class TranscriptionHistory {
         return id
     }
 
+    /// Where an inline dictation started and where it was pasted.
+    func recordApps(id: UUID, origin: String?, destination: String?) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records[index].originApp = origin
+        records[index].destinationApp = destination
+        save()
+    }
+
     // MARK: LLM pass
 
     /// Attaches the result of the AI step to an existing transcription entry.
@@ -203,15 +209,6 @@ final class TranscriptionHistory {
         add(record)
     }
 
-    func recordCorrection(id: UUID, applied: Bool) {
-        guard let index = records.firstIndex(where: { $0.id == id }) else {
-            histLog.info("correction for unknown record \(id.uuidString, privacy: .public) — dropped")
-            return
-        }
-        records[index].correctionApplied = applied
-        save()
-    }
-
     private func updateRefinement(id: UUID, _ refinement: TranscriptionRecord.Refinement) {
         guard let index = records.firstIndex(where: { $0.id == id }) else {
             histLog.info("refinement for unknown record \(id.uuidString, privacy: .public) — dropped")
@@ -252,9 +249,8 @@ final class TranscriptionHistory {
         record.status = .success
         record.errorMessage = nil
         record.audioFileName = nil
-        // The old refinement and correction described text that no longer exists.
+        // The old refinement described text that no longer exists.
         record.refinement = nil
-        record.correctionApplied = nil
         records[index] = record
         save()
     }
@@ -347,8 +343,8 @@ final class TranscriptionHistory {
 
     /// Schedules one write for a burst of mutations.
     ///
-    /// A single dictation mutates the store several times (the record, its refinement, the
-    /// correction flag), and each write re-encodes up to 300 entries. The pending write is
+    /// A single dictation mutates the store several times (the record, the apps it went
+    /// between, its refinement), and each write re-encodes up to 300 entries. The pending write is
     /// cancelled and re-scheduled instead of stacking, so a burst costs one encode. The
     /// snapshot is taken when the write *fires*, so it is always the latest state.
     ///

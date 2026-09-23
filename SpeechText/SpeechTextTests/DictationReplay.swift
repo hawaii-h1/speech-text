@@ -9,10 +9,13 @@ import XCTest
 //
 // The provider's events are scripted; everything between them and the document is the
 // app's own code: `StreamingRecognitionSession` merges them, `TranscriptSpanLayer` turns
-// them into spans, `SpanIssuer` decides what goes out, and `InlineDelivery` pastes,
-// records, corrects and computes the stop's remainder. What stands in for the outside
-// world is `FakeApp`, a document in memory that can be made to behave like TextEdit, a
-// terminal, or an Electron app that accepts a selection and does not keep it.
+// them into the spans the overlay draws, and `InlineDelivery` decides what the stop does.
+// What stands in for the outside world is `FakeApp`, a document in memory — as many of
+// them as the user switches between, since the dictation is pasted into the one in front
+// at the stop (`InlineDelivery.destination`).
+//
+// Nothing reaches any app before the stop: the harness asserts it on every replay, so a
+// change that brought pasting-while-speaking back would fail all of them at once.
 //
 // The glue that `SpeechEngine` and `AppState` put around those pieces cannot be compiled
 // here (AVAudioEngine, AppKit), so `DictationReplay.run` repeats it — in the same order,
@@ -21,64 +24,27 @@ import XCTest
 
 // MARK: - The app being dictated into
 
-final class FakeApp: InlineDeliveryTarget {
-    /// How the app answers the Accessibility API.
-    struct Behaviour {
-        /// What `PasteService.probeFocusedText` would find — decides the tier.
-        var probe: AXTextProbe
-        /// What `PasteService.pasteAtCursor` can read back after a paste.
-        var landing: Landing
-        /// A selection written for the correction reads back as written. Electron apps
-        /// accept the write and then report a different range.
-        var selectionReadsBack: Bool
-
-        static let textEdit = Behaviour(
-            probe: AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: true),
-            landing: .exact, selectionReadsBack: true)
-        /// Terminal, cmux: no focused text element at all.
-        static let terminal = Behaviour(probe: .unavailable, landing: .unknown, selectionReadsBack: false)
-        /// Chromium's `contenteditable`: readable, but the range write does not read back.
-        static let chromium = Behaviour(
-            probe: AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: false),
-            landing: .exact, selectionReadsBack: false)
-        /// T3 Code, 17.09: probes as Tier A, then refuses the correction's selection.
-        static let electronThatLies = Behaviour(
-            probe: AXTextProbe(valueReadable: true, rangeReadable: true, rangeReadsBack: true),
-            landing: .exact, selectionReadsBack: false)
-    }
-
-    enum Landing {
-        case exact
-        /// The caret could not be read, so the landing is nil.
-        case unknown
-        /// The app stores something other than what was pasted (smart quotes, …).
-        case normalised((String) -> String)
-    }
-
+final class FakeApp {
     struct Field {
         var text = ""
         /// UTF-16 offset, like every range the app deals in.
         var caret = 0
     }
 
-    let behaviour: Behaviour
+    let name: String
+    let bundleID: String
+    /// Its focused window's title, for the AI prompt's `<context>`.
+    var windowTitle: String?
     /// The target app's text fields, by name. Dictation starts in `"document"`.
     private(set) var fields: [String: Field] = ["document": Field()]
     private(set) var focusedField = "document"
-    /// Text pasted while another app was in front.
-    private(set) var elsewhere = ""
-    /// Every paste, in order — the spans' and the stop's.
+    /// Every paste, in order.
     private(set) var pastes: [String] = []
-    var isInFront = true
-    var accessibilityGranted = true
-    /// Paste completions are held until `landPendingPastes()` instead of running at once:
-    /// a paste still landing when the next thing happens.
-    var holdsLandings = false
-    private var pendingLandings: [() -> Void] = []
-    private var capturedField: String?
 
-    init(_ behaviour: Behaviour) {
-        self.behaviour = behaviour
+    init(_ name: String = "TextEdit", bundleID: String? = nil, windowTitle: String? = nil) {
+        self.name = name
+        self.bundleID = bundleID ?? "test.\(name.lowercased().replacingOccurrences(of: " ", with: ""))"
+        self.windowTitle = windowTitle
     }
 
     var document: String { fields["document"]?.text ?? "" }
@@ -113,86 +79,18 @@ final class FakeApp: InlineDeliveryTarget {
         focusedField = name
     }
 
-    func landPendingPastes() {
-        while !pendingLandings.isEmpty {
-            let landing = pendingLandings.removeFirst()
-            landing()
-        }
-    }
+    // MARK: The stop's paste
 
-    // MARK: InlineDeliveryTarget
-
-    var acceptsDeliveryNow: Bool { accessibilityGranted && isInFront }
-
-    func paste(_ text: String, completion: @escaping (PasteLanding?) -> Void) {
-        let landed = insertAtCaret(text)
-        let answer: () -> Void = { [behaviour] in
-            switch behaviour.landing {
-            case .unknown: completion(nil)
-            case .exact, .normalised: completion(landed)
-            }
-        }
-        if holdsLandings {
-            pendingLandings.append(answer)
-        } else {
-            answer()
-        }
-    }
-
-    /// The stop's ordinary paste (`AppState.deliver`): bring the app forward, then ⌘V.
+    /// The stop's paste (`AppState.deliver`): bring the app forward, then ⌘V at the caret.
     /// The trailing space is `deliver`'s, so a dictation continued into the same field
     /// does not start glued to this one.
     func activateAndPaste(_ text: String) {
-        isInFront = true
-        _ = insertAtCaret(text + " ")
-    }
-
-    func captureFocusedField() { capturedField = focusedField }
-    func releaseFocusedField() { capturedField = nil }
-
-    var isStillFocused: Bool {
-        guard let capturedField else { return false }
-        return accessibilityGranted && isInFront && focusedField == capturedField
-    }
-
-    /// `PasteService.replaceLastInsertions`, over the fake document, with its refusals in
-    /// the same order and logged in the same words.
-    func replaceDelivered(ledger: inout InsertionLedger, with text: String) -> Bool {
-        guard accessibilityGranted, isInFront, var field = fields[focusedField] else {
-            dlog("Span", "correction refused: no focused element")
-            return false
-        }
-        guard let plan = FinalizePass.plan(ledger: ledger, document: field.text, replacement: text) else {
-            dlog("Span", "correction refused: the delivered text is not all there, untouched, in one place")
-            return false
-        }
-        guard behaviour.selectionReadsBack else {
-            dlog("Span", "correction refused: selecting \(plan.range.location)+\(plan.range.length) did not read back")
-            return false
-        }
-        field.text = (field.text as NSString).replacingCharacters(in: plan.range, with: plan.text)
-        field.caret = plan.range.location + (plan.text as NSString).length
-        fields[focusedField] = field
-        dlog("Span", "correction: replaced \(plan.range.location)+\(plan.range.length) through AX")
-        ledger.collapse(into: plan, landed: plan.text)
-        dlog("Span", "correction applied: \"\(plan.text.prefix(60))\"")
-        return true
-    }
-
-    private func insertAtCaret(_ text: String) -> PasteLanding? {
-        pastes.append(text)
-        guard isInFront else {
-            elsewhere += text
-            return nil
-        }
-        var stored = text
-        if case .normalised(let normalise) = behaviour.landing { stored = normalise(text) }
+        let pasted = text + " "
+        pastes.append(pasted)
         var field = fields[focusedField] ?? Field()
-        let range = NSRange(location: field.caret, length: (stored as NSString).length)
-        field.text = (field.text as NSString).replacingCharacters(in: NSRange(location: field.caret, length: 0), with: stored)
-        field.caret = NSMaxRange(range)
+        field.text = (field.text as NSString).replacingCharacters(in: NSRange(location: field.caret, length: 0), with: pasted)
+        field.caret += (pasted as NSString).length
         fields[focusedField] = field
-        return PasteLanding(range: range, text: stored)
     }
 }
 
@@ -254,12 +152,8 @@ struct StreamBroke: LocalizedError {
 final class DictationReplay {
     struct Setup {
         var aiMode = false
-        var aiDraft = false
         var removesDisfluencies = true
         var dashStyle = DashStyle.default
-        /// `AppState` shows a streaming recording's text on the overlay and pastes it at
-        /// the stop — see `InlineDelivery.begin(livePreview:)`.
-        var livePreview = false
     }
 
     enum Step {
@@ -269,15 +163,14 @@ final class DictationReplay {
         case streamBreaks
         case userTypes(String, after: String?)
         case caretToEnd
-        /// The user switched to another app.
-        case switchAway
-        case switchBack
         /// The user clicked into another field of the same app.
         case focus(String)
-        case holdLandings
-        case landPendingPastes
         /// The other mode's shortcut, pressed mid-dictation (`AppState.switchMode`).
         case switchMode(ai: Bool)
+        /// The user brought another app to the front.
+        case switchTo(FakeApp)
+        /// The user brought one of SpeechText's own windows (Settings, History) to the front.
+        case openSpeechTextWindow
     }
 
     enum LLM {
@@ -285,16 +178,31 @@ final class DictationReplay {
         case fails
     }
 
+    /// What the overlay showed after one provider event: `RecordingOverlayView`'s
+    /// `settledText` and `movingText`.
+    struct OverlayFrame: Equatable {
+        let settled: String
+        let moving: String
+
+        var text: String { joinedTranscript(settled, moving) }
+    }
+
     struct Result {
+        /// The app the dictation started in.
         let app: FakeApp
         let stop: InlineDelivery.StopResult?
-        /// What History's `correctionApplied` would say.
-        let correctionApplied: Bool?
+        /// The app the stop chose to paste into — nil for the Record Window.
+        let destination: FakeApp?
+        /// What an AI rewrite was told about where the text is going.
+        let context: FocusContext?
+        /// What went to the Record Window instead of an app.
+        let recordWindow: String?
+        /// The overlay after every provider event, in order.
+        let overlay: [OverlayFrame]
         /// Every Debug Log line the replay produced, as "[Category] message".
         let log: [String]
-        /// A `switchMode(ai: true)` step was refused.
-        var switchRefused = false
 
+        /// The origin's document.
         var document: String { app.document }
 
         func logged(_ fragment: String) -> Bool {
@@ -306,93 +214,84 @@ final class DictationReplay {
     let app: FakeApp
     /// `AppState.isAIMode`: the mode the dictation started in, until a switch.
     private var aiMode: Bool
-    /// Whether the last `switchMode` step was accepted.
-    private(set) var switchRefused = false
-    private let delivery = InlineDelivery()
+    /// The app in front, and whether it is SpeechText's own window instead.
+    private var front: FakeApp?
+    private var speechTextInFront = false
+    private var destination: FakeApp?
+    private var context: FocusContext?
+    private var recordWindow: String?
     private var layer = TranscriptSpanLayer()
-    private var issuer = SpanIssuer()
     private let provider = ScriptedStreamingProvider()
     private var session: StreamingRecognitionSession!
-    private var isRecording = true
-    /// `SpeechEngine.onSpansCommitted` is set.
-    private var offersSpans = false
+    private var overlay: [OverlayFrame] = []
     private var handledEvents = 0
 
     private init(setup: Setup, app: FakeApp) {
         self.setup = setup
         self.app = app
         self.aiMode = setup.aiMode
+        self.front = app
     }
 
-    /// One dictation from hotkey to paste. `atStop` is what the server sends once the
-    /// stop commits; `fallback` is what the batch upload returns if the stream broke or
-    /// came back empty.
+    /// One dictation from hotkey to paste, started in `app`. `atStop` is what the server
+    /// sends once the stop commits; `fallback` is what the batch upload returns if the
+    /// stream broke or came back empty; `whileRewriting` is what the user does between the
+    /// stop and the AI rewrite's answer.
     static func run(_ setup: Setup = Setup(),
                     in app: FakeApp,
                     _ steps: [Step],
                     atStop: [StreamingSTTEvent] = [],
                     fallback: ScriptedSegment = ScriptedSegment(error: "no fallback was scripted"),
                     llm: LLM = .fails,
-                    cancelInsteadOfStopping: Bool = false) async -> Result {
+                    whileRewriting: [Step] = [],
+                    cancelInsteadOfStopping: Bool = false,
+                    file: StaticString = #filePath, line: UInt = #line) async -> Result {
         DebugLog.shared.clear()
         let replay = DictationReplay(setup: setup, app: app)
         replay.provider.eventsAtFinish = atStop
+        var apps = [app]
+        for case .switchTo(let other) in steps + whileRewriting where !apps.contains(where: { $0 === other }) {
+            apps.append(other)
+        }
+        let pastedBefore = apps.map(\.pastes.count)
         replay.start(fallback: fallback)
         for step in steps {
             await replay.perform(step)
         }
-        let result: (InlineDelivery.StopResult?, Bool?)
+        // Nothing reaches any app while the user speaks, in any mode: the text is on the
+        // overlay until the stop.
+        XCTAssertEqual(apps.map(\.pastes.count), pastedBefore, "something was pasted before the stop",
+                       file: file, line: line)
+        var stop: InlineDelivery.StopResult?
         if cancelInsteadOfStopping {
             replay.cancel()
-            result = (nil, nil)
         } else {
-            result = await replay.stop(llm: llm)
+            stop = await replay.stop(llm: llm, whileRewriting: whileRewriting)
         }
         // Lines logged off the main thread arrive through the main queue.
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
         let log = DebugLog.shared.entries.map { "[\($0.category)] \($0.message)" }
-        return Result(app: app, stop: result.0, correctionApplied: result.1, log: log,
-                      switchRefused: replay.switchRefused)
+        return Result(app: app, stop: stop, destination: replay.destination, context: replay.context,
+                      recordWindow: replay.recordWindow, overlay: replay.overlay, log: log)
     }
 
     private func cleaned(_ text: String) -> String {
         setup.dashStyle.applied(to: setup.removesDisfluencies ? cleanedTranscript(text) : text)
     }
 
-    /// A recorded `DictationTrace`, replayed into an app that answers the probe the way the
-    /// recorded one did.
-    ///
-    /// The recording is coarser than a script, so three things are inferred: the app lies
-    /// about selections exactly when it probed as correctable but a correction was
-    /// refused; the landing is exact only if every recorded paste landed exactly; and the
-    /// user was away from the moment a span found the app not in front until the next
-    /// paste — moved to just before the provider event that triggered each, since both
-    /// are recorded only once that event has been handled.
+    /// A recorded `DictationTrace`, replayed into apps of the same names.
     static func run(_ trace: DictationTrace) async -> Result {
-        let setup = Setup(aiMode: trace.setup.aiMode, aiDraft: trace.setup.aiDraft,
+        let setup = Setup(aiMode: trace.setup.aiMode,
                           removesDisfluencies: trace.setup.removesDisfluencies,
-                          dashStyle: trace.setup.dashStyle ?? .emDash,
-                          livePreview: trace.setup.livePreview ?? false)
-        let probe = AXTextProbe(valueReadable: trace.setup.probe.valueReadable,
-                                rangeReadable: trace.setup.probe.rangeReadable,
-                                rangeReadsBack: trace.setup.probe.rangeReadsBack)
-        let pastes = trace.events.filter { $0.kind == .paste }
-        let refused = trace.events.contains { $0.kind == .correction && $0.applied == false }
-        let behaviour = FakeApp.Behaviour(
-            probe: probe,
-            landing: !pastes.isEmpty && pastes.allSatisfy({ $0.landing == .exact }) ? .exact : .unknown,
-            selectionReadsBack: probe.supportsReplacement && !refused)
+                          dashStyle: trace.setup.dashStyle ?? .emDash)
 
         var steps: [Step] = []
         var atStop: [StreamingSTTEvent] = []
         var fallback = ScriptedSegment(error: "no fallback was recorded")
         var llm = LLM.fails
         var stopped = false
-        var away = false
-        /// Where the provider event that led to the latest delivery attempt sits in `steps`.
-        var lastEventIndex = 0
 
         for event in trace.events {
             switch event.kind {
@@ -406,19 +305,9 @@ final class DictationReplay {
                 if stopped {
                     atStop.append(providerEvent)
                 } else {
-                    lastEventIndex = steps.count
                     steps.append(step)
                 }
-            case .targetNotInFront where !stopped && !away:
-                steps.insert(.switchAway, at: lastEventIndex)
-                lastEventIndex += 1
-                away = true
-            case .paste where !stopped && away:
-                steps.insert(.switchBack, at: lastEventIndex)
-                lastEventIndex += 1
-                away = false
             case .modeSwitch where !stopped:
-                lastEventIndex = steps.count
                 steps.append(.switchMode(ai: event.text == "ai"))
             case .stop:
                 stopped = true
@@ -430,28 +319,23 @@ final class DictationReplay {
                 break
             }
         }
-        return await run(setup, in: FakeApp(behaviour), steps, atStop: atStop, fallback: fallback, llm: llm)
+        // The user was somewhere else when they stopped (#77). When they switched is not
+        // recorded, and it does not matter: nothing is pasted before the stop.
+        if let destination = trace.setup.destination, destination != trace.setup.app {
+            steps.append(.switchTo(FakeApp(destination)))
+        }
+        return await run(setup, in: FakeApp(trace.setup.app ?? "TextEdit"), steps,
+                         atStop: atStop, fallback: fallback, llm: llm)
     }
 
     /// What the app pasted when the trace was recorded, in order.
     static func recordedPastes(_ trace: DictationTrace) -> [String] {
-        trace.events.filter { $0.kind == .paste || $0.kind == .stopPaste }.compactMap(\.text)
+        trace.events.filter { $0.kind == .stopPaste }.compactMap(\.text)
     }
 
-    /// `AppState.startRecording` → `beginDeliveryPlan`, then `SpeechEngine.startRecording`
-    /// → `setupRecordingSession`.
+    /// `SpeechEngine.startRecording` → `setupRecordingSession`.
     private func start(fallback: ScriptedSegment) {
-        // A live-preview recording never probes: nothing goes out early, so the tier is
-        // never used (`AppState.beginDeliveryPlan`).
-        let probed = app.accessibilityGranted && !setup.livePreview
-        let tier = DeliveryTier.resolve(isOwnSurface: false,
-                                        probe: probed ? app.behaviour.probe : .unavailable)
-        offersSpans = delivery.begin(tier: tier, aiMode: setup.aiMode, aiDraft: setup.aiDraft,
-                                     livePreview: setup.livePreview,
-                                     target: app, targetName: "FakeApp")
-
         layer.reset()
-        issuer.reset()
         layer.beginSegment()
 
         session = StreamingRecognitionSession(provider: provider, writer: AudioBufferWriter(),
@@ -463,16 +347,14 @@ final class DictationReplay {
         try! session.start()
     }
 
-    /// `SpeechEngine.setupRecordingSession`'s `onEvent`.
+    /// `SpeechEngine.setupRecordingSession`'s `onEvent`, and what the overlay then draws
+    /// (`ObservedOverlay`: `spanLayer.stableText` and `segmentProvisionalText`).
     private func handle(_ event: RecognitionEvent) {
         handledEvents += 1
         switch event {
         case .live(let committed, let partial):
             layer.ingest(committed: cleaned(committed), partial: cleaned(partial))
-            // `SpeechEngine.emitCommittedSpans`.
-            guard isRecording, offersSpans else { return }
-            let ready = issuer.take(from: layer)
-            if !ready.isEmpty { delivery.enqueue(ready) }
+            overlay.append(OverlayFrame(settled: layer.stableText, moving: layer.segmentProvisionalText))
         case .failure:
             break
         }
@@ -485,22 +367,13 @@ final class DictationReplay {
         case .streamBreaks: await emit(.failed(StreamBroke()))
         case .userTypes(let text, let anchor): app.userTypes(text, after: anchor)
         case .caretToEnd: app.moveCaretToEnd()
-        case .switchAway: app.isInFront = false
-        case .switchBack: app.isInFront = true
         case .focus(let field): app.focus(field)
-        case .holdLandings: app.holdsLandings = true
-        case .landPendingPastes:
-            app.holdsLandings = false
-            app.landPendingPastes()
-        case .switchMode(let ai):
-            if ai {
-                guard delivery.switchToAI() else {
-                    switchRefused = true
-                    return
-                }
-                offersSpans = false
-            }
-            aiMode = ai
+        case .switchMode(let ai): aiMode = ai
+        case .switchTo(let other):
+            front = other
+            speechTextInFront = false
+        case .openSpeechTextWindow:
+            speechTextInFront = true
         }
     }
 
@@ -515,61 +388,60 @@ final class DictationReplay {
         if handledEvents < expected { XCTFail("the session never handled \(event)") }
     }
 
-    /// `AppState.stopRecording` → `SpeechEngine.stopRecording` → `runFinalizePass` →
-    /// `AppState.handleTranscriptionResult` (→ `deliverAIResult`).
-    private func stop(llm: LLM) async -> (InlineDelivery.StopResult?, Bool?) {
-        // AppState.stopRecording: no more spans, the ledger stays.
-        offersSpans = false
-        delivery.stopOffering()
+    /// `AppState.stopRecording` → `SpeechEngine.stopRecording` →
+    /// `AppState.handleTranscriptionResult` (→ `refine` → `deliver`).
+    private func stop(llm: LLM, whileRewriting: [Step]) async -> InlineDelivery.StopResult {
+        // AppState.choosePasteDestination: fixed now, before anything else.
+        destination = InlineDelivery.destination(front: front, frontIsSpeechText: speechTextInFront, origin: app)
         // SpeechEngine.stopRecording: the tap is removed, the phase leaves `.recording`.
-        isRecording = false
         _ = session.pause()
+        // AppState.stopRecording → readFocusContext, from the destination, AI mode only.
+        if aiMode, let destination {
+            context = FocusContext.capture(appName: destination.name, bundleID: destination.bundleID,
+                                           windowTitle: destination.windowTitle, fieldLabels: [],
+                                           isSecureField: false)
+        }
         var outcome = await session.finish()
         outcome.text = cleaned(outcome.text)
 
         let finalText = outcome.text
         layer.commitSegment(outcome.text)
         layer.settleSegment()
-        var correctionApplied: Bool?
-        let hasFrozenSpans = layer.spans.contains { $0.state == .frozen }
-        // runFinalizePass → AppState.finalizeDelivery, which AI mode skips.
-        if !aiMode {
-            correctionApplied = delivery.finalize(text: layer.text, hasFrozenSpans: hasFrozenSpans)
-        }
 
-        // AppState.waitForTranscription: the result waits for a paste still landing.
-        var idle = false
-        delivery.whenIdle { idle = true }
-        app.holdsLandings = false
-        app.landPendingPastes()
-        if !idle { XCTFail("the stop is still waiting for a paste to land") }
-
-        let result = delivery.stopResult(finalText: finalText, failed: outcome.error != nil,
-                                         aiMode: aiMode, recordingText: layer.text)
+        let result = InlineDelivery.stopResult(finalText: finalText, failed: outcome.error != nil,
+                                               aiMode: aiMode, recordingText: layer.text)
         switch result {
-        case .paste(let remainder):
-            app.activateAndPaste(remainder)
+        case .paste(let text):
+            deliver(text)
         case .refine(let input):
+            // The model takes seconds, and the user may move meanwhile.
+            for step in whileRewriting { await perform(step) }
             var output = input
             if case .rewrites(let rewrite) = llm { output = rewrite }
-            let (paste, applied) = delivery.deliverAIResult(output, hasFrozenSpans: hasFrozenSpans)
-            correctionApplied = applied
-            if let paste { app.activateAndPaste(paste) }
-        case .failed, .noSpeech, .alreadyDelivered, .notPasted, .nothingLeft:
+            deliver(output)
+        case .failed(let partial):
+            recordWindow = partial
+        case .noSpeech:
             break
         }
-        return (result, correctionApplied)
+        return result
     }
 
-    /// `AppState.cancelInlineFlow` → `endInlineDelivery`, then `SpeechEngine.cancelRecording`.
+    /// `AppState.deliver`: the destination is brought forward and pasted into, or the text
+    /// goes to the Record Window when there is none.
+    private func deliver(_ text: String) {
+        guard let destination else {
+            recordWindow = text + " "
+            return
+        }
+        destination.activateAndPaste(text)
+        front = destination
+        speechTextInFront = false
+    }
+
+    /// `AppState.cancelInlineFlow` → `SpeechEngine.cancelRecording`.
     private func cancel() {
-        offersSpans = false
-        delivery.end()
-        isRecording = false
         layer.reset()
-        issuer.reset()
         session.cancel()
-        app.holdsLandings = false
-        app.landPendingPastes()
     }
 }

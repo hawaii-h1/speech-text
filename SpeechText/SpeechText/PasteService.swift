@@ -5,70 +5,12 @@ import Cocoa
 import ApplicationServices
 import Carbon.HIToolbox
 
-/// `InlineDelivery`'s window onto a real app: the app the recording started in, and the
-/// field that had focus then, reached through `PasteService`.
-final class AccessibilityDeliveryTarget: InlineDeliveryTarget {
-    let app: NSRunningApplication?
-    /// The field this recording delivers into, taken when the tier is decided. The stop's
-    /// correction runs only while this is still the focused element of the app in front:
-    /// the tier was decided for this field, not for whatever has focus by the stop.
-    private var element: AXUIElement?
-
-    init(app: NSRunningApplication?) {
-        self.app = app
-    }
-
-    var acceptsDeliveryNow: Bool {
-        guard PasteService.isAccessibilityGranted, let app,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
-            DictationTraceRecorder.record(.targetNotInFront)
-            return false
-        }
-        return true
-    }
-
-    func paste(_ text: String, completion: @escaping (PasteLanding?) -> Void) {
-        PasteService.pasteAtCursor(text) { landing in
-            DictationTraceRecorder.record(.paste, text: text,
-                                          landing: landing.map { $0.text == text ? .exact : .different } ?? .unknown)
-            completion(landing)
-        }
-    }
-
-    func captureFocusedField() {
-        element = PasteService.focusedElement(of: app)
-    }
-
-    func releaseFocusedField() {
-        element = nil
-    }
-
-    var isStillFocused: Bool {
-        guard let app, let element else { return false }
-        return PasteService.isStillFocused(element, in: app)
-    }
-
-    func replaceDelivered(ledger: inout InsertionLedger, with text: String) -> Bool {
-        guard let app else { return false }
-        return PasteService.replaceLastInsertions(ledger: &ledger, with: text, in: app)
-    }
-}
-
 struct PasteService {
     /// Pastes text at the current cursor position, preserving the user's clipboard.
     /// Saves clipboard contents, pastes via ⌘V, then restores the original clipboard.
-    ///
-    /// `completion` receives where the text landed, when that can be established: the
-    /// caret is read before the ⌘V and polled after it, and the range between is read
-    /// back out of `kAXValueAttribute`. It is nil whenever anything in that chain
-    /// refuses — no permission, no focused element, a caret that never moved — and a nil
-    /// landing means only that this paste cannot be corrected later, never that it failed.
-    static func pasteAtCursor(_ text: String, completion: ((PasteLanding?) -> Void)? = nil) {
+    static func pasteAtCursor(_ text: String) {
         let frontApp = NSWorkspace.shared.frontmostApplication
         dlog("Paste", "pasteAtCursor: \(text.count) chars \"\(text.prefix(80))\", trusted=\(AXIsProcessTrusted()), secureInput=\(IsSecureEventInputEnabled()), front=\(frontApp?.localizedName ?? "nil") (\(frontApp?.bundleIdentifier ?? "nil"))")
-
-        let element = completion == nil ? nil : focusedTextElement(of: frontApp)
-        let before = element.flatMap { selectedRange(of: $0) }
 
         let pasteboard = NSPasteboard.general
         stageClipboard(pasteboard, text: text)
@@ -79,160 +21,6 @@ struct PasteService {
         simulatePasteCGEvent()
 
         scheduleClipboardRestore(pasteboard)
-
-        guard let completion else { return }
-        guard let element, let before else {
-            completion(nil)
-            return
-        }
-        awaitLanding(in: element, startedAt: before, completion: completion)
-    }
-
-    // MARK: - Where the paste landed
-
-    /// Polls the caret until it moves, then reads the text between where it was and
-    /// where it is. The ⌘V is handled in another process on its own schedule, so there
-    /// is nothing to wait on but the caret itself.
-    ///
-    /// The poll deliberately waits for the caret to *change* rather than to advance by
-    /// the length of what was sent: an app with smart quotes or line-ending
-    /// normalisation on inserts a different number of characters than we handed it, and
-    /// a length test would wait out its whole timeout on every such app.
-    private static func awaitLanding(in element: AXUIElement,
-                                     startedAt before: NSRange,
-                                     attempt: Int = 0,
-                                     completion: @escaping (PasteLanding?) -> Void) {
-        // ~500ms in 20ms steps. Past that the paste either did not happen or went
-        // somewhere we cannot see, and either way there is nothing to record.
-        let maxAttempts = 25
-
-        guard let now = selectedRange(of: element), now != before else {
-            guard attempt < maxAttempts else {
-                dlog("Paste", "landing: caret never moved, nothing recorded")
-                completion(nil)
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-                awaitLanding(in: element, startedAt: before, attempt: attempt + 1, completion: completion)
-            }
-            return
-        }
-
-        // The paste replaced the selection, so it starts where the selection did and
-        // ends at the caret.
-        let start = before.location
-        let length = now.location - start
-        guard length > 0, let value = stringValue(of: element) else {
-            dlog("Paste", "landing: caret moved to \(now.location) from \(start) — no usable range")
-            completion(nil)
-            return
-        }
-
-        let document = value as NSString
-        guard NSMaxRange(NSRange(location: start, length: length)) <= document.length else {
-            dlog("Paste", "landing: range \(start)+\(length) is outside a \(document.length)-char value")
-            completion(nil)
-            return
-        }
-
-        let range = NSRange(location: start, length: length)
-        let landed = document.substring(with: range)
-        dlog("Paste", "landing: \(range.location)+\(range.length) \"\(landed.prefix(40))\"")
-        completion(PasteLanding(range: range, text: landed))
-    }
-
-    // MARK: - The finalizing pass
-
-    /// The focused text element of `app` — kept at the start of a recording so the stop
-    /// can tell whether it is still writing into the same field.
-    static func focusedElement(of app: NSRunningApplication?) -> AXUIElement? {
-        focusedTextElement(of: app)
-    }
-
-    /// Whether `app` is still in front with `element` still focused — the tier decided at
-    /// the start still describes where a write would go. Anything else (the user switched
-    /// apps, clicked into another field, closed the document) and the pass does not run.
-    static func isStillFocused(_ element: AXUIElement, in app: NSRunningApplication) -> Bool {
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier,
-              let now = focusedTextElement(of: app) else { return false }
-        return CFEqual(now, element)
-    }
-
-    /// Replaces everything `ledger` recorded in `app`'s focused field with `text`, in one
-    /// write, and records it. Every step checks before it changes anything; any refusal
-    /// returns false with the document untouched. Never simulates a backspace.
-    ///
-    /// 1. The focused element belongs to `app` and answers `kAXValueAttribute`.
-    /// 2. `FinalizePass.plan` finds all of the recorded text, untouched, as one range.
-    /// 3. That range is selected, and reading the selection back confirms it.
-    /// 4. The selection is written through `kAXSelectedTextAttribute`; an element that
-    ///    will not take that write gets a ⌘V over the confirmed selection instead, with
-    ///    the clipboard preserved as for every paste.
-    /// 5. The caret goes to the end of the new text.
-    static func replaceLastInsertions(ledger: inout InsertionLedger, with text: String,
-                                      in app: NSRunningApplication) -> Bool {
-        guard AXIsProcessTrusted(), let element = focusedTextElement(of: app) else {
-            dlog("Span", "correction refused: no focused element")
-            return false
-        }
-        var pid: pid_t = 0
-        guard AXUIElementGetPid(element, &pid) == .success, pid == app.processIdentifier,
-              let document = stringValue(of: element) else {
-            dlog("Span", "correction refused: the focused element is not \(app.localizedName ?? "the target")'s, or has no value")
-            return false
-        }
-
-        guard let plan = FinalizePass.plan(ledger: ledger, document: document, replacement: text) else {
-            dlog("Span", "correction refused: the delivered text is not all there, untouched, in one place")
-            return false
-        }
-
-        guard setSelectedRange(plan.range, of: element), selectedRange(of: element) == plan.range else {
-            dlog("Span", "correction refused: selecting \(plan.range.location)+\(plan.range.length) did not read back")
-            return false
-        }
-
-        var settable = DarwinBoolean(false)
-        let canWrite = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success
-            && settable.boolValue
-        let wroteThroughAX = canWrite
-            && AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, plan.text as CFString) == .success
-        if wroteThroughAX {
-            dlog("Span", "correction: replaced \(plan.range.location)+\(plan.range.length) through AX")
-        } else {
-            // The selection is confirmed, so ⌘V replaces exactly it.
-            dlog("Span", "correction: selected-text write refused — pasting over the confirmed selection")
-            pasteAtCursor(plan.text)
-        }
-
-        let length = (plan.text as NSString).length
-        // Only after an AX write. The ⌘V is handled by the app after this returns, so a
-        // caret move here would land first, collapse the confirmed selection, and the
-        // paste would put the corrected text *after* the old text instead of over it.
-        // The paste leaves the caret at the end of what it inserted on its own.
-        if wroteThroughAX {
-            _ = setSelectedRange(NSRange(location: plan.range.location + length, length: 0), of: element)
-        }
-
-        // What the app now holds there, when it can be read already. The ⌘V fallback has
-        // not landed yet when this runs, so its record is optimistic: the text as sent,
-        // at the confirmed selection.
-        var landed = plan.text
-        if wroteThroughAX, let value = stringValue(of: element) as NSString?,
-           plan.range.location + length <= value.length {
-            let read = value.substring(with: NSRange(location: plan.range.location, length: length))
-            if read != plan.text { dlog("Span", "correction: the app holds \"\(read.prefix(40))\", not what was written") }
-            landed = read
-        }
-        ledger.collapse(into: plan, landed: landed)
-        dlog("Span", "correction applied: \"\(plan.text.prefix(60))\"")
-        return true
-    }
-
-    private static func setSelectedRange(_ range: NSRange, of element: AXUIElement) -> Bool {
-        var value = CFRange(location: range.location, length: range.length)
-        guard let axValue = AXValueCreate(.cfRange, &value) else { return false }
-        return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
     }
 
     // MARK: - Reading a selection (the Edit shortcut)
@@ -245,8 +33,8 @@ struct PasteService {
 
     /// The selected text of the app in front, for the Edit shortcut to rewrite.
     ///
-    /// A field whose selection the AX API can read *and* re-select (Tier A, the same probe
-    /// the inline tier uses) is read directly, and the answer carries the range: when the
+    /// A field whose selection the AX API can read *and* re-select (Tier A, see
+    /// `probeFocusedText`) is read directly, and the answer carries the range: when the
     /// instruction is over, `select` finds those words again untouched and re-selects
     /// them before they are cut. Everything else — Chromium, Electron, terminals — is read
     /// with a ⌘C, the user's clipboard put back once the copy is in. Reading changes
@@ -437,6 +225,12 @@ struct PasteService {
         return .selected
     }
 
+    private static func setSelectedRange(_ range: NSRange, of element: AXUIElement) -> Bool {
+        var value = CFRange(location: range.location, length: range.length)
+        guard let axValue = AXValueCreate(.cfRange, &value) else { return false }
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
+    }
+
     /// Leaves `text` on the clipboard for the user — the result that could not be
     /// written where it belonged.
     static func copyToClipboard(_ text: String) {
@@ -461,9 +255,11 @@ struct PasteService {
         return pasteboard
     }
 
-    // MARK: - Tier probe
+    // MARK: - Tier probe (the Edit shortcut's selection read)
 
-    /// What the Accessibility API will let us do to this app's focused text element.
+    /// What the Accessibility API will let us do to this app's focused text element —
+    /// asked by `readSelection`, to decide whether the selection can be read and
+    /// re-selected through AX or has to be read with a ⌘C.
     ///
     /// The read-back is the whole point: Chromium answers `.success` to a selected-range
     /// write and then reports a different range, so only writing the range the element
@@ -473,11 +269,11 @@ struct PasteService {
     /// That write is only a no-op if the range we read is where the caret really is. A
     /// web or Electron field whose accessibility tree has just been woken by our first
     /// query answers `{0, 0}` whatever the caret's position, and writing that back moved
-    /// the caret to the start of the field — the dictation then landed *before* the text
+    /// the caret to the start of the field — a dictation then landed *before* the text
     /// already there. So a range that cannot be the caret's (`{0, 0}` in a non-empty
     /// field, or one past the end of the value) is never written, and the element probes
-    /// as Tier B. A field whose caret genuinely sits at the very start loses its
-    /// correction for that recording; that is the side to fail on.
+    /// as Tier B. A selection genuinely at the very start of its field is then read with
+    /// a ⌘C instead; that is the side to fail on.
     static func probeFocusedText(in app: NSRunningApplication?) -> AXTextProbe {
         guard AXIsProcessTrusted(), let element = focusedTextElement(of: app) else {
             return .unavailable
@@ -516,9 +312,10 @@ struct PasteService {
     /// Where the text is going: the app, its focused window's title and the focused
     /// field's label, or nil when there is nothing that may be sent (see `FocusContext.capture`).
     ///
-    /// Only the LLM pass after the stop reads this, so the caller takes it *after* the
-    /// microphone has been asked to start: these are round trips to another process, and
-    /// against a slow app they would otherwise be time the user loses a first syllable to.
+    /// Only the LLM pass reads this: an AI dictation takes it at the stop, from the app the
+    /// text is going to, and an edit after the microphone has been asked to start — these
+    /// are round trips to another process, and against a slow app they would otherwise be
+    /// time the user loses a first syllable to.
     static func readFocusContext(in app: NSRunningApplication?) -> FocusContext? {
         guard let target = app ?? NSWorkspace.shared.frontmostApplication,
               target.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
@@ -555,8 +352,8 @@ struct PasteService {
     }
 
     /// Set once, on the system-wide element, which makes it this process's default. The
-    /// system's own is six seconds *per call*, and the probe, the stop's correction and
-    /// an edit each make several on the main thread — against a hung Electron app that
+    /// system's own is six seconds *per call*, and the focus context and an edit each
+    /// make several on the main thread — against a hung Electron app that
     /// is a stop that appears to do nothing for half a minute.
     private static let messagingTimeout: Void = {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.5)
@@ -595,11 +392,11 @@ struct PasteService {
     /// The user's clipboard, taken before the first paste of a burst, and the restore
     /// waiting to put it back.
     ///
-    /// A recording that inserts each committed span pastes several times, and the
-    /// naive version — save, paste, restore in 1 s, per paste — corrupts the clipboard
+    /// Pastes come in bursts — a dictation straight after another, an edit's put-back
+    /// followed by the next — and the naive version — save, paste, restore in 1 s, per paste — corrupts the clipboard
     /// rather than preserving it: the second paste's "save" reads back the *first
-    /// paste's text*, and a second later the user's clipboard holds a fragment of their
-    /// own dictation. So the snapshot is taken once per burst and the pending restore is
+    /// paste's text*, and a second later the user's clipboard holds their own
+    /// dictation. So the snapshot is taken once per burst and the pending restore is
     /// cancelled and rescheduled, never re-taken.
     private static var savedClipboard: [NSPasteboardItem]?
     private static var pendingRestore: DispatchWorkItem?
@@ -612,7 +409,7 @@ struct PasteService {
     private static func stageClipboard(_ pasteboard: NSPasteboard, text: String) {
         // The first paste of a burst takes the snapshot. A later one takes it again
         // only if the pasteboard changed under us since our last write — the user
-        // pressed ⌘C between two spans — so what goes back at the end is their copy,
+        // pressed ⌘C between two pastes — so what goes back at the end is their copy,
         // not the pre-dictation contents over it.
         if pendingRestore == nil || pasteboard.changeCount != stagedChangeCount {
             savedClipboard = saveClipboard(pasteboard)

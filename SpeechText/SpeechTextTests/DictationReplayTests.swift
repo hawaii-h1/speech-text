@@ -3,24 +3,25 @@
 
 import XCTest
 
-// The cases of docs/manual-testing.md that are about text rather than about macOS —
-// what lands in the document, once, where — replayed through `DictationReplay`. Each test
-// is named after its checklist row. The row still exists for what a replay cannot show:
-// whether the real app answers the Accessibility API the way `FakeApp` was told to.
+// Whole dictations replayed through `DictationReplay`: what lands in the document, once,
+// where. Where a test is named after a row of docs/manual-testing.md, the row still exists
+// for what a replay cannot show — whether the real app takes the paste.
 
-/// The document a dictation leaves when its stop pasted the tail: `text`, followed by the
-/// trailing space `AppState.deliver` adds so a dictation continued into the same field does
-/// not start glued to this one. A recording whose every word went out while the user spoke
-/// has no stop paste, and is asserted with a plain `XCTAssertEqual`.
+/// The document a dictation leaves: `text`, followed by the trailing space
+/// `AppState.deliver` adds so a dictation continued into the same field does not start
+/// glued to this one.
 private func assertDocument(_ document: String, _ text: String,
                             file: StaticString = #filePath, line: UInt = #line) {
     XCTAssertEqual(document, text + " ", file: file, line: line)
 }
 
-// MARK: - Tiers (T)
+// MARK: - One paste, at the stop
 
+/// Every inline dictation is shown on the overlay while the user speaks and pasted once,
+/// at the stop (#75). `DictationReplay.run` asserts that nothing reached the app before
+/// the stop on every replay; these pin down what the one paste holds.
 @MainActor
-final class TierReplayTests: XCTestCase {
+final class PasteOnceReplayTests: XCTestCase {
 
     override func tearDown() {
         TranscriptJoin.isWord = { _ in false }
@@ -38,41 +39,38 @@ final class TierReplayTests: XCTestCase {
         .committed("А це друге."),
     ]
 
-    /// T1: pasted in pieces while speaking, nothing pasted a second time at the stop.
-    func testT1_TextEditGetsEachSentenceOnce() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), twoSentences)
+    /// The overlay shows each sentence as it arrives; the app gets both, once, at the stop.
+    func testTheOverlayShowsTheTextAndTheStopPastesItOnce() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(in: app, twoSentences)
 
-        XCTAssertEqual(run.document, "Привіт, це перше речення. А це друге.")
-        XCTAssertTrue(run.logged("tier A (correctable)"))
-        XCTAssertTrue(run.logged("finalize: extend"))
-        XCTAssertTrue(run.logged("0 left to paste"))
-        XCTAssertEqual(run.stop, .nothingLeft)
-        XCTAssertNil(run.correctionApplied)
+        XCTAssertEqual(run.overlay.first?.moving, "Привіт")
+        XCTAssertEqual(run.overlay.last?.settled, "Привіт, це перше речення. А це друге.")
+        assertDocument(run.document, "Привіт, це перше речення. А це друге.")
+        XCTAssertEqual(app.pastes.count, 1)
+        XCTAssertEqual(run.stop, .paste("Привіт, це перше речення. А це друге."))
     }
 
-    /// T2: a terminal gets the same pieces, and nothing is ever rewritten.
-    func testT2_TerminalGetsCommittedPiecesOnly() async {
-        let run = await DictationReplay.run(in: FakeApp(.terminal), twoSentences)
-
-        XCTAssertEqual(run.document, "Привіт, це перше речення. А це друге.")
-        XCTAssertTrue(run.logged("tier B (append-only)"))
-        XCTAssertTrue(run.logged("landing unknown"))
-        XCTAssertEqual(run.stop, .nothingLeft)
-    }
-
-    /// T3: Chromium's range write does not read back, so a browser is Tier B.
-    func testT3_BrowserIsAppendOnly() async {
-        let run = await DictationReplay.run(in: FakeApp(.chromium), twoSentences)
-
-        XCTAssertEqual(run.document, "Привіт, це перше речення. А це друге.")
-        XCTAssertTrue(run.logged("tier B (append-only)"))
-    }
-
-    /// A partial is never pasted, in any tier: the words still moving at the stop arrive
-    /// with the stop.
-    func testPartialsAreNeverPasted() async {
-        let app = FakeApp(.textEdit)
+    /// A pause mid-sentence: Scribe commits it with a full stop, then re-states it with a
+    /// comma once the user carries on. The full stop was only ever on the overlay, which is
+    /// the reason nothing goes out early — text already in another app cannot take it back.
+    func testAPauseMidSentenceIsPastedInItsFinalForm() async {
+        let app = FakeApp("Terminal")
         let run = await DictationReplay.run(in: app, [
+            .partial("Я думаю, що ми зробимо"),
+            .committed("Я думаю, що ми зробимо."),
+            .partial("Я думаю, що ми зробимо, потім"),
+            .committed("Я думаю, що ми зробимо, потім перевіримо."),
+        ])
+
+        XCTAssertTrue(run.overlay.contains { $0.settled == "Я думаю, що ми зробимо." })
+        assertDocument(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
+        XCTAssertEqual(app.pastes.count, 1)
+    }
+
+    /// A partial still moving at the stop arrives with the stop, in its final form.
+    func testTheWordsStillMovingAtTheStopArriveWithIt() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
             .committed("Перше."),
             .partial("Друге ще"),
         ], atStop: [.committed("Друге ще не закінчене.")])
@@ -80,338 +78,209 @@ final class TierReplayTests: XCTestCase {
         assertDocument(run.document, "Перше. Друге ще не закінчене.")
     }
 
-    /// T5: switched to another app mid-dictation and back. Nothing goes into the other
-    /// app, and the words said while away still reach the document.
-    func testT5_SwitchingAwayAndBackLosesNothing() async {
-        let app = FakeApp(.textEdit)
+    /// Typing while dictating is the user's: it stays where it was typed, and the
+    /// dictation goes in at the caret.
+    func testTextTypedWhileSpeakingIsLeftAlone() async {
+        let app = FakeApp()
         let run = await DictationReplay.run(in: app, [
-            .committed("Перше речення."),
-            .switchAway,
-            .committed("Друге, поки я деінде."),
-            .switchBack,
-            .committed("Третє вже тут."),
+            .committed("Зроблю це завтра."),
+            .userTypes("Нотатка: ", after: nil),
         ])
 
-        XCTAssertEqual(app.elsewhere, "")
-        XCTAssertTrue(run.logged("not delivering now — the target app is not in front; the stop will"))
-        XCTAssertEqual(run.document, "Перше речення. Друге, поки я деінде. Третє вже тут.")
+        XCTAssertEqual(run.document, "Нотатка: Зроблю це завтра. ")
     }
 
-    /// T5 in a terminal, where the stop cannot put the missing sentence back in the middle.
-    func testT5_SwitchingAwayAndBackInATerminalLosesNothing() async {
-        let app = FakeApp(.terminal)
+    /// A cancel pastes nothing at all.
+    func testACancelPastesNothing() async {
+        let app = FakeApp()
         let run = await DictationReplay.run(in: app, [
-            .committed("Перше речення."),
-            .switchAway,
-            .committed("Друге, поки я деінде."),
-            .switchBack,
-            .committed("Третє вже тут."),
-        ])
-
-        XCTAssertEqual(app.elsewhere, "")
-        XCTAssertEqual(run.document, "Перше речення. Друге, поки я деінде. Третє вже тут.")
-    }
-
-    /// T5, never coming back before the stop: what was said while away goes in at the
-    /// stop, after what was pasted before.
-    func testT5_WordsSaidWhileAwayArriveAtTheStop() async {
-        let app = FakeApp(.terminal)
-        let run = await DictationReplay.run(in: app, [
-            .committed("Перше речення."),
-            .switchAway,
-            .committed("Друге, поки я деінде."),
-            .committed("І третє."),
-        ])
-
-        XCTAssertEqual(app.elsewhere, "")
-        assertDocument(run.document, "Перше речення. Друге, поки я деінде. І третє.")
-    }
-
-    /// T7: a cancel keeps what was pasted and pastes nothing more.
-    func testT7_CancelKeepsWhatWasPastedAndAddsNothing() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), [
             .committed("Перше."),
             .committed("Друге."),
         ], atStop: [.committed("Третє.")], cancelInsteadOfStopping: true)
 
-        XCTAssertEqual(run.document, "Перше. Друге.")
+        XCTAssertEqual(run.document, "")
+        XCTAssertTrue(app.pastes.isEmpty)
         XCTAssertNil(run.stop)
     }
 
-    /// A cancel while a paste is still landing releases anyone waiting for it: the stop's
-    /// wait must not outlive the recording it belonged to.
-    func testT7_ACancelReleasesAWaitForAPasteInFlight() {
-        let app = FakeApp(.textEdit)
-        app.holdsLandings = true
-        let delivery = InlineDelivery()
-        XCTAssertTrue(delivery.begin(tier: .a, aiMode: false, aiDraft: false, target: app, targetName: nil))
-        delivery.enqueue([TranscriptSpan(id: TranscriptSpanID(rawValue: 1), segment: 1, text: "Перше.", state: .committed)])
-        XCTAssertTrue(delivery.isDeliveringSpan)
-
-        var released = false
-        delivery.whenIdle { released = true }
-        XCTAssertFalse(released)
-        delivery.end()
-        XCTAssertTrue(released)
-    }
-
-    /// T10: words committed only by the stop are separated from the text before them
-    /// ("Поїха. Ііі…", not "Поїха.Ііі…").
-    func testT10_TheStopsTailKeepsItsSpace() async {
-        let run = await DictationReplay.run(in: FakeApp(.terminal), [
-            .committed("Ну що, поїха."),
-            .partial("Ііі далі"),
-        ], atStop: [.committed("Ііі далі йдемо.")])
-
-        assertDocument(run.document, "Ну що, поїха. Ііі далі йдемо.")
-        XCTAssertTrue(run.logged("left to paste"))
-    }
-
-    /// T11: a second dictation straight after the first, with nothing typed between.
+    /// T11: a second dictation straight after the first, with nothing typed between. The
+    /// first one's trailing space separates them.
     func testT11_ASecondDictationIsSeparatedFromTheFirst() async {
-        let app = FakeApp(.textEdit)
+        let app = FakeApp()
         _ = await DictationReplay.run(in: app, [.committed("Треба це виправити.")])
         _ = await DictationReplay.run(in: app, [.committed("Роблю це зараз.")])
 
-        XCTExpectFailure("Known: the first paste of a dictation never opens with a space, because the app does not read what is before the caret — manual-testing.md T11") {
-            XCTAssertEqual(app.document, "Треба це виправити. Роблю це зараз.")
-        }
+        assertDocument(app.document, "Треба це виправити. Роблю це зараз.")
     }
 
     /// T12: Scribe closed a segment inside a word ("база дани" | "х, звідки").
     func testT12_AWordCutByTheStreamIsGluedBack() async {
         TranscriptJoin.isWord = { ["даних", "база", "звідки"].contains($0.lowercased()) }
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), [
+        let run = await DictationReplay.run(in: FakeApp(), [
             .committed("Ось нова база дани"),
             .committed("х, звідки ми читаємо."),
         ])
 
-        XCTAssertEqual(run.document, "Ось нова база даних, звідки ми читаємо.")
+        assertDocument(run.document, "Ось нова база даних, звідки ми читаємо.")
         XCTAssertTrue(run.logged("(joins previous)"))
     }
 
     /// The doubled dictation: Scribe re-states everything it has committed, grown by a
     /// word or two, as the next partial and then as the next commit.
     func testARestatedTranscriptIsNotPastedTwice() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), [
+        let run = await DictationReplay.run(in: FakeApp(), [
             .committed("Що там узагалі нового?"),
             .partial("Що там узагалі нового? Це"),
             .committed("Що там узагалі нового? Це нові задачі?"),
         ])
 
-        XCTAssertEqual(run.document, "Що там узагалі нового? Це нові задачі?")
+        assertDocument(run.document, "Що там узагалі нового? Це нові задачі?")
     }
 
-    /// Hesitations are cleaned before they become spans, so the stop's text still
-    /// extends what was pasted.
+    /// Hesitations are cleaned before they become spans — off the overlay as well as out
+    /// of the document.
     func testHesitationsNeverReachTheDocument() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), [
+        let run = await DictationReplay.run(in: FakeApp(), [
             .committed("Я думаю, е-е-е, що так."),
             .committed("Мммм, ну добре."),
         ])
 
         XCTAssertFalse(run.document.contains("е-е-е"))
-        XCTAssertTrue(run.logged("finalize: extend"))
+        XCTAssertFalse(run.overlay.contains { $0.text.contains("е-е-е") })
     }
+}
 
-    /// A paste still landing when the stop's result is handled: the stop must not paste
-    /// the same words again.
-    func testAPasteStillLandingAtTheStopIsNotPastedAgain() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), [
-            .committed("Перше речення."),
-            .holdLandings,
-            .committed("Друге речення."),
+// MARK: - Where the paste goes (#77)
+
+/// The one paste lands in the app in front when the user stopped, whatever app the
+/// dictation began in — and everything after the stop is handed that app.
+@MainActor
+final class PasteDestinationReplayTests: XCTestCase {
+
+    /// Start in one app, switch, keep talking, stop: the text is in the second app, and
+    /// the first gets nothing.
+    func testTheDictationIsPastedWhereItEnded() async {
+        let textEdit = FakeApp("TextEdit"), notes = FakeApp("Notes")
+        let run = await DictationReplay.run(in: textEdit, [
+            .committed("Почав тут."),
+            .switchTo(notes),
+            .committed("А закінчив там."),
         ])
 
-        XCTAssertEqual(run.document, "Перше речення. Друге речення.")
+        XCTAssertTrue(run.destination === notes)
+        assertDocument(notes.document, "Почав тут. А закінчив там.")
+        XCTAssertTrue(textEdit.pastes.isEmpty)
+    }
+
+    /// Away and back before the stop: the origin is where it ended.
+    func testSwitchingBackBeforeTheStopPastesInTheOrigin() async {
+        let textEdit = FakeApp("TextEdit"), notes = FakeApp("Notes")
+        let run = await DictationReplay.run(in: textEdit, [
+            .committed("Перше."),
+            .switchTo(notes),
+            .committed("Друге."),
+            .switchTo(textEdit),
+        ])
+
+        assertDocument(run.document, "Перше. Друге.")
+        XCTAssertTrue(notes.pastes.isEmpty)
+    }
+
+    /// AI mode: the prompt is told about the app the dictation ended in, and the rewrite
+    /// lands there even though the user moved on while the model worked — the app they
+    /// stopped in is brought back for the paste.
+    func testTheRewriteGoesWhereTheDictationEndedEvenIfTheUserMovesAgain() async {
+        let mail = FakeApp("Mail", bundleID: "com.apple.mail", windowTitle: "Re: plan")
+        let slack = FakeApp("Slack", bundleID: "com.tinyspeck.slackmacgap", windowTitle: "#general")
+        let textEdit = FakeApp("TextEdit")
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: mail, [
+            .committed("скажи всім що я запізнюсь"),
+            .switchTo(slack),
+        ], llm: .rewrites("Запізнюся на кілька хвилин."), whileRewriting: [.switchTo(textEdit)])
+
+        XCTAssertEqual(run.context?.appName, "Slack")
+        XCTAssertEqual(run.context?.bundleID, "com.tinyspeck.slackmacgap")
+        assertDocument(slack.document, "Запізнюся на кілька хвилин.")
+        XCTAssertTrue(mail.pastes.isEmpty)
+        XCTAssertTrue(textEdit.pastes.isEmpty)
+    }
+
+    /// The password-manager exclusion is judged on the app the text goes to: started in
+    /// Mail, stopped in 1Password — no context at all.
+    func testStoppingInAPasswordManagerSendsNoContext() async {
+        let mail = FakeApp("Mail", bundleID: "com.apple.mail", windowTitle: "Re: plan")
+        let vault = FakeApp("1Password", bundleID: "com.1password.1password", windowTitle: "Personal")
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: mail, [
+            .committed("нотатка до запису"),
+            .switchTo(vault),
+        ], llm: .rewrites("Нотатка до запису."))
+
+        XCTAssertTrue(run.destination === vault)
+        XCTAssertNil(run.context)
+    }
+
+    /// …and a plain dictation reads no context at all.
+    func testAPlainDictationReadsNoContext() async {
+        let run = await DictationReplay.run(in: FakeApp("Mail", bundleID: "com.apple.mail"),
+                                            [.committed("Привіт.")])
+        XCTAssertNil(run.context)
+    }
+
+    /// SpeechText's own window in front at the stop (Settings, History): the app never
+    /// pastes into itself, so the dictation goes where it started.
+    func testSpeechTextsOwnWindowAtTheStopPastesWhereItStarted() async {
+        let textEdit = FakeApp("TextEdit")
+        let run = await DictationReplay.run(in: textEdit, [
+            .committed("Відкрив налаштування посеред диктування."),
+            .openSpeechTextWindow,
+        ])
+
+        XCTAssertTrue(run.destination === textEdit)
+        assertDocument(textEdit.document, "Відкрив налаштування посеред диктування.")
     }
 }
 
-// MARK: - Live transcript on the overlay (L)
-
-/// A streaming recording shows its text on the overlay and pastes it once at the stop —
-/// `InlineDelivery.begin(livePreview:)`. What these pin down is the reason it exists: a
-/// sentence Scribe closed on a pause and reopened a moment later reaches the document in
-/// its final form, in every tier.
-@MainActor
-final class LiveTranscriptReplayTests: XCTestCase {
-
-    /// A pause mid-sentence: Scribe commits it with a full stop, then re-states it with a
-    /// comma once the user carries on.
-    private let pauseMidSentence: [DictationReplay.Step] = [
-        .partial("Я думаю, що ми зробимо"),
-        .committed("Я думаю, що ми зробимо."),
-        .partial("Я думаю, що ми зробимо, потім"),
-        .committed("Я думаю, що ми зробимо, потім перевіримо."),
-    ]
-    private let live = DictationReplay.Setup(livePreview: true)
-
-    /// L1: a terminal — which can never take back a pasted full stop — gets the
-    /// re-punctuated sentence, in one paste.
-    func testL1_TheCorrectedSentenceIsPastedOnceInATerminal() async {
-        let app = FakeApp(.terminal)
-        let run = await DictationReplay.run(live, in: app, pauseMidSentence)
-
-        assertDocument(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
-        XCTAssertEqual(app.pastes.count, 1)
-        XCTAssertTrue(run.logged("shown on the overlay, pasted at the stop"))
-    }
-
-    /// L2: the same in TextEdit, where nothing is left for the finalizing pass to correct.
-    func testL2_NothingGoesOutWhileSpeakingInTextEdit() async {
-        let app = FakeApp(.textEdit)
-        let run = await DictationReplay.run(live, in: app, pauseMidSentence)
-
-        assertDocument(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
-        XCTAssertEqual(app.pastes.count, 1)
-        XCTAssertNil(run.correctionApplied)
-    }
-
-    /// L3: the AI draft setting does not bring early pastes back — the rewrite is the
-    /// only thing pasted.
-    func testL3_AIDraftIsNotPastedWithALiveTranscript() async {
-        let app = FakeApp(.textEdit)
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true, livePreview: true),
-                                            in: app, pauseMidSentence, llm: .rewrites("Зробимо, потім перевіримо."))
-
-        assertDocument(run.document, "Зробимо, потім перевіримо.")
-        XCTAssertEqual(app.pastes.count, 1)
-    }
-}
-
-// MARK: - The finalizing pass (F)
+// MARK: - A stream that broke
 
 @MainActor
-final class FinalizeReplayTests: XCTestCase {
+final class StreamFallbackReplayTests: XCTestCase {
 
-    /// What was pasted before the Wi-Fi dropped, and the batch upload's version of the
-    /// whole recording — first word revised, one more sentence after (12:22, 17.09).
+    /// What the stream committed before the Wi-Fi dropped, and the batch upload's version
+    /// of the whole recording — first word revised, one more sentence after (12:22, 17.09).
     private let beforeTheDrop: [DictationReplay.Step] = [
         .committed("Зроблю це ввечері, коли повернусь додому."),
         .streamBreaks,
     ]
     private let batchVersion = "Роблю це ввечері, коли повернусь додому. І ще одне речення."
 
-    /// F1: one replacement, in place, no second copy.
-    func testF1_TextEditIsCorrectedInOneWrite() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), beforeTheDrop,
+    /// The upload's version is pasted, once — with the sentence said after the drop. When
+    /// the stream's text was already in the document this took a correction the app could
+    /// refuse; now it is simply the one paste.
+    func testTheUploadsVersionIsTheOnePaste() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(in: app, beforeTheDrop,
                                             fallback: ScriptedSegment(text: batchVersion))
 
-        XCTAssertEqual(run.document, batchVersion)
-        XCTAssertEqual(run.correctionApplied, true)
+        XCTAssertTrue(run.overlay.contains { $0.settled.hasPrefix("Зроблю") })
+        assertDocument(run.document, batchVersion)
+        XCTAssertEqual(app.pastes.count, 1)
         XCTAssertTrue(run.logged("falling back to batch upload"))
-        XCTAssertTrue(run.logged("finalize: replace"))
-        XCTAssertEqual(run.stop, .nothingLeft)
     }
 
-    /// F2 + F6: a terminal is never corrected, and the sentence said after the drop still
-    /// arrives.
-    func testF2_TerminalIsLeftAloneAndTheTailStillArrives() async {
-        let run = await DictationReplay.run(in: FakeApp(.terminal), beforeTheDrop,
-                                            fallback: ScriptedSegment(text: batchVersion))
-
-        assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. І ще одне речення.")
-        XCTAssertEqual(run.correctionApplied, false)
-        XCTAssertTrue(run.logged("finalize: leave"))
-    }
-
-    /// F3: a word typed inside the pasted text is the user's, and it stays.
-    func testF3_AHandEditIsNotOverwritten() async {
-        let app = FakeApp(.textEdit)
-        let run = await DictationReplay.run(in: app, beforeTheDrop + [
-            .userTypes("обов'язково ", after: "Зроблю це "),
-            .caretToEnd,
-        ], fallback: ScriptedSegment(text: batchVersion))
-
-        XCTAssertTrue(run.document.hasPrefix("Зроблю це обов'язково завтра"))
-        XCTAssertEqual(run.correctionApplied, false)
-        XCTAssertTrue(run.logged("correction refused: the delivered text is not all there, untouched, in one place"))
-    }
-
-    /// F4: focus moved to another app — nothing is pasted there, and nothing is corrected.
-    func testF4_FocusMovedMeansNoCorrection() async {
-        let app = FakeApp(.textEdit)
-        let run = await DictationReplay.run(in: app, [
-            .committed("Зроблю це ввечері, коли повернусь додому."),
-            .switchAway,
-            .committed("А ще подзвоню."),
-            .streamBreaks,
-        ], fallback: ScriptedSegment(text: "Роблю це ввечері, коли повернусь додому. А ще подзвоню."))
-
-        XCTAssertEqual(app.elsewhere, "")
-        XCTAssertTrue(run.logged("not delivering now — the target app is not in front; the stop will"))
-        XCTAssertTrue(run.logged("the app or the focused field changed since the recording started — not correcting"))
-        XCTAssertEqual(run.correctionApplied, false)
-        assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. А ще подзвоню.")
-    }
-
-    /// F5: another document of the same app. Recorded as it behaves today: the check
-    /// while speaking is by app, so later pieces follow the focus into the second
-    /// document, and the stop does not correct either one.
-    func testF5_AnotherDocumentOfTheSameApp() async {
-        let app = FakeApp(.textEdit)
-        let run = await DictationReplay.run(in: app, [
-            .committed("Перше речення."),
-            .focus("second"),
-            .committed("Друге речення."),
-        ])
-
-        XCTAssertEqual(app.document, "Перше речення.")
-        XCTAssertEqual(app.fields["second"]?.text, " Друге речення.")
-        XCTAssertNil(run.correctionApplied)
-    }
-
-    /// T5 + F1: away for a sentence, back, then the stream broke and the batch upload
-    /// re-worded the start. The words said while away were never pasted, so the one
-    /// replacement has to bring them in too — once.
-    func testF1_ACorrectionAfterSwitchingAwayPutsEverythingInOnce() async {
-        let app = FakeApp(.textEdit)
-        let run = await DictationReplay.run(in: app, [
-            .committed("Зроблю це ввечері, коли повернусь додому."),
-            .switchAway,
-            .committed("Подзвоню з дороги."),
-            .switchBack,
-            .committed("І ще одне речення."),
-            .streamBreaks,
-        ], fallback: ScriptedSegment(text: "Роблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення."))
-
-        XCTAssertEqual(app.elsewhere, "")
-        XCTAssertEqual(run.document, "Роблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
-        XCTAssertEqual(run.correctionApplied, true)
-    }
-
-    /// F6 in Tier A with a correction refused: the landing could not be read and the app
-    /// refuses the selection, yet the sentence said after the drop still arrives.
-    func testF6_TheTailArrivesWhenTheCorrectionIsRefused() async {
-        let run = await DictationReplay.run(in: FakeApp(.electronThatLies), beforeTheDrop,
-                                            fallback: ScriptedSegment(text: batchVersion))
-
-        assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. І ще одне речення.")
-        XCTAssertEqual(run.correctionApplied, false)
-    }
-
-    /// F6 when the re-wording is too different to find the seam: nothing more is pasted,
-    /// and the user is told rather than left with two versions.
-    func testF6_ATextTooDifferentIsNotPastedUnderTheFirst() async {
-        let run = await DictationReplay.run(in: FakeApp(.terminal), beforeTheDrop,
-                                            fallback: ScriptedSegment(text: "Завтра вранці в офісі все зроблю. І ще одне речення."))
-
-        XCTAssertEqual(run.document, "Зроблю це ввечері, коли повернусь додому.")
-        XCTAssertEqual(run.stop, .notPasted)
-    }
-
-    /// A stream that broke and a batch upload that failed too: the document keeps what
-    /// was pasted, and the failure is surfaced.
+    /// A stream that broke and an upload that failed too: nothing is pasted, the failure
+    /// is surfaced, and what the stream did commit goes to the Record Window.
     func testBothHalvesFailing() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), beforeTheDrop,
+        let run = await DictationReplay.run(in: FakeApp(), beforeTheDrop,
                                             fallback: ScriptedSegment(error: "offline"))
 
-        XCTAssertEqual(run.document, "Зроблю це ввечері, коли повернусь додому.")
-        if case .failed = run.stop {} else { XCTFail("expected .failed, got \(String(describing: run.stop))") }
+        XCTAssertEqual(run.document, "")
+        guard case .failed = run.stop else {
+            return XCTFail("expected .failed, got \(String(describing: run.stop))")
+        }
     }
 }
 
-// MARK: - AI mode (A)
+// MARK: - AI mode
 
 @MainActor
 final class AIReplayTests: XCTestCase {
@@ -421,64 +290,25 @@ final class AIReplayTests: XCTestCase {
     ]
     private let rewrite = "Буду за пів години."
 
-    /// A1: no draft — nothing while speaking, one paste of the rewrite.
-    func testA1_WithoutADraftOnlyTheRewriteIsPasted() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: FakeApp(.textEdit),
+    /// Nothing while speaking, one paste of the rewrite.
+    func testOnlyTheRewriteIsPasted() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: app,
                                             dictation, llm: .rewrites(rewrite))
 
         assertDocument(run.document, rewrite)
-        XCTAssertTrue(run.logged("buffering until the stop"))
+        XCTAssertEqual(app.pastes.count, 1)
+        XCTAssertEqual(run.stop, .refine(input: "ну короче напиши що я буду за пів години"))
     }
 
-    /// A2: the draft is replaced by the rewrite, in one write.
-    func testA2_TheDraftIsReplacedInTextEdit() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
-                                            in: FakeApp(.textEdit), dictation, llm: .rewrites(rewrite))
+    /// The model failed: the dictation is pasted as it was said, once.
+    func testAFailedRewritePastesTheDictationOnce() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: app,
+                                            dictation, llm: .fails)
 
-        XCTAssertEqual(run.document, rewrite)
-        XCTAssertTrue(run.logged("AI draft: replace"))
-        XCTAssertEqual(run.correctionApplied, true)
-    }
-
-    /// A3: no draft in a terminal, where it could not be taken back.
-    func testA3_NoDraftInATerminal() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
-                                            in: FakeApp(.terminal), dictation, llm: .rewrites(rewrite))
-
-        assertDocument(run.document, rewrite)
-        XCTAssertTrue(run.logged("tier B (append-only)"))
-        XCTAssertTrue(run.logged("buffering until the stop"))
-    }
-
-    /// A5: an Electron app that refuses the replacement ends up with both — the user's
-    /// choice: the rewrite matters more than the draft staying out of the way.
-    func testA5_ARefusedReplacementPastesTheRewriteAfterTheDraft() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
-                                            in: FakeApp(.electronThatLies), dictation, llm: .rewrites(rewrite))
-
-        assertDocument(run.document, "ну короче напиши що я буду за пів години \(rewrite)")
-        XCTAssertTrue(run.logged("AI draft could not be replaced — pasting the AI result as well"))
-        XCTAssertEqual(run.correctionApplied, false)
-    }
-
-    /// A6: a hand edit in the draft is kept; the rewrite goes after it, separated.
-    func testA6_AnEditedDraftIsKept() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
-                                            in: FakeApp(.textEdit),
-                                            dictation + [.userTypes("!", after: "короче"), .caretToEnd],
-                                            llm: .rewrites(rewrite))
-
-        assertDocument(run.document, "ну короче! напиши що я буду за пів години \(rewrite)")
-        XCTAssertTrue(run.logged("correction refused"))
-    }
-
-    /// A7: the LLM failed — the draft stays and no second copy of it is pasted.
-    func testA7_AFailedRewriteLeavesTheDraftOnce() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
-                                            in: FakeApp(.textEdit), dictation, llm: .fails)
-
-        XCTAssertEqual(run.document, "ну короче напиши що я буду за пів години")
-        XCTAssertTrue(run.logged("AI draft: extend"))
+        assertDocument(run.document, "ну короче напиши що я буду за пів години")
+        XCTAssertEqual(app.pastes.count, 1)
     }
 }
 
@@ -505,38 +335,67 @@ final class RecordedTraceTests: XCTestCase {
             let trace = try DictationTrace.decode(Data(contentsOf: file))
             let run = await DictationReplay.run(trace)
             let name = file.lastPathComponent
+            let pastedInto = run.destination ?? run.app
             if let expected = trace.expectedDocument {
-                XCTAssertEqual(run.document, expected, "\(name): the document")
+                XCTAssertEqual(pastedInto.document, expected, "\(name): the document")
             } else {
-                XCTAssertEqual(run.app.pastes, DictationReplay.recordedPastes(trace),
+                XCTAssertEqual(pastedInto.pastes, DictationReplay.recordedPastes(trace),
                                "\(name): the pastes differ from the recording — if the change is intended, review the trace and set expectedDocument")
             }
         }
     }
 
-    /// The recorder's output reads back, and replays into the pastes it recorded.
+    /// The recorder's output reads back, and replays into the paste it recorded.
     func testATraceRoundTripsAndReplays() async throws {
-        let recorder = DictationTraceRecorder(setup: DictationTrace.Setup(
-            app: "TextEdit", probe: .init(valueReadable: true, rangeReadable: true, rangeReadsBack: true)))
+        let recorder = DictationTraceRecorder(setup: DictationTrace.Setup(app: "TextEdit"))
         recorder.record(.partial, text: "Зроблю це")
         recorder.record(.committed, text: "Зроблю це ввечері, коли повернусь додому.")
-        recorder.record(.paste, text: "Зроблю це ввечері, коли повернусь додому.", landing: .exact)
         recorder.record(.committed, text: "Подзвоню з дороги.")
-        recorder.record(.targetNotInFront)
         recorder.record(.stop)
         recorder.record(.committed, text: "І ще одне речення.")
-        recorder.record(.stopPaste, text: " Подзвоню з дороги. І ще одне речення. ")
+        recorder.record(.stopPaste, text: "Зроблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення. ")
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = try XCTUnwrap(recorder.write(into: directory))
         let trace = try DictationTrace.decode(Data(contentsOf: url))
         XCTAssertEqual(trace.events.map(\.kind),
-                       [.partial, .committed, .paste, .committed, .targetNotInFront, .stop, .committed, .stopPaste])
+                       [.partial, .committed, .committed, .stop, .committed, .stopPaste])
 
         let run = await DictationReplay.run(trace)
         XCTAssertEqual(run.app.pastes, DictationReplay.recordedPastes(trace))
         assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
+    }
+
+    /// A trace records where the dictation started and where it was pasted, and replays
+    /// into the second.
+    func testATraceRecordsBothApps() async throws {
+        let recorder = DictationTraceRecorder(setup: DictationTrace.Setup(app: "Mail"))
+        DictationTraceRecorder.current = recorder
+        defer { DictationTraceRecorder.current = nil }
+        recorder.record(.committed, text: "Почав у пошті.")
+        DictationTraceRecorder.recordDestination("Slack")
+        recorder.record(.stop)
+        recorder.record(.stopPaste, text: "Почав у пошті. ")
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let trace = try DictationTrace.decode(Data(contentsOf: XCTUnwrap(recorder.write(into: directory))))
+        XCTAssertEqual(trace.setup.app, "Mail")
+        XCTAssertEqual(trace.setup.destination, "Slack")
+
+        let run = await DictationReplay.run(trace)
+        XCTAssertEqual(run.destination?.name, "Slack")
+        XCTAssertEqual(run.destination?.pastes, DictationReplay.recordedPastes(trace))
+        XCTAssertTrue(run.app.pastes.isEmpty)
+    }
+
+    /// A trace written before #75 carries fields that no longer exist — `aiDraft`,
+    /// `livePreview`, the tier `probe` — and still decodes.
+    func testATraceFromBeforeTheSinglePasteStillDecodes() throws {
+        let json = #"{"recordedAt":"2026-09-22T15:14:29Z","setup":{"aiDraft":false,"aiMode":false,"app":"T3 Code","livePreview":true,"probe":{"rangeReadable":false,"rangeReadsBack":false,"valueReadable":false},"removesDisfluencies":true},"events":[{"kind":"stop","t":1}],"version":1}"#
+        let trace = try DictationTrace.decode(Data(json.utf8))
+        XCTAssertEqual(trace.setup.app, "T3 Code")
     }
 
     /// Apple and plain batch dictations have no events to replay, and are not written.
@@ -550,68 +409,32 @@ final class RecordedTraceTests: XCTestCase {
 
 // MARK: - Switching mode mid-dictation
 
-/// The other mode's shortcut pressed while speaking (`AppState.switchMode`).
+/// The other mode's shortcut pressed while speaking (`AppState.switchMode`). Nothing has
+/// been pasted yet in either direction, so a switch is never refused: only the stop's
+/// handling changes.
 @MainActor
 final class ModeSwitchReplayTests: XCTestCase {
 
     private let rewrite = "Буду за пів години."
 
-    /// Plain → AI in TextEdit: what was pasted while speaking becomes the draft, and the
-    /// rewrite replaces it in one write.
-    func testPlainToAIReplacesWhatWasAlreadyPasted() async {
-        let run = await DictationReplay.run(in: FakeApp(.textEdit), [
+    /// Plain → AI after a sentence was committed: the whole dictation is rewritten, and
+    /// the rewrite is the one paste.
+    func testPlainToAIRewritesTheWholeDictation() async {
+        let app = FakeApp("Terminal")
+        let run = await DictationReplay.run(in: app, [
             .committed("ну короче напиши"),
             .switchMode(ai: true),
             .committed("ну короче напиши що я буду за пів години"),
         ], llm: .rewrites(rewrite))
 
-        XCTAssertFalse(run.switchRefused)
-        XCTAssertEqual(run.document, rewrite)
-        XCTAssertEqual(run.correctionApplied, true)
-    }
-
-    /// Plain → AI before anything went out, in a terminal: accepted, one paste of the rewrite.
-    func testPlainToAIInATerminalBeforeAnythingWasPasted() async {
-        let run = await DictationReplay.run(in: FakeApp(.terminal), [
-            .partial("ну короче"),
-            .switchMode(ai: true),
-            .committed("ну короче напиши що я буду за пів години"),
-        ], llm: .rewrites(rewrite))
-
-        XCTAssertFalse(run.switchRefused)
+        XCTAssertEqual(run.stop, .refine(input: "ну короче напиши що я буду за пів години"))
         assertDocument(run.document, rewrite)
+        XCTAssertEqual(app.pastes.count, 1)
     }
 
-    /// Plain → AI once a terminal holds text: refused, because the rewrite could only go
-    /// in under the raw text. The dictation finishes as plain text, once.
-    func testPlainToAIInATerminalAfterAPasteIsRefused() async {
-        let run = await DictationReplay.run(in: FakeApp(.terminal), [
-            .committed("ну короче напиши"),
-            .switchMode(ai: true),
-            .committed("ну короче напиши що я запізнюсь"),
-        ], llm: .rewrites(rewrite))
-
-        XCTAssertTrue(run.switchRefused)
-        XCTAssertEqual(run.document, "ну короче напиши що я запізнюсь")
-    }
-
-    /// AI draft → plain: the draft is now plain text already delivered, and the stop
-    /// treats it as one — the rest pasted after it, no second copy.
-    func testAIDraftToPlainFinishesAsAPlainDictation() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true, aiDraft: true),
-                                            in: FakeApp(.textEdit), [
-            .committed("ну короче напиши"),
-            .switchMode(ai: false),
-            .committed("ну короче напиши що я запізнюсь"),
-        ], llm: .rewrites(rewrite))
-
-        XCTAssertEqual(run.document, "ну короче напиши що я запізнюсь")
-        XCTAssertFalse(run.logged("AI draft"))
-    }
-
-    /// AI → plain: nothing was delivered while speaking, so the stop pastes all of it.
+    /// AI → plain: the stop pastes the whole dictation as it was said.
     func testAIToPlainPastesTheWholeDictationAtTheStop() async {
-        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: FakeApp(.textEdit), [
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: FakeApp(), [
             .committed("ну короче напиши"),
             .switchMode(ai: false),
             .committed("ну короче напиши що я запізнюсь"),

@@ -24,7 +24,6 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
-    @AppStorage(SettingsKeys.aiDraftWhileSpeaking) private var aiDraftWhileSpeaking = false
     @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
     @AppStorage(SettingsKeys.escapeCancelsDictation) private var escapeCancelsDictation = false
 
@@ -45,15 +44,6 @@ struct SettingsView: View {
 
     private var stt: STTProviderType {
         STTProviderType(rawValue: sttProvider) ?? .apple
-    }
-
-    /// The realtime model is selected: an inline dictation is built on the overlay and
-    /// pasted once at the stop. Asked of `RecordingConfiguration` — the same answer
-    /// `AppState` acts on — rather than re-derived here. The body re-renders on the
-    /// `sttProvider` / `elevenLabsModel` storage it already reads.
-    private var streamsLive: Bool {
-        _ = (sttProvider, elevenLabsModel, openAISTTModel)
-        return RecordingConfiguration.current(locale: autoLanguageID).streams
     }
 
     private var llm: LLMProviderType {
@@ -354,14 +344,6 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
 
             Text("The AI Recording shortcut also sends the app's name, its window title and the text field's label, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Toggle("Show the dictation while speaking, then swap in the AI version", isOn: $aiDraftWhileSpeaking)
-                .disabled(streamsLive)
-            Text(streamsLive
-                 ? "With Scribe v2 Realtime the dictation is shown on the recording overlay instead, and only the AI version is pasted."
-                 : "Only in apps whose text can be replaced reliably, like TextEdit and Notes. Browsers, Electron apps and terminals still get one paste at the end.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

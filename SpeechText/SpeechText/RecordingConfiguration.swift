@@ -82,6 +82,11 @@ struct RecordingConfiguration {
         }
     }
 
+    /// True when the tier reports text while the user speaks — a realtime stream, or
+    /// Apple's on-device recogniser, whose partials arrive as `.live` events too. An
+    /// inline dictation shows that text on the overlay; the upload tiers have none to show.
+    var hasLiveText: Bool { provider == .apple || streams }
+
     /// Model ID used for any file upload: the stream's fallback, and History retries.
     /// The realtime model only exists behind the WebSocket, so it maps to scribe_v2;
     /// Apple has no batch API, so an Apple session's upload goes to Groq.

@@ -59,31 +59,6 @@ final class SpeechEngine {
     /// into spans, so a surface can draw the boundary between what has settled and what
     /// is still moving instead of receiving one re-joined string.
     private(set) var spanLayer = TranscriptSpanLayer()
-    /// Hands spans to a sink that cannot take text back, as they become stable. Set by
-    /// the inline flow while it is delivering during the recording; the Record Window
-    /// leaves it nil and reads the span layer directly.
-    var onSpansCommitted: (([TranscriptSpan]) -> Void)?
-    /// Which spans the sink already has — see `SpanIssuer`.
-    private var spanIssuer = SpanIssuer()
-    /// The finalizing pass (D12): the sink's one chance to bring what it already holds in
-    /// line with the authoritative text. Called synchronously once a stop's text has
-    /// landed in the span layer and *before* `.idle`, because `.idle` is what wakes
-    /// `awaitTranscription()` — the stop's paste must see a ledger the pass has already
-    /// updated, or it pastes over a correction it does not know happened. Never called
-    /// on a cancel, which does not pass through `.finishing`.
-    var onFinalize: ((FinalizeInput) -> Void)?
-
-    struct FinalizeInput {
-        /// The whole recording's text, every segment — not `finalText`, which a device
-        /// restart leaves holding only the last segment. Correcting the delivered text to
-        /// that would delete everything said before the restart.
-        let text: String
-        /// The user edited some of this recording's text by hand.
-        let hasFrozenSpans: Bool
-        /// The History entry the stop wrote, for `correctionApplied`.
-        let recordID: UUID?
-    }
-
     /// The current segment's text, settled and moving joined — what it has always been.
     /// Computed from the span layer now, so there is one source of truth; `@Observable`
     /// tracks it through `spanLayer`.
@@ -182,7 +157,6 @@ final class SpeechEngine {
         editedText = ""
         pendingInsertionText = nil
         pendingInsertionSpans = []
-        spanIssuer.reset()
         lastRecordID = nil
         spanLayer.reset()
         transcriptionTask?.cancel()
@@ -317,15 +291,15 @@ final class SpeechEngine {
             guard let self, let newSession, self.session === newSession else { return }
             switch event {
             case .live(let committed, let partial):
-                // Cleaned here, before the text becomes a span, and not at the stop: spans
-                // are pasted while the user speaks, and a stop whose text no longer extends
-                // what was pasted would be read as disagreement and never delivered.
+                // Cleaned here, before the text becomes a span, and not at the stop: the
+                // overlay draws the spans while the user speaks, and the layer turns only
+                // the increment of the cumulative committed text into a new span — cleaned
+                // text that stopped extending what came before would be drawn as a revision.
                 if committed != cleanedCommitted.raw {
                     cleanedCommitted = (committed, configuration.cleaned(committed))
                 }
                 self.spanLayer.ingest(committed: cleanedCommitted.cleaned,
                                       partial: configuration.cleaned(partial))
-                self.emitCommittedSpans()
             case .failure(let message):
                 self.errorMessage = message
             }
@@ -467,11 +441,8 @@ final class SpeechEngine {
         transcriptionTask = nil
         phase = .idle
         finalText = ""
-        // The whole timeline goes: nothing from a cancelled recording is issued to
-        // anyone. (Text already inserted at the cursor stays — un-inserting it into a
-        // foreign app is not possible — but that is the sink's ledger, not the layer's.)
+        // The whole timeline goes: nothing from a cancelled recording is pasted anywhere.
         spanLayer.reset()
-        spanIssuer.reset()
         // A segment handed over at a pause and not yet consumed by the panel would
         // otherwise be inserted after the cancel.
         pendingInsertionText = nil
@@ -541,7 +512,6 @@ final class SpeechEngine {
                 self.finalText = outcome.text
                 self.spanLayer.commitSegment(outcome.text)
                 self.spanLayer.settleSegment()
-                self.runFinalizePass()
                 self.phase = .idle
                 self.cleanup()
             }
@@ -570,7 +540,6 @@ final class SpeechEngine {
                         if self.finalText.isEmpty {
                             self.finalText = self.liveText
                         }
-                        self.runFinalizePass()
                         self.phase = .idle
                         self.cleanup()
                     }
@@ -582,32 +551,12 @@ final class SpeechEngine {
             if finalText.isEmpty {
                 finalText = liveText
             }
-            runFinalizePass()
             phase = .idle
             cleanup()
         }
     }
 
     // MARK: - Insertion
-
-    private func runFinalizePass() {
-        guard let onFinalize else { return }
-        onFinalize(FinalizeInput(text: spanLayer.text,
-                                 hasFrozenSpans: spanLayer.spans.contains { $0.state == .frozen },
-                                 recordID: lastRecordID))
-    }
-
-    /// Offers the stable spans a sink has not seen yet, in order — `SpanIssuer` decides
-    /// which, and never offers one twice.
-    ///
-    /// Only while recording: a stop's authoritative text goes out through the ordinary
-    /// result path, and offering it here as well would deliver the segment twice.
-    private func emitCommittedSpans() {
-        guard isRecording, let sink = onSpansCommitted else { return }
-        let ready = spanIssuer.take(from: spanLayer)
-        guard !ready.isEmpty else { return }
-        sink(ready)
-    }
 
     /// Hands a finished segment to whichever sink is listening, naming the spans it is
     /// made of when they spell exactly that text. The spans are written *before* the

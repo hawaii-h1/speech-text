@@ -4,35 +4,27 @@
 import Foundation
 
 /// One inline dictation as the app saw it: the provider's events as they arrived, the
-/// stop, the batch fallback's answer, the rewrite, and every paste. Written by
+/// stop, the batch fallback's answer, the rewrite, and the stop's paste. Written by
 /// `DictationTraceRecorder` when `recordDictationTraces` is on, and read back by the
-/// test target's `DictationReplay`, which plays the events through the delivery code
+/// test target's `DictationReplay`, which plays the events through the recognition code
 /// again — so a dictation that went wrong once becomes a test that stays.
 ///
 /// Flat and hand-editable on purpose: after reviewing a trace, set `expectedDocument` to
 /// what the document *should* hold, and the replay checks that as well.
 struct DictationTrace: Codable, Equatable {
+    /// Traces recorded before #75 also carry `aiDraft`, `livePreview` and `probe`, from
+    /// when text could be pasted while the user spoke. The decoder ignores them.
     struct Setup: Codable, Equatable {
         var aiMode = false
-        var aiDraft = false
         var removesDisfluencies = true
         /// Optional so a trace recorded before the setting existed still decodes; nil
         /// replays as `.emDash`, which is what those dictations were pasted with.
         var dashStyle: DashStyle?
-        /// The recording streamed and showed its text on the overlay, pasting only at the
-        /// stop (`InlineDelivery.begin`). Optional so older traces decode; nil replays as
-        /// false, which is how those dictations were delivered.
-        var livePreview: Bool?
-        /// The target app's name — for the reader; the replay goes by `probe`.
+        /// The app the dictation started in — for the reader.
         var app: String?
-        var probe = Probe()
-    }
-
-    /// `AXTextProbe`, as recorded.
-    struct Probe: Codable, Equatable {
-        var valueReadable = false
-        var rangeReadable = false
-        var rangeReadsBack = false
+        /// The app in front at the stop, which the dictation was pasted into (#77). Nil
+        /// until the stop, and in traces recorded before it.
+        var destination: String?
     }
 
     struct Event: Codable, Equatable {
@@ -43,10 +35,6 @@ struct DictationTrace: Codable, Equatable {
             case committed
             /// The stream broke; `error` says how.
             case streamFailed
-            /// A span was ready, but the target app was not in front.
-            case targetNotInFront
-            /// A span delivery was pasted; `landing` says what could be read back.
-            case paste
             /// The user switched the dictation's mode with the other shortcut; `text` is
             /// `"ai"` or `"inline"`. `Setup.aiMode` is the mode it started in.
             case modeSwitch
@@ -54,21 +42,10 @@ struct DictationTrace: Codable, Equatable {
             case stop
             /// The batch upload's answer after the stream broke or came back empty.
             case fallback
-            /// The finalizing pass (or the AI draft's replacement) ran; `applied` is its result.
-            case correction
             /// The LLM's rewrite in `text`, or its failure in `error`.
             case refinement
             /// The stop's own paste.
             case stopPaste
-        }
-
-        enum Landing: String, Codable {
-            /// The app holds exactly what was pasted, where it was pasted.
-            case exact
-            /// The landing could not be read.
-            case unknown
-            /// The app stored something other than what was pasted.
-            case different
         }
 
         /// Seconds since the recording started.
@@ -76,8 +53,6 @@ struct DictationTrace: Codable, Equatable {
         var kind: Kind
         var text: String?
         var error: String?
-        var landing: Landing?
-        var applied: Bool?
     }
 
     var version = 1
@@ -121,15 +96,18 @@ final class DictationTraceRecorder {
         started = now
     }
 
-    static func record(_ kind: DictationTrace.Event.Kind, text: String? = nil, error: String? = nil,
-                       landing: DictationTrace.Event.Landing? = nil, applied: Bool? = nil) {
-        current?.record(kind, text: text, error: error, landing: landing, applied: applied)
+    static func record(_ kind: DictationTrace.Event.Kind, text: String? = nil, error: String? = nil) {
+        current?.record(kind, text: text, error: error)
     }
 
-    func record(_ kind: DictationTrace.Event.Kind, text: String? = nil, error: String? = nil,
-                landing: DictationTrace.Event.Landing? = nil, applied: Bool? = nil) {
+    /// The app the stop chose to paste into.
+    static func recordDestination(_ app: String?) {
+        current?.trace.setup.destination = app
+    }
+
+    func record(_ kind: DictationTrace.Event.Kind, text: String? = nil, error: String? = nil) {
         let t = (Date().timeIntervalSince(started) * 1000).rounded() / 1000
-        trace.events.append(.init(t: t, kind: kind, text: text, error: error, landing: landing, applied: applied))
+        trace.events.append(.init(t: t, kind: kind, text: text, error: error))
     }
 
     /// Writes the trace into `directory` as `<date>.json` and returns its URL — nil when

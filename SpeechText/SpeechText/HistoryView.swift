@@ -195,6 +195,13 @@ struct HistoryView: View {
                     .disabled(record.deliveredText.isEmpty)
             }
 
+            // Only when the two differ: that is the case that explains a surprise.
+            if let destination = record.destinationApp, let origin = record.originApp, origin != destination {
+                Label("Started in \(origin), pasted into \(destination)", systemImage: "arrow.right.square")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if let error = record.errorMessage {
                 Text(error)
                     .font(.system(size: 11, design: .monospaced))
