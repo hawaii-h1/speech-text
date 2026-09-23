@@ -58,6 +58,13 @@ enum STTTuning {
     /// wait when the server is slow or the reply is lost, so the paste can never hang.
     static let streamFinishTimeoutSeconds: Double = 4
 
+    /// How long a stop made before the realtime session is ready waits for it. OpenAI's
+    /// session transcribes nothing until `session.updated`, and a commit sent earlier
+    /// finds an empty buffer — so `finish()` waits for it, flushes the audio held
+    /// meanwhile, and only then commits. The handshake takes well under a second; past
+    /// this the stream gives up and the stop uploads the file instead.
+    static let streamSessionReadyTimeoutSeconds: Double = 3
+
     /// Size of each audio message on the socket. The tap delivers ~20 ms buffers, and a
     /// WebSocket frame per buffer is mostly overhead; 100 ms keeps the first partial
     /// arriving quickly without flooding the connection.
@@ -92,6 +99,14 @@ enum STTTuning {
     /// input and a shortcut pressed with nothing said. Room noise above it still goes to
     /// the model. Chosen from the levels in the Debug Log, not from a measured corpus.
     static let silencePeakFloor: Float = 0.006
+
+    /// A segment shorter than this is dropped without an upload, a History row or an
+    /// error: it is a shortcut pressed and let go at once, or a pause the instant after a
+    /// resume, not a word. 0.3 s is also about where a file becomes worth sending — one
+    /// FLAC block (`AudioBufferWriter.flacBlockFrames`, 0.29 s) — and the measured 0.2 s
+    /// segment that prompted this was answered with "Audio file might be corrupted" by
+    /// OpenAI and could never be retried from History.
+    static let minimumSegmentSeconds: Double = 0.3
 
     /// Batch upload timeouts. `URLSession.shared` ignores `URLRequest.timeoutInterval`
     /// and enforces its own 60 s default, which a multi-minute FLAC can exceed. 120 s
@@ -224,7 +239,7 @@ enum GroqError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse: "Invalid response from Groq API"
-        case .httpError(let code, let body): "Groq API error HTTP \(code): \(body)"
+        case .httpError(let code, let body): providerErrorMessage(vendor: "Groq", status: code, body: body)
         }
     }
 }
@@ -313,7 +328,7 @@ enum ElevenLabsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse: "Invalid response from ElevenLabs API"
-        case .httpError(let code, let body): "ElevenLabs API error HTTP \(code): \(body)"
+        case .httpError(let code, let body): providerErrorMessage(vendor: "ElevenLabs", status: code, body: body)
         case .realtime(let type, let detail): "ElevenLabs realtime \(type): \(detail)"
         }
     }
@@ -426,9 +441,56 @@ enum OpenAISTTError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse: "Invalid response from OpenAI API"
-        case .httpError(let code, let body): "OpenAI API error HTTP \(code): \(body)"
+        case .httpError(let code, let body): providerErrorMessage(vendor: "OpenAI", status: code, body: body)
         case .realtime(let code, let detail): "OpenAI realtime \(code): \(detail)"
         }
+    }
+}
+
+// MARK: - Error text
+
+/// A provider's error reply as a sentence the user can read. The reply body is JSON
+/// written for developers (`{"error":{"message":…,"type":…,"param":…}}`), and it used to
+/// be shown whole, braces and all; the Debug Log still has it verbatim. What is kept is
+/// the provider's own message — the one part that says what went wrong — and the status,
+/// so a History row stays traceable.
+///
+/// The shapes read are the three vendors': OpenAI and Groq nest it under
+/// `error.message`, ElevenLabs under `detail.message` (or `detail` as a plain string,
+/// or a list of validation failures).
+/// A body with none of them falls back to what the status means.
+func providerErrorMessage(vendor: String, status: Int, body: String) -> String {
+    let reason = providerErrorReason(in: body) ?? genericReason(forStatus: status)
+    let sentence = reason.last.map { ".!?".contains($0) } == true ? reason : reason + "."
+    return "\(vendor) couldn't transcribe the recording: \(sentence) (HTTP \(status))"
+}
+
+private func providerErrorReason(in body: String) -> String? {
+    guard let data = body.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    let candidates: [Any?] = [
+        (json["error"] as? [String: Any])?["message"],
+        json["error"],
+        (json["detail"] as? [String: Any])?["message"],
+        json["detail"],
+        // A validation failure: `{"detail":[{"loc":…,"msg":…}]}`.
+        (json["detail"] as? [[String: Any]])?.first?["msg"],
+        json["message"],
+    ]
+    for case let text as String in candidates.compactMap({ $0 }) {
+        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !line.isEmpty { return line }
+    }
+    return nil
+}
+
+private func genericReason(forStatus status: Int) -> String {
+    switch status {
+    case 401, 403: "the API key was rejected"
+    case 413: "the recording is too large"
+    case 429: "too many requests — try again in a moment"
+    case 500...: "the service is having problems"
+    default: "the request was refused"
     }
 }
 

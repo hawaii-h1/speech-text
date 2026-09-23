@@ -111,6 +111,38 @@ final class AudioBufferWriterTests: XCTestCase {
         XCTAssertEqual(seconds, 1.0, accuracy: 0.05)
     }
 
+    /// 0.2 s is 3 200 frames, under one FLAC block: Core Audio's encoder wrote that as a
+    /// 42-byte file with no header and no samples (#68). It has to open, and hold the audio.
+    func testSegmentShorterThanOneFLACBlockIsWrittenAsADecodableFile() throws {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        writer.append(makeSineBuffer(format: mono48k(), frames: 4_800))
+        writer.append(makeSineBuffer(format: mono48k(), frames: 4_800))
+
+        let url = try writer.writeAudioFile()
+        defer { AudioBufferWriter.cleanup(fileURL: url) }
+        XCTAssertEqual(url.pathExtension, "wav")
+
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertEqual(file.fileFormat.sampleRate, 16_000)
+        XCTAssertEqual(Double(file.length), 3_200, accuracy: 64)
+    }
+
+    func testSegmentOfOneFLACBlockAndUpStaysFLAC() throws {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        for _ in 0 ..< 4 {
+            writer.append(makeSineBuffer(format: mono48k(), frames: 4_800))
+        }
+
+        let url = try writer.writeAudioFile()
+        defer { AudioBufferWriter.cleanup(fileURL: url) }
+        XCTAssertEqual(url.pathExtension, AudioBufferWriter.preferredUploadCodec.fileExtension)
+
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertEqual(Double(file.length), 6_400, accuracy: 64)
+    }
+
     func testEmptyWriterThrowsNoAudio() {
         let writer = AudioBufferWriter()
         XCTAssertThrowsError(try writer.writeAudioFile()) { error in
@@ -153,5 +185,85 @@ final class AudioBufferWriterTests: XCTestCase {
         writer.reset()
         XCTAssertEqual(writer.bufferedDuration, 0)
         XCTAssertThrowsError(try writer.writeAudioFile())
+    }
+}
+
+// MARK: - BatchRecognitionSession
+
+/// Counts uploads instead of making them.
+private final class RecordingBatchProvider: BatchSTTProvider, @unchecked Sendable {
+    private(set) var uploads: [URL] = []
+    func transcribe(audioFileURL: URL, language: String?) async throws -> String {
+        uploads.append(audioFileURL)
+        return "текст"
+    }
+}
+
+final class BatchRecognitionSessionTests: XCTestCase {
+
+    private func writer(seconds: Double) -> AudioBufferWriter {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        for _ in 0 ..< Int((seconds / 0.1).rounded()) {
+            writer.append(makeSineBuffer(format: mono48k(), frames: 4_800))
+        }
+        return writer
+    }
+
+    /// A shortcut pressed and let go at once: no upload, no error, and an outcome the
+    /// engine writes no History row for.
+    func testASegmentTooShortToBeSpeechIsDroppedWithoutATrace() async {
+        let provider = RecordingBatchProvider()
+        let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.2), language: nil)
+
+        let outcome = await session.finish()
+
+        XCTAssertTrue(provider.uploads.isEmpty)
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertNil(outcome.error)
+        XCTAssertNil(outcome.audioFileURL)
+        XCTAssertTrue(outcome.cancelled, "the one outcome the engine records nothing for")
+    }
+
+    func testASegmentLongEnoughToBeSpeechIsUploaded() async {
+        let provider = RecordingBatchProvider()
+        let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.4), language: nil)
+
+        let outcome = await session.finish()
+        defer { outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
+
+        XCTAssertEqual(provider.uploads.count, 1)
+        XCTAssertEqual(outcome.text, "текст")
+        XCTAssertFalse(outcome.cancelled)
+    }
+}
+
+// MARK: - Provider error text
+
+final class ProviderErrorMessageTests: XCTestCase {
+
+    /// The reply that reached the user whole in #68.
+    func testOpenAIsMessageIsKeptAndTheJSONIsNot() {
+        let body = """
+        {"error":{"message":"Audio file might be corrupted or unsupported","type":"invalid_request_error","param":"file","code":"invalid_value"}}
+        """
+        XCTAssertEqual(OpenAISTTError.httpError(400, body).errorDescription,
+                       "OpenAI couldn't transcribe the recording: Audio file might be corrupted or unsupported. (HTTP 400)")
+    }
+
+    func testElevenLabsDetailShapes() {
+        XCTAssertEqual(providerErrorMessage(vendor: "ElevenLabs", status: 401,
+                                            body: #"{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}"#),
+                       "ElevenLabs couldn't transcribe the recording: Invalid API key. (HTTP 401)")
+        XCTAssertEqual(providerErrorMessage(vendor: "ElevenLabs", status: 422,
+                                            body: #"{"detail":[{"loc":["body","file"],"msg":"field required"}]}"#),
+                       "ElevenLabs couldn't transcribe the recording: field required. (HTTP 422)")
+    }
+
+    func testABodyThatSaysNothingFallsBackToTheStatus() {
+        XCTAssertEqual(GroqError.httpError(502, "<html>Bad Gateway</html>").errorDescription,
+                       "Groq couldn't transcribe the recording: the service is having problems. (HTTP 502)")
+        XCTAssertEqual(providerErrorMessage(vendor: "Groq", status: 429, body: ""),
+                       "Groq couldn't transcribe the recording: too many requests — try again in a moment. (HTTP 429)")
     }
 }

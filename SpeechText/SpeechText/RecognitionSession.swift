@@ -34,6 +34,12 @@ struct RecognitionOutcome {
     var cancelled: Bool
 
     static let cancelled = RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: true)
+
+    /// A segment too short to be speech (`STTTuning.minimumSegmentSeconds`): leaves no
+    /// trace at all — no text, no error, no History row. It is `cancelled` because that
+    /// is the one outcome the engine records nothing for; a dedicated flag would have to
+    /// be read in `SpeechEngine.recordOutcome`, and until one is this spelling says why.
+    static let discarded = RecognitionOutcome.cancelled
 }
 
 /// One segment of recognition, whatever the tier. Created by `makeRecognitionSession`

@@ -37,6 +37,20 @@ final class AudioBufferWriter {
     /// needs to change.
     static let preferredUploadCodec: UploadCodec = .flac
 
+    /// Frames in one block of Core Audio's FLAC encoder at 16 kHz. A recording shorter
+    /// than this is written as a 42-byte file with no `fLaC` header and no samples:
+    /// nothing can open it, a provider answers "Audio file might be corrupted", and the
+    /// History archive can never be retried. Measured: 3 200 frames (0.2 s) broke,
+    /// 4 608 and up (one block, 0.29 s) were valid. Below it the file is a WAV — a few
+    /// kilobytes, so FLAC's saving is nothing there anyway.
+    static let flacBlockFrames = 4_608
+
+    /// The codec for a file of `frames` 16 kHz frames: the preferred one, unless the
+    /// recording is too short for it to encode.
+    static func uploadCodec(forFrames frames: Int) -> UploadCodec {
+        preferredUploadCodec == .flac && frames < flacBlockFrames ? .wav : preferredUploadCodec
+    }
+
     /// The two containers `writeAudioFile` can produce. Both hold 16 kHz mono 16-bit
     /// samples; only the encoding differs. Everything downstream — the multipart filename
     /// and MIME type, the History archive's filename — is driven by `fileExtension`, so
@@ -200,6 +214,7 @@ final class AudioBufferWriter {
         let totalFrames = capturedFrames + nativeFrames
         let duration = Double(capturedFrames) / Self.uploadSampleRate
             + (capturedFormat.map { Double(nativeFrames) / $0.sampleRate } ?? 0)
+        let codec = Self.uploadCodec(forFrames: Int((duration * Self.uploadSampleRate).rounded()))
 
         if capturedFrames > 0 || hasNative {
             dlog("Audio", "writeAudioFile: \(capturedPCM.count) converted bytes, \(capturedBuffers.count) native buffer(s)")
@@ -207,7 +222,7 @@ final class AudioBufferWriter {
                 // The converted bytes go first, then any native buffers (the whole
                 // recording on the fallback path, or the tail after a converter error)
                 // downsampled into the same file, so the timeline stays in order.
-                tempURL = try Self.writeWithCodecFallback { codec, url in
+                tempURL = try Self.writeWithCodecFallback(preferred: codec) { codec, url in
                     let outputFile = try Self.makeOutputFile(codec: codec, at: url)
                     if capturedFrames > 0 {
                         try Self.writeConverted(pcm16: capturedPCM, frames: capturedFrames, to: outputFile)
@@ -225,7 +240,7 @@ final class AudioBufferWriter {
                     // fine. Rewrite the file from them alone: losing the tail beats
                     // losing the recording.
                     dlog("Audio", "writeAudioFile: native tail failed to downsample (\(error.localizedDescription)) — dropping it, keeping \(capturedFrames) converted frames")
-                    tempURL = try Self.writeWithCodecFallback { codec, url in
+                    tempURL = try Self.writeWithCodecFallback(preferred: codec) { codec, url in
                         let outputFile = try Self.makeOutputFile(codec: codec, at: url)
                         try Self.writeConverted(pcm16: capturedPCM, frames: capturedFrames, to: outputFile)
                     }
@@ -258,13 +273,15 @@ final class AudioBufferWriter {
             .appendingPathExtension(codec.fileExtension)
     }
 
-    /// Runs `write` with the preferred codec and, if that throws, once more as WAV. The
-    /// FLAC encoder lives in Core Audio and has never been seen to fail for 16 kHz mono
-    /// Int16, but a lost recording is the one outcome this file exists to prevent, so
-    /// the plain-PCM path stays one step behind it. Each attempt gets its own temp URL
-    /// so a half-written FLAC never carries a `.wav` name.
-    private static func writeWithCodecFallback(_ write: (UploadCodec, URL) throws -> Void) throws -> URL {
-        let preferred = preferredUploadCodec
+    /// Runs `write` with `preferred` and, if that throws, once more as WAV. The FLAC
+    /// encoder lives in Core Audio and has never been seen to throw for 16 kHz mono
+    /// Int16 (a recording under one block fails *silently*, which is why
+    /// `uploadCodec(forFrames:)` routes it here as WAV to begin with), but a lost
+    /// recording is the one outcome this file exists to prevent, so the plain-PCM path
+    /// stays one step behind it. Each attempt gets its own temp URL so a half-written
+    /// FLAC never carries a `.wav` name.
+    private static func writeWithCodecFallback(preferred: UploadCodec,
+                                               _ write: (UploadCodec, URL) throws -> Void) throws -> URL {
         let url = makeTempURL(codec: preferred)
         do {
             try write(preferred, url)

@@ -570,6 +570,11 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
     private var languages: [String] = []
     /// Resumed by the transcript of the commit `finish()` asked for.
     private var finishContinuation: CheckedContinuation<Void, Never>?
+    /// Resumed once the audio held for `session.updated` is on the socket, so a stop made
+    /// before the session was ready commits after that audio rather than ahead of it.
+    private var readyContinuation: CheckedContinuation<Void, Never>?
+    /// The ready wait timed out; a continuation installed after that must not be stored.
+    private var readyWaitExpired = false
     private var awaitingCommit = false
     private var commitArrived = false
     /// Deltas accumulated per `item_id`. Touched only from `handle`, which runs serially
@@ -663,6 +668,9 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
     /// `session.updated` arrived: release everything held for it, in order, ahead of any
     /// chunk `send` produces from now on.
     private func flushPreSessionAudio() {
+        // Declared first so it runs last: a `finish()` waiting for the session enqueues
+        // its commit only after every held chunk is ahead of it on the socket.
+        defer { wakeReadyWaiter() }
         sendLock.lock()
         defer { sendLock.unlock() }
 
@@ -686,7 +694,13 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
     }
 
     func finish() async {
-        guard let (held, chunk, task) = takePendingForFinish() else { return }
+        // A stop that beats `session.updated` (a shortcut pressed and let go at once)
+        // used to commit straight away: the commit reached a session that was not
+        // configured yet, found none of the held audio in its buffer, and was refused as
+        // empty. Wait for the session, and for `flushPreSessionAudio` to send what it was
+        // holding, before the commit goes out behind it.
+        guard await waitUntilSessionReady() else { return }
+        guard let (chunk, task) = takePendingForFinish() else { return }
 
         // The tail is padded with silence because the server refuses a commit holding
         // under 100 ms of audio (`input_audio_buffer_commit_empty`) — and the tail of a
@@ -695,7 +709,7 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         var tail = chunk
         tail.append(Data(count: bytes(forSeconds: STTTuning.streamCommitPaddingSeconds)))
         dlog("OpenAI", "realtime: finishing, committing \(tail.count) bytes")
-        var messages = held
+        var messages: [String] = []
         if let audio = Self.encodeAudio(tail) { messages.append(audio) }
         if let commit = Self.encode(["type": "input_audio_buffer.commit"]) { messages.append(commit) }
         sendMessages(messages, over: task)
@@ -730,17 +744,77 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
     // MARK: Internals
 
     /// Locks can't be taken inside an async function, so `finish()` grabs its state here.
-    private func takePendingForFinish() -> ([String], Data, URLSessionWebSocketTask)? {
+    /// Only called once the session is ready, so nothing is still held for it.
+    private func takePendingForFinish() -> (Data, URLSessionWebSocketTask)? {
         lock.lock()
         defer { lock.unlock() }
-        guard !isClosed, let task else { return nil }
-        let held = preSessionMessages
-        preSessionMessages = []
-        preSessionBytes = 0
+        guard !isClosed, sessionReady, let task else { return nil }
         let chunk = pendingAudio
         pendingAudio = Data()
         awaitingCommit = true
-        return (held, chunk, task)
+        return (chunk, task)
+    }
+
+    /// True once `session.updated` has arrived and the audio held for it is on the
+    /// socket. False when the socket closed meanwhile, or when the session did not come
+    /// within `STTTuning.streamSessionReadyTimeoutSeconds` — then the stream is failed,
+    /// so the stop hands the segment to the upload, which has all of it on disk.
+    private func waitUntilSessionReady() async -> Bool {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    guard let self else { cont.resume(); return }
+                    self.installReadyWait(cont)
+                }
+            }
+            group.addTask { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamSessionReadyTimeoutSeconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.expireReadyWait()
+            }
+            await group.next()
+            group.cancelAll()
+        }
+
+        lock.lock()
+        let ready = sessionReady, closed = isClosed
+        lock.unlock()
+        if closed { return false }
+        guard ready else {
+            dlog("OpenAI", "realtime: stopped before session.updated, none within \(STTTuning.streamSessionReadyTimeoutSeconds)s")
+            fail(OpenAISTTError.realtime("no_session", "session.updated did not arrive before the stop"))
+            return false
+        }
+        return true
+    }
+
+    private func installReadyWait(_ cont: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        // `sessionReady` is set inside `flushPreSessionAudio` under `sendLock`, which the
+        // flush holds until every held chunk is enqueued — so seeing it here and not
+        // waiting still commits behind them: the commit's own send takes `sendLock`.
+        if sessionReady || isClosed || readyWaitExpired {
+            lock.unlock()
+            cont.resume()
+            return
+        }
+        readyContinuation = cont
+        lock.unlock()
+    }
+
+    private func expireReadyWait() {
+        lock.lock()
+        readyWaitExpired = true
+        lock.unlock()
+        wakeReadyWaiter()
+    }
+
+    private func wakeReadyWaiter() {
+        lock.lock()
+        let cont = readyContinuation
+        readyContinuation = nil
+        lock.unlock()
+        cont?.resume()
     }
 
     static func encodeSessionUpdate(model: String, languages: [String], sampleRate: Double) -> String? {
@@ -965,6 +1039,7 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         lock.unlock()
 
         resumeFinish()
+        wakeReadyWaiter()
         receiveLoop?.cancel()
         task?.cancel(with: .normalClosure, reason: nil)
         continuation.finish()

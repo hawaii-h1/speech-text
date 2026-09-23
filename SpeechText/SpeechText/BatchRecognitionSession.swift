@@ -33,6 +33,15 @@ final class BatchRecognitionSession: RecognitionSession {
     /// On failure the audio file is handed back rather than deleted, so the engine can
     /// archive it for a retry — a failed upload no longer means the speech is gone.
     func finish() async -> RecognitionOutcome {
+        // Before the file is written: a press-and-release of the shortcut is not a
+        // recording to archive, and a provider handed a fraction of a second answers
+        // with an error (or, for Whisper, with a hallucinated sentence).
+        let duration = writer.bufferedDuration
+        if duration > 0, duration < STTTuning.minimumSegmentSeconds {
+            dlog("Engine", "BatchRecognitionSession.finish: \(String(format: "%.2f", duration))s is too short to be speech — dropped")
+            return .discarded
+        }
+
         let fileURL: URL
         do {
             fileURL = try writer.writeAudioFile()
