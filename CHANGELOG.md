@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-24
+
 ### Added
 
 - **A disk image that shows how to install.** Opening it shows SpeechText, an arrow and your Applications folder, and says what happens next. Opened straight from the disk image, SpeechText offers to move itself to Applications and starts again from there; once it is installed, setup offers to eject the disk image and move it to the Trash.
@@ -77,5 +79,6 @@ First tagged as 1.0.0, renumbered on 2026-09-18: SpeechText is still in a closed
 - Webhook delivery: POST the transcribed text to a URL of your own, with optional Bearer token auth.
 - Automatic language detection that follows the active macOS keyboard layout.
 
-[Unreleased]: https://github.com/yavno/speech-text/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/yavno/speech-text/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/yavno/speech-text/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/yavno/speech-text/releases/tag/v0.9.0
