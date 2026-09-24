@@ -23,10 +23,16 @@ import Sparkle
 /// Not actor-isolated, like the rest of the app's AppKit glue: every caller — the status
 /// menu's actions, the Settings form — is already on the main thread, which is where
 /// Sparkle requires its updater to be used.
-final class UpdateChecker {
+///
+/// It is also the standard user driver's delegate, for one hook: see
+/// `standardUserDriverWillShowModalAlert`. Sparkle holds that delegate weakly; `shared`
+/// is what keeps it alive.
+final class UpdateChecker: NSObject, SPUStandardUserDriverDelegate {
     static let shared = UpdateChecker()
 
-    private let controller: SPUStandardUpdaterController?
+    /// Assigned after `super.init()`, because the controller is handed `self` as its
+    /// delegate.
+    private var controller: SPUStandardUpdaterController?
 
     /// Whether this build can check for updates at all. False in a source checkout that
     /// has no signing key yet: Sparkle's own answer to a missing key is a modal alert a
@@ -63,32 +69,96 @@ final class UpdateChecker {
     /// from a `rebuild.sh` install, which carries a commit and a real build number.
     static var isDevelopmentBuild: Bool { AppVersion.commit == nil || AppVersion.build == "1" }
 
-    private init() {
+    private override init() {
+        super.init()
         guard Self.infoValue("SUFeedURL") != nil, Self.infoValue("SUPublicEDKey") != nil else {
-            controller = nil
             dlog("Update", "no SUFeedURL/SUPublicEDKey in Info.plist — updates are off in this build")
             return
         }
         guard !Self.isDevelopmentBuild else {
-            controller = nil
             dlog("Update", "development build — no updater started")
             return
         }
         // Sparkle's standard controller owns the updater, the update windows and the
         // background schedule; starting it here means the first check happens on its own.
+        // A scheduled check that fails says nothing — Sparkle's default, kept on purpose:
+        // `SPUScheduledUpdateDriver` aborts with `showErrorToUser: _showedUpdate`, so an
+        // error reaches the user only once an update had already been put in front of them.
         controller = SPUStandardUpdaterController(startingUpdater: true,
                                                   updaterDelegate: nil,
-                                                  userDriverDelegate: nil)
+                                                  userDriverDelegate: self)
         dlog("Update", "updater started (feed \(feedURL ?? "?"), automatic \(checksAutomatically))")
     }
 
     /// The menu item. The app is an agent with no windows of its own, so nothing brings
     /// it forward when Sparkle opens one — without this the "an update is available"
-    /// window can appear behind whatever the user was working in.
+    /// window can appear behind whatever the user was working in. Sparkle activates the
+    /// app itself before its "Checking for updates…" window, but only while the app has
+    /// no Dock icon (`SPUStandardUserDriver` asks `isBackgroundApplication`, which is
+    /// `activationPolicy == .accessory`); with Settings open behind another app it has
+    /// one, and only this call brings it forward.
     func checkForUpdates() {
         guard let controller else { return }
-        NSApp.activate(ignoringOtherApps: true)
+        Self.activateApp()
         controller.updater.checkForUpdates()
+    }
+
+    /// Sparkle's "Update Error!", "You're up to date!" and "Update Installed" alerts are
+    /// all run *modally* (`SPUStandardUserDriver.showAlert:secondaryAction:` →
+    /// `-[NSAlert runModal]`), and nothing on that path activates the app. The checking
+    /// window the alert replaces was shown a network round trip earlier, and by now the
+    /// app may well not be active: the alert then opens behind whatever the user is in,
+    /// and the modal session it starts disables every item of the status menu, Quit
+    /// included — the app looks hung, with the one window that would explain it out of
+    /// sight (#92).
+    ///
+    /// So the app is brought forward here, and — because an activation request is
+    /// exactly what the system may decline — the alert is also ordered in front of every
+    /// other app's windows, which does not depend on activation at all; a click on it
+    /// then activates the app. `runModal` starts right after this returns, so the alert
+    /// is not yet `NSApp.modalWindow`: the block runs on the modal run loop's first turn,
+    /// which is in `.modalPanel` mode — hence a run-loop block that names that mode.
+    func standardUserDriverWillShowModalAlert() {
+        Self.activateApp()
+        RunLoop.main.perform(inModes: [.modalPanel, .default]) {
+            let alert = NSApp.modalWindow
+            alert?.orderFrontRegardless()
+            dlog("Update", "modal alert \(alert == nil ? "not found" : "ordered front"), "
+                 + "app \(NSApp.isActive ? "active" : "not active")")
+        }
+    }
+
+    /// The "A new version of SpeechText is available!" window, found by a check the user
+    /// asked for. It is not modal, so nothing freezes, but Sparkle's only guarantee that
+    /// it is seen is the activation it requests just before `showWindow` — the request
+    /// the system may decline. Sparkle calls this synchronously right before both
+    /// (`showUpdateFoundWithAppcastItem:state:reply:`), so the block runs once the window
+    /// is at the front of the app's own windows and puts it in front of everyone else's.
+    ///
+    /// A *scheduled* check that finds an update passes through here too, and is left to
+    /// Sparkle's own placement: for an agent that is behind other apps unless the app was
+    /// just launched, which is a notice rather than an interruption.
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool,
+                                                   forUpdate update: SUAppcastItem,
+                                                   state: SPUUserUpdateState) {
+        guard state.userInitiated else { return }
+        RunLoop.main.perform(inModes: [.default, .modalPanel]) {
+            // `orderedWindows` leaves panels out, so the overlay cannot be taken for it.
+            let window = NSApp.orderedWindows.first { $0.isVisible }
+            window?.orderFrontRegardless()
+            dlog("Update", "update \(update.displayVersionString) window "
+                 + "\(window == nil ? "not found" : "ordered front"), "
+                 + "app \(NSApp.isActive ? "active" : "not active")")
+        }
+    }
+
+    /// The deprecated call, deliberately. Sparkle 2.10 makes the same choice in
+    /// `SPUStandardUserDriver._activateApplication`: `NSApp.activate()`, its macOS 14
+    /// replacement, "does not always work reliably from backgrounded apps when the user
+    /// initiates checks for updates from e.g. a menu bar" (last tested there on macOS
+    /// 26.5.1) — which is this app, every time.
+    private static func activateApp() {
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// An `Info.plist` string that is actually a value, with the same rule `AppVersion`

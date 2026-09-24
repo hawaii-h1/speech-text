@@ -45,8 +45,10 @@ final class DockIconController {
 
     init() {
         let center = NotificationCenter.default
+        // `didResignKey` is for a modal alert: `runModal` ends with an order-out, not a
+        // close, and the alert resigning key is the one notification that follows it.
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification,
-                     NSWindow.didMiniaturizeNotification] {
+                     NSWindow.didMiniaturizeNotification, NSWindow.didResignKeyNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.update()
             })
@@ -71,8 +73,15 @@ final class DockIconController {
     /// work and must not pull a Dock icon in with them. Setup draws its own frame, so it
     /// is borderless, but it is an ordinary window the user leaves for a browser and
     /// comes back to.
+    ///
+    /// A modal alert counts too, though it is a panel (`NSAlert`'s window is an
+    /// `NSPanel`): while it runs every item of the status menu is disabled, so it is the
+    /// one window the user *must* be able to find. Sparkle's update alerts are the case
+    /// in point — the "Checking for updates…" window closes right before its error alert
+    /// runs, and without this the icon was taken away under the alert (#92).
     static func hasOpenWindow(excluding excluded: NSWindow? = nil) -> Bool {
-        NSApp.windows.contains { window in
+        if let modal = NSApp.modalWindow, modal !== excluded { return true }
+        return NSApp.windows.contains { window in
             window !== excluded
                 && !(window is NSPanel)
                 && (window.styleMask.contains(.titled) || window is OnboardingWindow)
