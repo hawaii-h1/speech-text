@@ -7,19 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<!--
-  The version number and the date below are placeholders, pinned at tag time.
-  The heading must read exactly `## [X.Y.Z]` for the tag `vX.Y.Z`: the release
-  workflow extracts this section by that heading, and what it extracts becomes
-  both the GitHub release notes and the text shown in the app's update window.
-  Rename the heading and the compare links together.
--->
-
-## [0.9.1] - Unreleased
-
 ### Added
 
-- **Text appears while you speak.** A dictation into an app that allows it — TextEdit, Notes, most native fields — is pasted sentence by sentence as you talk, instead of arriving all at once when you stop. Apps that can't take a correction safely, such as terminals and Electron apps, get each sentence exactly once and nothing is ever rewritten under them. At the stop the whole dictation is corrected in a single write, and only where the text you were given is still untouched: if you edited over it, or typed between two pieces of it, the correction is refused rather than risking your own words.
 - **A disk image that shows how to install.** Opening it shows SpeechText, an arrow and your Applications folder, and says what happens next. Opened straight from the disk image, SpeechText offers to move itself to Applications and starts again from there; once it is installed, setup offers to eject the disk image and move it to the Trash.
 - **A setup window on first run**, instead of two unexplained permission alerts. It walks through choosing a speech engine, an optional AI provider, the keys those need, the microphone and Accessibility permissions and whether to launch at login — and ends with a dictation you can try before you rely on it. Close it half-way and it opens where you left it. It is in the menu any time as *Continue Setup…*.
 - **Automatic updates.** SpeechText now checks once a day whether a newer version has been released, offers it with that version's release notes, and installs it when you agree — the menu's *Check for Updates…* asks right away. Every update is signed with a key of the project's own, checked before anything is installed.
@@ -41,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- With a streaming engine selected, an inline dictation now shows the transcript **on the overlay** as it is built — settled words bright, the words still moving dimmer — and pastes it once, in its final form, when you stop. Live streams correct themselves a second later ("…we'll do it." becoming "…we'll do it, then"), and text already pasted into another app cannot take that back.
+- An inline dictation shows its transcript **on the overlay** as it is built — with a streaming engine or the Apple engine; settled words bright, the words still moving dimmer — and pastes it once, in its final form, when you stop. Live recognition corrects itself a second later ("…we'll do it." becoming "…we'll do it, then"), and text already pasted into another app cannot take that back.
+- A dictation is pasted where your cursor is **when you stop**, in whichever app is in front then — not in the app you started in. An AI dictation is written for that app too.
 - A delivered dictation now ends with a space, so a second dictation into the same field doesn't start glued to the first.
 - AI dictations and selection edits on OpenAI's GPT-5.x models no longer wait for the model to think first — measured at about 0.6 s per dictation spent on reasoning nobody reads.
 - The instructions sent with every AI dictation are shorter. Nothing they asked for was dropped; the wording was cut, which leaves more of a free tier's per-minute allowance for your own presets.
@@ -55,7 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - AI mode on Groq stopped working on the default model for free and developer accounts when Groq retired Llama 3.3 70B in August 2026.
-- ElevenLabs realtime no longer pastes a dictation twice. The stream re-states text it has already committed — grown by the words said since, and with a word or two revised — and that was being appended instead of merged.
+- ElevenLabs realtime no longer pastes a dictation twice. The stream re-states text it has already committed — grown by the words said since, and with a word or two revised, even when a revision changes the word count ("FN+Q" → "FN плюс Q") — and that was being appended instead of merged.
+- A recording stopped a moment after it started no longer fails with "Audio file might be corrupted or unsupported". Anything shorter than 0.3 s is dropped quietly, and a very short upload is sent in a format the engines can read. OpenAI's live model no longer rejects a dictation stopped before its connection was ready.
+- The Record Window's ✨ rewrites only the segment you just dictated, instead of rewriting everything above it in that segment's style. A rewrite that would cut the text to less than half is refused and the dictation kept as you said it — unless it went to a preset meant to shorten, such as Notes or Bullets.
+- With the Apple engine, a recognition failure at the very start ends the recording at once, with a notice that says what to do — add the language to Dictation, or allow Speech Recognition — instead of leaving the overlay listening to nothing until you stop.
 - "Auto (System)" no longer forces the keyboard layout's language on a cloud speech model. Whisper and Scribe detect the language themselves; being told the wrong one made them drop most of a recording and translate the rest. Apple's recogniser, which has no auto mode, still follows the layout.
 - The end of a dictation is no longer lost when the connection drops mid-sentence. The upload that takes over re-words the opening slightly, which used to read as a different dictation and stop everything after it from being pasted. Where the text really is unrelated, a notice now says part of the dictation wasn't pasted and opens History, instead of saying nothing.
 - Connecting AirPods or unplugging an interface in the middle of a sentence no longer loses the first half of the dictation. A headset that keeps reconnecting ends the recording with what you said rather than looping.
@@ -84,6 +77,5 @@ First tagged as 1.0.0, renumbered on 2026-09-18: SpeechText is still in a closed
 - Webhook delivery: POST the transcribed text to a URL of your own, with optional Bearer token auth.
 - Automatic language detection that follows the active macOS keyboard layout.
 
-[Unreleased]: https://github.com/yavno/speech-text/compare/v0.9.1...HEAD
-[0.9.1]: https://github.com/yavno/speech-text/compare/v0.9.0...v0.9.1
+[Unreleased]: https://github.com/yavno/speech-text/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/yavno/speech-text/releases/tag/v0.9.0
