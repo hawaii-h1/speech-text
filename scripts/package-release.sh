@@ -162,15 +162,19 @@ codesign --force --options runtime "${TIMESTAMP[@]}" \
     --entitlements "$ENTITLEMENTS" --sign "$SIGN_AS" "$APP"
 codesign --verify --deep --strict "$APP" || die "the signature does not verify"
 
-if codesign -d --entitlements - "$APP" 2>/dev/null | grep -q 'get-task-allow'; then
+# codesign's output is captured before grep sees it: piped straight into `grep -q`,
+# which exits at the first match, codesign dies of SIGPIPE and pipefail turns a found
+# flag into a failure — and a found get-task-allow into a pass.
+if grep -q 'get-task-allow' <<< "$(codesign -d --entitlements - "$APP" 2>/dev/null)"; then
     die "the signed app carries get-task-allow, which notarization rejects"
 fi
-codesign -dv "$APP" 2>&1 | grep -q 'flags=.*runtime' || die "the signed app is missing the hardened runtime flag"
+grep -q 'flags=.*runtime' <<< "$(codesign -dv "$APP" 2>&1)" ||
+    die "the signed app is missing the hardened runtime flag"
 
 # The same question, asked of everything nested: a helper signed without the flag is
 # found by the notary service and not by `codesign --verify`.
 while IFS= read -r -d '' nested; do
-    codesign -dv "$nested" 2>&1 | grep -q 'flags=.*runtime' ||
+    grep -q 'flags=.*runtime' <<< "$(codesign -dv "$nested" 2>&1)" ||
         die "${nested#"$APP/"} is missing the hardened runtime flag"
 done < <(find "$APP/Contents/Frameworks" -depth \
     \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' -o -name '*.app' \
