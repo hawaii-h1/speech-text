@@ -26,8 +26,10 @@ final class AppleRecognitionSession: RecognitionSession {
     private var partialText = ""
     /// Set on `isFinal`, or promoted from the live text when the recogniser errors.
     private var finalText = ""
-    /// Recognition errors other than 216 (cancelled).
+    /// Recognition errors other than 216 (cancelled), as `RecognitionFailure` words them.
     private var lastError: String?
+    /// The current chunk's task reported an error, so no further callback is coming.
+    private var chunkFailed = false
     /// Incremented on every rotation so callbacks from retired chunks can be discarded.
     private var chunkToken = 0
     private var chunkTimer: Timer?
@@ -48,6 +50,11 @@ final class AppleRecognitionSession: RecognitionSession {
     }
 
     func start() throws {
+        // Denied or restricted: every task would fail, so the start does — with the
+        // remedy. Not determined proceeds: the system asks on the first task.
+        if Self.speechPermissionDenied {
+            throw RecognitionSessionError.speechPermissionDenied
+        }
         guard let recognizer, recognizer.isAvailable else {
             throw RecognitionSessionError.recognizerUnavailable(locale)
         }
@@ -55,7 +62,15 @@ final class AppleRecognitionSession: RecognitionSession {
         startChunk(recognizer)
     }
 
+    private static var speechPermissionDenied: Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .denied, .restricted: return true
+        default: return false
+        }
+    }
+
     private func startChunk(_ recognizer: SFSpeechRecognizer) {
+        chunkFailed = false
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
@@ -88,12 +103,26 @@ final class AppleRecognitionSession: RecognitionSession {
                 dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)")
                 DispatchQueue.main.async {
                     guard self.chunkToken == token else { return }
+                    // The task is over: a `finish()` that starts after this has nothing
+                    // to wait for.
+                    self.chunkFailed = true
                     if self.finalText.isEmpty {
                         self.finalText = joinedTranscript(self.committedText, self.partialText)
                     }
-                    if nsErr.code != 216 {
-                        self.lastError = error.localizedDescription
-                        self.onEvent?(.failure(error.localizedDescription))
+                    // Text from the whole segment, earlier chunks included: a fresh chunk
+                    // that fails right after a rotation is not a recording without text.
+                    let hasText = !joinedTranscript(self.committedText, self.partialText)
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let permissionDenied = Self.speechPermissionDenied
+                    if let failure = RecognitionFailure.apple(
+                        domain: nsErr.domain, code: nsErr.code,
+                        description: error.localizedDescription, hasText: hasText,
+                        permissionDenied: permissionDenied, locale: self.locale) {
+                        if !hasText {
+                            dlog("Engine", "recognitionTask failed before any text: onDevice=\(self.recognizer?.supportsOnDeviceRecognition == true), permissionDenied=\(permissionDenied)")
+                        }
+                        self.lastError = failure.message
+                        self.onEvent?(.failure(failure))
                     }
                     // Nothing more is coming after an error: a `finish()` waiting on this
                     // task gets its answer now rather than at the 0.5 s deadline.
@@ -166,6 +195,13 @@ final class AppleRecognitionSession: RecognitionSession {
                 self.isFeeding = false
                 self.stopChunkTimer()
                 self.request?.endAudio()
+                guard !self.chunkFailed else {
+                    // The task already ended with an error: no final result is coming,
+                    // and waiting out the deadline would only hold the notice back.
+                    dlog("Engine", "apple: task already failed, not waiting for a final result")
+                    continuation.resume(returning: false)
+                    return
+                }
                 dlog("Engine", "apple: waiting ≤0.5s for final result, live=\(joinedTranscript(self.committedText, self.partialText).count) chars")
                 self.finishContinuation = continuation
                 // 0.5s is the upper bound; the recognition callback resolves this early

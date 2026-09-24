@@ -144,6 +144,15 @@ final class SpeechEngine {
     /// `errorMessage` until a stop, and there is no stop coming.
     var onStartFailure: ((String) -> Void)?
 
+    /// The recogniser failed before it produced any text, and the engine has stopped the
+    /// recording itself (`RecognitionFailure.endsRecording`). Called once the phase is
+    /// `.finishing`, so `awaitTranscription()` waits for the stop's result — the error,
+    /// with the audio in History. The owner did not ask for this stop and has no waiter
+    /// parked; without this it would leave its overlay listening until the user stopped.
+    /// Unset (the Record Window) the stop still happens: the panel's status line shows
+    /// `errorMessage` and its knob goes back to idle.
+    var onRecognitionFailure: ((String) -> Void)?
+
     func startRecording(locale: String = "en-US") {
         guard case .idle = phase else {
             // A second start while one is starting rebuilt the session under it; one
@@ -300,8 +309,11 @@ final class SpeechEngine {
                 }
                 self.spanLayer.ingest(committed: cleanedCommitted.cleaned,
                                       partial: configuration.cleaned(partial))
-            case .failure(let message):
-                self.errorMessage = message
+            case .failure(let failure):
+                self.errorMessage = failure.message
+                if failure.endsRecording {
+                    self.endRecording(after: failure)
+                }
             }
         }
         session = newSession
@@ -392,6 +404,31 @@ final class SpeechEngine {
                 if self.phase == .starting { self.phase = .recording }
                 seLog.info("startAudioEngine: audio engine started successfully")
             }
+        }
+    }
+
+    /// The recogniser failed with no text to show for the segment, and nothing it would
+    /// be fed from here on is transcribed. What ending the recording means depends on
+    /// how far it got.
+    private func endRecording(after failure: RecognitionFailure) {
+        switch phase {
+        case .starting:
+            // The session opens before the audio engine, so its task can fail before the
+            // microphone is live: that is a start failure, and ends like one — no audio
+            // was taken, so there is nothing for History to keep.
+            dlog("Engine", "recognition failed before the microphone opened — a start failure")
+            onStartFailure?(failure.message)
+            phase = .idle
+            cleanup()
+        case .recording:
+            // The ordinary stop: `finish()` returns the error at once, and `recordOutcome`
+            // writes the History row with the audio taken so far.
+            dlog("Engine", "recognition failed before any text — ending the recording")
+            stopRecording()
+            onRecognitionFailure?(failure.message)
+        case .idle, .paused, .finishing:
+            // A pause or a stop already took the segment, and its outcome carries the error.
+            break
         }
     }
 
@@ -609,8 +646,13 @@ final class SpeechEngine {
             return
         }
         // Nothing came back — preserve the audio so it can be retried. A batch session
-        // already wrote it; otherwise archive the writer's buffer now.
-        let audioURL = outcome.audioFileURL ?? (try? writer?.writeAudioFile()) ?? nil
+        // already wrote it; otherwise archive the writer's buffer now. Not for a failure
+        // under `STTTuning.minimumSegmentSeconds`, though — an Apple recogniser that
+        // failed at once leaves a clip of a few dozen milliseconds, which no provider can
+        // transcribe (the batch tier drops such a segment outright). The row stays: it is
+        // what explains the failure.
+        let tooShortToRetry = failure != nil && duration < STTTuning.minimumSegmentSeconds
+        let audioURL = outcome.audioFileURL ?? (tooShortToRetry ? nil : (try? writer?.writeAudioFile()) ?? nil)
         if let error = failure {
             history.recordFailure(error: error, provider: provider, locale: locale,
                                   duration: duration, audioURL: audioURL)

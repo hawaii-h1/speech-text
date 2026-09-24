@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+import AppKit
 import AVFoundation
 
 // MARK: - Helpers
@@ -235,6 +236,106 @@ final class BatchRecognitionSessionTests: XCTestCase {
         XCTAssertEqual(provider.uploads.count, 1)
         XCTAssertEqual(outcome.text, "текст")
         XCTAssertFalse(outcome.cancelled)
+    }
+}
+
+// MARK: - Recogniser failures (RecognitionSession.swift)
+
+final class RecognitionFailureTests: XCTestCase {
+
+    private func apple(domain: String = "kLSRErrorDomain", code: Int = 102,
+                       description: String = "Failed to access assets",
+                       hasText: Bool = false, permissionDenied: Bool = false,
+                       locale: String = "en") -> RecognitionFailure? {
+        RecognitionFailure.apple(domain: domain, code: code, description: description,
+                                 hasText: hasText, permissionDenied: permissionDenied,
+                                 locale: locale)
+    }
+
+    /// #69: the on-device recogniser failed 44 ms in, and the overlay listened for 12 s.
+    func testAFailureBeforeAnyTextEndsTheRecording() throws {
+        let failure = try XCTUnwrap(apple())
+
+        XCTAssertTrue(failure.endsRecording)
+        XCTAssertEqual(failure.message,
+                       "Couldn't load the English speech model. Add it to Dictation in System Settings › Keyboard.")
+    }
+
+    /// Nothing that was already recognised is thrown away, and Apple's 50 s rotation
+    /// opens a fresh task: the recording goes on, as before.
+    func testAFailureAfterTextLetsTheRecordingGoOn() throws {
+        let failure = try XCTUnwrap(apple(hasText: true))
+
+        XCTAssertFalse(failure.endsRecording)
+        XCTAssertTrue(failure.message.contains("English speech model"), "still explained at the stop")
+    }
+
+    /// A rotation, a stop and `cancel()` all cancel a task — in whichever domain.
+    func testACancellationIsNotAFailure() {
+        XCTAssertNil(apple(domain: "kAFAssistantErrorDomain", code: 216, description: "Canceled"))
+        XCTAssertNil(apple(domain: "kLSRErrorDomain", code: 216, description: "Canceled"))
+        XCTAssertNil(apple(domain: "kAFAssistantErrorDomain", code: 216, hasText: true))
+    }
+
+    /// Only a cause the error names is explained; anything else keeps the recogniser's
+    /// own words — and still ends a recording that has no text.
+    func testAnotherErrorKeepsItsOwnWords() throws {
+        let noSpeech = try XCTUnwrap(apple(domain: "kAFAssistantErrorDomain", code: 1110,
+                                           description: "No speech detected"))
+        XCTAssertEqual(noSpeech.message, "No speech detected")
+        XCTAssertTrue(noSpeech.endsRecording)
+
+        let sameCodeOtherDomain = try XCTUnwrap(apple(domain: "kAFAssistantErrorDomain", code: 102,
+                                                      description: "Something else"))
+        XCTAssertEqual(sameCodeOtherDomain.message, "Something else")
+    }
+
+    /// The permission is read, not inferred — and when it is off, that is the remedy,
+    /// whatever the error said.
+    func testADeniedPermissionIsWhatTheUserIsTold() throws {
+        let failure = try XCTUnwrap(apple(permissionDenied: true))
+
+        XCTAssertEqual(failure.message, RecognitionFailure.speechPermissionMessage)
+        XCTAssertTrue(failure.endsRecording)
+        XCTAssertEqual(RecognitionSessionError.speechPermissionDenied.errorDescription,
+                       RecognitionFailure.speechPermissionMessage,
+                       "the start refuses with the same words")
+    }
+
+    /// Apple is handed a regional locale; the notice names the language, in English
+    /// whatever the Mac's own language is.
+    func testTheLanguageIsNamedInEnglishFromAnyLocaleSpelling() {
+        XCTAssertEqual(RecognitionFailure.languageName("en"), "English")
+        XCTAssertEqual(RecognitionFailure.languageName("en-US"), "English")
+        XCTAssertEqual(RecognitionFailure.languageName("en_GB"), "English")
+        XCTAssertEqual(RecognitionFailure.languageName("uk-UA"), "Ukrainian")
+    }
+
+    /// The status notice's detail is two lines (`StatusOverlayView`: `lineLimit(2)`, 11 pt,
+    /// 340 pt panel less 2 × 16 padding, the 24 pt icon and 12 spacing): past them the
+    /// remedy is what gets cut. Measured as laid out, not counted in characters. And
+    /// `AppState.friendlySTTError` rewrites a message containing an HTTP status or a
+    /// network word, so none may appear in these.
+    func testEveryExplanationFitsTheNoticeAndPassesThroughUnchanged() throws {
+        var messages = [RecognitionFailure.speechPermissionMessage]
+        for language in spokenLanguageCatalog {
+            messages.append(try XCTUnwrap(apple(locale: language.localeIdentifier)).message)
+        }
+        func laidOutHeight(_ text: String) -> CGFloat {
+            NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 11)])
+                .boundingRect(with: NSSize(width: 272, height: CGFloat.greatestFiniteMagnitude),
+                              options: .usesLineFragmentOrigin).height
+        }
+        // Two lines as the same layout measures them, rather than a font metric that
+        // rounds differently.
+        let twoLines = laidOutHeight("Ag\nAg")
+        XCTAssertLessThan(twoLines, laidOutHeight("Ag\nAg\nAg"))
+        for message in messages {
+            XCTAssertLessThanOrEqual(laidOutHeight(message), twoLines, message)
+            for token in ["413", "429", "401", "403", "-1001", "-1009", "too large", "timed out", "offline"] {
+                XCTAssertFalse(message.localizedCaseInsensitiveContains(token), message)
+            }
+        }
     }
 }
 

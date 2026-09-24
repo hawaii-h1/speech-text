@@ -729,7 +729,21 @@ final class AppState {
         speechEngine.onStartFailure = { [weak self] message in
             self?.handleStartFailure(message)
         }
+        // Nor did a recogniser that failed before any text: the overlay listened on until
+        // the user stopped (#69). The engine has stopped by now; the result is the stop's.
+        speechEngine.onRecognitionFailure = { [weak self] message in
+            self?.handleRecognitionFailure(message)
+        }
         speechEngine.startRecording(locale: locale)
+    }
+
+    /// The engine ended the dictation itself: the rest of an ordinary stop, without a
+    /// second engine stop, and without a paste target or a focus context — the result
+    /// is a failure, which goes to neither.
+    private func handleRecognitionFailure(_ message: String) {
+        dlog("App", "recognition failed before any text — ending the dictation: \(message)")
+        DictationTraceRecorder.record(.stop)
+        waitForTranscription()
     }
 
     private func handleStartFailure(_ message: String) {
@@ -1166,6 +1180,7 @@ final class AppState {
             editTapTimer = nil
             // A microphone still starting may yet fail; that no longer concerns this edit.
             speechEngine.onStartFailure = nil
+            speechEngine.onRecognitionFailure = nil
             speechEngine.cancelRecording()
             editInstruction = .ready(nil, recordID: nil)
             removesSelection = true
@@ -1225,6 +1240,22 @@ final class AppState {
             dlog("Edit", "microphone failed to start: \(message)")
             self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't start recording",
                            detail: self.friendlySTTError(message))
+        }
+        // The recogniser failed before any of the instruction was heard, and the engine
+        // stopped. Nothing has been cut yet — that waits for the instruction to end — so
+        // the edit just ends, once the stop has written its History row.
+        speechEngine.onRecognitionFailure = { [weak self] message in
+            guard let self, self.isEditMode, self.editGeneration == generation else { return }
+            dlog("Edit", "recognition failed before any instruction: \(message)")
+            self.transcriptionWaitTask?.cancel()
+            self.transcriptionWaitTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.speechEngine.awaitTranscription()
+                guard !Task.isCancelled, self.isEditMode, self.editGeneration == generation else { return }
+                self.transcriptionWaitTask = nil
+                self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't hear the instruction",
+                               detail: self.friendlySTTError(message))
+            }
         }
         // Saying nothing is a request to polish, and the edit writes its own record.
         speechEngine.recordsEmptyOutcomes = false

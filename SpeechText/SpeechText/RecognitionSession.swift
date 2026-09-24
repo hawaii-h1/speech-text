@@ -12,10 +12,68 @@ enum RecognitionEvent {
     /// Kept apart (rather than pre-joined) so a later span layer can map them onto
     /// partial / commit / revise without re-splitting a string.
     case live(committed: String, partial: String)
-    /// The recogniser reported an error while the segment was open. Becomes
-    /// `SpeechEngine.errorMessage`. Streaming sessions never send this: a broken stream
-    /// is their own business (they fall back to the batch upload).
-    case failure(String)
+    /// The recogniser reported an error while the segment was open. Its message becomes
+    /// `SpeechEngine.errorMessage`, and `endsRecording` tells the engine not to keep a
+    /// dead recogniser listening. Streaming sessions never send this: a broken stream is
+    /// their own business (they fall back to the batch upload).
+    case failure(RecognitionFailure)
+}
+
+/// A recogniser error as the engine acts on it: what the user is told, and whether the
+/// recording can go on.
+struct RecognitionFailure: Equatable {
+    /// What the status notice, the Record Window's status line and the History row say.
+    var message: String
+    /// The recogniser failed before it produced any text. Nothing follows an error — the
+    /// task is over — so listening on only takes audio no one transcribes: #69's overlay
+    /// listened for twelve seconds after a failure 44 ms in. The engine ends the
+    /// recording at once instead. With text already there the recording goes on as it
+    /// always has: that text is kept for the stop, and Apple's next 50 s chunk rotation
+    /// opens a fresh task.
+    var endsRecording: Bool
+
+    /// kAFAssistantErrorDomain 216: the task was cancelled — by a chunk rotation, a stop
+    /// or `cancel()` — which is not a failure. Matched on the code alone, as it always was.
+    static let cancelledCode = 216
+    /// The on-device recogniser's own error domain.
+    static let localSpeechDomain = "kLSRErrorDomain"
+    /// kLSRErrorDomain 102, "Failed to access assets": the recogniser could not load its
+    /// model for the language.
+    static let assetsCode = 102
+
+    /// What Apple's recogniser reported, as the user will read it — nil for a
+    /// cancellation. Pure: the session reads the error, the text it holds and the Speech
+    /// Recognition permission, and hands the answers in. The raw error stays in the Debug
+    /// Log; the message has to fit the status notice's two lines, which the tests measure.
+    static func apple(domain: String, code: Int, description: String,
+                      hasText: Bool, permissionDenied: Bool,
+                      locale: String) -> RecognitionFailure? {
+        guard code != cancelledCode else { return nil }
+        let message: String
+        if permissionDenied {
+            // Read from `SFSpeechRecognizer.authorizationStatus()`, not guessed from the error.
+            message = speechPermissionMessage
+        } else if domain == localSpeechDomain, code == assetsCode {
+            // Only what the error says — the assets could not be loaded — and where they
+            // come from. "Not downloaded yet" is the usual reason, but not one it names.
+            let language = languageName(locale)
+            message = "Couldn't load the \(language) speech model. Add it to Dictation in System Settings › Keyboard."
+        } else {
+            message = description
+        }
+        return RecognitionFailure(message: message, endsRecording: !hasText)
+    }
+
+    /// Also the start failure when the permission is already known to be off.
+    static let speechPermissionMessage =
+        "Speech Recognition is off for SpeechText. Turn it on in System Settings › Privacy & Security."
+
+    /// "English" for "en", "en-US" or "en_US" — named in English, as the rest of the UI
+    /// is, rather than in whatever language the Mac runs in.
+    static func languageName(_ locale: String) -> String {
+        let code = Locale(identifier: locale).language.languageCode?.identifier ?? locale
+        return Locale(identifier: "en").localizedString(forLanguageCode: code) ?? locale
+    }
 }
 
 /// The result of a finished segment. History bookkeeping stays in the engine, so this
@@ -72,10 +130,13 @@ protocol RecognitionSession: AnyObject {
 
 enum RecognitionSessionError: LocalizedError {
     case recognizerUnavailable(String)
+    /// Speech Recognition is denied or restricted for the app, so every task would fail.
+    case speechPermissionDenied
 
     var errorDescription: String? {
         switch self {
         case .recognizerUnavailable(let locale): return "Speech recognizer not available for \(locale)"
+        case .speechPermissionDenied: return RecognitionFailure.speechPermissionMessage
         }
     }
 }
