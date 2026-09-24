@@ -228,21 +228,19 @@ struct MountedDiskImage: Equatable {
 ///
 /// A drag into Applications is a Finder copy, and nothing runs when it finishes — so the
 /// app cannot launch itself after one. What it can do is recognise the two states around
-/// that copy: opened straight from the image (it has to move itself first, or it stops
-/// working the moment the image is ejected), and opened from Applications with the image
-/// still mounted (the `.dmg` is no longer needed, and setup offers to put it away).
+/// that copy: opened straight from the image, where it has to move itself first or it
+/// stops working the moment the image is ejected. The image, once the app is installed,
+/// is the user's to eject and throw away.
 enum InstallLocation: Equatable {
     /// Running from inside a mounted image. `image` is nil when that is known only from
     /// App Translocation's path and no mounted image carries the app.
     case inDiskImage(MountedDiskImage?)
-    /// Installed, and the image it came in is still mounted.
-    case leftoverImage(MountedDiskImage)
     case installed
 
     /// `appName` is the bundle's name without `.app`. An image counts as this app's when
     /// its file or its volume is named for it ("SpeechText-0.9.0.dmg", "SpeechText 0.9.0"):
     /// looking inside the volume for the app would be a file read on a mounted volume,
-    /// which macOS may answer with a privacy prompt — at the moment setup opens.
+    /// which macOS may answer with a privacy prompt — at launch.
     ///
     /// A quarantined app opened from an image does not run from `/Volumes/…`: macOS
     /// translocates it to a random read-only path under `AppTranslocation`, and that path
@@ -262,12 +260,8 @@ enum InstallLocation: Equatable {
         if let image = images.first(where: isInside) {
             return .inDiskImage(image)
         }
-        let carrying = images.filter(carriesThisApp)
         if bundlePath.contains("/AppTranslocation/") {
-            return .inDiskImage(carrying.first)
-        }
-        if let leftover = carrying.first {
-            return .leftoverImage(leftover)
+            return .inDiskImage(images.first(where: carriesThisApp))
         }
         return .installed
     }

@@ -163,8 +163,7 @@ gh secret set NOTARY_TEAM_ID
 5. Download the image and install it on a Mac — or a fresh user account — that has
    never run SpeechText: it should open without any Gatekeeper dialog, show the drag
    window (the app, the arrow, Applications), and on first launch from Applications open
-   the setup window — not permission alerts — which offers to eject the image and move
-   it to the Trash. Opened straight from the image instead, it should offer to move
+   the setup window — not permission alerts. Opened straight from the image instead, it should offer to move
    itself to Applications. The rows are in docs/manual-testing.md › Встановлення з DMG.
    Then publish the draft.
 6. Check that the release it replaces can reach it: on a Mac running the *previous*
@@ -213,8 +212,9 @@ build). `--from-app PATH` packages an app that is already built.
 ## The disk image window
 
 What a user sees on opening the image — the app on the left, a dotted arrow, the
-Applications folder on the right, over the setup window's green glow with its card and
-steps pill — is a background drawn by `scripts/dmg/background.swift` and a Finder layout
+Applications folder on the right, on a white card in the setup window's green glass rim,
+under the title "One drag and you're set" and above a line saying setup starts once SpeechText is
+opened from Applications — is a background drawn by `scripts/dmg/background.swift` and a Finder layout
 (`.DS_Store`) written by [dmgbuild](https://github.com/dmgbuild/dmgbuild) from
 `scripts/dmg/dmgbuild-settings.py`. dmgbuild writes the layout itself rather than
 scripting Finder, which would need an Automation grant and someone at the screen — a tag
@@ -223,18 +223,28 @@ builds on a runner that has neither.
 - **A build-time tool, not a dependency of the app.** It is installed from PyPI into a
   virtual environment under the job's temporary folder, from `scripts/dmg/requirements.txt`,
   pinned by hash (`--require-hashes`): the job has the signing keychain unlocked. It needs
-  Python 3.8+ — `python3`, or `SPT_PYTHON` — which is why it is pinned to 1.6.2: 1.6.3 and
-  later need 3.10, and the Command Line Tools' `python3` is 3.9.
-- **Finder decides how much shows.** The window holds 640 × 420 below its title bar, but
-  a user with Finder's path bar and status bar on (a global setting that wins over the
-  image's) sees only the top 364. Nothing that says something goes below that line, and
-  the picture is taller than the window.
-- **Finder decides the names' colour** — black in light mode, white in dark — so the
-  icons stand on the mid-tone glow, not on the card, and `background.swift` measures the
-  rendered luminance under both names and fails the build if either colour would not
-  read.
+  Python 3.10+ — `SPT_PYTHON`, else the first new-enough `python3` / `python3.1x` on
+  PATH; the Command Line Tools' `python3` is 3.9 and is skipped.
+- **1.6.7 or later, because of macOS 26.** Up to 1.6.5 dmgbuild wrote a `pBBk` bookmark
+  to the background beside the classic alias. Finder on macOS 26 follows the bookmark,
+  cannot resolve it on the compressed read-only image, and draws a plain white window —
+  the picture is on the image, and nothing says it is missing. 1.6.7 writes the alias
+  alone, which Finder resolves.
+- **Finder decides how much shows.** Finder's path bar and status bar (a global setting
+  that wins over the image's) each cover 28 points of the window's bottom. The window is
+  one bar taller than the card and its rim, so the whole rim shows with the path bar
+  on; with no bar the rim is thicker at the bottom, and with both its lower edge goes
+  under the second. The picture is taller than the window.
+- **Finder decides the names' colour** — black in light mode, white in dark. On the
+  white card the names read in light mode only; in dark mode they fade into it. That
+  was chosen over a mid-tone behind the names: the icons say what they are without
+  them. `background.swift` measures the rendered luminance under both names and fails
+  the build if black would not read.
+- **The aura is SetupAura's, frozen.** `background.swift` renders with SwiftUI and
+  copies the setup's blobs, gradient and blur at one moment; Finder shows a background
+  as a still picture, so nothing in it can move.
 - **The window's size and the icons' centres live in two files** that have to agree:
-  `background.swift` (`APP_CENTER`, `APPS_CENTER`) and `dmgbuild-settings.py`.
+  `background.swift` (`WINDOW`, `APP_CENTER`, `APPS_CENTER`) and `dmgbuild-settings.py`.
 
 ## When notarization fails
 

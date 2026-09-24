@@ -4,8 +4,8 @@
 import AppKit
 
 /// The disk image's half of installing: moving an app that was opened straight from the
-/// image into Applications, and putting the image away once the app is installed. The
-/// decisions are `InstallLocation` (SetupServices.swift); this is the I/O around them.
+/// image into Applications. The decision is `InstallLocation` (SetupServices.swift); this
+/// is the I/O around it. The image itself is the user's to eject and throw away.
 enum AppInstaller {
     /// Where the running copy is. Asks `hdiutil` which images are mounted — a few tens of
     /// milliseconds, needing no permission, and never reading the volumes themselves.
@@ -135,34 +135,6 @@ enum AppInstaller {
         NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
             if let error { dlog("Install", "relaunch failed: \(error.localizedDescription)") }
             DispatchQueue.main.async { NSApp.terminate(nil) }
-        }
-    }
-
-    // MARK: Installed, the image still mounted
-
-    enum PutAwayResult {
-        case trashed
-        /// Ejected, but the `.dmg` could not be moved to the Trash; it was shown in Finder.
-        case shownInFinder
-    }
-
-    /// Ejects the image and moves its `.dmg` to the Trash — reversible, never deleted.
-    /// Moving a file out of Downloads may raise macOS's own prompt for that folder; if it
-    /// is refused the file is shown in Finder instead, for the user to drag away.
-    static func putAway(_ image: MountedDiskImage) async throws -> PutAwayResult {
-        let file = URL(fileURLWithPath: image.imagePath)
-        try await Task.detached {
-            try NSWorkspace.shared.unmountAndEjectDevice(at: URL(fileURLWithPath: image.mountPoint))
-        }.value
-        dlog("Install", "ejected \(image.mountPoint)")
-        do {
-            try FileManager.default.trashItem(at: file, resultingItemURL: nil)
-            dlog("Install", "moved \(file.lastPathComponent) to the Trash")
-            return .trashed
-        } catch {
-            dlog("Install", "could not trash \(file.path): \(error.localizedDescription)")
-            await MainActor.run { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-            return .shownInFinder
         }
     }
 }

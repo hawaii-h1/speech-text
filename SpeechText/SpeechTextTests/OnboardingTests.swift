@@ -92,8 +92,9 @@ final class InstallLocationTests: XCTestCase {
         XCTAssertEqual(decide(translocated, [other]), .inDiskImage(nil))
     }
 
-    func testInstalledWithTheImageStillMountedOffersToPutItAway() {
-        XCTAssertEqual(decide("/Applications/SpeechText.app", [other, image]), .leftoverImage(image))
+    /// The image left mounted after the drag is the user's to put away; the app says nothing.
+    func testInstalledWithTheImageStillMountedIsInstalled() {
+        XCTAssertEqual(decide("/Applications/SpeechText.app", [other, image]), .installed)
         XCTAssertEqual(decide("/Applications/SpeechText.app", [other]), .installed)
     }
 
@@ -101,15 +102,17 @@ final class InstallLocationTests: XCTestCase {
     /// only begins like the one the app is on does not contain it.
     func testAMountPointIsMatchedByWholeComponent() {
         let shorter = MountedDiskImage(imagePath: "/x.dmg", mountPoint: "/Volumes/SpeechText")
-        XCTAssertEqual(decide("/Volumes/SpeechText 0.9.0/SpeechText.app", [shorter]), .leftoverImage(shorter))
+        XCTAssertEqual(decide("/Volumes/SpeechText 0.9.0/SpeechText.app", [shorter]), .installed)
     }
 
-    /// An image is this app's by its file's or its volume's name — never by reading it.
+    /// A translocated app's image is known by its file's or its volume's name — never by
+    /// reading it.
     func testAnImageIsKnownByItsName() {
+        let translocated = "/private/var/folders/xy/T/AppTranslocation/8C1E/d/SpeechText.app"
         let renamed = MountedDiskImage(imagePath: "/Users/me/Downloads/download.dmg", mountPoint: "/Volumes/SpeechText")
-        XCTAssertEqual(decide("/Applications/SpeechText.app", [renamed]), .leftoverImage(renamed))
+        XCTAssertEqual(decide(translocated, [renamed]), .inDiskImage(renamed))
         let byFile = MountedDiskImage(imagePath: "/Users/me/Downloads/speechtext-0.9.0.dmg", mountPoint: "/Volumes/Untitled")
-        XCTAssertEqual(decide("/Applications/SpeechText.app", [byFile]), .leftoverImage(byFile))
+        XCTAssertEqual(decide(translocated, [byFile]), .inDiskImage(byFile))
     }
 
     /// A build run from Xcode is never asked to move.

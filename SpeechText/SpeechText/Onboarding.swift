@@ -149,19 +149,6 @@ final class OnboardingModel {
 
     private var observers: [NSObjectProtocol] = []
 
-    // The disk image
-    enum InstallerState: Equatable {
-        case offered(MountedDiskImage)
-        case working(MountedDiskImage)
-        case failed(MountedDiskImage, String)
-        case trashed
-        case shownInFinder
-    }
-
-    /// The disk image SpeechText was installed from, while it is still mounted: it is no
-    /// longer needed, and the setup window offers to put it away. Nil once it is gone.
-    private(set) var installer: InstallerState?
-
     init(appState: AppState) {
         self.appState = appState
         let defaults = UserDefaults.standard
@@ -195,9 +182,6 @@ final class OnboardingModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.appBecameActive() }
         })
-        if case .leftoverImage(let leftover) = AppInstaller.currentLocation() {
-            installer = .offered(leftover)
-        }
         stepChanged()
     }
 
@@ -474,32 +458,6 @@ final class OnboardingModel {
         }
         if step == .permissions { refreshPermissions() }
         if step == .ai, aiPath == .local { checkOllama() }
-    }
-
-    // MARK: The disk image
-
-    func putAwayInstaller() {
-        let image: MountedDiskImage
-        switch installer {
-        case .offered(let offered)?, .failed(let offered, _)?: image = offered
-        default: return
-        }
-        installer = .working(image)
-        Task { @MainActor in
-            do {
-                switch try await AppInstaller.putAway(image) {
-                case .trashed: installer = .trashed
-                case .shownInFinder: installer = .shownInFinder
-                }
-            } catch {
-                dlog("Install", "eject failed: \(error.localizedDescription)")
-                installer = .failed(image, "Couldn't eject it — close any window that uses it and try again.")
-            }
-        }
-    }
-
-    func dismissInstaller() {
-        installer = nil
     }
 
     // MARK: ④ Permissions

@@ -24,8 +24,9 @@
 #   SPT_NOTARY_TEAM_ID    the team ID
 #
 # The disk image window is laid out by dmgbuild (scripts/dmg/), installed from PyPI into a
-# throwaway virtual environment, pinned by hash. It needs Python 3.8 or later: `python3`,
-# or whatever SPT_PYTHON names.
+# throwaway virtual environment, pinned by hash. It needs Python 3.10 or later: whatever
+# SPT_PYTHON names, else the first of `python3`, `python3.14` … `python3.10` on PATH that is
+# new enough (the Command Line Tools' `python3` is 3.9).
 #
 # Without SPT_DEVELOPER_ID it still builds a disk image — signed ad-hoc and labelled
 # as not for distribution — so the packaging itself can be exercised by anyone.
@@ -225,21 +226,31 @@ SUFFIX=""
 DMG="$OUT/$APP_NAME-$VERSION$SUFFIX.dmg"
 
 step "Making $(basename "$DMG")"
-# The window a user sees on opening the image: the app, an arrow, Applications, and a
-# line saying what happens next. Its layout lives in the image's .DS_Store, which
+# The window a user sees on opening the image: a title, the app, an arrow, Applications
+# and a line on what comes next, on a white card in the setup window's green glass rim. Its layout lives in the image's .DS_Store, which
 # dmgbuild writes directly — scripting Finder instead needs an Automation grant and
 # someone at the screen, and a tag builds on a runner with neither.
 DMG_DIR="$REPO_ROOT/scripts/dmg"
-PYTHON="${SPT_PYTHON:-python3}"
-"$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null ||
-    die "dmgbuild needs Python 3.8 or later; set SPT_PYTHON to one ($PYTHON is $("$PYTHON" --version 2>&1))"
+new_enough() { "$1" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; }
+if [ -n "${SPT_PYTHON:-}" ]; then
+    PYTHON="$SPT_PYTHON"
+    new_enough "$PYTHON" ||
+        die "dmgbuild needs Python 3.10 or later; SPT_PYTHON is $("$PYTHON" --version 2>&1)"
+else
+    PYTHON=""
+    for candidate in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
+        if new_enough "$candidate"; then PYTHON="$candidate"; break; fi
+    done
+    [ -n "$PYTHON" ] ||
+        die "dmgbuild needs Python 3.10 or later, and none is on PATH; set SPT_PYTHON to one"
+fi
 "$PYTHON" -m venv "$WORK/venv" || die "could not create a Python virtual environment"
 "$WORK/venv/bin/python" -m pip install --quiet --disable-pip-version-check \
     --require-hashes --no-deps --only-binary=:all: -r "$DMG_DIR/requirements.txt" ||
     die "could not install dmgbuild (scripts/dmg/requirements.txt)"
 
 mkdir -p "$WORK/dmg"
-swift "$DMG_DIR/background.swift" "$WORK/dmg" "$APP/Contents/Resources/AppIcon.icns" || die "could not draw the disk image background"
+swift "$DMG_DIR/background.swift" "$WORK/dmg" || die "could not draw the disk image background"
 
 rm -f "$DMG"
 # The image's own icon is the app's, so it is recognisable on the desktop and in Finder's

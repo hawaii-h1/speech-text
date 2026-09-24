@@ -3,11 +3,13 @@
 #
 # dmgbuild, which lays out the disk image window (package-release.sh). Build-time only:
 # nothing of it ships in the app. Pinned by hash because the release job runs with the
-# signing keychain unlocked. These versions still run on Python 3.8+, which the Command
-# Line Tools' python3 (3.9) meets; 1.6.3 and later need 3.10.
-dmgbuild==1.6.2 \
-    --hash=sha256:f78200b992027ccd2aa63872ed6ed11464e9149249303b8eee477e65280993d1
-ds_store==1.3.1 \
-    --hash=sha256:fbacbb0bd5193ab3e66e5a47fff63619f15e374ffbec8ae29744251a6c8f05b5
-mac_alias==2.2.2 \
-    --hash=sha256:504ab8ac546f35bbd75ad014d6ad977c426660aa721f2cd3acf3dc2f664141bd
+# signing keychain unlocked. 1.6.7 is the floor, not a preference: up to 1.6.5 dmgbuild
+# also wrote a `pBBk` bookmark beside the background's alias, and Finder on macOS 26
+# follows that bookmark, fails to resolve it on the read-only image, and shows a white
+# window. All three need Python 3.10 or later.
+dmgbuild==1.6.7 \
+    --hash=sha256:37ee5771c377beb3203d9164aae8046ffed8531c06edf9227f5788b3c599b1bf
+ds_store==1.3.3 \
+    --hash=sha256:b92a371efbf1b4ccce2a04d1ed13fceacc4736c81ba09cf5aefb74c088160a35
+mac_alias==2.2.3 \
+    --hash=sha256:7362b521d2132ef92f606a37abfed5fcd849ceb2f28b6f9743e014b02af92f0d
