@@ -149,6 +149,19 @@ final class OnboardingModel {
 
     private var observers: [NSObjectProtocol] = []
 
+    // The disk image
+    enum InstallerState: Equatable {
+        case offered(MountedDiskImage)
+        case working(MountedDiskImage)
+        case failed(MountedDiskImage, String)
+        case trashed
+        case shownInFinder
+    }
+
+    /// The disk image SpeechText was installed from, while it is still mounted: it is no
+    /// longer needed, and the setup window offers to put it away. Nil once it is gone.
+    private(set) var installer: InstallerState?
+
     init(appState: AppState) {
         self.appState = appState
         let defaults = UserDefaults.standard
@@ -182,6 +195,9 @@ final class OnboardingModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.appBecameActive() }
         })
+        if case .leftoverImage(let leftover) = AppInstaller.currentLocation() {
+            installer = .offered(leftover)
+        }
         stepChanged()
     }
 
@@ -210,7 +226,12 @@ final class OnboardingModel {
         } else if !defaults.bool(forKey: SettingsKeys.onboardingCompleted) {
             defaults.set(step.rawValue, forKey: SettingsKeys.onboardingStep)
         }
-        if step == .permissions { refreshPermissions() }
+        if step == .permissions {
+            // On by default, like every install before setup existed — turned on here, on
+            // the screen whose switch turns it off, rather than silently at launch.
+            if !defaults.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) { setLaunchAtLogin(true) }
+            refreshPermissions()
+        }
         if step == .ai, aiPath == .local { checkOllama() }
         if step != .tryIt { appState.dictationTest.reset() }
         appState.dictationTest.isActive = step == .tryIt
@@ -453,6 +474,32 @@ final class OnboardingModel {
         }
         if step == .permissions { refreshPermissions() }
         if step == .ai, aiPath == .local { checkOllama() }
+    }
+
+    // MARK: The disk image
+
+    func putAwayInstaller() {
+        let image: MountedDiskImage
+        switch installer {
+        case .offered(let offered)?, .failed(let offered, _)?: image = offered
+        default: return
+        }
+        installer = .working(image)
+        Task { @MainActor in
+            do {
+                switch try await AppInstaller.putAway(image) {
+                case .trashed: installer = .trashed
+                case .shownInFinder: installer = .shownInFinder
+                }
+            } catch {
+                dlog("Install", "eject failed: \(error.localizedDescription)")
+                installer = .failed(image, "Couldn't eject it — close any window that uses it and try again.")
+            }
+        }
+    }
+
+    func dismissInstaller() {
+        installer = nil
     }
 
     // MARK: ④ Permissions

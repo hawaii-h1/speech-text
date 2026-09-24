@@ -200,3 +200,75 @@ enum KeyVerdict: Equatable {
     /// No answer about the key: offline, or the service is down. The user may go on.
     case unreachable
 }
+
+// MARK: - The disk image it came in
+
+/// A disk image macOS has mounted, as `hdiutil info -plist` describes it: the `.dmg` file
+/// and where its volume is.
+struct MountedDiskImage: Equatable {
+    let imagePath: String
+    let mountPoint: String
+
+    /// Every mounted image that has a volume. An image attached without one (a raw
+    /// device, a partition map) has no mount point and is left out.
+    static func parse(hdiutilInfo data: Data) -> [MountedDiskImage] {
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let images = plist["images"] as? [[String: Any]] else { return [] }
+        return images.compactMap { image in
+            guard let path = image["image-path"] as? String,
+                  let entities = image["system-entities"] as? [[String: Any]],
+                  let mount = entities.lazy.compactMap({ $0["mount-point"] as? String }).first
+            else { return nil }
+            return MountedDiskImage(imagePath: path, mountPoint: mount)
+        }
+    }
+}
+
+/// Where the running copy of the app is, relative to the disk image it was downloaded in.
+///
+/// A drag into Applications is a Finder copy, and nothing runs when it finishes — so the
+/// app cannot launch itself after one. What it can do is recognise the two states around
+/// that copy: opened straight from the image (it has to move itself first, or it stops
+/// working the moment the image is ejected), and opened from Applications with the image
+/// still mounted (the `.dmg` is no longer needed, and setup offers to put it away).
+enum InstallLocation: Equatable {
+    /// Running from inside a mounted image. `image` is nil when that is known only from
+    /// App Translocation's path and no mounted image carries the app.
+    case inDiskImage(MountedDiskImage?)
+    /// Installed, and the image it came in is still mounted.
+    case leftoverImage(MountedDiskImage)
+    case installed
+
+    /// `appName` is the bundle's name without `.app`. An image counts as this app's when
+    /// its file or its volume is named for it ("SpeechText-0.9.0.dmg", "SpeechText 0.9.0"):
+    /// looking inside the volume for the app would be a file read on a mounted volume,
+    /// which macOS may answer with a privacy prompt — at the moment setup opens.
+    ///
+    /// A quarantined app opened from an image does not run from `/Volumes/…`: macOS
+    /// translocates it to a random read-only path under `AppTranslocation`, and that path
+    /// names no volume. So a translocated app is matched to the image that carries it.
+    /// An app run from anywhere else (Xcode's build folder, `~/Applications`) counts as
+    /// installed — a development build must never be asked to move.
+    static func decide(bundlePath: String, appName: String, images: [MountedDiskImage]) -> InstallLocation {
+        func carriesThisApp(_ image: MountedDiskImage) -> Bool {
+            [image.imagePath, image.mountPoint].contains {
+                ($0 as NSString).lastPathComponent.lowercased().hasPrefix(appName.lowercased())
+            }
+        }
+        func isInside(_ image: MountedDiskImage) -> Bool {
+            let mount = image.mountPoint.hasSuffix("/") ? image.mountPoint : image.mountPoint + "/"
+            return bundlePath.hasPrefix(mount)
+        }
+        if let image = images.first(where: isInside) {
+            return .inDiskImage(image)
+        }
+        let carrying = images.filter(carriesThisApp)
+        if bundlePath.contains("/AppTranslocation/") {
+            return .inDiskImage(carrying.first)
+        }
+        if let leftover = carrying.first {
+            return .leftoverImage(leftover)
+        }
+        return .installed
+    }
+}

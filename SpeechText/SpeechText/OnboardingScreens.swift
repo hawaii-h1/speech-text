@@ -41,7 +41,10 @@ struct OnboardingView: View {
                                    onMinimize: { window.window?.miniaturize(nil) })
                     .padding(14)
 
-                SetupTaskPill(model: model)
+                HStack(spacing: 8) {
+                    SetupInstallerPill(model: model)
+                    SetupTaskPill(model: model)
+                }
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.top, 9)
                     .padding(.trailing, 12)

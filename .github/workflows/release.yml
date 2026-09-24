@@ -35,6 +35,7 @@ on:
     paths:
       - scripts/package-release.sh
       - scripts/make-appcast.sh
+      - scripts/dmg/**
       - .github/workflows/release.yml
       - SpeechText/SpeechText/SpeechText.entitlements
       - SpeechText/SpeechText.xcodeproj/project.pbxproj

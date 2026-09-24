@@ -71,3 +71,62 @@ final class SetupServiceTests: XCTestCase {
         XCTAssertEqual(SetupService.elevenLabs.verificationRequest(key: "k").value(forHTTPHeaderField: "xi-api-key"), "k")
     }
 }
+
+final class InstallLocationTests: XCTestCase {
+    private let image = MountedDiskImage(imagePath: "/Users/me/Downloads/SpeechText-0.9.0.dmg",
+                                         mountPoint: "/Volumes/SpeechText 0.9.0")
+    private let other = MountedDiskImage(imagePath: "/Users/me/Downloads/Other.dmg", mountPoint: "/Volumes/Other")
+
+    private func decide(_ path: String, _ images: [MountedDiskImage]) -> InstallLocation {
+        InstallLocation.decide(bundlePath: path, appName: "SpeechText", images: images)
+    }
+
+    func testOpenedFromTheImageHasToMove() {
+        XCTAssertEqual(decide("/Volumes/SpeechText 0.9.0/SpeechText.app", [other, image]), .inDiskImage(image))
+    }
+
+    /// A quarantined app runs from a random path that names no volume.
+    func testATranslocatedAppIsMatchedToItsImage() {
+        let translocated = "/private/var/folders/xy/T/AppTranslocation/8C1E/d/SpeechText.app"
+        XCTAssertEqual(decide(translocated, [other, image]), .inDiskImage(image))
+        XCTAssertEqual(decide(translocated, [other]), .inDiskImage(nil))
+    }
+
+    func testInstalledWithTheImageStillMountedOffersToPutItAway() {
+        XCTAssertEqual(decide("/Applications/SpeechText.app", [other, image]), .leftoverImage(image))
+        XCTAssertEqual(decide("/Applications/SpeechText.app", [other]), .installed)
+    }
+
+    /// Running inside a volume is matched by whole path component: a volume whose name
+    /// only begins like the one the app is on does not contain it.
+    func testAMountPointIsMatchedByWholeComponent() {
+        let shorter = MountedDiskImage(imagePath: "/x.dmg", mountPoint: "/Volumes/SpeechText")
+        XCTAssertEqual(decide("/Volumes/SpeechText 0.9.0/SpeechText.app", [shorter]), .leftoverImage(shorter))
+    }
+
+    /// An image is this app's by its file's or its volume's name — never by reading it.
+    func testAnImageIsKnownByItsName() {
+        let renamed = MountedDiskImage(imagePath: "/Users/me/Downloads/download.dmg", mountPoint: "/Volumes/SpeechText")
+        XCTAssertEqual(decide("/Applications/SpeechText.app", [renamed]), .leftoverImage(renamed))
+        let byFile = MountedDiskImage(imagePath: "/Users/me/Downloads/speechtext-0.9.0.dmg", mountPoint: "/Volumes/Untitled")
+        XCTAssertEqual(decide("/Applications/SpeechText.app", [byFile]), .leftoverImage(byFile))
+    }
+
+    /// A build run from Xcode is never asked to move.
+    func testADevelopmentBuildCountsAsInstalled() {
+        let derived = "/Users/me/Library/Developer/Xcode/DerivedData/SpeechText-abc/Build/Products/Debug/SpeechText.app"
+        XCTAssertEqual(decide(derived, [other]), .installed)
+    }
+
+    func testHdiutilInfoIsRead() throws {
+        let plist: [String: Any] = ["images": [
+            ["image-path": "/Users/me/Downloads/SpeechText-0.9.0.dmg",
+             "system-entities": [["content-hint": "GUID_partition_scheme"],
+                                 ["content-hint": "Apple_HFS", "mount-point": "/Volumes/SpeechText 0.9.0"]]],
+            ["image-path": "/tmp/raw.dmg", "system-entities": [["content-hint": "Apple_HFS"]]],
+        ]]
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        XCTAssertEqual(MountedDiskImage.parse(hdiutilInfo: data), [image])
+        XCTAssertEqual(MountedDiskImage.parse(hdiutilInfo: Data("not a plist".utf8)), [])
+    }
+}

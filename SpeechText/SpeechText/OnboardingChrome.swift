@@ -953,6 +953,73 @@ struct SetupTaskPill: View {
     }
 }
 
+/// The disk image SpeechText was installed from, while it is still mounted: a pill in the
+/// same corner as the downloads, saying it is no longer needed and offering to eject it
+/// and move it to the Trash. On every step, since setup may open on any of them.
+struct SetupInstallerPill: View {
+    @Bindable var model: OnboardingModel
+    @Environment(\.setupTint) private var tint
+
+    var body: some View {
+        if let state = model.installer {
+            HStack(spacing: 8) {
+                content(state)
+            }
+            .font(.system(size: 11.5, weight: .medium))
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(SetupColor.pill))
+            .overlay(Capsule().strokeBorder(SetupColor.cardRim, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+            .task(id: state) {
+                guard state == .trashed else { return }
+                try? await Task.sleep(for: .seconds(3))
+                model.dismissInstaller()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ state: OnboardingModel.InstallerState) -> some View {
+        switch state {
+        case .offered:
+            Image(systemName: "externaldrive").foregroundStyle(SetupColor.label2)
+            Text("The disk image is no longer needed").foregroundStyle(SetupColor.label)
+            action("Eject and Move to Trash")
+            dismiss
+        case .working:
+            SetupSpinner()
+            Text("Ejecting the disk image…").foregroundStyle(SetupColor.label)
+        case .failed(_, let why):
+            Text("⚠︎ \(why)").foregroundStyle(SetupColor.warn)
+            action("Try Again")
+            dismiss
+        case .trashed:
+            Text("✓ Disk image moved to the Trash").foregroundStyle(SetupColor.ok)
+                .padding(.trailing, 4)
+        case .shownInFinder:
+            Text("Ejected — drag the disk image from Finder to the Trash").foregroundStyle(SetupColor.label)
+            dismiss
+        }
+    }
+
+    private func action(_ title: String) -> some View {
+        Button(title) { model.putAwayInstaller() }
+            .buttonStyle(.plain)
+            .foregroundStyle(tint.accent)
+            .fontWeight(.semibold)
+    }
+
+    private var dismiss: some View {
+        Button { model.dismissInstaller() } label: {
+            Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(SetupColor.label3)
+        }
+        .buttonStyle(.plain)
+        .help("Keep the disk image")
+    }
+}
+
 struct ProgressRing: View {
     let fraction: Double
     @Environment(\.setupTint) private var tint

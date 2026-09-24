@@ -133,17 +133,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var setupWindow: OnboardingWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Opened straight from the disk image: move to Applications and start again from
+        // there, before this copy writes a setting, registers a login item or opens setup.
+        if MainActor.assumeIsolated({ AppInstaller.moveIfRunningFromDiskImage() }) { return }
+
         // Create the status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = Self.menuBarIcon(recording: false)
         settingsOpener = MainActor.assumeIsolated { SettingsOpener() }
 
         // Carry the pre-rename settings over, then drop provider values left over from
-        // removed engines — both before any UI reads them, the setup gate included.
+        // removed engines — both before any UI reads them. The setup gate is decided in
+        // between: settings a renamed install brings with it are evidence of an earlier
+        // launch, but the migrations below write settings on a new install too
+        // (`spokenLanguages`, always), and read after them every new install looked like
+        // an old one — setup never opened, and the two permission alerts did instead.
         adoptPreRenameDefaults()
+        let setupGate = decideSetupGate()
         migrateSelectedLanguageIfNeeded()
         normalizeStoredProviders()
-        let setupGate = decideSetupGate()
 
         // Build the menu
         rebuildMenu()
@@ -224,8 +232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.openHistory()
         }
 
-        // Auto-register as login item on first launch (default: ON)
-        if !UserDefaults.standard.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) {
+        // Auto-register as login item on first launch (default: ON) — unless setup is
+        // open, whose Permissions step turns it on where the switch for it is, rather
+        // than with a "Login Item Added" notification before anything was explained.
+        if setupGate != .show, !UserDefaults.standard.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) {
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
             try? SMAppService.mainApp.register()
         }
@@ -240,9 +250,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let gate = OnboardingGate.decide(
             completed: defaults.object(forKey: SettingsKeys.onboardingCompleted) as? Bool,
             hasUsedTheAppBefore: usedBefore)
-        if gate == .markCompleted {
+        switch gate {
+        case .markCompleted:
             defaults.set(true, forKey: SettingsKeys.onboardingCompleted)
             dlog("Setup", "an existing install — setup marked as done")
+        case .show:
+            // Written down at once: setup's own steps store settings (and the login item)
+            // that would otherwise make the next launch take an unfinished setup for an
+            // old install and mark it done.
+            defaults.set(false, forKey: SettingsKeys.onboardingCompleted)
+        case .skip:
+            break
         }
         return gate
     }
@@ -260,6 +278,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // A copy on the disk image that moved itself never opened History.
+        guard !AppInstaller.isLeaving else { return }
         // History writes are coalesced; a record made in the last quarter second is
         // still pending here.
         TranscriptionHistory.shared.flush()

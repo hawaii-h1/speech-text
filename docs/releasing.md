@@ -161,9 +161,12 @@ gh secret set NOTARY_TEAM_ID
    notarizes (a few minutes), writes the appcast, and opens a **draft** release with
    `SpeechText-X.Y.Z.dmg`, its `.sha256` and `appcast.xml`.
 5. Download the image and install it on a Mac — or a fresh user account — that has
-   never run SpeechText: it should open without any Gatekeeper dialog, and ask for the
-   microphone, Accessibility and, on first use, speech recognition. Then publish the
-   draft.
+   never run SpeechText: it should open without any Gatekeeper dialog, show the drag
+   window (the app, the arrow, Applications), and on first launch from Applications open
+   the setup window — not permission alerts — which offers to eject the image and move
+   it to the Trash. Opened straight from the image instead, it should offer to move
+   itself to Applications. The rows are in docs/manual-testing.md › Встановлення з DMG.
+   Then publish the draft.
 6. Check that the release it replaces can reach it: on a Mac running the *previous*
    version, SpeechText › Check for Updates… should offer this one, and installing it
    should leave the app running the new version with its permissions intact.
@@ -206,6 +209,32 @@ distribution — and it only exercises the packaging: the app in it does not sta
 because an ad-hoc signature has no team and the hardened runtime then refuses the
 Sparkle framework (docs/rebuild.md explains; `scripts/rebuild.sh` is how to run a local
 build). `--from-app PATH` packages an app that is already built.
+
+## The disk image window
+
+What a user sees on opening the image — the app on the left, a dotted arrow, the
+Applications folder on the right, over the setup window's green glow with its card and
+steps pill — is a background drawn by `scripts/dmg/background.swift` and a Finder layout
+(`.DS_Store`) written by [dmgbuild](https://github.com/dmgbuild/dmgbuild) from
+`scripts/dmg/dmgbuild-settings.py`. dmgbuild writes the layout itself rather than
+scripting Finder, which would need an Automation grant and someone at the screen — a tag
+builds on a runner that has neither.
+
+- **A build-time tool, not a dependency of the app.** It is installed from PyPI into a
+  virtual environment under the job's temporary folder, from `scripts/dmg/requirements.txt`,
+  pinned by hash (`--require-hashes`): the job has the signing keychain unlocked. It needs
+  Python 3.8+ — `python3`, or `SPT_PYTHON` — which is why it is pinned to 1.6.2: 1.6.3 and
+  later need 3.10, and the Command Line Tools' `python3` is 3.9.
+- **Finder decides how much shows.** The window holds 640 × 420 below its title bar, but
+  a user with Finder's path bar and status bar on (a global setting that wins over the
+  image's) sees only the top 364. Nothing that says something goes below that line, and
+  the picture is taller than the window.
+- **Finder decides the names' colour** — black in light mode, white in dark — so the
+  icons stand on the mid-tone glow, not on the card, and `background.swift` measures the
+  rendered luminance under both names and fails the build if either colour would not
+  read.
+- **The window's size and the icons' centres live in two files** that have to agree:
+  `background.swift` (`APP_CENTER`, `APPS_CENTER`) and `dmgbuild-settings.py`.
 
 ## When notarization fails
 

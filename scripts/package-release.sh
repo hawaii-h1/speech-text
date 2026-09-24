@@ -23,6 +23,10 @@
 #   SPT_NOTARY_PASSWORD   an app-specific password for it, and
 #   SPT_NOTARY_TEAM_ID    the team ID
 #
+# The disk image window is laid out by dmgbuild (scripts/dmg/), installed from PyPI into a
+# throwaway virtual environment, pinned by hash. It needs Python 3.8 or later: `python3`,
+# or whatever SPT_PYTHON names.
+#
 # Without SPT_DEVELOPER_ID it still builds a disk image — signed ad-hoc and labelled
 # as not for distribution — so the packaging itself can be exercised by anyone.
 # Gatekeeper blocks that image on every Mac but the one that built it.
@@ -221,14 +225,31 @@ SUFFIX=""
 DMG="$OUT/$APP_NAME-$VERSION$SUFFIX.dmg"
 
 step "Making $(basename "$DMG")"
-STAGE="$WORK/stage"
-mkdir -p "$STAGE"
-ditto "$APP" "$STAGE/$APP_NAME.app"
-# The drag-to-install target. A symlink, so the image holds no second copy of anything.
-ln -s /Applications "$STAGE/Applications"
+# The window a user sees on opening the image: the app, an arrow, Applications, and a
+# line saying what happens next. Its layout lives in the image's .DS_Store, which
+# dmgbuild writes directly — scripting Finder instead needs an Automation grant and
+# someone at the screen, and a tag builds on a runner with neither.
+DMG_DIR="$REPO_ROOT/scripts/dmg"
+PYTHON="${SPT_PYTHON:-python3}"
+"$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null ||
+    die "dmgbuild needs Python 3.8 or later; set SPT_PYTHON to one ($PYTHON is $("$PYTHON" --version 2>&1))"
+"$PYTHON" -m venv "$WORK/venv" || die "could not create a Python virtual environment"
+"$WORK/venv/bin/python" -m pip install --quiet --disable-pip-version-check \
+    --require-hashes --no-deps --only-binary=:all: -r "$DMG_DIR/requirements.txt" ||
+    die "could not install dmgbuild (scripts/dmg/requirements.txt)"
+
+mkdir -p "$WORK/dmg"
+swift "$DMG_DIR/background.swift" "$WORK/dmg" "$APP/Contents/Resources/AppIcon.icns" || die "could not draw the disk image background"
+
 rm -f "$DMG"
-hdiutil create -quiet -volname "$APP_NAME $VERSION" -srcfolder "$STAGE" \
-    -fs HFS+ -format UDZO -ov "$DMG" || die "hdiutil could not create the disk image"
+# The image's own icon is the app's, so it is recognisable on the desktop and in Finder's
+# sidebar.
+"$WORK/venv/bin/dmgbuild" -s "$DMG_DIR/dmgbuild-settings.py" \
+    -D app="$APP" \
+    -D background="$WORK/dmg/background.png" \
+    -D icon="$APP/Contents/Resources/AppIcon.icns" \
+    "$APP_NAME $VERSION" "$DMG" > "$WORK/dmgbuild.log" 2>&1 ||
+    { cat "$WORK/dmgbuild.log" >&2; die "dmgbuild could not create the disk image"; }
 
 if [ "$DISTRIBUTABLE" -eq 1 ]; then
     codesign --force --timestamp --sign "$IDENTITY" "$DMG"
