@@ -46,11 +46,11 @@ struct PasteService {
            let range = selectedRange(of: element),
            let document = stringValue(of: element) {
             guard let record = SelectionEdit.words(in: range, of: document) else {
-                dlog("Edit", "selection: \(range.location)+\(range.length) holds no words")
+                dlog("Edit", "selection: \(range.location)+\(range.length) of \((document as NSString).length) read through AX holds no words")
                 completion(.nothingSelected)
                 return
             }
-            dlog("Edit", "selection: \(record.text.count) chars at \(record.range.location)+\(record.range.length), read through AX")
+            dlog("Edit", "selection: \(record.text.count) chars at \(record.range.location)+\(record.range.length), read through AX: \(String(record.text.prefix(60)).debugDescription)")
             completion(.selected(CapturedSelection(text: record.text, record: record)))
             return
         }
@@ -60,7 +60,7 @@ struct PasteService {
                 completion(.nothingSelected)
                 return
             }
-            dlog("Edit", "selection: \(text.count) chars, read with ⌘C")
+            dlog("Edit", "selection: \(text.count) chars, read with ⌘C: \(String(text.prefix(60)).debugDescription)")
             completion(.selected(CapturedSelection(text: text, record: nil)))
         }
     }

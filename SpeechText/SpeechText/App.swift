@@ -1345,8 +1345,8 @@ final class AppState {
         let generation = editGeneration
         if let record = selection.record, let app = previousApp,
            PasteService.select(record, in: app) == .changed {
-            abortEdit(icon: "text.badge.xmark", title: "The selected text changed",
-                      detail: "It was left as it was.")
+            abortEdit(icon: "text.badge.xmark", title: "Couldn't find the selection again",
+                      detail: "The selected words aren't where they were read. Nothing was edited.")
             return
         }
         PasteService.cutSelection { [weak self] cut in
@@ -1361,10 +1361,10 @@ final class AppState {
                 self.editRemoval = .notRemovable
             case .cut(let items, let text):
                 guard SelectionEdit.cutMatches(text, selection: selection.text) else {
-                    dlog("Edit", "cut \(text.count) chars that are not the selection — putting them back")
+                    dlog("Edit", "cut \(text.count) chars that are not the selection (read \(selection.record == nil ? "with ⌘C" : "through AX")) — putting them back: cut \(String(text.prefix(60)).debugDescription), read \(String(selection.text.prefix(60)).debugDescription)")
                     PasteService.pasteItems(items)
-                    self.abortEdit(icon: "text.badge.xmark", title: "The selection changed",
-                                   detail: "Nothing was changed.")
+                    self.abortEdit(icon: "text.badge.xmark", title: "Couldn't confirm the selection",
+                                   detail: "What was cut wasn't the text that was read, so it was put back. Nothing was edited.")
                     return
                 }
                 dlog("Edit", "selection cut (\(text.count) chars)")
