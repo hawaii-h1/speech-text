@@ -769,9 +769,9 @@ final class EditHotkeyGestureTests: XCTestCase {
 
     func testAPressWhileBusyCancels() {
         var g = EditHotkeyGesture()
-        XCTAssertEqual(g.press(in: .busy, at: 10), .cancel)
+        XCTAssertEqual(g.press(in: .busy, at: 10), .cancel(.shortcut))
         var h = EditHotkeyGesture(holdToTalk: true)
-        XCTAssertEqual(h.press(in: .busy, at: 10), .cancel)
+        XCTAssertEqual(h.press(in: .busy, at: 10), .cancel(.shortcut))
     }
 
     // Hold to talk: hold for an instruction, double-tap for none, a lone tap cancels.
@@ -799,7 +799,7 @@ final class EditHotkeyGestureTests: XCTestCase {
         var g = EditHotkeyGesture(holdToTalk: true)
         _ = g.press(in: .idle, at: 10)
         XCTAssertEqual(g.release(in: .recording, at: 10.1), .ignore)
-        XCTAssertEqual(g.tapWindowExpired(in: .recording, at: 10.1 + EditHotkeyGesture.doubleTapWindow), .cancel)
+        XCTAssertEqual(g.tapWindowExpired(in: .recording, at: 10.1 + EditHotkeyGesture.doubleTapWindow), .cancel(.tap))
         XCTAssertFalse(g.awaitsSecondTap)
     }
 
@@ -830,7 +830,7 @@ final class EditHotkeyGestureTests: XCTestCase {
         var g = EditHotkeyGesture()
         XCTAssertEqual(g.click(in: .idle), .start)
         XCTAssertEqual(g.click(in: .recording), .send)
-        XCTAssertEqual(g.click(in: .busy), .cancel)
+        XCTAssertEqual(g.click(in: .busy), .cancel(.menu))
         // A key press right after a menu start is a stop, not the second half of a double.
         _ = g.click(in: .idle)
         XCTAssertEqual(g.press(in: .recording, at: 0.01), .send)
@@ -838,6 +838,66 @@ final class EditHotkeyGestureTests: XCTestCase {
 }
 
 final class SelectionEditTests: XCTestCase {
+
+    // #73: the edit works on what is selected when the instruction ends.
+
+    private func selection(_ text: String, at location: Int? = nil) -> CapturedSelection {
+        CapturedSelection(text: text, record: location.map {
+            InsertionRecord(span: nil, range: NSRange(location: $0, length: (text as NSString).length), text: text)
+        })
+    }
+
+    func testTheSameSelectionAtTheSendIsUnchanged() {
+        let read = selection("quick brown", at: 4)
+        XCTAssertEqual(SelectionEdit.target(read: read, current: selection("quick brown", at: 4)),
+                       .unchanged(selection("quick brown", at: 4)))
+        XCTAssertEqual(SelectionEdit.target(read: selection("quick"), current: selection("quick")),
+                       .unchanged(selection("quick")))
+    }
+
+    /// Row E9: another word selected while the instruction was spoken — that word is
+    /// what gets rewritten, not the one read at the first press.
+    func testOtherTextSelectedAtTheSendIsWhatGetsEdited() {
+        let read = selection("quick brown", at: 4)
+        XCTAssertEqual(SelectionEdit.target(read: read, current: selection("lazy", at: 35)),
+                       .changed(selection("lazy", at: 35)))
+        XCTAssertEqual(SelectionEdit.target(read: selection("quick"), current: selection("lazy")),
+                       .changed(selection("lazy")))
+    }
+
+    /// The same words somewhere else (the same word twice in a document) are other text.
+    func testTheSameWordsElsewhereAreAChangedSelection() {
+        XCTAssertEqual(SelectionEdit.target(read: selection("the", at: 0), current: selection("the", at: 20)),
+                       .changed(selection("the", at: 20)))
+    }
+
+    func testNothingOrTooMuchSelectedAtTheSendIsRefused() {
+        XCTAssertEqual(SelectionEdit.target(read: selection("quick"), current: nil), .nothingSelected)
+        let long = String(repeating: "a", count: SelectionEdit.maxCharacters + 1)
+        XCTAssertEqual(SelectionEdit.target(read: selection("quick"), current: selection(long)), .tooLong)
+    }
+
+    // No Edit cancel is silent.
+
+    func testEveryEditCancelSaysSoAndFitsTheNotice() {
+        func laidOutHeight(_ text: String) -> CGFloat {
+            NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 11)])
+                .boundingRect(with: NSSize(width: 272, height: CGFloat.greatestFiniteMagnitude),
+                              options: .usesLineFragmentOrigin).height
+        }
+        let twoLines = laidOutHeight("Ag\nAg")
+        let reasons: [EditCancelReason] = [.shortcut, .tap, .escape, .closeButton, .otherShortcut, .menu]
+        for reason in reasons {
+            for putBack in [false, true] {
+                let notice = reason.notice(textPutBack: putBack)
+                XCTAssertEqual(notice.title, "Edit cancelled")
+                XCTAssertLessThanOrEqual(laidOutHeight(notice.detail), twoLines, notice.detail)
+            }
+        }
+        XCTAssertTrue(EditCancelReason.escape.notice(textPutBack: true).detail.contains("put back"))
+        XCTAssertFalse(EditCancelReason.escape.notice(textPutBack: false).detail.contains("put back"))
+        XCTAssertTrue(EditCancelReason.tap.notice(textPutBack: false).detail.contains("double-tap"))
+    }
 
     func testTheSelectionIsTrimmedToItsWords() {
         let document = "One.\nTwo words \nThree."

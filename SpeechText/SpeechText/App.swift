@@ -603,7 +603,7 @@ final class AppState {
         // is "not this, I want to dictate". It cancels the edit and does nothing more.
         if isEditMode {
             dlog("Hotkey", "\(pressed) pressed during an edit → cancel the edit")
-            cancelEdit()
+            cancelEdit(.otherShortcut)
             return
         }
         if dictationTest.isBlocked && dictationPhase == .idle {
@@ -652,7 +652,7 @@ final class AppState {
     /// The menu's items: a press with nothing held.
     func toggleRecording(aiMode: Bool = false) {
         if isEditMode {
-            cancelEdit()
+            cancelEdit(.otherShortcut)
             return
         }
         dlog("App", "toggleRecording: isRecording=\(speechEngine.isRecording), isTranscribing=\(speechEngine.isTranscribing), isStartingEngine=\(speechEngine.isStartingEngine)")
@@ -1122,6 +1122,9 @@ final class AppState {
     /// The selection being edited, once it has been read.
     private var editSelection: CapturedSelection?
     private var isReadingSelection = false
+    /// `editSelection` was read after the instruction ended, so it is the selection the
+    /// edit works on (#73); otherwise it is read again before the cut.
+    private var selectionIsCurrent = false
     private var editRemoval = EditRemoval.inPlace
     /// The instruction is over: the selection goes as soon as it has been read.
     private var removesSelection = false
@@ -1204,8 +1207,8 @@ final class AppState {
             editInstruction = .ready(nil, recordID: nil)
             removesSelection = true
             advanceEdit()
-        case .cancel:
-            cancelEdit()
+        case .cancel(let reason):
+            cancelEdit(reason)
         case .ignore:
             break
         }
@@ -1233,6 +1236,7 @@ final class AppState {
         isEditMode = true
         isAIMode = false
         editSelection = nil
+        selectionIsCurrent = false
         isReadingSelection = true
         editRemoval = .inPlace
         removesSelection = false
@@ -1286,6 +1290,9 @@ final class AppState {
 
     private func selectionRead(_ read: PasteService.SelectionRead) {
         isReadingSelection = false
+        // Read after the instruction was already over: this is the selection at the
+        // send, and needs no second read.
+        selectionIsCurrent = removesSelection
         switch read {
         case .nothingSelected:
             abortEdit(icon: "character.cursor.ibeam", title: "No text selected",
@@ -1352,11 +1359,42 @@ final class AppState {
         }
     }
 
-    /// The instruction is over: the selection is cut, so nothing the user does while the
-    /// LLM works can make the rewrite land on the wrong text. The rewrite is then pasted
-    /// at the caret the cut leaves.
+    /// The instruction is over: the selection is read again (#73) — the text selected
+    /// *now* is the one rewritten, whatever was selected at the first press — and cut, so
+    /// nothing the user does while the LLM works can make the rewrite land on the wrong
+    /// text. The rewrite is then pasted at the caret the cut leaves.
     private func takeSelection(_ selection: CapturedSelection) {
-        removeSelection(selection)
+        guard !selectionIsCurrent else {
+            removeSelection(selection)
+            return
+        }
+        // Held here so `advanceEdit` does not start a second read meanwhile.
+        editRemoval = .removing
+        let generation = editGeneration
+        PasteService.readSelection(in: previousApp) { [weak self] read in
+            DispatchQueue.main.async {
+                guard let self, self.isEditMode, self.editGeneration == generation else { return }
+                self.selectionIsCurrent = true
+                var current: CapturedSelection?
+                if case .selected(let now) = read { current = now }
+                switch SelectionEdit.target(read: selection, current: current) {
+                case .nothingSelected:
+                    self.abortEdit(icon: "character.cursor.ibeam", title: "No text selected",
+                                   detail: "Nothing was selected when the instruction ended. Nothing was edited.",
+                                   tint: .secondary)
+                case .tooLong:
+                    self.abortEdit(icon: "text.badge.xmark", title: "Selection too long",
+                                   detail: "Select up to \(SelectionEdit.maxCharacters.formatted()) characters to edit with AI.")
+                case .unchanged(let now):
+                    self.editSelection = now
+                    self.removeSelection(now)
+                case .changed(let now):
+                    dlog("Edit", "the selection changed while the instruction was spoken — editing the one selected now (\(now.text.count) chars, was \(selection.text.count))")
+                    self.editSelection = now
+                    self.removeSelection(now)
+                }
+            }
+        }
     }
 
     /// Cuts the selection, and checks that what was cut is what was read: a click
@@ -1495,17 +1533,21 @@ final class AppState {
         }
     }
 
-    /// Abandons the edit wherever it is — cancelled.
-    func cancelEdit() {
+    /// Abandons the edit wherever it is — cancelled, and says so (#72, #73).
+    func cancelEdit(_ reason: EditCancelReason) {
         guard isEditMode else { return }
-        dlog("Edit", "cancelled")
-        abortEdit()
+        var textPutBack = false
+        if case .removed = editRemoval { textPutBack = true }
+        dlog("Edit", "cancelled (\(reason))\(textPutBack ? ", putting the cut text back" : "")")
+        let notice = reason.notice(textPutBack: textPutBack)
+        abortEdit(icon: "xmark.circle", title: notice.title, detail: notice.detail, tint: .secondary,
+                  notesPutBack: false)
     }
 
     /// Ends the edit without a rewrite. Text already cut goes back where it was; `title`,
     /// when given, says why.
     private func abortEdit(icon: String = "", title: String? = nil, detail: String = "",
-                           tint: Color = .orange) {
+                           tint: Color = .orange, notesPutBack: Bool = true) {
         let removal = editRemoval
         let app = previousApp
         transcriptionWaitTask?.cancel()
@@ -1517,7 +1559,7 @@ final class AppState {
         var detail = detail
         if case .removed(let original, _) = removal {
             putBack(original, in: app)
-            if title != nil { detail += " The text was put back." }
+            if title != nil, notesPutBack { detail += " The text was put back." }
         }
         if let title {
             showStatus(icon: icon, title: title, detail: detail, tint: tint)
@@ -1534,6 +1576,7 @@ final class AppState {
         isEditMode = false
         editSelection = nil
         isReadingSelection = false
+        selectionIsCurrent = false
         editRemoval = .inPlace
         removesSelection = false
         editInstruction = .listening
@@ -1554,7 +1597,7 @@ final class AppState {
                                    onTranscriptHeight: { [weak panel] in panel?.setTranscriptHeight($0) },
                                    onCancel: { [weak self, weak panel] in
             if self?.isEditMode == true {
-                self?.cancelEdit()
+                self?.cancelEdit(.closeButton)
                 return
             }
             self?.cancelInlineFlow(.closeButton)
@@ -1576,7 +1619,7 @@ final class AppState {
     func escapePressed() {
         dlog("Hotkey", "⎋ → cancel")
         if isEditMode {
-            cancelEdit()
+            cancelEdit(.escape)
         } else {
             cancelInlineFlow(.escape)
         }
@@ -1718,7 +1761,7 @@ final class AppState {
         // Mid-edit the Record Window would take over `previousApp` from under the edit.
         if isEditMode {
             dlog("Hotkey", "record window pressed during an edit → cancel the edit")
-            cancelEdit()
+            cancelEdit(.otherShortcut)
             return
         }
         if directRecordingPanel != nil {

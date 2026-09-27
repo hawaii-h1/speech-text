@@ -11,8 +11,37 @@ enum EditHotkeyAction: Equatable {
     case send
     /// Rewrite the selection now, with no instruction; whatever was recorded is dropped.
     case sendWithoutInstruction
-    case cancel
+    case cancel(EditCancelReason)
     case ignore
+}
+
+/// Why an edit was cancelled — what its notice says. No cancel is silent, as for a
+/// dictation (#72): the selection may already have been cut and put back, and with
+/// nothing on screen the text blinking out and in again reads as a fault.
+enum EditCancelReason: Equatable {
+    /// The Edit shortcut pressed while the instruction was transcribed or rewritten.
+    case shortcut
+    /// Hold to talk: a lone tap.
+    case tap
+    case escape
+    /// The overlay's ✕.
+    case closeButton
+    /// A dictation shortcut, the Record Window's, or a dictation menu item: the user
+    /// wants something else.
+    case otherShortcut
+    /// The menu's Edit item.
+    case menu
+
+    /// The notice's title and detail. `textPutBack`: the selection had been cut and was
+    /// pasted back where it was. The detail fits the notice's two lines.
+    func notice(textPutBack: Bool) -> (title: String, detail: String) {
+        switch self {
+        case .tap:
+            return ("Edit cancelled", "A quick tap cancels. Hold the shortcut while you speak, or double-tap to polish.")
+        case .shortcut, .escape, .closeButton, .otherShortcut, .menu:
+            return ("Edit cancelled", textPutBack ? "Nothing was changed. The text was put back." : "Nothing was changed.")
+        }
+    }
 }
 
 /// Turns presses and releases of the Edit shortcut (⌃⇧E) into actions.
@@ -84,7 +113,7 @@ struct EditHotkeyGesture {
             return .start
         case .busy:
             reset()
-            return .cancel
+            return .cancel(.shortcut)
         case .starting, .recording:
             break
         }
@@ -137,7 +166,7 @@ struct EditHotkeyGesture {
         guard let released = tapReleasedAt, time - released >= Self.doubleTapWindow * 0.9 else { return .ignore }
         reset()
         switch phase {
-        case .starting, .recording: return .cancel
+        case .starting, .recording: return .cancel(.tap)
         case .idle, .busy: return .ignore
         }
     }
@@ -148,7 +177,7 @@ struct EditHotkeyGesture {
         switch phase {
         case .idle: return .start
         case .starting, .recording: return .send
-        case .busy: return .cancel
+        case .busy: return .cancel(.menu)
         }
     }
 
@@ -171,6 +200,26 @@ struct CapturedSelection: Equatable {
 
 /// The pure half of reading and replacing a selection; `PasteService` does the I/O.
 enum SelectionEdit {
+    /// What the edit works on once the instruction is over (#73): the selection as it
+    /// is *then*, read again, not the one read at the first press — the user may have
+    /// selected other text while speaking, and the text they can see selected is the
+    /// text they mean. The first read still stops an edit with nothing selected at once.
+    enum Target: Equatable {
+        /// The same text, where it was.
+        case unchanged(CapturedSelection)
+        /// Other text is selected now; this is what gets rewritten.
+        case changed(CapturedSelection)
+        case nothingSelected
+        case tooLong
+    }
+
+    static func target(read: CapturedSelection, current: CapturedSelection?) -> Target {
+        guard let current else { return .nothingSelected }
+        guard current.text.count <= maxCharacters else { return .tooLong }
+        let same = current.text == read.text && current.record?.range == read.record?.range
+        return same ? .unchanged(current) : .changed(current)
+    }
+
     /// Longer than this, a selection is refused rather than sent: the rewrite would be
     /// slow and expensive on a cloud model and beyond a small local one, and the whole
     /// of it comes back as one paste the user waits for.
