@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A new Settings window**, laid out like the setup window and split into categories: General, Appearance, Speech, Formatting, AI Rewrite, API Keys and Permissions. Each skin shows a preview of its overlay, in the colours you picked.
+- **API Keys lists every key.** The ones your current choices need come first, marked *Added* or *Needed*. Each key is tagged with what it can serve, *Speech*, *AI Rewrite* or both, so a key can be entered before you pick the engine that needs it.
+- **Display colours for the techno skin**: green (the original), amber, cyan, white, or any colour of your own. AI mode stays violet whatever you pick.
+- **Hold to talk needs only the letter.** Once a hold recording has started you can let go of the modifier keys and keep holding just the letter, so clicks and ⌘Tab work normally while you speak. A small tip beside the overlay teaches this for your first few recordings, and setup and Settings show it too.
+
 ### Changed
 
+- **No cancel is silent.** Every cancelled dictation or edit now says so, and why. A dictation cancelled while the AI was rewriting it says it is saved in History. While a dictation is being transcribed or rewritten, the menu's recording items read *Cancel Dictation*.
+- **Edit with AI works on what is selected when you finish the instruction**, not what was selected when you started. If you select other text while speaking, that is the text that gets edited.
+- Clearer messages when a selection edit can no longer find the text it was asked to change.
 - **A dictation made with no connection says where it went.** Instead of "Transcription failed", the notice reads "No connection — saved to History" and offers **Retry**. Once the network is back it is transcribed by itself — only what was saved since SpeechText started — and its text goes to the clipboard with a notice, never into whatever app is in front by then.
 - **Live text survives a short outage.** When the connection drops mid-dictation, the live engines (ElevenLabs and OpenAI) reconnect and the overlay keeps showing your words. The text pasted at the stop still comes from the upload, which heard what was said while the connection was down.
 
