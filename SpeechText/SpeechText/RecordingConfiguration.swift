@@ -69,33 +69,40 @@ struct RecordingConfiguration {
     /// What History records as the segment's language: the locale Apple was given, or
     /// "auto" when a cloud model was left to detect it — so a record never claims a
     /// language that was never requested.
-    var historyLocale: String { provider == .apple ? locale : (cloudLanguage ?? autoLanguageID) }
+    var historyLocale: String {
+        model.language == .localeRequired ? locale : (cloudLanguage ?? autoLanguageID)
+    }
+
+    /// The selected model and what it can do — see `STTModelDescriptor`.
+    var model: STTModelDescriptor {
+        sttModel(vendor: provider.vendor, id: modelID(for: provider.vendor))
+    }
 
     /// True when the selected model is served over a realtime WebSocket rather than an
     /// upload endpoint. Two engines have one; whether live text appears is a function of
     /// the stored *model*, not of the engine.
-    var streams: Bool {
-        switch provider {
-        case .elevenlabs: elevenLabsModel == elevenLabsRealtimeModel
-        case .openai: openAISTTModel == openAIRealtimeSTTModel
-        case .apple, .groq, .local: false
-        }
-    }
+    var streams: Bool { model.isRealtime }
 
     /// True when the tier reports text while the user speaks — a realtime stream, or
     /// Apple's on-device recogniser, whose partials arrive as `.live` events too. An
     /// inline dictation shows that text on the overlay; the upload tiers have none to show.
-    var hasLiveText: Bool { provider == .apple || streams }
+    var hasLiveText: Bool { model.delivery == .systemRecognizer || streams }
 
     /// Model ID used for any file upload: the stream's fallback, and History retries.
-    /// The realtime model only exists behind the WebSocket, so it maps to scribe_v2;
-    /// Apple has no batch API, so an Apple session's upload goes to Groq.
-    var batchModel: String {
-        switch provider {
-        case .elevenlabs: elevenLabsModel == elevenLabsRealtimeModel ? defaultElevenLabsModel : elevenLabsModel
-        case .openai: openAISTTModel == openAIRealtimeSTTModel ? defaultOpenAISTTModel : openAISTTModel
-        case .groq, .apple: groqModel
-        case .local: localModel
+    /// The realtime model only exists behind the WebSocket, so it maps to its vendor's
+    /// upload model; Apple has no batch API, so an Apple session's upload goes to Groq.
+    var batchModel: String { batchDescriptor.id }
+
+    /// The model a file upload goes to, per the selected model's `batchUpload`.
+    private var batchDescriptor: STTModelDescriptor {
+        let selected = model
+        switch selected.batchUpload {
+        case .itself:
+            return selected
+        case .model(let id):
+            return sttModel(vendor: selected.vendor, id: id)
+        case .selectedModel(let vendor):
+            return sttModel(vendor: vendor, id: modelID(for: vendor))
         }
     }
 
@@ -104,17 +111,38 @@ struct RecordingConfiguration {
     /// model on disk rather than a key, and "add a Groq key" would be the wrong advice.
     /// `modelInstalled` is a parameter so the check stays testable without a filesystem.
     func batchUnavailableReason(modelInstalled: (String) -> Bool = { isLocalModelInstalled($0) }) -> String? {
-        switch provider {
-        case .local:
-            guard !modelInstalled(localModel) else { return nil }
-            let name = localSTTModel(id: localModel)?.displayName ?? localModel
-            return "\(name) isn't installed — download it in Settings."
-        case .elevenlabs:
-            return elevenLabsAPIKey.isEmpty ? "Retry needs an ElevenLabs API key — add one in Settings." : nil
-        case .openai:
-            return openAIAPIKey.isEmpty ? "Retry needs an OpenAI API key — add one in Settings." : nil
-        case .groq, .apple:
-            return groqAPIKey.isEmpty ? "Retry needs a Groq API key — add one in Settings." : nil
+        let batch = batchDescriptor
+        switch batch.requirement {
+        case .none:
+            return nil
+        case .installedModel:
+            guard !modelInstalled(batch.id) else { return nil }
+            return "\(batch.displayName) isn't installed — download it in Settings."
+        case .apiKey:
+            guard apiKey(for: batch.vendor).isEmpty else { return nil }
+            return "Retry needs \(batch.vendor.apiKeyPhrase) — add one in Settings."
+        }
+    }
+
+    /// The stored model ID for a vendor. One accessor per flat field until the
+    /// credentials become a map (#55, step 3).
+    private func modelID(for vendor: STTVendor) -> String {
+        switch vendor {
+        case .apple: appleSpeechModelID
+        case .groq: groqModel
+        case .elevenLabs: elevenLabsModel
+        case .openAI: openAISTTModel
+        case .local: localModel
+        }
+    }
+
+    /// The stored API key for a vendor; empty for those that need none.
+    private func apiKey(for vendor: STTVendor) -> String {
+        switch vendor {
+        case .groq: groqAPIKey
+        case .elevenLabs: elevenLabsAPIKey
+        case .openAI: openAIAPIKey
+        case .apple, .local: ""
         }
     }
 

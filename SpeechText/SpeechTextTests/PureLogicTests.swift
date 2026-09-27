@@ -1776,3 +1776,148 @@ final class AVAudioFormatEqualityTests: XCTestCase {
         XCTAssertTrue(none != changed)
     }
 }
+
+// MARK: - Speech model catalogue (STTModelCatalog.swift)
+
+final class STTModelCatalogTests: XCTestCase {
+
+    private func config(_ provider: STTProviderType, groqModel: String = "whisper-large-v3-turbo",
+                        groqKey: String = "gk", elevenLabsModel: String = "scribe_v2",
+                        openAISTTModel: String = defaultOpenAISTTModel,
+                        localModel: String = parakeetV3ModelID,
+                        localeIsAutomatic: Bool = true) -> RecordingConfiguration {
+        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: localeIsAutomatic,
+                               groqAPIKey: groqKey, groqModel: groqModel,
+                               elevenLabsAPIKey: "ek", elevenLabsModel: elevenLabsModel,
+                               openAIAPIKey: "ok", openAISTTModel: openAISTTModel,
+                               localModel: localModel)
+    }
+
+    // Invariants
+
+    func testEveryRealtimeModelFallsBackToAnUploadModelOfItsOwnVendor() {
+        let realtime = sttModelCatalog.filter(\.isRealtime)
+        XCTAssertEqual(Set(realtime.map(\.id)), [elevenLabsRealtimeModel, openAIRealtimeSTTModel])
+        for model in realtime {
+            guard case .model(let id) = model.batchUpload else {
+                return XCTFail("\(model.id) names no upload model")
+            }
+            let fallback = sttModelCatalog.first { $0.vendor == model.vendor && $0.id == id }
+            XCTAssertEqual(fallback?.delivery, .upload, "\(model.id) → \(id)")
+        }
+    }
+
+    func testOnlyAppleBorrowsAnotherVendorsSelection() {
+        for model in sttModelCatalog {
+            guard case .selectedModel(let vendor) = model.batchUpload else { continue }
+            XCTAssertEqual(model.delivery, .systemRecognizer, model.id)
+            XCTAssertTrue(sttModels(of: vendor).allSatisfy { $0.delivery == .upload }, model.id)
+        }
+    }
+
+    func testEveryKeyIsAStoredSettingAndEveryCloudModelNeedsOne() {
+        for model in sttModelCatalog {
+            switch model.delivery {
+            case .upload, .realtime:
+                guard case .apiKey(let key) = model.requirement else {
+                    XCTFail("\(model.id) is served from the cloud but needs no key"); continue
+                }
+                XCTAssertTrue(SettingsKeys.portable.contains(key), "\(model.id): \(key)")
+            case .onDevice:
+                XCTAssertEqual(model.requirement, .installedModel, model.id)
+            case .systemRecognizer:
+                XCTAssertEqual(model.requirement, .none, model.id)
+            }
+        }
+        // One vendor, one key.
+        for vendor in STTVendor.allCases {
+            XCTAssertLessThanOrEqual(Set(sttModels(of: vendor).map(\.requirement)).count, 1, vendor.rawValue)
+        }
+    }
+
+    func testNoModelClaimsACapabilityItsTransportLacks() {
+        for model in sttModelCatalog {
+            if model.language == .set { XCTAssertTrue(model.isRealtime, model.id) }
+            if model.language == .localeRequired { XCTAssertEqual(model.delivery, .systemRecognizer, model.id) }
+            if !model.isRealtime, case .model = model.batchUpload { XCTFail("\(model.id) maps an upload away") }
+        }
+    }
+
+    func testEveryModelBelongsToOneVendorAndIsListedOnce() {
+        for vendor in STTVendor.allCases {
+            let ids = sttModels(of: vendor).map(\.id)
+            XCTAssertFalse(ids.isEmpty, vendor.rawValue)
+            XCTAssertEqual(ids.count, Set(ids).count, vendor.rawValue)
+        }
+        for provider in STTProviderType.allCases {
+            XCTAssertFalse(sttModels(of: provider.vendor).isEmpty, provider.rawValue)
+        }
+    }
+
+    /// The descriptor's rate is the one the provider really declares.
+    func testRealtimeShapesMatchTheirProviders() throws {
+        for model in sttModelCatalog {
+            guard case .realtime(let shape) = model.delivery else { continue }
+            let provider: STTProviderType = model.vendor == .elevenLabs ? .elevenlabs : .openai
+            let streaming = try XCTUnwrap(makeStreamingProvider(configuration: config(
+                provider, elevenLabsModel: model.id, openAISTTModel: model.id)))
+            XCTAssertEqual(streaming.sampleRate, shape.sampleRate, model.id)
+        }
+    }
+
+    /// The pickers read the catalogue, in the order and with the names they had.
+    func testPickersKeepTheirOrderAndNames() {
+        XCTAssertEqual(groqModels.map(\.id), ["whisper-large-v3-turbo", "whisper-large-v3"])
+        XCTAssertEqual(elevenLabsModels.map(\.name), ["Scribe v2", "Scribe v2 Realtime — live text"])
+        XCTAssertEqual(openAISTTModels.map(\.id), [defaultOpenAISTTModel, "gpt-4o-mini-transcribe", openAIRealtimeSTTModel])
+        XCTAssertEqual(sttModels(of: .local).map(\.id), localSTTModels.map(\.id))
+        for local in localSTTModels {
+            XCTAssertEqual(sttModel(vendor: .local, id: local.id).delivery, .onDevice(local.engine))
+        }
+    }
+
+    // Behaviour the descriptor must not change
+
+    /// Apple's upload goes to the Groq model the user picked, not to a fixed one.
+    func testAppleUploadsToTheStoredGroqModel() {
+        XCTAssertEqual(config(.apple, groqModel: "whisper-large-v3").batchModel, "whisper-large-v3")
+        XCTAssertEqual(config(.apple, groqKey: "").batchUnavailableReason(),
+                       "Retry needs a Groq API key — add one in Settings.")
+    }
+
+    func testAppleRecordsItsLocaleAndTheCloudRecordsAuto() {
+        XCTAssertEqual(config(.apple).historyLocale, "uk-UA")
+        XCTAssertEqual(config(.groq).historyLocale, autoLanguageID)
+        XCTAssertEqual(config(.groq, localeIsAutomatic: false).historyLocale, "uk-UA")
+        XCTAssertTrue(config(.apple).hasLiveText)
+        XCTAssertFalse(config(.groq).hasLiveText)
+    }
+
+    /// An ID the catalogue does not list behaves as it did before there was one.
+    func testAnUnlistedModelUploadsUnderItsOwnID() {
+        let groq = config(.groq, groqModel: "whisper-next")
+        XCTAssertFalse(groq.streams)
+        XCTAssertEqual(groq.batchModel, "whisper-next")
+        XCTAssertNil(groq.batchUnavailableReason())
+        XCTAssertEqual(config(.groq, groqModel: "", groqKey: "").batchUnavailableReason(),
+                       "Retry needs a Groq API key — add one in Settings.")
+
+        let local = config(.local, localModel: "openai_whisper-gone")
+        XCTAssertEqual(local.batchModel, "openai_whisper-gone")
+        XCTAssertEqual(local.batchUnavailableReason(modelInstalled: { _ in false }),
+                       "openai_whisper-gone isn't installed — download it in Settings.")
+    }
+
+    func testEachVendorsRetryNoticeNamesItsKey() {
+        let elevenLabs = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
+                                                groqAPIKey: "gk", groqModel: "", elevenLabsAPIKey: "",
+                                                elevenLabsModel: elevenLabsRealtimeModel)
+        XCTAssertEqual(elevenLabs.batchUnavailableReason(), "Retry needs an ElevenLabs API key — add one in Settings.")
+        let openAI = RecordingConfiguration(provider: .openai, locale: "uk-UA", localeIsAutomatic: true,
+                                            groqAPIKey: "gk", groqModel: "", elevenLabsAPIKey: "ek",
+                                            elevenLabsModel: "", openAIAPIKey: "", openAISTTModel: openAIRealtimeSTTModel)
+        XCTAssertEqual(openAI.batchUnavailableReason(), "Retry needs an OpenAI API key — add one in Settings.")
+        XCTAssertEqual(config(.local).batchUnavailableReason(modelInstalled: { _ in false }),
+                       "Parakeet v3 isn't installed — download it in Settings.")
+    }
+}

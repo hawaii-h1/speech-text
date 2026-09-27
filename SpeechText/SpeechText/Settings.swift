@@ -173,10 +173,9 @@ func adoptPreRenameDefaults() {
     }
 }
 
-let groqModels: [(id: String, name: String)] = [
-    ("whisper-large-v3-turbo", "Whisper Large V3 Turbo"),
-    ("whisper-large-v3", "Whisper Large V3"),
-]
+/// The Settings pickers' view of `sttModelCatalog` (STTModelCatalog.swift), where each
+/// model's capabilities and the notes on why it is offered live.
+let groqModels = pickerModels(of: .groq)
 
 /// Scribe's streaming model. Picking it switches ElevenLabs from a file upload after
 /// the recording to a WebSocket that returns text while the user is still speaking.
@@ -185,15 +184,7 @@ let elevenLabsRealtimeModel = "scribe_v2_realtime"
 /// The batch model: the default, the stream's fallback and History retries.
 let defaultElevenLabsModel = "scribe_v2"
 
-/// The batch (upload) model IDs are exactly what the API's `unsupported_model` error
-/// lists, minus the two that are gone: scribe_v1 is deprecated in favour of scribe_v2 and
-/// scribe_v1_experimental no longer appears in the documentation (checked 2026-09-16) —
-/// stored values for either are normalised to scribe_v2. Plus the realtime model, which
-/// only exists behind the WebSocket.
-let elevenLabsModels: [(id: String, name: String)] = [
-    ("scribe_v2", "Scribe v2"),
-    (elevenLabsRealtimeModel, "Scribe v2 Realtime — live text"),
-]
+let elevenLabsModels = pickerModels(of: .elevenLabs)
 
 /// OpenAI's streaming transcription model. Picking it switches the engine from a file
 /// upload after the recording to the realtime WebSocket — see `OpenAIRealtimeProvider`.
@@ -204,22 +195,11 @@ let openAIRealtimeSTTModel = "gpt-live-transcribe"
 /// The batch model: the default, the stream's fallback and History retries.
 let defaultOpenAISTTModel = "gpt-transcribe"
 
-/// Checked against `GET /v1/models` on 2026-09-21 rather than against the docs.
-///
-/// Two of the models the account can see are deliberately left out.
-/// `gpt-4o-transcribe-diarize` answers in `diarized_json`, a different shape from the
-/// `{text}` this app decodes, and dictation has one speaker. `whisper-1` is the one
-/// that matters: handed two seconds of near-silence it answered
-/// "MBC 뉴스 이덕영입니다." — the classic Whisper silence hallucination, which would be
-/// pasted into the user's document. `gpt-transcribe` answered `{"text":""}` to the same
-/// audio, which is why it is the default. `AudioBufferWriter`'s silence floor catches
-/// most of this, but a model that invents sentences from room noise should not be
-/// offered at all.
-let openAISTTModels: [(id: String, name: String)] = [
-    (defaultOpenAISTTModel, "GPT Transcribe"),
-    ("gpt-4o-mini-transcribe", "GPT-4o mini Transcribe — cheaper"),
-    (openAIRealtimeSTTModel, "GPT Live Transcribe — live text"),
-]
+let openAISTTModels = pickerModels(of: .openAI)
+
+private func pickerModels(of vendor: STTVendor) -> [(id: String, name: String)] {
+    sttModels(of: vendor).map { (id: $0.id, name: $0.displayName) }
+}
 
 /// One language the user can say they speak. `id` is the ISO-639-1 code the stored
 /// list holds and the cloud providers are sent; `localeIdentifier` is the regional
