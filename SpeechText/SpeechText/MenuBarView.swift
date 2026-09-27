@@ -230,7 +230,7 @@ struct SettingsView: View {
                     skinRaw = option.rawValue
                     NotificationCenter.default.post(name: .skinDidChange, object: nil)
                 } preview: {
-                    SkinPreview(skin: option)
+                    SkinPreview(skin: option, accentHex: accentHex)
                 }
             }
         }
@@ -436,42 +436,63 @@ struct SettingsView: View {
 
     // MARK: - API Keys
 
+    /// Every key the app can use, in pipeline order (speech first). The ones the current
+    /// choices use come first, marked with whether they are filled in; the rest stay
+    /// below, so a key can be entered before the engine that needs it is picked.
     @ViewBuilder
     private var apiKeysPage: some View {
-        let nothingNeeded = groqKeyUses.isEmpty && openAIKeyUses.isEmpty && stt != .elevenlabs && llm != .anthropic
-        SettingsGroup {
-            if nothingNeeded {
+        let keys = apiKeys
+        let inUse = keys.filter { $0.uses != nil }
+        let others = keys.filter { $0.uses == nil }
+        SettingsGroup(title: "In use") {
+            if inUse.isEmpty {
                 SettingsRow(title: "Nothing to enter", detail: "Everything you've selected runs on this Mac.")
             } else {
-                let keys = neededKeys
-                ForEach(keys.indices, id: \.self) { index in
+                ForEach(inUse.indices, id: \.self) { index in
                     if index > 0 { SettingsDivider() }
-                    keys[index]
+                    inUse[index].field(inUse: true)
+                }
+            }
+        }
+        if !others.isEmpty {
+            SettingsGroup(title: "Other keys") {
+                ForEach(others.indices, id: \.self) { index in
+                    if index > 0 { SettingsDivider() }
+                    others[index].field(inUse: false)
                 }
             }
         }
     }
 
-    /// One field per key the current choices use, in pipeline order: speech first.
-    private var neededKeys: [AnyView] {
-        var fields: [AnyView] = []
-        if !groqKeyUses.isEmpty {
-            fields.append(AnyView(SettingsKeyField(service: .groq, value: $groqAPIKey,
-                                                   uses: "One key, used for \(groqKeyUses.joined(separator: " and ")).")))
+    private struct APIKey {
+        let service: SetupService
+        let value: Binding<String>
+        /// What the current choices use it for; nil when nothing does.
+        let uses: String?
+        /// What it would be used for, shown while nothing uses it.
+        let offers: String
+
+        func field(inUse: Bool) -> SettingsKeyField {
+            SettingsKeyField(service: service, value: value, uses: uses ?? offers, inUse: inUse)
         }
-        if stt == .elevenlabs {
-            fields.append(AnyView(SettingsKeyField(service: .elevenLabs, value: $elevenLabsAPIKey,
-                                                   uses: "Used for speech recognition.")))
+    }
+
+    private var apiKeys: [APIKey] {
+        func sharedUses(_ uses: [String]) -> String? {
+            uses.isEmpty ? nil : "One key, used for \(uses.joined(separator: " and "))."
         }
-        if !openAIKeyUses.isEmpty {
-            fields.append(AnyView(SettingsKeyField(service: .openAI, value: $openAIAPIKey,
-                                                   uses: "One key, used for \(openAIKeyUses.joined(separator: " and ")).")))
-        }
-        if llm == .anthropic {
-            fields.append(AnyView(SettingsKeyField(service: .anthropic, value: $anthropicAPIKey,
-                                                   uses: "Used for AI text generation.")))
-        }
-        return fields
+        return [
+            APIKey(service: .groq, value: $groqAPIKey, uses: sharedUses(groqKeyUses),
+                   offers: "For Groq's speech recognition and AI text generation."),
+            APIKey(service: .elevenLabs, value: $elevenLabsAPIKey,
+                   uses: stt == .elevenlabs ? "Used for speech recognition." : nil,
+                   offers: "For ElevenLabs Scribe speech recognition."),
+            APIKey(service: .openAI, value: $openAIAPIKey, uses: sharedUses(openAIKeyUses),
+                   offers: "For OpenAI's speech recognition and AI text generation."),
+            APIKey(service: .anthropic, value: $anthropicAPIKey,
+                   uses: llm == .anthropic ? "Used for AI text generation." : nil,
+                   offers: "For Claude AI text generation."),
+        ]
     }
 
     // MARK: - Shortcuts (on the General page)

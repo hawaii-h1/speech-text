@@ -323,6 +323,8 @@ struct SettingsKeyField: View {
     let service: SetupService
     @Binding var value: String
     var uses: String?
+    /// The current choices use this key: its row says whether it is filled in.
+    var inUse = false
     @FocusState private var focused: Bool
     @Environment(\.setupTint) private var tint
 
@@ -332,7 +334,10 @@ struct SettingsKeyField: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(service.account)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(SetupColor.label)
+                    .foregroundStyle(inUse ? SetupColor.label : SetupColor.label2)
+                if inUse {
+                    SettingsStatus(text: hasValue ? "Added" : "Needed", ok: hasValue)
+                }
                 Spacer(minLength: 0)
                 Button(service.linkTitle) { NSWorkspace.shared.open(service.keysPage) }
                     .buttonStyle(SetupInlineLinkStyle())
@@ -353,6 +358,10 @@ struct SettingsKeyField: View {
             }
         }
         .padding(.vertical, 12)
+    }
+
+    private var hasValue: Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -452,9 +461,13 @@ struct SettingsPreviewRow<Preview: View>: View {
 /// size and scaled down, so the picture cannot drift from the thing it shows.
 struct SkinPreview: View {
     let skin: AppSkin
-    /// Each skin in its default colours: the picture shows the style, and the accent the
-    /// user picked has its own row below it.
-    private let accent = AccentColor.meter(AccentColor.neutral)
+    /// The accent picked in the Colour row, so the picture follows it; a skin that keeps
+    /// its own colours ignores it, as the overlay does.
+    var accentHex = AccentColor.neutral
+
+    private var accent: Color {
+        AccentColor.meter(skin.supportsAccent ? accentHex : AccentColor.neutral)
+    }
 
     static let size = CGSize(width: 168, height: 64)
 
@@ -485,6 +498,7 @@ struct SkinPreview: View {
         .accessibilityHidden(true)
         // The overlay is drawn light whatever the window is, as it is over most desktops.
         .environment(\.colorScheme, .light)
+        .animation(.easeInOut(duration: 0.25), value: accentHex)
     }
 
     @ViewBuilder
