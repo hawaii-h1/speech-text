@@ -116,6 +116,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Build the menu
         rebuildMenu()
 
+        // Dictations saved to History with no network are transcribed once it is back.
+        MainActor.assumeIsolated {
+            OfflineRetry.shared.onTranscribed = { [weak appState] texts in
+                appState?.showTranscribedOnceOnline(texts)
+            }
+            OfflineRetry.shared.start()
+        }
+
         if setupGate == .show {
             // Setup asks for the microphone and Accessibility itself, on a screen that
             // says what they are for — not in two unexplained alerts at launch.
@@ -705,6 +713,9 @@ final class AppState {
         speechEngine.onRecognitionFailure = { [weak self] message in
             self?.handleRecognitionFailure(message)
         }
+        // Retried by itself once the network is back — but not a test dictation, whose
+        // result belongs to the setup window that has long moved on by then.
+        speechEngine.onSavedOffline = isTestDictation ? nil : { id in MainActor.assumeIsolated { OfflineRetry.shared.enqueue(id) } }
         speechEngine.startRecording(locale: locale)
     }
 
@@ -820,12 +831,17 @@ final class AppState {
             let rawError = speechEngine.errorMessage ?? ""
             dlog("App", "handleTranscriptionResult: error — \(rawError)")
             hideOverlay()
-            showStatus(
-                icon: "exclamationmark.triangle.fill",
-                title: "Transcription failed",
-                detail: friendlySTTError(rawError),
-                tint: .orange
-            )
+            if let recordID = speechEngine.offlineRecordID {
+                // Not an error to read: nothing is lost, it is waiting in History.
+                showSavedOffline(recordID)
+            } else {
+                showStatus(
+                    icon: "exclamationmark.triangle.fill",
+                    title: "Transcription failed",
+                    detail: friendlySTTError(rawError),
+                    tint: .orange
+                )
+            }
             // Any partial text is better than nothing — hand it to the Record Window.
             // Refinement is skipped: there is no trustworthy transcript to rewrite.
             if let partial, !partial.isEmpty {
@@ -1206,6 +1222,8 @@ final class AppState {
                 self.selectionRead(read)
             }
         }
+        // An instruction transcribed later has no selection left to apply to.
+        speechEngine.onSavedOffline = nil
         speechEngine.onStartFailure = { [weak self] message in
             guard let self, self.isEditMode, self.editGeneration == generation else { return }
             dlog("Edit", "microphone failed to start: \(message)")
@@ -1488,6 +1506,11 @@ final class AppState {
         removesSelection = false
         editInstruction = .listening
         hideOverlay()
+        if !heldOnlineTexts.isEmpty {
+            let texts = heldOnlineTexts
+            heldOnlineTexts = []
+            showTranscribedOnceOnline(texts)
+        }
     }
 
     private func showOverlay() {
@@ -1542,9 +1565,76 @@ final class AppState {
         updateEscapeShortcut()
     }
 
+    // MARK: - No connection
+
+    /// A dictation that could not be transcribed for want of a network. Its audio is in
+    /// History, so the notice says where it is instead of reading like a loss, and offers
+    /// the retry. Stays up longer than a notice with nothing to act on.
+    private func showSavedOffline(_ recordID: UUID) {
+        showStatus(
+            icon: "wifi.slash",
+            title: "No connection — saved to History",
+            detail: "It will be transcribed once you're back online.",
+            tint: .orange,
+            duration: 15,
+            action: StatusOverlayAction(title: "Retry") { [weak self] in
+                self?.retrySavedOffline(recordID)
+            }
+        )
+    }
+
+    private func retrySavedOffline(_ recordID: UUID) {
+        showStatus(icon: "arrow.clockwise", title: "Retrying…", detail: nil, tint: .secondary,
+                   duration: STTTuning.batchResourceTimeoutSeconds)
+        Task { @MainActor [weak self] in
+            let result = await HistoryRetry.shared.retry(recordID)
+            self?.reportRetry(result, recordID: recordID)
+        }
+    }
+
+    /// What a retry of a saved recording came to. A result goes to the clipboard, never
+    /// into an app: by the time it lands the user may be typing somewhere else entirely.
+    private func reportRetry(_ result: HistoryRetry.Result, recordID: UUID) {
+        switch result {
+        case .succeeded(let text):
+            PasteService.copyToClipboard(text)
+            showStatus(icon: "doc.on.clipboard", title: "Transcribed — copied to the clipboard",
+                       detail: text, tint: Semantic.confirmation, duration: 8)
+        case .offline:
+            showSavedOffline(recordID)
+        case .failed(let error):
+            showStatus(icon: "exclamationmark.triangle.fill", title: "Retry failed",
+                       detail: friendlySTTError(error), tint: .orange)
+        case .alreadyRunning:
+            hideStatus()
+        }
+    }
+
+    /// Texts transcribed once the network came back while an edit was running, held
+    /// until it ends.
+    private var heldOnlineTexts: [String] = []
+
+    /// Dictations saved offline and transcribed once the network came back: to the
+    /// clipboard, oldest first, as one write — never into the app in front. Held while an
+    /// edit runs: it reads the selection through the clipboard, and a write in the middle
+    /// of that ⌘C would make it abort.
+    func showTranscribedOnceOnline(_ texts: [String]) {
+        guard !isEditMode else {
+            heldOnlineTexts += texts
+            return
+        }
+        PasteService.copyToClipboard(texts.joined(separator: "\n\n"))
+        // The title is the width of the notice (measured: 221 of 272 pt); the count goes
+        // in the detail, where a second line is allowed.
+        let detail = texts.count == 1 ? texts[0] : "\(texts.count) dictations, oldest first."
+        showStatus(icon: "doc.on.clipboard", title: "Back online — copied to the clipboard",
+                   detail: detail, tint: Semantic.confirmation, duration: 10)
+    }
+
     // MARK: - Status Overlay
 
-    func showStatus(icon: String, title: String, detail: String?, tint: Color, duration: TimeInterval = 5) {
+    func showStatus(icon: String, title: String, detail: String?, tint: Color, duration: TimeInterval = 5,
+                    action: StatusOverlayAction? = nil) {
         hideStatus()
 
         let panel = StatusOverlayPanel(above: overlayPanel.flatMap { $0.isVisible ? $0.frame : nil })
@@ -1553,6 +1643,7 @@ final class AppState {
             title: title,
             detail: detail,
             tint: tint,
+            action: action,
             onTap: { [weak self] in
                 self?.hideStatus()
                 self?.openHistoryWindow()
@@ -1639,6 +1730,7 @@ final class AppState {
         }
 
         let engine = SpeechEngine()
+        engine.onSavedOffline = { id in MainActor.assumeIsolated { OfflineRetry.shared.enqueue(id) } }
         if let text {
             engine.editedText = text
         }

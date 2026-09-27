@@ -280,6 +280,101 @@ final class StreamFallbackReplayTests: XCTestCase {
     }
 }
 
+// MARK: - A stream that dropped and came back (#78)
+
+@MainActor
+final class StreamReconnectReplayTests: XCTestCase {
+
+    /// The last text the overlay drew before the stop cleared it for the upload.
+    private func lastShown(_ run: DictationReplay.Result) -> String? {
+        run.overlay.last { !$0.text.isEmpty }?.text
+    }
+
+    private func occurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
+    }
+
+    /// Scribe's shape: segments committed on pauses. The Wi-Fi drops mid-sentence, a new
+    /// socket takes over, and the overlay goes on — what was on screen stays, once, and
+    /// the new socket's words follow it. The stop pastes the upload's version, which heard
+    /// the outage the new socket did not.
+    func testTheOverlayGoesOnAfterADropAndTheUploadIsPasted() async {
+        let app = FakeApp()
+        let upload = "Зроблю це ввечері, коли повернусь додому. Потім подзвоню."
+        let run = await DictationReplay.run(in: app, [
+            .committed("Зроблю це завтра зранку,"),
+            .partial("коли прийду"),
+            .connectionDrops,
+            .partial("Потім"),
+            .committed("Потім подзвоню."),
+        ], fallback: ScriptedSegment(text: upload))
+
+        let last = try! XCTUnwrap(lastShown(run))
+        XCTAssertTrue(last.hasSuffix("Потім подзвоню."), last)
+        for frame in run.overlay {
+            XCTAssertLessThanOrEqual(occurrences(of: "Зроблю", in: frame.text), 1, frame.text)
+            XCTAssertLessThanOrEqual(occurrences(of: "коли прийду", in: frame.text), 1, frame.text)
+        }
+        XCTAssertTrue(run.overlay.contains { $0.settled.contains("коли прийду") },
+                      "the partial on screen at the drop is kept")
+        assertDocument(run.document, upload)
+        XCTAssertEqual(app.pastes.count, 1)
+        XCTAssertTrue(run.logged("reconnecting"))
+        XCTAssertTrue(run.logged("dropped during the segment"))
+    }
+
+    /// OpenAI's shape: nothing is committed before the stop, only a growing partial. Its
+    /// text survives the drop instead of vanishing with the new socket's first partial.
+    func testAPartialOnlyStreamKeepsWhatItShowed() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .partial("Перше речення ще без коміту"),
+            .connectionDrops,
+            .partial("а це вже після"),
+        ], fallback: ScriptedSegment(text: "Перше речення ще без коміту, а це вже після."))
+
+        let last = try! XCTUnwrap(lastShown(run))
+        XCTAssertTrue(last.hasPrefix("Перше речення ще без коміту"), last)
+        XCTAssertTrue(last.hasSuffix("а це вже після"), last)
+    }
+
+    /// A new socket that restates what the old one had already given: merged, not doubled.
+    func testARestatementFromTheNewSocketIsNotDoubled() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .committed("Зроблю це ввечері, коли повернусь додому."),
+            .connectionDrops,
+            .committed("Зроблю це ввечері, коли повернусь додому. І ще одне."),
+        ], fallback: ScriptedSegment(text: "Зроблю це ввечері, коли повернусь додому. І ще одне."))
+
+        let last = try! XCTUnwrap(lastShown(run))
+        XCTAssertEqual(occurrences(of: "Зроблю", in: last), 1, last)
+        XCTAssertTrue(last.hasSuffix("І ще одне."), last)
+    }
+
+    /// The upload fails too — still no network at the stop: nothing pasted, a failure.
+    func testAReconnectedStreamWhoseUploadFailsIsAFailure() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .committed("Кілька слів."),
+            .connectionDrops,
+            .partial("ще кілька"),
+        ], fallback: ScriptedSegment(error: "offline"))
+
+        XCTAssertEqual(run.document, "")
+        guard case .failed = run.stop else {
+            return XCTFail("expected .failed, got \(String(describing: run.stop))")
+        }
+    }
+
+    /// A break that is not the network's (`StreamBroke`) is not reopened.
+    func testABreakThatIsNotTheNetworksIsNotReopened() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .committed("Кілька слів."),
+            .streamBreaks,
+        ], fallback: ScriptedSegment(text: "Кілька слів."))
+
+        XCTAssertFalse(run.logged("reconnecting"))
+    }
+}
+
 // MARK: - AI mode
 
 @MainActor

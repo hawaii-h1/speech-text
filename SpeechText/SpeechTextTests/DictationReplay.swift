@@ -161,6 +161,9 @@ final class DictationReplay {
         case committed(String)
         /// The socket dropped (`StreamingSTTEvent.failed`).
         case streamBreaks
+        /// The network went away under the socket, and the session opened a fresh one
+        /// (`StreamReconnectPolicy`). Every event after it is the new socket's.
+        case connectionDrops
         case userTypes(String, after: String?)
         case caretToEnd
         /// The user clicked into another field of the same app.
@@ -221,7 +224,10 @@ final class DictationReplay {
     private var context: FocusContext?
     private var recordWindow: String?
     private var layer = TranscriptSpanLayer()
-    private let provider = ScriptedStreamingProvider()
+    /// The socket in use: the first one, or the one the latest reconnect opened.
+    private var provider = ScriptedStreamingProvider()
+    private var providersOpened = 1
+    private var eventsAtFinish: [StreamingSTTEvent] = []
     private var session: StreamingRecognitionSession!
     private var overlay: [OverlayFrame] = []
     private var handledEvents = 0
@@ -248,6 +254,7 @@ final class DictationReplay {
                     file: StaticString = #filePath, line: UInt = #line) async -> Result {
         DebugLog.shared.clear()
         let replay = DictationReplay(setup: setup, app: app)
+        replay.eventsAtFinish = atStop
         replay.provider.eventsAtFinish = atStop
         var apps = [app]
         for case .switchTo(let other) in steps + whileRewriting where !apps.contains(where: { $0 === other }) {
@@ -307,6 +314,11 @@ final class DictationReplay {
                 } else {
                     steps.append(step)
                 }
+            case .streamReconnected where !stopped:
+                // The failure before it was a drop the session rode out.
+                if case .streamBreaks = steps.last {
+                    steps[steps.count - 1] = .connectionDrops
+                }
             case .modeSwitch where !stopped:
                 steps.append(.switchMode(ai: event.text == "ai"))
             case .stop:
@@ -338,8 +350,20 @@ final class DictationReplay {
         layer.reset()
         layer.beginSegment()
 
-        session = StreamingRecognitionSession(provider: provider, writer: AudioBufferWriter(),
-                                              languages: [], fallback: fallback)
+        // A reconnect opens a fresh scripted socket, at once: the policy's waits are
+        // real time, and what they pace is not what a replay is about.
+        session = StreamingRecognitionSession(
+            provider: provider, writer: AudioBufferWriter(), languages: [], fallback: fallback,
+            reconnect: { [unowned self] in
+                MainActor.assumeIsolated {
+                    let next = ScriptedStreamingProvider()
+                    next.eventsAtFinish = self.eventsAtFinish
+                    self.provider = next
+                    self.providersOpened += 1
+                    return next
+                }
+            },
+            policy: StreamReconnectPolicy(delays: [0, 0, 0, 0, 0, 0, 0, 0]))
         // Sessions deliver events on the main thread, which is where this replay runs.
         session.onEvent = { [unowned self] event in
             MainActor.assumeIsolated { self.handle(event) }
@@ -365,6 +389,13 @@ final class DictationReplay {
         case .partial(let text): await emit(.partial(text))
         case .committed(let text): await emit(.committed(text))
         case .streamBreaks: await emit(.failed(StreamBroke()))
+        case .connectionDrops:
+            let opened = providersOpened
+            await emit(.failed(URLError(.networkConnectionLost)))
+            for _ in 0..<2000 where providersOpened == opened {
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            if providersOpened == opened { XCTFail("the session never reconnected") }
         case .userTypes(let text, let anchor): app.userTypes(text, after: anchor)
         case .caretToEnd: app.moveCaretToEnd()
         case .focus(let field): app.focus(field)

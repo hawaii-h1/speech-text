@@ -90,6 +90,11 @@ struct RecognitionOutcome {
     /// `cancel()` or task cancellation cut the wait short: nothing is recorded and the
     /// file, if any, is deleted.
     var cancelled: Bool
+    /// The segment failed because there was no network (`NetworkFailure.isOffline`), not
+    /// because a provider answered badly. The user is told it is saved to History rather
+    /// than shown the provider's error, and the archived audio is retried once the
+    /// network is back.
+    var offline = false
 
     static let cancelled = RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: true)
 

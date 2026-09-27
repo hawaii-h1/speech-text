@@ -104,8 +104,15 @@
 		E300020000000000000001 /* OnboardingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E300010000000000000001 /* OnboardingWindow.swift */; };
 		E700020000000000000001 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E700010000000000000001 /* SettingsWindow.swift */; };
 		E400020000000000000001 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E400010000000000000001 /* Onboarding.swift */; };
+		F78002000000000000000001 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
+		F78003000000000000000001 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
+		F78002000000000000000002 /* HistoryRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000002 /* HistoryRetry.swift */; };
+		F78002000000000000000003 /* OfflineRetryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000003 /* OfflineRetryQueue.swift */; };
+		F78003000000000000000003 /* OfflineRetryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000003 /* OfflineRetryQueue.swift */; };
+		F78002000000000000000004 /* OfflineRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000004 /* OfflineRetry.swift */; };
 		E500020000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
 		E500030000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
+		F78003000000000000000010 /* NetworkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000010 /* NetworkTests.swift */; };
 		E6000200000000000000001A /* OnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6000100000000000000001A /* OnboardingTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -179,7 +186,12 @@
 		E300010000000000000001 /* OnboardingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindow.swift; sourceTree = "<group>"; };
 		E700010000000000000001 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		E400010000000000000001 /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
+		F78001000000000000000001 /* NetworkFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkFailure.swift; sourceTree = "<group>"; };
+		F78001000000000000000002 /* HistoryRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRetry.swift; sourceTree = "<group>"; };
+		F78001000000000000000003 /* OfflineRetryQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRetryQueue.swift; sourceTree = "<group>"; };
+		F78001000000000000000004 /* OfflineRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRetry.swift; sourceTree = "<group>"; };
 		E500010000000000000001 /* SetupServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupServices.swift; sourceTree = "<group>"; };
+		F78001000000000000000010 /* NetworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkTests.swift; sourceTree = "<group>"; };
 		E6000100000000000000001A /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -274,6 +286,10 @@
 				E700010000000000000001 /* SettingsWindow.swift */,
 				E400010000000000000001 /* Onboarding.swift */,
 				E500010000000000000001 /* SetupServices.swift */,
+				F78001000000000000000004 /* OfflineRetry.swift */,
+				F78001000000000000000003 /* OfflineRetryQueue.swift */,
+				F78001000000000000000002 /* HistoryRetry.swift */,
+				F78001000000000000000001 /* NetworkFailure.swift */,
 				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
 				D20000010000000000000005 /* DictationTrace.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
@@ -298,6 +314,7 @@
 				B20000010000000000000001 /* PureLogicTests.swift */,
 				C20000010000000000000100 /* LocalModelsTests.swift */,
 				E6000100000000000000001A /* OnboardingTests.swift */,
+				F78001000000000000000010 /* NetworkTests.swift */,
 				B20000010000000000000002 /* AudioPipelineTests.swift */,
 				D20000010000000000000003 /* DictationReplay.swift */,
 				D20000010000000000000004 /* DictationReplayTests.swift */,
@@ -453,6 +470,10 @@
 				E700020000000000000001 /* SettingsWindow.swift in Sources */,
 				E400020000000000000001 /* Onboarding.swift in Sources */,
 				E500020000000000000001 /* SetupServices.swift in Sources */,
+				F78002000000000000000004 /* OfflineRetry.swift in Sources */,
+				F78002000000000000000003 /* OfflineRetryQueue.swift in Sources */,
+				F78002000000000000000002 /* HistoryRetry.swift in Sources */,
+				F78002000000000000000001 /* NetworkFailure.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
 				D10000010000000000000005 /* DictationTrace.swift in Sources */,
 				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
@@ -492,7 +513,10 @@
 				D300009A0000000000000001 /* ShortcutConflicts.swift in Sources */,
 				D300009C0000000000000001 /* SelectionEdit.swift in Sources */,
 				E500030000000000000001 /* SetupServices.swift in Sources */,
+				F78003000000000000000003 /* OfflineRetryQueue.swift in Sources */,
+				F78003000000000000000001 /* NetworkFailure.swift in Sources */,
 				E6000200000000000000001A /* OnboardingTests.swift in Sources */,
+				F78003000000000000000010 /* NetworkTests.swift in Sources */,
 				D30000010000000000000003 /* RecognitionSession.swift in Sources */,
 				D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */,
 				D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */,

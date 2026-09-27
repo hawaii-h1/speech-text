@@ -346,6 +346,13 @@ private struct TranscriptHeightKey: PreferenceKey {
 
 // MARK: - Status Overlay
 
+/// A button a notice offers beside its text — "Retry" on "No connection — saved to
+/// History". The rest of the notice still opens History when clicked.
+struct StatusOverlayAction {
+    let title: String
+    let perform: () -> Void
+}
+
 /// Transient notice shown after a recording ends without usable text — a provider
 /// error, or silence. Without this the inline flow fails completely silently.
 struct StatusOverlayView: View {
@@ -353,6 +360,7 @@ struct StatusOverlayView: View {
     let title: String
     let detail: String?
     let tint: Color
+    var action: StatusOverlayAction? = nil
     let onTap: () -> Void
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
@@ -382,6 +390,14 @@ struct StatusOverlayView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let action {
+                Button(action.title, action: action.perform)
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .tint(skin == .techno ? TechnoSkin.phosphor : nil)
+                    .fixedSize()
+            }
         }
         .padding(.horizontal, 16)
         .frame(height: 60)

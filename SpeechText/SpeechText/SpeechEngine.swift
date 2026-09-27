@@ -125,6 +125,12 @@ final class SpeechEngine {
     /// History entry written for the most recent successful transcription, so the LLM
     /// pass (which runs later, in AppState or the Record Window) can attach itself to it.
     private(set) var lastRecordID: UUID?
+    /// The History row of the latest segment that failed for want of a network
+    /// (`RecognitionOutcome.offline`) with its audio archived — what "No connection —
+    /// saved to History" offers to retry. Kept apart from `lastRecordID`, which the
+    /// LLM pass and `recordApps` attach to and which must never name a failed row.
+    /// Cleared on each new session.
+    private(set) var offlineRecordID: UUID?
     /// Whether a segment that produced no words, with no error, is written to History
     /// (with its audio kept for a retry). Off for the Edit shortcut's instruction: saying
     /// nothing there means "just polish", and the edit writes its own record.
@@ -153,6 +159,12 @@ final class SpeechEngine {
     /// `errorMessage` and its knob goes back to idle.
     var onRecognitionFailure: ((String) -> Void)?
 
+    /// A segment failed for want of a network and its audio is in History
+    /// (`offlineRecordID`). The owner hands it to `OfflineRetry` to be transcribed once the
+    /// network is back — or leaves this unset where that would be no use (an Edit
+    /// instruction, a Try it dictation).
+    var onSavedOffline: ((UUID) -> Void)?
+
     func startRecording(locale: String = "en-US") {
         guard case .idle = phase else {
             // A second start while one is starting rebuilt the session under it; one
@@ -167,6 +179,7 @@ final class SpeechEngine {
         pendingInsertionText = nil
         pendingInsertionSpans = []
         lastRecordID = nil
+        offlineRecordID = nil
         spanLayer.reset()
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -654,8 +667,12 @@ final class SpeechEngine {
         let tooShortToRetry = failure != nil && duration < STTTuning.minimumSegmentSeconds
         let audioURL = outcome.audioFileURL ?? (tooShortToRetry ? nil : (try? writer?.writeAudioFile()) ?? nil)
         if let error = failure {
-            history.recordFailure(error: error, provider: provider, locale: locale,
-                                  duration: duration, audioURL: audioURL)
+            let id = history.recordFailure(error: error, provider: provider, locale: locale,
+                                           duration: duration, audioURL: audioURL)
+            if outcome.offline, !superseded, history.record(id: id)?.isRetryable == true {
+                offlineRecordID = id
+                onSavedOffline?(id)
+            }
         } else {
             history.recordEmpty(provider: provider, locale: locale,
                                 duration: duration, audioURL: audioURL)

@@ -220,12 +220,20 @@ final class TranscriptionHistory {
 
     /// Records a failure and *keeps* the audio so the user can retry it. Passing the temp
     /// audio file here transfers ownership — do not call `AudioBufferWriter.cleanup` on it after.
+    /// Returns the new record's id, so a failure the user can retry can name its row.
+    @discardableResult
     func recordFailure(error: String, provider: String, locale: String?,
-                       duration: TimeInterval, audioURL: URL?) {
+                       duration: TimeInterval, audioURL: URL?) -> UUID {
         let archived = archive(audioURL: audioURL)
-        add(TranscriptionRecord(id: UUID(), date: Date(), text: "", status: .failed,
+        let id = UUID()
+        add(TranscriptionRecord(id: id, date: Date(), text: "", status: .failed,
                                 errorMessage: error, provider: provider, locale: locale,
                                 duration: duration, audioFileName: archived))
+        return id
+    }
+
+    func record(id: UUID) -> TranscriptionRecord? {
+        records.first { $0.id == id }
     }
 
     /// Transcription succeeded technically but produced no words. Audio is kept too —

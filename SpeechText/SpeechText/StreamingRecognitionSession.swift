@@ -11,10 +11,24 @@ import AVFoundation
 /// another — and mirrors its events into committed / partial text. When the stream
 /// breaks or ends with nothing, `finish()` hands the segment to the wrapped batch
 /// session, which uploads the same writer's file.
+///
+/// A stream that drops for want of a network is opened again (`StreamReconnectPolicy`)
+/// with a fresh provider from `reconnect`, so the overlay goes on showing words after a
+/// short outage. What was on screen when it dropped is kept as committed text, and the
+/// new socket's words are merged after it (`TranscriptMerge`), never doubled. The new
+/// socket did not hear the outage, though, so a segment that had one is finished by
+/// the upload all the same — the reconnect is for the overlay, not for the text.
 final class StreamingRecognitionSession: RecognitionSession {
     var onEvent: ((RecognitionEvent) -> Void)?
 
-    private let provider: StreamingSTTProvider
+    /// The stream events are read from. Replaced on a reconnect; main-thread state.
+    private var provider: StreamingSTTProvider
+    /// The one `feed` sends to, read on the audio thread; nil while nothing should be
+    /// sent — the stream failed for good, or is between a drop and its reconnect.
+    private let sendTarget = ProviderBox()
+    /// A fresh provider for a reconnect; nil when the stream is not to be reopened.
+    private let reconnect: (() -> StreamingSTTProvider?)?
+    private let policy: StreamReconnectPolicy
     private let writer: AudioBufferWriter
     /// The user's stated languages, handed to the provider whole — see
     /// `StreamingSTTProvider.connect(languages:)` for what each one does with the count.
@@ -35,9 +49,19 @@ final class StreamingRecognitionSession: RecognitionSession {
     private var failure: String?
     private var connected = false
     private var eventsTask: Task<Void, Never>?
-    /// Read from the audio thread; cleared on main once a failure is known so no audio
-    /// is pushed into a stream that will be discarded.
-    private var sendEnabled = true
+    /// Counts the providers this segment has had, so a replaced one's late events —
+    /// already in flight to main when it was dropped — are recognised and ignored.
+    private var generation = 0
+    /// A stream dropped during this segment: whatever it shows since, the stop uploads.
+    private var hadOutage = false
+    /// Outages so far, and attempts made in the current one — `StreamReconnectPolicy`'s inputs.
+    private var outages = 0
+    private var attempts = 0
+    /// The current provider has said something since it was attached: its outage is over.
+    private var providerHasSpoken = false
+    private var reconnectTask: Task<Void, Never>?
+    /// `finish()` or `cancel()` has begun: nothing is reopened after that.
+    private var closing = false
 
     // Audio-thread state. `feed` is the only thing that touches these, and the tap
     // calls it serially, so they need no lock.
@@ -61,31 +85,59 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// a second and throw away its delay line each time.
     private var resamplerFormat: AVAudioFormat?
 
+    /// The socket's sample rate. Fixed for the session: a reconnect makes the same
+    /// provider again, and the converter below is built for it.
+    private let sampleRate: Double
+
     init(provider: StreamingSTTProvider, writer: AudioBufferWriter, languages: [String],
-         fallback: RecognitionSession) {
+         fallback: RecognitionSession,
+         reconnect: (() -> StreamingSTTProvider?)? = nil,
+         policy: StreamReconnectPolicy = StreamReconnectPolicy()) {
         self.needsResampling = provider.sampleRate != AudioBufferWriter.uploadSampleRate
+        self.sampleRate = provider.sampleRate
         self.provider = provider
         self.writer = writer
         self.languages = languages
         self.fallback = fallback
+        self.reconnect = reconnect
+        self.policy = policy
     }
 
     func start() throws {
         connected = true
-        provider.connect(languages: languages)
-        let provider = self.provider
-        eventsTask = Task { [weak self] in
-            for await event in provider.events {
-                await MainActor.run { self?.handle(event) }
-            }
-        }
+        attach(provider)
     }
 
-    private func handle(_ event: StreamingSTTEvent) {
+    /// Opens `provider`'s socket and makes it the one events are read from and audio is
+    /// sent to. The provider buffers what `feed` sends until its session is ready — the
+    /// same pre-session buffer a first connection relies on.
+    private func attach(_ provider: StreamingSTTProvider) {
+        generation += 1
+        let generation = self.generation
+        self.provider = provider
+        providerHasSpoken = false
+        provider.connect(languages: languages)
+        eventsTask = Task { [weak self] in
+            for await event in provider.events {
+                await MainActor.run { self?.handle(event, generation: generation) }
+            }
+        }
+        sendTarget.set(provider)
+    }
+
+    private func handle(_ event: StreamingSTTEvent, generation: Int) {
+        // A provider replaced by a reconnect may still have an event on its way here.
+        guard generation == self.generation else { return }
         switch event {
         case .partial(let text): DictationTraceRecorder.record(.partial, text: text)
         case .committed(let text): DictationTraceRecorder.record(.committed, text: text)
         case .failed(let error): DictationTraceRecorder.record(.streamFailed, error: error.localizedDescription)
+        }
+        switch event {
+        case .partial, .committed:
+            providerHasSpoken = true
+        case .failed:
+            break
         }
         switch event {
         case .partial(let text):
@@ -103,27 +155,70 @@ final class StreamingRecognitionSession: RecognitionSession {
             }
             partialText = ""
         case .failed(let error):
-            failure = error.localizedDescription
-            sendEnabled = false
+            sendTarget.set(nil)
+            if !reopen(after: error) {
+                failure = error.localizedDescription
+            }
         }
         onEvent?(.live(committed: committedText, partial: partialText))
+    }
+
+    /// Schedules the stream's reconnect after `error`, when the policy allows one. False
+    /// when it does not: the stream is over and the stop uploads the segment.
+    private func reopen(after error: Error) -> Bool {
+        guard !closing, failure == nil, let reconnect,
+              StreamReconnectPolicy.isReconnectable(error) else { return false }
+        // The provider that failed had spoken since it was attached (or it is the
+        // first): this is a new outage, not another failed attempt at the last one.
+        if providerHasSpoken || outages == 0 {
+            outages += 1
+            attempts = 0
+        }
+        guard let delay = policy.delay(attempt: attempts, outage: outages) else {
+            dlog("Engine", "stream: giving up after \(attempts) reconnect attempt(s), outage \(outages) — batch fallback at stop")
+            return false
+        }
+        attempts += 1
+        hadOutage = true
+        // What was on screen when the link dropped stays there. The partial is folded
+        // into the committed text because the new socket starts from nothing — OpenAI's
+        // never commits before the stop, so otherwise everything said so far would
+        // vanish with the next partial. The new socket's words are merged after it, so
+        // a restatement of any of it replaces rather than doubles.
+        committedText = joinedSegments(committedText, partialText)
+        partialText = ""
+        dlog("Engine", "stream: dropped (\(error.localizedDescription)) — reconnecting in \(delay)s, attempt \(attempts) of outage \(outages)")
+        reconnectTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled, !self.closing else { return }
+            self.reconnectTask = nil
+            guard let next = reconnect() else {
+                self.failure = error.localizedDescription
+                return
+            }
+            DictationTraceRecorder.record(.streamReconnected)
+            self.attach(next)
+        }
+        return true
     }
 
     private func markFailed(_ message: String) {
         guard failure == nil else { return }
         failure = message
-        sendEnabled = false
+        sendTarget.set(nil)
+        reconnectTask?.cancel()
+        reconnectTask = nil
     }
 
     func feed(native: AVAudioPCMBuffer, pcm16: Data?) {
-        guard sendEnabled else { return }
+        guard let provider = sendTarget.current else { return }
         if needsResampling {
             // The writer's bytes are the wrong rate for this socket, so the stream does
             // not depend on the writer converting at all — only on this converter.
             guard let converted = resampled(native) else {
                 DispatchQueue.main.async {
                     guard self.failure == nil else { return }
-                    dlog("Engine", "stream: cannot convert \(native.format.sampleRate) Hz to \(self.provider.sampleRate) Hz — stream discarded, batch fallback at stop")
+                    dlog("Engine", "stream: cannot convert \(native.format.sampleRate) Hz to \(self.sampleRate) Hz — stream discarded, batch fallback at stop")
                     self.markFailed("Could not convert audio for streaming")
                 }
                 return
@@ -149,10 +244,10 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// when no converter can be made for this hardware format.
     private func resampled(_ buffer: AVAudioPCMBuffer) -> Data? {
         if resampler == nil || resamplerFormat != buffer.format {
-            resampler = PCMDownsampler(sourceFormat: buffer.format, targetRate: provider.sampleRate)
+            resampler = PCMDownsampler(sourceFormat: buffer.format, targetRate: sampleRate)
             resamplerFormat = resampler == nil ? nil : buffer.format
             if resampler != nil {
-                dlog("Engine", "stream: converting \(buffer.format.sampleRate) Hz tap to \(provider.sampleRate) Hz")
+                dlog("Engine", "stream: converting \(buffer.format.sampleRate) Hz tap to \(sampleRate) Hz")
             }
         }
         guard let resampler else { return nil }
@@ -162,10 +257,21 @@ final class StreamingRecognitionSession: RecognitionSession {
     func pause() -> String? { nil }
 
     func finish() async -> RecognitionOutcome {
-        // Snapshot both under main-actor isolation: `cancel()` nils `eventsTask` on
-        // main, and this function runs off it.
-        let (connected, events) = await MainActor.run { (self.connected, self.eventsTask) }
-        if connected {
+        // Snapshot under main-actor isolation: `cancel()` nils `eventsTask` on main, a
+        // reconnect replaces `provider` there, and this function runs off it.
+        let (connected, events, provider, hadOutage) = await MainActor.run { () -> (Bool, Task<Void, Never>?, StreamingSTTProvider, Bool) in
+            self.closing = true
+            self.reconnectTask?.cancel()
+            self.reconnectTask = nil
+            return (self.connected, self.eventsTask, self.provider, self.hadOutage)
+        }
+        if hadOutage {
+            // The socket in use now — if the reconnect got one — never heard the outage,
+            // so its text has a hole in it wherever the link was down. Nothing to wait
+            // for: close it and let the upload, which has the whole segment, answer.
+            provider.cancel()
+            await events?.value
+        } else if connected {
             await provider.finish()
             // `finish()` closes the event stream, so draining the mirror task here means
             // the last committed transcript is in `committedText` before it is read.
@@ -179,12 +285,13 @@ final class StreamingRecognitionSession: RecognitionSession {
             (joinedSegments(committedText, partialText).trimmingCharacters(in: .whitespacesAndNewlines), self.failure)
         }
 
-        if failure == nil, !text.isEmpty {
+        if failure == nil, !hadOutage, !text.isEmpty {
             dlog("Engine", "StreamingRecognitionSession.finish: stream done, \(text.count) chars")
             return RecognitionOutcome(text: text, error: nil, audioFileURL: nil, cancelled: false)
         }
 
-        dlog("Engine", "StreamingRecognitionSession.finish: stream \(failure ?? "returned nothing") — falling back to batch upload")
+        let reason = failure ?? (hadOutage ? "dropped during the segment" : "returned nothing")
+        dlog("Engine", "StreamingRecognitionSession.finish: stream \(reason) — falling back to batch upload")
         // The partial text on screen described a stream that is being discarded.
         await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
         let outcome = await fallback.finish()
@@ -195,10 +302,35 @@ final class StreamingRecognitionSession: RecognitionSession {
     }
 
     func cancel() {
-        sendEnabled = false
+        closing = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        sendTarget.set(nil)
         eventsTask?.cancel()
         eventsTask = nil
         provider.cancel()
         fallback.cancel()
+    }
+}
+
+/// The provider `feed` sends to, shared between main (which swaps it on a reconnect)
+/// and the audio thread (which reads it for every buffer). The lock is held only to
+/// read or write the reference — never across a `send`, which takes the provider's own
+/// locks. A buffer that read the old provider just before a swap goes to a closed
+/// socket, whose `send` does nothing.
+private final class ProviderBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var provider: StreamingSTTProvider?
+
+    var current: StreamingSTTProvider? {
+        lock.lock()
+        defer { lock.unlock() }
+        return provider
+    }
+
+    func set(_ provider: StreamingSTTProvider?) {
+        lock.lock()
+        self.provider = provider
+        lock.unlock()
     }
 }

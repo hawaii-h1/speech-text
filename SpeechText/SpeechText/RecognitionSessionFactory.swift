@@ -20,8 +20,11 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
         let batch = BatchRecognitionSession(provider: makeBatchProvider(configuration: configuration),
                                             writer: writer, language: configuration.cloudLanguage)
         if let streamer = makeStreamingProvider(configuration: configuration) {
+            // A reconnect makes the same provider again, from the same snapshot of the
+            // settings — a dropped stream never comes back as a different engine.
             return StreamingRecognitionSession(provider: streamer, writer: writer,
-                                               languages: configuration.languages, fallback: batch)
+                                               languages: configuration.languages, fallback: batch,
+                                               reconnect: { makeStreamingProvider(configuration: configuration) })
         }
         return batch
     }

@@ -10,7 +10,7 @@ struct HistoryView: View {
     @State private var history = TranscriptionHistory.shared
     @State private var filterText = ""
     @State private var selection: TranscriptionRecord.ID?
-    @State private var retryingIDs: Set<UUID> = []
+    @State private var retrier = HistoryRetry.shared
     @State private var copiedID: UUID?
 
     private var filteredRecords: [TranscriptionRecord] {
@@ -150,7 +150,7 @@ struct HistoryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if retryingIDs.contains(record.id) {
+            if retrier.inFlight.contains(record.id) {
                 ProgressView()
                     .controlSize(.small)
             } else if record.isRetryable {
@@ -320,50 +320,7 @@ struct HistoryView: View {
     }
 
     private func retry(_ record: TranscriptionRecord) {
-        guard let audioURL = history.audioURL(for: record) else {
-            history.markRetryFailed(id: record.id, error: "Saved audio is no longer available")
-            return
-        }
-
-        // Read fresh: a retry honours the *current* settings, not the ones the
-        // recording was made with.
-        let configuration = RecordingConfiguration.current()
-
-        // Retries always go through a file transcription — Apple's recognizer has no
-        // batch API, so an Apple selection retries through Groq — and that path must be
-        // able to start: a key for the cloud tiers, an installed model for the local one.
-        if let reason = configuration.batchUnavailableReason() {
-            history.markRetryFailed(id: record.id, error: reason)
-            return
-        }
-
-        retryingIDs.insert(record.id)
-        let recordID = record.id
-        // The language comes from the current settings too, not from the record: a
-        // retry exists precisely because the first attempt came back wrong, and an
-        // entry recorded under a mis-guessed language would repeat that guess.
-        let language = configuration.cloudLanguage
-
-        Task {
-            do {
-                let provider = makeBatchProvider(configuration: configuration)
-                let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
-                let trimmed = configuration.cleaned(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                await MainActor.run {
-                    if trimmed.isEmpty {
-                        history.markRetryFailed(id: recordID, error: "Retry returned no text")
-                    } else {
-                        history.markRetrySucceeded(id: recordID, text: trimmed)
-                    }
-                    retryingIDs.remove(recordID)
-                }
-            } catch {
-                await MainActor.run {
-                    history.markRetryFailed(id: recordID, error: error.localizedDescription)
-                    retryingIDs.remove(recordID)
-                }
-            }
-        }
+        Task { await retrier.retry(record.id) }
     }
 
     // MARK: Helpers

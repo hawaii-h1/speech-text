@@ -76,7 +76,8 @@ final class BatchRecognitionSession: RecognitionSession {
                 return .cancelled
             }
             return RecognitionOutcome(text: "", error: error.localizedDescription,
-                                      audioFileURL: fileURL, cancelled: false)
+                                      audioFileURL: fileURL, cancelled: false,
+                                      offline: NetworkFailure.isOffline(error))
         }
     }
 

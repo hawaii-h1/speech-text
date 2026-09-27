@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A dictation made with no connection says where it went.** Instead of "Transcription failed", the notice reads "No connection — saved to History" and offers **Retry**. Once the network is back it is transcribed by itself — only what was saved since SpeechText started — and its text goes to the clipboard with a notice, never into whatever app is in front by then.
+- **Live text survives a short outage.** When the connection drops mid-dictation, the live engines (ElevenLabs and OpenAI) reconnect and the overlay keeps showing your words. The text pasted at the stop still comes from the upload, which heard what was said while the connection was down.
+
 ## [0.9.1] - 2026-09-24
 
 ### Added

@@ -35,6 +35,9 @@ struct DictationTrace: Codable, Equatable {
             case committed
             /// The stream broke; `error` says how.
             case streamFailed
+            /// A fresh stream took over from the one that failed before it
+            /// (`StreamReconnectPolicy`); the events after it are the new stream's.
+            case streamReconnected
             /// The user switched the dictation's mode with the other shortcut; `text` is
             /// `"ai"` or `"inline"`. `Setup.aiMode` is the mode it started in.
             case modeSwitch
