@@ -9,58 +9,19 @@ import ServiceManagement
 struct SpeechTextApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
-    /// The one Settings window. The app menu's Settings… (⌘,), which appears whenever the
-    /// Dock icon does, opens this scene by itself; the status item and the Dock icon reach
-    /// it through `SettingsOpener`. A Settings scene is never user-resizable, so
-    /// `SettingsView` fixes its own size.
+    /// The Settings window is `SettingsWindow`, drawn in the setup window's frame, which
+    /// a `Settings` scene cannot wear. The scene stays, empty, because an app needs one;
+    /// its menu item — Settings… (⌘,), in the app menu whenever the Dock icon is shown —
+    /// is replaced by one that opens our window, so the scene itself never opens.
     var body: some Scene {
         Settings {
-            SettingsView()
+            EmptyView()
         }
-        .windowResizability(.contentSize)
-    }
-}
-
-// MARK: - Opening Settings from AppKit
-
-/// Opens the SwiftUI `Settings` scene from AppKit code (the status item menu, a click on
-/// the Dock icon).
-///
-/// Since macOS 14 the only way in is SwiftUI's `openSettings` action — the old
-/// `showSettingsWindow:` selector is still accepted and silently does nothing — and that
-/// action exists only inside a SwiftUI view's environment. So a view is hosted in a
-/// window that is never shown, purely to hand the action out. The window is borderless,
-/// so `DockIconController` does not count it.
-@MainActor
-final class SettingsOpener {
-    private var action: OpenSettingsAction?
-    private let bridge: NSWindow
-
-    init() {
-        bridge = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
-        bridge.isReleasedWhenClosed = false
-        bridge.contentView = NSHostingView(rootView: Catcher { [weak self] in self?.action = $0 })
-        // Lay the view out once so `onAppear` runs without the window being ordered in.
-        bridge.contentView?.layoutSubtreeIfNeeded()
-    }
-
-    func open() {
-        guard let action else {
-            dlog("App", "Settings: openSettings action not captured")
-            return
-        }
-        // An agent app is not active; without this the window opens behind the app in front.
-        NSApp.activate(ignoringOtherApps: true)
-        action()
-    }
-
-    private struct Catcher: View {
-        @Environment(\.openSettings) private var openSettings
-        let capture: (OpenSettingsAction) -> Void
-
-        var body: some View {
-            Color.clear.frame(width: 1, height: 1).onAppear { capture(openSettings) }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { appDelegate.showSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }
@@ -126,7 +87,7 @@ func registerSpellCheckedJoins() {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let appState = AppState()
-    private var settingsOpener: SettingsOpener?
+    private var settingsWindow: SettingsWindow?
     private var debugLogWindow: DebugLogWindow?
     private var historyWindow: HistoryWindow?
     private var dockIcon: DockIconController?
@@ -140,7 +101,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Create the status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = Self.menuBarIcon(recording: false)
-        settingsOpener = MainActor.assumeIsolated { SettingsOpener() }
 
         // Carry the pre-rename settings over, then drop provider values left over from
         // removed engines — both before any UI reads them. The setup gate is decided in
@@ -446,8 +406,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        // Reached from the status menu and `applicationShouldHandleReopen`, both on main.
-        MainActor.assumeIsolated { settingsOpener?.open() }
+        showSettings()
+    }
+
+    /// Reached from the status menu, the app menu's Settings… and
+    /// `applicationShouldHandleReopen`, all on main. A closed window is let go, so the next
+    /// one opens on General with every status read afresh.
+    func showSettings() {
+        MainActor.assumeIsolated {
+            if settingsWindow == nil {
+                settingsWindow = SettingsWindow { [weak self] in self?.settingsWindow = nil }
+            }
+            settingsWindow?.present()
+        }
     }
 
     @objc private func openHistory() {

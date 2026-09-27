@@ -96,7 +96,7 @@ private struct LocalSpeechModelRow: View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: onSelect) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             }
             .buttonStyle(.plain)
             .disabled(!state.isUsable)
@@ -327,7 +327,7 @@ struct OllamaModelsView: View {
         HStack(alignment: .top, spacing: 8) {
             Button { selectedModelID = id } label: {
                 Image(systemName: selectedModelID == id ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(selectedModelID == id ? Color.accentColor : .secondary)
+                    .foregroundStyle(selectedModelID == id ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             }
             .buttonStyle(.plain)
             .disabled(!installed)

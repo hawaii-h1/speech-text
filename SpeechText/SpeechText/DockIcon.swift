@@ -70,9 +70,9 @@ final class DockIconController {
 
     /// Settings, History and the other titled windows — not the recording overlay, the
     /// status notice or the Record Window, which are panels floating over another app's
-    /// work and must not pull a Dock icon in with them. Setup draws its own frame, so it
-    /// is borderless, but it is an ordinary window the user leaves for a browser and
-    /// comes back to.
+    /// work and must not pull a Dock icon in with them. Setup and Settings draw their own
+    /// frame, so they are borderless, but they are ordinary windows the user leaves for a
+    /// browser or System Settings and comes back to.
     ///
     /// A modal alert counts too, though it is a panel (`NSAlert`'s window is an
     /// `NSPanel`): while it runs every item of the status menu is disabled, so it is the
@@ -84,7 +84,7 @@ final class DockIconController {
         return NSApp.windows.contains { window in
             window !== excluded
                 && !(window is NSPanel)
-                && (window.styleMask.contains(.titled) || window is OnboardingWindow)
+                && (window.styleMask.contains(.titled) || window is OnboardingWindow || window is SettingsWindow)
                 && (window.isVisible || window.isMiniaturized)
         }
     }

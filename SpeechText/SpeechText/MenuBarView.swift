@@ -4,8 +4,14 @@
 import SwiftUI
 import ServiceManagement
 import AppKit
+import AVFoundation
 
+/// The Settings window's content: a category sidebar and the page it picks, inside the
+/// setup window's frame. The parts are in SettingsWindow.swift.
 struct SettingsView: View {
+    let window: SetupWindowRef
+    @State private var category: SettingsCategory = .general
+
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
     @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
@@ -36,6 +42,10 @@ struct SettingsView: View {
     // than through @AppStorage.
     @State private var checksForUpdates = false
     @State private var presetsWindow: PromptPresetsWindow?
+    // Read when the window opens and whenever the app comes back to the front — the user
+    // grants both in System Settings, outside the app.
+    @State private var micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    @State private var accessibilityGranted = PasteService.isAccessibilityGranted
 
     // MARK: - Resolved selections
     //
@@ -67,11 +77,100 @@ struct SettingsView: View {
         return uses
     }
 
+    /// The AI page is violet inside the card, as the setup window's AI step is; the
+    /// frame's glow stays green.
+    private var tint: SetupTint { category == .ai ? .violet : .green }
+
     var body: some View {
-        Form {
-            Section("General") {
-                Toggle("Launch at Login", isOn: $launchAtLogin)
+        SetupFrame {
+            let card = RoundedRectangle(cornerRadius: 18, style: .continuous)
+            HStack(spacing: 0) {
+                SettingsSidebar(selection: $category, window: window)
+                    .frame(width: Self.sidebarWidth)
+                Rectangle().fill(SetupColor.separator).frame(width: 1)
+                page
+                    .frame(width: Self.pageWidth)
+                    .frame(maxHeight: .infinity)
+                    .environment(\.setupTint, tint)
+                    .tint(tint.accent)
+            }
+            .background(card.fill(SettingsColor.background))
+            .overlay(card.strokeBorder(SetupColor.cardRim, lineWidth: 0.5))
+            .clipShape(card)
+            .shadow(color: .black.opacity(0.06), radius: 1.5, y: 1)
+        }
+        .frame(width: SettingsWindow.size.width, height: SettingsWindow.size.height)
+        .onAppear {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            checksForUpdates = UpdateChecker.shared.checksAutomatically
+            refreshPermissions()
+            // A value left behind by a removed engine would render the picker blank.
+            normalizeStoredProviders()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshPermissions()
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    // MARK: - Page
+
+    private static let sidebarWidth: CGFloat = 196
+    /// The window, less the frame's rim, the sidebar and the hairline beside it.
+    private static let pageWidth = SettingsWindow.size.width - 16 - sidebarWidth - 1
+
+    private var page: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(category.title).setupTitle(26)
+                Text(category.lead).setupLead(13)
+            }
+            .frame(width: Self.pageWidth - 56, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.top, 30)
+            .padding(.bottom, 18)
+
+            // A vertical ScrollView takes its width from its content, so the content is
+            // given the page's width outright; otherwise a long caption widens the page
+            // past the window.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    content
+                }
+                .frame(width: Self.pageWidth - 56, alignment: .leading)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
+            }
+            // A new page starts at its top, not where the last one was scrolled to.
+            .id(category)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch category {
+        case .general: generalPage
+        case .appearance: appearancePage
+        case .speech: speechPage
+        case .formatting: formattingPage
+        case .ai: aiPage
+        case .apiKeys: apiKeysPage
+        case .permissions: permissionsPage
+        }
+    }
+
+    // MARK: - General
+
+    /// Shortcuts first — they are what a user comes back to change — and updates last.
+    @ViewBuilder
+    private var generalPage: some View {
+        shortcutGroups
+
+        SettingsGroup(title: "Startup") {
+            SettingsRow(title: "Launch at login", detail: "So SpeechText is ready when you start your Mac.") {
+                SettingsSwitch(isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
+                        guard newValue != (SMAppService.mainApp.status == .enabled) else { return }
                         do {
                             if newValue {
                                 try SMAppService.mainApp.register()
@@ -82,86 +181,39 @@ struct SettingsView: View {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
-
+            }
+            SettingsDivider()
+            SettingsRow(title: "Show in Dock", detail: "Adds SpeechText to the Dock and ⌘Tab, so its windows can be found once covered.") {
                 Picker("Show in Dock", selection: $dockIconRaw) {
                     ForEach(DockIconMode.allCases) { mode in
                         Text(mode.label).tag(mode.rawValue)
                     }
                 }
+                .labelsHidden()
+                .fixedSize()
                 .onChange(of: dockIconRaw) { _, _ in
                     NotificationCenter.default.post(name: .dockIconModeDidChange, object: nil)
                 }
+            }
+        }
 
-                // Absent in a build with no signing key, where the updater never starts.
-                if UpdateChecker.shared.isConfigured {
-                    Toggle("Check for Updates Automatically", isOn: $checksForUpdates)
+        SettingsGroup(title: UpdateChecker.shared.isConfigured ? "Updates" : "About") {
+            // Absent in a build with no signing key, where the updater never starts.
+            if UpdateChecker.shared.isConfigured {
+                SettingsRow(title: "Check for updates automatically", detail: "Once a day. Nothing is installed until you agree.") {
+                    SettingsSwitch(isOn: $checksForUpdates)
                         .onChange(of: checksForUpdates) { _, newValue in
                             UpdateChecker.shared.checksAutomatically = newValue
                         }
-                    Button("Check Now...") { UpdateChecker.shared.checkForUpdates() }
+                }
+                SettingsDivider()
+            }
+            SettingsRow(title: "Version", detail: AppVersion.displayString) {
+                if UpdateChecker.shared.isConfigured {
+                    Button("Check Now…") { UpdateChecker.shared.checkForUpdates() }
+                        .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
                 }
             }
-
-            appearanceSection
-            speechToTextSection
-            aiProcessingSection
-            apiKeysSection
-
-            Section("Keyboard Shortcuts") {
-                ForEach(ShortcutAction.allCases, id: \.self) { action in
-                    HotkeyRecorderView(action: action)
-                }
-
-                Text("Click a shortcut, then press the new key combination.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Toggle("Hold to talk", isOn: $holdToTalk)
-                Text(holdToTalk
-                     ? "Hold a recording shortcut while you speak and let go to paste. A quick tap cancels; a double tap keeps recording hands-free until you press it again."
-                     : "Press a recording shortcut to start, and press it again to stop.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(holdToTalk
-                     ? "While holding, tap the other recording shortcut to switch between plain text and AI, as often as you like."
-                     : "While recording, the other recording shortcut switches the dictation between plain text and AI.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(holdToTalk
-                     ? "Edit Selection with AI: select text, hold the shortcut, say how to change it and let go. Double-press it to just polish the text; a single tap does nothing."
-                     : "Edit Selection with AI: select text, press the shortcut, say how to change it and press it again. Double-press it to just polish the text.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Toggle("Esc cancels a dictation", isOn: $escapeCancelsDictation)
-                Text("While the recording overlay is on screen, Esc cancels it — and reaches no other app until the overlay is gone.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Permissions") {
-                HStack {
-                    Text("Accessibility")
-                    Spacer()
-                    if PasteService.isAccessibilityGranted {
-                        Text("Granted")
-                            .foregroundStyle(.green)
-                    } else {
-                        Button("Grant Access") {
-                            PasteService.promptAccessibility()
-                        }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .frame(width: 400, height: 648)
-        .padding()
-        .onAppear {
-            launchAtLogin = SMAppService.mainApp.status == .enabled
-            checksForUpdates = UpdateChecker.shared.checksAutomatically
-            // A value left behind by a removed engine would render the picker blank.
-            normalizeStoredProviders()
         }
     }
 
@@ -169,266 +221,356 @@ struct SettingsView: View {
 
     private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
 
-    private var appearanceSection: some View {
-        Section {
-            Picker("Style", selection: $skinRaw) {
-                ForEach(AppSkin.allCases) { option in
-                    Text(option.displayName).tag(option.rawValue)
+    @ViewBuilder
+    private var appearancePage: some View {
+        SettingsGroup(title: "Style", inset: 5) {
+            ForEach(AppSkin.allCases) { option in
+                SettingsPreviewRow(title: option.displayName, detail: option.detail, isSelected: skin == option) {
+                    guard skinRaw != option.rawValue else { return }
+                    skinRaw = option.rawValue
+                    NotificationCenter.default.post(name: .skinDidChange, object: nil)
+                } preview: {
+                    SkinPreview(skin: option)
                 }
             }
-            .onChange(of: skinRaw) { NotificationCenter.default.post(name: .skinDidChange, object: nil) }
+        }
 
-            Text(skin.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
+        SettingsGroup(title: "Colour") {
             if skin.supportsAccent {
-                ColorPicker(
-                    "Colour",
-                    selection: Binding(
-                        get: { AccentColor.meter(accentHex) },
-                        set: { accentHex = AccentColor.hex(from: $0) }
-                    ),
-                    supportsOpacity: false
-                )
-
-                if AccentColor.isNeutral(accentHex) {
-                    Text("Default — ink on glass, with a red record button.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    ForEach(AccentColor.presets, id: \.hex) { preset in
-                        let selected = accentHex.caseInsensitiveCompare(preset.hex) == .orderedSame
-                        Button {
-                            accentHex = preset.hex
-                        } label: {
-                            Group {
-                                // The neutral swatch shows the glass itself, because
-                                // that is literally what choosing it gets you.
-                                if AccentColor.isNeutral(preset.hex) {
-                                    Circle().fill(.ultraThinMaterial)
-                                } else {
-                                    Circle().fill(AccentColor.color(from: preset.hex))
-                                }
-                            }
-                            .frame(width: 18, height: 18)
-                            .overlay {
-                                Circle().strokeBorder(
-                                    .primary.opacity(selected ? 0.8 : 0.25),
-                                    lineWidth: selected ? 2 : 1
-                                )
-                            }
+                SettingsRow(title: "Accent",
+                            detail: AccentColor.isNeutral(accentHex)
+                                ? "Default — ink on glass, with a red record button."
+                                : "Tints the level meter and the record button.") {
+                    HStack(spacing: 8) {
+                        ForEach(AccentColor.presets, id: \.hex) { preset in
+                            swatch(preset)
                         }
-                        .buttonStyle(.plain)
-                        .help(preset.name)
+                        ColorPicker(
+                            "Colour",
+                            selection: Binding(
+                                get: { AccentColor.meter(accentHex) },
+                                set: { accentHex = AccentColor.hex(from: $0) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                        .help("Any colour")
                     }
                 }
             } else {
-                Text("Techno is drawn to a fixed design, so it keeps its own colours.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                SettingsRow(title: "Accent", detail: "Techno is drawn to a fixed design, so it keeps its own colours.")
             }
-        } header: {
-            Text("Appearance")
         }
     }
 
-    // MARK: - Step 1 · Speech → Text
-
-    @ViewBuilder
-    private var speechToTextSection: some View {
-        Section {
-            Picker("Engine", selection: $sttProvider) {
-                ForEach(STTProviderType.allCases) { provider in
-                    Text(provider.displayName).tag(provider.rawValue)
+    private func swatch(_ preset: (name: String, hex: String)) -> some View {
+        let selected = accentHex.caseInsensitiveCompare(preset.hex) == .orderedSame
+        return Button {
+            accentHex = preset.hex
+        } label: {
+            Group {
+                // The neutral swatch shows the glass itself, because
+                // that is literally what choosing it gets you.
+                if AccentColor.isNeutral(preset.hex) {
+                    Circle().fill(.ultraThinMaterial)
+                } else {
+                    Circle().fill(AccentColor.color(from: preset.hex))
                 }
             }
-            Text(stt.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .frame(width: 18, height: 18)
+            .overlay {
+                Circle().strokeBorder(
+                    selected ? AnyShapeStyle(SetupTint.green.accent) : AnyShapeStyle(SetupColor.label3),
+                    lineWidth: selected ? 2 : 1
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .help(preset.name)
+    }
 
-            switch stt {
-            case .apple:
-                EmptyView()
-            case .local:
-                LocalSpeechModelsView(selectedModelID: $localSTTModelID)
-            case .groq:
-                Picker("Speech Model", selection: $groqModel) {
-                    ForEach(groqModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
+    // MARK: - Speech
+
+    @ViewBuilder
+    private var speechPage: some View {
+        SettingsGroup(title: "Engine", inset: 5) {
+            ForEach(STTProviderType.allCases) { provider in
+                // Only the chosen engine explains itself; five paragraphs at once is a wall.
+                SetupRow(title: provider.displayName,
+                         detail: provider == stt ? provider.subtitle : nil,
+                         isSelected: provider == stt) {
+                    sttProvider = provider.rawValue
                 }
-            case .elevenlabs:
-                Picker("Speech Model", selection: $elevenLabsModel) {
-                    ForEach(elevenLabsModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
+            }
+        }
+
+        switch stt {
+        case .apple:
+            EmptyView()
+        case .local:
+            SettingsGroup(title: "Model") {
+                VStack(alignment: .leading, spacing: 8) {
+                    LocalSpeechModelsView(selectedModelID: $localSTTModelID)
+                }
+                .font(.system(size: 13))
+                .padding(.vertical, 12)
+            }
+        case .groq:
+            SettingsGroup(title: "Model") {
+                SettingsRow(title: "Speech model") {
+                    modelPicker($groqModel, groqModels)
+                }
+            }
+        case .elevenlabs:
+            SettingsGroup(title: "Model") {
+                SettingsRow(title: "Speech model",
+                            detail: "Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side.") {
+                    modelPicker($elevenLabsModel, elevenLabsModels)
                 }
                 if elevenLabsModel == elevenLabsRealtimeModel {
-                    Text("Streams audio over a WebSocket, so words appear on the recording overlay as you say them — corrected as the sentence goes on — and are pasted in one go as soon as you stop. A 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    SettingsDivider()
+                    SettingsNote("Streams audio over a WebSocket, so words appear on the recording overlay as you say them — corrected as the sentence goes on — and are pasted in one go as soon as you stop. A 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan.")
+                        .padding(.vertical, 11)
                 }
-                Text("Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            case .openai:
-                Picker("Speech Model", selection: $openAISTTModel) {
-                    ForEach(openAISTTModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
+            }
+        case .openai:
+            SettingsGroup(title: "Model") {
+                SettingsRow(title: "Speech model") {
+                    modelPicker($openAISTTModel, openAISTTModels)
                 }
                 if openAISTTModel == openAIRealtimeSTTModel {
-                    Text("Streams audio over a WebSocket, so words appear on the recording overlay as you say them, and are pasted in one go as soon as you stop. It transcribes the whole recording as one phrase — there is no pause detection — and if the stream drops, the recording is uploaded to GPT Transcribe instead. Realtime is billed per streamed minute — check your plan.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    SettingsDivider()
+                    SettingsNote("Streams audio over a WebSocket, so words appear on the recording overlay as you say them, and are pasted in one go as soon as you stop. It transcribes the whole recording as one phrase — there is no pause detection — and if the stream drops, the recording is uploaded to GPT Transcribe instead. Realtime is billed per streamed minute — check your plan.")
+                        .padding(.vertical, 11)
                 }
             }
+        }
 
+        SettingsGroup(title: "Language") {
             SpokenLanguagesField(stt: stt)
-            Toggle("Remove hesitation sounds", isOn: $removeDisfluencies)
-            Text("Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Picker("Dashes", selection: $dashStyle) {
-                ForEach(DashStyle.allCases) { style in
-                    Text(style.displayName).tag(style.rawValue)
-                }
-            }
-            Text("Speech models write a long “—” where you paused between phrases. It is redrawn in this style, in dictations and AI output alike, and never removed.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } header: {
-            sectionHeader("Step 1 · Speech → Text", "Turns what you say into raw text. Always runs.")
         }
     }
 
-    // MARK: - Step 2 · Text → Text
+    // MARK: - Formatting
 
     @ViewBuilder
-    private var aiProcessingSection: some View {
-        Section {
-            Picker("Provider", selection: $llmProvider) {
-                ForEach(LLMProviderType.allCases) { provider in
-                    Text(provider.displayName).tag(provider.rawValue)
+    private var formattingPage: some View {
+        SettingsGroup {
+            SettingsRow(title: "Remove hesitation sounds",
+                        detail: "Drops “е-е-е”, “а-а”, “м-м”, “um”, un-stretches words like “тооо”, and turns a trailing “...” into a full stop. Words like “ну” or “типу” are kept — use AI mode to rewrite those.") {
+                SettingsSwitch(isOn: $removeDisfluencies)
+            }
+            SettingsDivider()
+            SettingsRow(title: "Dashes",
+                        detail: "Speech models write a long “—” where you paused between phrases. It is redrawn in this style, in dictations and AI output alike, and never removed.") {
+                Picker("Dashes", selection: $dashStyle) {
+                    ForEach(DashStyle.allCases) { style in
+                        Text(style.displayName).tag(style.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+    }
+
+    // MARK: - AI
+
+    @ViewBuilder
+    private var aiPage: some View {
+        SettingsGroup(title: "Provider", trailing: AnyView(aiStatus), inset: 5) {
+            ForEach(LLMProviderType.allCases) { provider in
+                SetupRow(title: provider.displayName, isSelected: provider == llm, compact: true) {
+                    llmProvider = provider.rawValue
                 }
             }
+        }
 
+        SettingsGroup(title: "Model") {
             switch llm {
             case .groq:
-                Picker("Text Model", selection: $groqLLMModel) {
-                    ForEach(groqChatModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
+                SettingsRow(title: "Text model") { modelPicker($groqLLMModel, groqChatModels) }
             case .anthropic:
-                Picker("Text Model", selection: $anthropicModel) {
-                    ForEach(anthropicChatModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
+                SettingsRow(title: "Text model") { modelPicker($anthropicModel, anthropicChatModels) }
             case .openai:
-                Picker("Text Model", selection: $openAIModel) {
-                    ForEach(openAIChatModels, id: \.id) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
+                SettingsRow(title: "Text model") { modelPicker($openAIModel, openAIChatModels) }
             case .ollama:
-                OllamaModelsView(selectedModelID: $ollamaModel)
-            }
-
-            Text("Separate from the speech model above — you can transcribe with one provider and generate with another.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("The AI Recording shortcut also sends the app's name, its window title and the text field's label, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Button("Edit Prompt Presets…") { openPresets() }
-                Spacer()
-                if hasLLMKey {
-                    Label("Ready", systemImage: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                } else if llm.needsAPIKey {
-                    Label("Needs an API key", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
-                    Label("Needs a model", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 8) {
+                    OllamaModelsView(selectedModelID: $ollamaModel)
                 }
+                .font(.system(size: 13))
+                .padding(.vertical, 12)
             }
-        } header: {
-            sectionHeader(
-                "Step 2 · Text → Text (AI)",
-                "Optional. Runs only for the AI Recording shortcut and the ✨ toggle in the Record Window. What you dictate is the prompt — the model picks the matching preset and rewrites the text."
-            )
+            SettingsDivider()
+            SettingsNote("Separate from the speech model — you can transcribe with one provider and generate with another.")
+                .padding(.vertical, 11)
+        }
+
+        SettingsGroup(title: "Presets") {
+            SettingsRow(title: "Prompt presets",
+                        detail: "What a dictation can become — an email, a list, a translation. The model picks the one that matches what you said.") {
+                Button("Edit Presets…") { openPresets() }
+                    .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
+            }
+        }
+
+        SettingsGroup(title: "Context") {
+            SettingsRow(title: "Where the text is going",
+                        detail: "The AI Recording shortcut also sends the app's name, its window title and the text field's label, so the same words come out as a chat message in Slack and as a letter in Mail. Window titles can include email subjects and document names. Password managers and password fields are never read.")
         }
     }
 
-    // MARK: - Credentials
+    @ViewBuilder
+    private var aiStatus: some View {
+        if hasLLMKey {
+            SettingsStatus(text: "Ready", ok: true)
+        } else if llm.needsAPIKey {
+            Button { category = .apiKeys } label: { SettingsStatus(text: "Needs an API key", ok: false) }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+                .help("Open API Keys")
+        } else {
+            SettingsStatus(text: "Needs a model", ok: false)
+        }
+    }
+
+    // MARK: - API Keys
 
     @ViewBuilder
-    private var apiKeysSection: some View {
-        Section {
-            if !groqKeyUses.isEmpty {
-                SecureField("Groq", text: $groqAPIKey)
-                    .textFieldStyle(.roundedBorder)
-                Text("One key, used for \(groqKeyUses.joined(separator: " and ")).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private var apiKeysPage: some View {
+        let nothingNeeded = groqKeyUses.isEmpty && openAIKeyUses.isEmpty && stt != .elevenlabs && llm != .anthropic
+        SettingsGroup {
+            if nothingNeeded {
+                SettingsRow(title: "Nothing to enter", detail: "Everything you've selected runs on this Mac.")
+            } else {
+                let keys = neededKeys
+                ForEach(keys.indices, id: \.self) { index in
+                    if index > 0 { SettingsDivider() }
+                    keys[index]
+                }
             }
-
-            if stt == .elevenlabs {
-                SecureField("ElevenLabs", text: $elevenLabsAPIKey)
-                    .textFieldStyle(.roundedBorder)
-                Text("Used for speech recognition.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if llm == .anthropic {
-                SecureField("Anthropic", text: $anthropicAPIKey)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            if !openAIKeyUses.isEmpty {
-                SecureField("OpenAI", text: $openAIAPIKey)
-                    .textFieldStyle(.roundedBorder)
-                Text("One key, used for \(openAIKeyUses.joined(separator: " and ")).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if groqKeyUses.isEmpty, openAIKeyUses.isEmpty, stt != .elevenlabs, !llm.needsAPIKey {
-                Text("Nothing to enter — everything you've selected runs on this Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        } header: {
-            sectionHeader("API Keys", "Only the keys your current selections actually use are shown.")
         }
+    }
+
+    /// One field per key the current choices use, in pipeline order: speech first.
+    private var neededKeys: [AnyView] {
+        var fields: [AnyView] = []
+        if !groqKeyUses.isEmpty {
+            fields.append(AnyView(SettingsKeyField(service: .groq, value: $groqAPIKey,
+                                                   uses: "One key, used for \(groqKeyUses.joined(separator: " and ")).")))
+        }
+        if stt == .elevenlabs {
+            fields.append(AnyView(SettingsKeyField(service: .elevenLabs, value: $elevenLabsAPIKey,
+                                                   uses: "Used for speech recognition.")))
+        }
+        if !openAIKeyUses.isEmpty {
+            fields.append(AnyView(SettingsKeyField(service: .openAI, value: $openAIAPIKey,
+                                                   uses: "One key, used for \(openAIKeyUses.joined(separator: " and ")).")))
+        }
+        if llm == .anthropic {
+            fields.append(AnyView(SettingsKeyField(service: .anthropic, value: $anthropicAPIKey,
+                                                   uses: "Used for AI text generation.")))
+        }
+        return fields
+    }
+
+    // MARK: - Shortcuts (on the General page)
+
+    @ViewBuilder
+    private var shortcutGroups: some View {
+        SettingsGroup(title: "Shortcuts") {
+            ForEach(Array(ShortcutAction.allCases.enumerated()), id: \.element) { index, action in
+                if index > 0 { SettingsDivider() }
+                HotkeyRecorderView(action: action)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SetupColor.label)
+                    .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
+                    .padding(.vertical, 9)
+            }
+        }
+        SettingsNote("Click a shortcut, then press the new key combination.")
+            .padding(.horizontal, 4)
+            .padding(.top, -12)
+
+        SettingsGroup(title: "Recording") {
+            SettingsRow(title: "Hold to talk",
+                        detail: holdToTalk
+                            ? "Hold a recording shortcut while you speak and let go to paste. A quick tap cancels; a double tap keeps recording hands-free until you press it again."
+                            : "Press a recording shortcut to start, and press it again to stop.") {
+                SettingsSwitch(isOn: $holdToTalk)
+            }
+            SettingsNote(holdToTalk
+                         ? "While holding, tap the other recording shortcut to switch between plain text and AI, as often as you like."
+                         : "While recording, the other recording shortcut switches the dictation between plain text and AI.")
+            SettingsNote(holdToTalk
+                         ? "Edit Selection with AI: select text, hold the shortcut, say how to change it and let go. Double-press it to just polish the text; a single tap does nothing."
+                         : "Edit Selection with AI: select text, press the shortcut, say how to change it and press it again. Double-press it to just polish the text.")
+                .padding(.top, 6)
+                .padding(.bottom, 12)
+            SettingsDivider()
+            SettingsRow(title: "Esc cancels a dictation",
+                        detail: "While the recording overlay is on screen, Esc cancels it — and reaches no other app until the overlay is gone.") {
+                SettingsSwitch(isOn: $escapeCancelsDictation)
+            }
+        }
+    }
+
+    // MARK: - Permissions
+
+    @ViewBuilder
+    private var permissionsPage: some View {
+        SettingsGroup {
+            SettingsPermissionRow(symbol: "mic", title: "Microphone", detail: micDetail,
+                                  granted: micStatus == .authorized) {
+                if micStatus == .notDetermined {
+                    Button("Allow") {
+                        AVCaptureDevice.requestAccess(for: .audio) { _ in
+                            DispatchQueue.main.async { refreshPermissions() }
+                        }
+                    }
+                    .buttonStyle(SetupLinkButtonStyle(height: 28))
+                } else if micStatus == .denied {
+                    Button("Open System Settings") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+                    }
+                    .buttonStyle(SetupLinkButtonStyle(height: 28))
+                }
+            }
+            SettingsDivider()
+            SettingsPermissionRow(symbol: "keyboard", title: "Accessibility",
+                                  detail: accessibilityGranted
+                                      ? "So your words appear where your cursor is."
+                                      : "Without it your text opens in the Record Window, ready to copy.",
+                                  granted: accessibilityGranted) {
+                Button("Grant Access") { PasteService.promptAccessibility() }
+                    .buttonStyle(SetupLinkButtonStyle(height: 28))
+            }
+        }
+    }
+
+    private var micDetail: String {
+        switch micStatus {
+        case .denied: "Microphone is turned off for SpeechText."
+        case .restricted: "Your Mac's settings don't allow microphone use. Ask whoever manages this Mac."
+        default: "So SpeechText can hear you."
+        }
+    }
+
+    private func refreshPermissions() {
+        micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        accessibilityGranted = PasteService.isAccessibilityGranted
     }
 
     // MARK: - Helpers
 
-    @ViewBuilder
-    private func sectionHeader(_ title: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(nil)
-                .fixedSize(horizontal: false, vertical: true)
+    private func modelPicker(_ selection: Binding<String>, _ models: [(id: String, name: String)]) -> some View {
+        Picker("Model", selection: selection) {
+            ForEach(models, id: \.id) { model in
+                Text(model.name).tag(model.id)
+            }
         }
-        .padding(.bottom, 2)
+        .labelsHidden()
+        .fixedSize()
     }
 
     /// Mirrors `LLMConfiguration.isConfigured`, but off the @AppStorage bindings so
@@ -458,6 +600,7 @@ struct SettingsView: View {
 }
 
 
+
 // MARK: - Spoken languages
 
 /// "Languages I speak", and the caption that says what it actually does.
@@ -480,7 +623,7 @@ private struct SpokenLanguagesField: View {
     }
 
     var body: some View {
-        LabeledContent("Languages I speak") {
+        SettingsRow(title: "Languages I speak", detail: caption) {
             Menu {
                 Button("Auto — detect every time") { stored = "" }
                 Divider()
@@ -490,11 +633,8 @@ private struct SpokenLanguagesField: View {
             } label: {
                 Text(summary)
             }
-            .frame(maxWidth: 260, alignment: .leading)
+            .frame(maxWidth: 200)
         }
-        Text(caption)
-            .font(.caption)
-            .foregroundStyle(.secondary)
     }
 
     private func binding(for code: String) -> Binding<Bool> {

@@ -102,6 +102,7 @@
 		E100020000000000000001 /* OnboardingChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = E100010000000000000001 /* OnboardingChrome.swift */; };
 		E200020000000000000001 /* OnboardingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E200010000000000000001 /* OnboardingScreens.swift */; };
 		E300020000000000000001 /* OnboardingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E300010000000000000001 /* OnboardingWindow.swift */; };
+		E700020000000000000001 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E700010000000000000001 /* SettingsWindow.swift */; };
 		E400020000000000000001 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E400010000000000000001 /* Onboarding.swift */; };
 		E500020000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
 		E500030000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
@@ -176,6 +177,7 @@
 		E100010000000000000001 /* OnboardingChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingChrome.swift; sourceTree = "<group>"; };
 		E200010000000000000001 /* OnboardingScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingScreens.swift; sourceTree = "<group>"; };
 		E300010000000000000001 /* OnboardingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindow.swift; sourceTree = "<group>"; };
+		E700010000000000000001 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		E400010000000000000001 /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
 		E500010000000000000001 /* SetupServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupServices.swift; sourceTree = "<group>"; };
 		E6000100000000000000001A /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
@@ -269,6 +271,7 @@
 				E100010000000000000001 /* OnboardingChrome.swift */,
 				E200010000000000000001 /* OnboardingScreens.swift */,
 				E300010000000000000001 /* OnboardingWindow.swift */,
+				E700010000000000000001 /* SettingsWindow.swift */,
 				E400010000000000000001 /* Onboarding.swift */,
 				E500010000000000000001 /* SetupServices.swift */,
 				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
@@ -447,6 +450,7 @@
 				E100020000000000000001 /* OnboardingChrome.swift in Sources */,
 				E200020000000000000001 /* OnboardingScreens.swift in Sources */,
 				E300020000000000000001 /* OnboardingWindow.swift in Sources */,
+				E700020000000000000001 /* SettingsWindow.swift in Sources */,
 				E400020000000000000001 /* Onboarding.swift in Sources */,
 				E500020000000000000001 /* SetupServices.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
