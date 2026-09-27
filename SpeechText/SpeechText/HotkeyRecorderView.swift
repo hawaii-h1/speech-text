@@ -38,7 +38,9 @@ struct HotkeyRecorderView: View {
                             .foregroundStyle(.red)
                             .frame(minWidth: 140)
                     } else {
-                        Text(currentDisplayString)
+                        // Drawn as keys, lit while held — as in setup — so pressing the
+                        // shortcut here shows what it does (#79).
+                        LiveShortcutKeycaps(action: action, text: currentDisplayString, size: 18, ai: action == .ai)
                             .frame(minWidth: 140)
                     }
                 }

@@ -12,6 +12,26 @@ final class HotkeyRegistrationStatus {
     var failures: [ShortcutAction: OSStatus] = [:]
 }
 
+/// Which of the app's shortcuts are down right now. Carbon reports a hotkey's release
+/// only when its *key* comes up, whatever the modifiers do, so this is the letter: a
+/// hold recording goes on with ⌃⇧ let go and Q still down (#79). The keycaps in
+/// Settings and setup and the hold tip read it; the modifiers they read off
+/// `NSEvent.modifierFlags`.
+@Observable
+final class HeldShortcuts {
+    static let shared = HeldShortcuts()
+    private(set) var down: Set<ShortcutAction> = []
+
+    func set(_ action: ShortcutAction, isDown: Bool) {
+        if isDown { down.insert(action) } else { down.remove(action) }
+    }
+
+    /// Unregistered hotkeys report no releases; none may be left looking held.
+    func clear() {
+        if !down.isEmpty { down = [] }
+    }
+}
+
 @Observable
 final class HotkeyManager {
     private var hotKeyRefs: [ShortcutAction: EventHotKeyRef] = [:]
@@ -119,6 +139,9 @@ final class HotkeyManager {
                 let isDown = GetEventKind(event) == UInt32(kEventHotKeyPressed)
 
                 DispatchQueue.main.async {
+                    if let action = ShortcutAction.allCases.first(where: { HotkeyManager.hotKeyID($0) == hotKeyID.id }) {
+                        HeldShortcuts.shared.set(action, isDown: isDown)
+                    }
                     switch hotKeyID.id {
                     case 1: mgr.onDictationKey?(.inline, isDown)
                     case 2: if isDown { mgr.onRecordWindowToggle?() }
@@ -187,6 +210,7 @@ final class HotkeyManager {
     }
 
     private func unregisterHotkeys() {
+        HeldShortcuts.shared.clear()
         for ref in hotKeyRefs.values { UnregisterEventHotKey(ref) }
         hotKeyRefs = [:]
         if let ref = escapeRef {

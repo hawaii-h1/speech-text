@@ -597,7 +597,6 @@ final class AppState {
 
     /// A dictation shortcut went down.
     func hotkeyPressed(_ pressed: DictationHotkey) {
-        if dictationTest.isActive { dictationTest.heldKey = pressed }
         // An edit's recording is an instruction, not a dictation: there is nothing for
         // a dictation shortcut to switch or stop, and the likeliest meaning of the press
         // is "not this, I want to dictate". It cancels the edit and does nothing more.
@@ -616,18 +615,23 @@ final class AppState {
         let action = hotkeyGesture.press(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
         dlog("Hotkey", "\(key) pressed in \(phase) → \(action)")
         perform(action)
+        if case .start = action, hotkeyGesture.owner != nil {
+            beginHoldTip(pressed == .ai ? .ai : .inline, canSwitch: TextRefinementService.isConfigured)
+        } else if hotkeyGesture.owner == nil {
+            endHoldTip()
+        }
     }
 
     /// A dictation shortcut came back up. Only acts with hold-to-talk on, and only for the
     /// shortcut that started the dictation.
     func hotkeyReleased(_ released: DictationHotkey) {
-        if dictationTest.heldKey == released { dictationTest.heldKey = nil }
         guard !isEditMode else { return }
         let key = effectiveKey(released)
         let phase = dictationPhase
         let action = hotkeyGesture.release(key, in: phase, at: ProcessInfo.processInfo.systemUptime)
         dlog("Hotkey", "\(key) released in \(phase) → \(action)")
         perform(action)
+        if hotkeyGesture.owner == nil { endHoldTip() }
         if hotkeyGesture.awaitsSecondTap {
             scheduleDictationTapTimer()
         }
@@ -1157,6 +1161,11 @@ final class AppState {
         let action = editGesture.press(in: phase, at: ProcessInfo.processInfo.systemUptime)
         dlog("Hotkey", "edit pressed in \(phase) → \(action)")
         perform(action)
+        if case .start = action, editGesture.isHeld, isEditMode {
+            beginHoldTip(.edit, canSwitch: false)
+        } else if !editGesture.isHeld {
+            endHoldTip()
+        }
     }
 
     /// The Edit shortcut came back up.
@@ -1166,6 +1175,7 @@ final class AppState {
         let action = editGesture.release(in: phase, at: ProcessInfo.processInfo.systemUptime)
         dlog("Hotkey", "edit released in \(phase) → \(action)")
         perform(action)
+        if !editGesture.isHeld { endHoldTip() }
         if editGesture.awaitsSecondTap {
             scheduleEditTapTimer()
         }
@@ -1626,9 +1636,93 @@ final class AppState {
     }
 
     private func hideOverlay() {
+        endHoldTip()
         overlayPanel?.close()
         overlayPanel = nil
         updateEscapeShortcut()
+    }
+
+    // MARK: - Hold tip (#79)
+
+    /// The shortcut whose letter holds the current hold recording, while it does.
+    private var holdTipAction: ShortcutAction?
+    private var holdTipStage: HoldTip.Stage = .none
+    /// During the last hold recording the modifiers were let go with the letter still
+    /// down — the tip was followed. Kept after the recording, for setup's practice step.
+    private(set) var holdTipFollowed = false
+    private var holdTipTimer: Timer?
+    private var holdTipPanel: HoldTipPanel?
+    private var holdTipObservers: [Any] = []
+
+    /// A hold recording started: watch whether the modifiers are let go, and show the
+    /// tip while the user has yet to learn that they may be.
+    private func beginHoldTip(_ action: ShortcutAction, canSwitch: Bool) {
+        endHoldTip()
+        holdTipAction = action
+        holdTipFollowed = false
+        let count = UserDefaults.standard.integer(forKey: SettingsKeys.holdTipFollowedCount)
+        // Setup's Try it teaches the same thing on its own screen.
+        holdTipStage = dictationTest.isActive ? .none : HoldTip.stage(count: count, canSwitch: canSwitch)
+        let keys = shortcutKeys(shortcutText(for: action))
+        holdTipTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let action = self.holdTipAction, !self.holdTipFollowed else { return }
+            if modifiersOfHeldShortcutLetGo(keys: keys, letterDown: HeldShortcuts.shared.down.contains(action)) {
+                self.holdTipFollowed = true
+                dlog("Hotkey", "hold: modifiers let go, \(action.title) still held")
+                self.refreshHoldTipPanel()
+            }
+        }
+        guard holdTipStage != .none else { return }
+        // Not for a tap: a lone tap cancels, and a tip that flashed up for it would be noise.
+        DispatchQueue.main.asyncAfter(deadline: .now() + DictationHotkeyGesture.tapThreshold) { [weak self] in
+            guard let self, self.holdTipAction == action, self.holdTipPanel == nil else { return }
+            self.showHoldTipPanel()
+        }
+        dlog("Hotkey", "hold tip: \(holdTipStage), count \(count)")
+    }
+
+    private func showHoldTipPanel() {
+        guard let overlay = overlayPanel else { return }
+        let panel = HoldTipPanel()
+        holdTipPanel = panel
+        refreshHoldTipPanel()
+        panel.place(beside: overlay.frame)
+        panel.orderFrontRegardless()
+        let center = NotificationCenter.default
+        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+            holdTipObservers.append(center.addObserver(forName: name, object: overlay, queue: .main) { [weak self, weak overlay] _ in
+                guard let overlay else { return }
+                self?.holdTipPanel?.place(beside: overlay.frame)
+            })
+        }
+    }
+
+    private func refreshHoldTipPanel() {
+        guard let panel = holdTipPanel, let action = holdTipAction else { return }
+        let other: ShortcutAction? = switch action {
+        case .inline: .ai
+        case .ai: .inline
+        case .edit, .recordWindow: nil
+        }
+        panel.contentView = NSHostingView(rootView: HoldTipView(action: action, stage: holdTipStage,
+                                                                other: other, followed: holdTipFollowed))
+    }
+
+    /// The hold is over, however it ended: the tip goes, and a followed tip counts.
+    private func endHoldTip() {
+        guard holdTipAction != nil else { return }
+        holdTipTimer?.invalidate()
+        holdTipTimer = nil
+        for observer in holdTipObservers { NotificationCenter.default.removeObserver(observer) }
+        holdTipObservers = []
+        holdTipPanel?.close()
+        holdTipPanel = nil
+        let defaults = UserDefaults.standard
+        let count = defaults.integer(forKey: SettingsKeys.holdTipFollowedCount)
+        let next = HoldTip.count(after: count, stage: holdTipStage, followed: holdTipFollowed)
+        if next != count { defaults.set(next, forKey: SettingsKeys.holdTipFollowedCount) }
+        holdTipAction = nil
+        holdTipStage = .none
     }
 
     // MARK: - No connection

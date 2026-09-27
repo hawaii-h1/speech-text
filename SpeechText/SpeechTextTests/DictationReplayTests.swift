@@ -739,6 +739,106 @@ final class DictationHotkeyGestureTests: XCTestCase {
     }
 }
 
+// MARK: - Holding only the letter (#79)
+
+final class HoldTipTests: XCTestCase {
+
+    /// With hold to talk, once the letter is down the modifiers are no longer needed —
+    /// held or not — and the letter stays down.
+    func testTheModifiersFadeOnceTheLetterIsDown() {
+        let chord = HoldTip.keycaps(modifiersDown: [true, true], letterDown: false, holdToTalk: true)
+        XCTAssertEqual(chord.modifiers, [.down, .down])
+        XCTAssertEqual(chord.letter, .up)
+        let held = HoldTip.keycaps(modifiersDown: [true, true], letterDown: true, holdToTalk: true)
+        XCTAssertEqual(held.modifiers, [.notNeeded, .notNeeded])
+        XCTAssertEqual(held.letter, .down)
+        let letterOnly = HoldTip.keycaps(modifiersDown: [false, false], letterDown: true, holdToTalk: true)
+        XCTAssertEqual(letterOnly.modifiers, [.notNeeded, .notNeeded])
+    }
+
+    /// Pressed once to start and once to stop, the modifiers are just keys.
+    func testWithoutHoldToTalkNothingFades() {
+        let caps = HoldTip.keycaps(modifiersDown: [true, false], letterDown: true, holdToTalk: false)
+        XCTAssertEqual(caps.modifiers, [.down, .up])
+        XCTAssertEqual(caps.letter, .down)
+    }
+
+    func testTheTipIsFollowedOnlyWithEveryModifierUpAndTheLetterDown() {
+        XCTAssertTrue(HoldTip.isFollowed(modifiersDown: [false, false], letterDown: true))
+        XCTAssertFalse(HoldTip.isFollowed(modifiersDown: [true, false], letterDown: true), "⇧ still down")
+        XCTAssertFalse(HoldTip.isFollowed(modifiersDown: [false, false], letterDown: false), "the hold is over")
+        XCTAssertFalse(HoldTip.isFollowed(modifiersDown: [], letterDown: true), "a shortcut with no modifier")
+    }
+
+    /// Three followed holds, then the switch hint once, then nothing.
+    func testTheTipIsLearntThenTheSwitchHintShownOnce() {
+        var count = 0
+        for _ in 0..<5 {
+            // Shown but not followed: it does not count.
+            let stage = HoldTip.stage(count: count, canSwitch: true)
+            XCTAssertEqual(stage, .keepHolding)
+            count = HoldTip.count(after: count, stage: stage, followed: false)
+        }
+        XCTAssertEqual(count, 0)
+        for _ in 0..<HoldTip.lessons {
+            let stage = HoldTip.stage(count: count, canSwitch: true)
+            XCTAssertEqual(stage, .keepHolding)
+            count = HoldTip.count(after: count, stage: stage, followed: true)
+        }
+        XCTAssertEqual(HoldTip.stage(count: count, canSwitch: true), .switchHint)
+        count = HoldTip.count(after: count, stage: .switchHint, followed: false)
+        XCTAssertEqual(HoldTip.stage(count: count, canSwitch: true), .none)
+        XCTAssertEqual(HoldTip.count(after: count, stage: .none, followed: true), count)
+    }
+
+    /// An edit, or no AI to switch to: the switch hint waits rather than being spent.
+    func testTheSwitchHintWaitsForSomethingToSwitchTo() {
+        let learnt = HoldTip.lessons
+        XCTAssertEqual(HoldTip.stage(count: learnt, canSwitch: false), .none)
+        XCTAssertEqual(HoldTip.count(after: learnt, stage: .none, followed: true), learnt)
+        XCTAssertEqual(HoldTip.stage(count: learnt, canSwitch: true), .switchHint)
+    }
+
+    /// The tip's panel leaves the text about 210 pt beside the keycaps: every title on one
+    /// line, every detail within two, for the built-in shortcuts and a long custom one.
+    func testEveryTipFitsItsPanel() {
+        func size(_ text: String, _ font: NSFont) -> CGSize {
+            NSAttributedString(string: text, attributes: [.font: font])
+                .boundingRect(with: NSSize(width: 210, height: CGFloat.greatestFiniteMagnitude),
+                              options: .usesLineFragmentOrigin).size
+        }
+        let titleFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let detailFont = NSFont.systemFont(ofSize: 11)
+        let oneLine = size("Ag", titleFont).height
+        let twoLines = size("Ag\nAg", detailFont).height
+        let shortcuts = [("Q", "⌃⇧", "⌃⇧A"), ("F12", "⌃⌥⇧⌘", "⌃⌥⇧⌘F11")]
+        for (letter, modifiers, other) in shortcuts {
+            for stage in [HoldTip.Stage.keepHolding, .switchHint] {
+                for followed in [false, true] {
+                    for isEdit in [false, true] {
+                        for otherIsAI in [false, true] {
+                            let text = HoldTip.text(stage: stage, followed: followed, isEdit: isEdit, letter: letter,
+                                                    modifiers: modifiers, other: other, otherIsAI: otherIsAI)
+                            XCTAssertLessThanOrEqual(size(text.title, titleFont).height, oneLine, text.title)
+                            XCTAssertLessThanOrEqual(size(text.detail, detailFont).height, twoLines, text.detail)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testTheDemoLoopsThroughTheGesture() {
+        let steps = stride(from: 0.0, to: HoldTip.demoPeriod, by: 0.1).map(HoldTip.demoStep(at:))
+        var order: [HoldTip.DemoStep] = []
+        for step in steps where order.last != step { order.append(step) }
+        XCTAssertEqual(order, [.rest, .chord, .held, .letterOnly, .done])
+        XCTAssertEqual(HoldTip.demoStep(at: HoldTip.demoPeriod + 2.5), HoldTip.demoStep(at: 2.5))
+        XCTAssertEqual(HoldTip.demoKeys(.letterOnly).modifiersDown, false)
+        XCTAssertEqual(HoldTip.demoKeys(.letterOnly).letterDown, true)
+    }
+}
+
 // MARK: - The Edit shortcut (SelectionEdit.swift)
 
 final class EditHotkeyGestureTests: XCTestCase {

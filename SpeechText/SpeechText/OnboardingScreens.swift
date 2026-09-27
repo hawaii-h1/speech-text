@@ -1075,6 +1075,10 @@ private struct TryItScreen: View {
     private var test: DictationTest { appState.dictationTest }
     private var q: String { shortcutText(for: .inline) }
     private var a: String { shortcutText(for: .ai) }
+    @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
+    /// ⌃⇧ of "⌃⇧Q", and Q.
+    private var qModifiers: String { shortcutKeys(q).filter(isModifierCap).joined() }
+    private var qLetter: String { shortcutKeys(q).last ?? q }
 
     private enum Phase { case ready, listening, transcribing, success, nothing, rejected, offline, failed(String) }
     private enum AIPhase { case ready, listening, polishing, success(said: String, wrote: String), failed(said: String, reason: String) }
@@ -1151,13 +1155,26 @@ private struct TryItScreen: View {
             } else {
                 switch phase {
                 case .ready:
-                    Text("Try it: press").setupTitle(32)
-                    LiveKeycaps(action: .inline, heldKey: test.heldKey, size: 52).padding(.top, 14).padding(.bottom, 18)
-                    body(Text("Say anything, like ") + Text("“This is my first dictation.”").italic() + Text(" Press the keys again when you're done."))
+                    Text(holdToTalk ? "Try it: hold" : "Try it: press").setupTitle(32)
+                    LiveShortcutKeycaps(action: .inline, size: 52).padding(.top, 14).padding(.bottom, 18)
+                    body(Text("Say anything, like ") + Text("“This is my first dictation.”").italic()
+                         + Text(holdToTalk ? " Let go when you're done." : " Press the keys again when you're done."))
                 case .listening:
-                    title(Text("Listening…"))
-                    body(Text("Press \(q) again when you're done."))
-                    LiveKeycaps(action: .inline, heldKey: test.heldKey, size: 22, pulsing: true).padding(.top, 10)
+                    if holdToTalk && HeldShortcuts.shared.down.contains(.inline) {
+                        // The practice step (#79): the letter alone keeps it going.
+                        if appState.holdTipFollowed {
+                            title(Text("✓ ").foregroundColor(SetupColor.ok) + Text("Just \(qLetter) — that's it"))
+                            body(Text("Clicks and ⌘Tab work as usual while you hold it. Let go of \(qLetter) when you're done."))
+                        } else {
+                            title(Text("Now let go of \(qModifiers)"))
+                            body(Text("Keep \(qLetter) down — it alone keeps recording, and your hand is free for the mouse and ⌘Tab."))
+                        }
+                        LiveShortcutKeycaps(action: .inline, size: 22).padding(.top, 10)
+                    } else {
+                        title(Text("Listening…"))
+                        body(Text("Press \(q) again when you're done."))
+                        LiveShortcutKeycaps(action: .inline, size: 22, pulsing: true).padding(.top, 10)
+                    }
                     hint("See the small bar at the bottom of your screen? That's SpeechText listening.")
                 case .transcribing:
                     title(Text("Turning your speech into text…"))
@@ -1335,7 +1352,7 @@ private struct TryItScreen: View {
                 case .ready:
                     HStack(spacing: 6) {
                         Text("✨ Now try AI polish: press").aiCardTitle()
-                        LiveKeycaps(action: .ai, heldKey: test.heldKey, size: 20)
+                        LiveShortcutKeycaps(action: .ai, size: 20, ai: true)
                     }
                     (Text("Dictate an email the way you'd say it — for example ") + Text("“uh, write to Anna that the report will be ready on Friday, not Thursday, and say sorry for the delay.”").italic())
                 case .listening:
@@ -1425,39 +1442,6 @@ private struct TryItScreen: View {
 
     private var isSuccess: Bool { if case .success = phase { true } else { false } }
     private var isAISuccess: Bool { if case .success = aiPhase { true } else { false } }
-}
-
-/// A shortcut's caps, each lit while its own key is down: the modifiers as the keyboard
-/// reports them, the letter while its shortcut is held.
-private struct LiveKeycaps: View {
-    let action: ShortcutAction
-    let heldKey: DictationHotkey?
-    var size: CGFloat = 22
-    var pulsing = false
-
-    var body: some View {
-        let keys = shortcutKeys(shortcutText(for: action))
-        TimelineView(.animation(minimumInterval: 1 / 30)) { _ in
-            SetupKeycaps(keys: keys, size: size, litKeys: lit(keys), pulsing: pulsing, ai: action == .ai)
-        }
-    }
-
-    private func lit(_ keys: [String]) -> Set<Int> {
-        let flags = NSEvent.modifierFlags
-        let letterDown = heldKey == (action == .ai ? .ai : .inline)
-        var lit = Set<Int>()
-        for (index, key) in keys.enumerated() {
-            let down = switch key {
-            case "⌃": flags.contains(.control)
-            case "⌥": flags.contains(.option)
-            case "⇧": flags.contains(.shift)
-            case "⌘": flags.contains(.command)
-            default: letterDown
-            }
-            if down { lit.insert(index) }
-        }
-        return lit
-    }
 }
 
 private extension Text {

@@ -972,11 +972,15 @@ struct ProgressRing: View {
 // MARK: - Keycaps
 
 /// A shortcut drawn as keys, each symbol its own cap. `litKeys` are the indexes of the
-/// caps whose key is down.
+/// caps whose key is down; `fadedKeys` the caps no longer needed — a held recording's
+/// modifiers once its letter is down (#79), dimmed with a dashed edge even while still
+/// held; `ringKeys` the caps to keep down, drawn with a ring around them.
 struct SetupKeycaps: View {
     let keys: [String]
     var size: CGFloat = 22
     var litKeys: Set<Int> = []
+    var fadedKeys: Set<Int> = []
+    var ringKeys: Set<Int> = []
     var pulsing = false
     var ai = false
     @Environment(\.colorScheme) private var scheme
@@ -985,8 +989,10 @@ struct SetupKeycaps: View {
     var body: some View {
         HStack(spacing: size > 40 ? 8 : 3) {
             ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
-                let lit = litKeys.contains(index)
+                let faded = fadedKeys.contains(index)
+                let lit = litKeys.contains(index) && !faded
                 let base = ai ? SetupColor.ai : SetupColor.phosphor
+                let corner = size * 0.25
                 Text(key)
                     .font(.system(size: size * 0.42, weight: .semibold))
                     .foregroundStyle(lit ? (ai ? .white : SetupColor.screen)
@@ -994,14 +1000,32 @@ struct SetupKeycaps: View {
                                      : (scheme == .dark ? SetupColor.phosphor : SetupColor.brand))
                     .frame(minWidth: size, minHeight: size)
                     .padding(.horizontal, size * 0.12)
-                    .background(RoundedRectangle(cornerRadius: size * 0.25)
-                        .fill(lit ? base : base.opacity(pulse ? 0.5 : (ai ? 0.18 : (scheme == .dark ? 0.16 : 0.24)))))
-                    .overlay(RoundedRectangle(cornerRadius: size * 0.25).strokeBorder(base.opacity(lit ? 0 : 0.45), lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: corner)
+                        .fill(lit ? base : faded ? base.opacity(0.06)
+                              : base.opacity(pulse ? 0.5 : (ai ? 0.18 : (scheme == .dark ? 0.16 : 0.24)))))
+                    .overlay {
+                        if faded {
+                            RoundedRectangle(cornerRadius: corner)
+                                .strokeBorder(base.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [2.5, 2]))
+                        } else {
+                            RoundedRectangle(cornerRadius: corner).strokeBorder(base.opacity(lit ? 0 : 0.45), lineWidth: 1)
+                        }
+                    }
+                    .overlay {
+                        if ringKeys.contains(index) {
+                            RoundedRectangle(cornerRadius: corner + 3)
+                                .strokeBorder(base.opacity(0.8), lineWidth: max(1, size * 0.06))
+                                .padding(-max(3, size * 0.12))
+                        }
+                    }
+                    .opacity(faded ? 0.35 : 1)
                     .shadow(color: lit ? base.opacity(0.65) : .clear, radius: 8)
                     .offset(y: lit ? 1 : 0)
             }
         }
         .animation(.easeOut(duration: 0.15), value: litKeys)
+        .animation(.easeOut(duration: 0.2), value: fadedKeys)
+        .animation(.easeOut(duration: 0.2), value: ringKeys)
         .onChange(of: pulsing, initial: true) { _, on in
             if on {
                 withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { pulse = true }
@@ -1009,6 +1033,65 @@ struct SetupKeycaps: View {
                 withAnimation(.easeOut(duration: 0.2)) { pulse = false }
             }
         }
+    }
+}
+
+/// A shortcut's caps drawn from the keys as they are right now: each lit while its own
+/// key is down, and — with hold to talk, once the letter is down — the modifiers faded
+/// and the letter ringed, since the letter alone now keeps the recording going (#79).
+/// The letter comes from `HeldShortcuts` (Carbon takes the key event; no window sees
+/// it), the modifiers from `NSEvent.modifierFlags`.
+struct LiveShortcutKeycaps: View {
+    let action: ShortcutAction
+    /// The combination to draw; the stored one when nil.
+    var text: String? = nil
+    var size: CGFloat = 22
+    var pulsing = false
+    var ai = false
+    @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
+
+    var body: some View {
+        let keys = shortcutKeys(text ?? shortcutText(for: action))
+        TimelineView(.animation(minimumInterval: 1 / 30)) { _ in
+            let caps = liveKeycapStates(keys: keys, letterDown: HeldShortcuts.shared.down.contains(action),
+                                        holdToTalk: holdToTalk && action != .recordWindow)
+            SetupKeycaps(keys: keys, size: size,
+                         litKeys: caps.indexes(of: .down), fadedKeys: caps.indexes(of: .notNeeded),
+                         ringKeys: caps.contains(.notNeeded) ? caps.indexes(of: .down) : [],
+                         pulsing: pulsing, ai: ai)
+        }
+    }
+}
+
+/// Each cap's state for `keys` ("⌃", "⇧", "Q") as the keyboard is now.
+func liveKeycapStates(keys: [String], letterDown: Bool, holdToTalk: Bool) -> [KeycapState] {
+    let flags = NSEvent.modifierFlags
+    let modifierKeys = keys.filter(isModifierCap)
+    let modifiersDown = modifierKeys.map { key in
+        switch key {
+        case "⌃": flags.contains(.control)
+        case "⌥": flags.contains(.option)
+        case "⇧": flags.contains(.shift)
+        default: flags.contains(.command)
+        }
+    }
+    let caps = HoldTip.keycaps(modifiersDown: modifiersDown, letterDown: letterDown, holdToTalk: holdToTalk)
+    var modifiers = caps.modifiers.makeIterator()
+    return keys.map { isModifierCap($0) ? (modifiers.next() ?? .up) : caps.letter }
+}
+
+/// The modifier caps of `keys` are down, the letter is down: the hold tip was followed.
+func modifiersOfHeldShortcutLetGo(keys: [String], letterDown: Bool) -> Bool {
+    let states = liveKeycapStates(keys: keys, letterDown: letterDown, holdToTalk: false)
+    let modifiersDown = zip(keys, states).filter { isModifierCap($0.0) }.map { $0.1 == .down }
+    return HoldTip.isFollowed(modifiersDown: modifiersDown, letterDown: letterDown)
+}
+
+func isModifierCap(_ key: String) -> Bool { "⌃⌥⇧⌘".contains(key) && key.count == 1 }
+
+extension Array where Element == KeycapState {
+    func indexes(of state: KeycapState) -> Set<Int> {
+        Set(enumerated().filter { $0.element == state }.map(\.offset))
     }
 }
 

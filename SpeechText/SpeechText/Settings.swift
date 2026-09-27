@@ -95,6 +95,11 @@ enum SettingsKeys {
     /// screen coordinates (UserDefaults has no point type). Empty means the default
     /// corner. Monitor geometry, so machine-local and not in `portable`.
     static let overlayOrigin = "overlayOrigin"
+    /// Hold recordings in which the hold tip was followed (⌃⇧ let go, the letter still
+    /// down), plus one once its switch hint has been shown — `HoldTip.stage` reads it.
+    /// Machine-local, like the overlay's spot: a new Mac is a fresh start, so not in
+    /// `portable`.
+    static let holdTipFollowedCount = "holdTipFollowedCount"
 
     // Debug
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-

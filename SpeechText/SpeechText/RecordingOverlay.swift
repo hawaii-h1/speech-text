@@ -688,3 +688,100 @@ final class RecordingOverlayPanel: NSPanel {
         }
     }
 }
+
+// MARK: - Hold tip
+
+/// The hold tip (#79): beside the overlay while a hold recording's shortcut is held,
+/// teaching that the letter alone keeps it going — ⌃⇧ may be let go, which gives back
+/// ordinary clicks and ⌘Tab. Its keycaps are live, so the modifiers fade the moment the
+/// letter is down and the title changes once they are let go.
+struct HoldTipView: View {
+    let action: ShortcutAction
+    let stage: HoldTip.Stage
+    /// The other dictation shortcut, for the switch hint.
+    let other: ShortcutAction?
+    let followed: Bool
+
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: skin == .techno ? 18 : 16, style: .continuous)
+    }
+
+    private var keys: [String] { shortcutKeys(shortcutText(for: action)) }
+    private var letter: String { keys.last ?? "" }
+    private var modifiers: String { keys.filter(isModifierCap).joined() }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            switch stage {
+            case .switchHint:
+                if let other {
+                    SetupKeycaps(keys: shortcutKeys(shortcutText(for: other)), size: 20, ai: other == .ai)
+                }
+            case .keepHolding, .none:
+                LiveShortcutKeycaps(action: action, size: 20, ai: action == .ai)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(skin == .techno ? TechnoSkin.phosphorText : .primary)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(skin == .techno ? TechnoSkin.phosphorText.opacity(0.6) : .secondary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 60)
+        .background {
+            switch skin {
+            case .minimal: Rectangle().fill(.ultraThinMaterial)
+            case .techno: shape.fill(TechnoSkin.screen)
+            }
+        }
+        .overlay(shape.strokeBorder(skin == .techno ? TechnoSkin.phosphor.opacity(0.14) : .primary.opacity(0.10), lineWidth: 1))
+        .clipShape(shape)
+        .animation(.easeOut(duration: 0.2), value: followed)
+    }
+
+    private var text: (title: String, detail: String) {
+        HoldTip.text(stage: stage, followed: followed, isEdit: action == .edit, letter: letter,
+                     modifiers: modifiers, other: other.map { shortcutText(for: $0) } ?? "",
+                     otherIsAI: other == .ai)
+    }
+    private var title: String { text.title }
+    private var detail: String { text.detail }
+}
+
+/// The hold tip's window: beside the recording overlay, following it as the transcript
+/// grows. It takes no clicks — it is read, not used.
+final class HoldTipPanel: NSPanel {
+    init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: StatusOverlayPanel.panelWidth, height: 60),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        isOpaque = false
+        backgroundColor = .clear
+        isReleasedWhenClosed = false
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        ignoresMouseEvents = true
+        hasShadow = true
+    }
+
+    /// Above the overlay, right-aligned with it; below it when there is no room above.
+    func place(beside overlay: NSRect) {
+        let visible = NSScreen.screens.first { $0.frame.intersects(overlay) }?.visibleFrame
+            ?? NSScreen.main?.visibleFrame ?? overlay
+        var origin = NSPoint(x: overlay.maxX - frame.width, y: overlay.maxY + 8)
+        if origin.y + frame.height > visible.maxY { origin.y = overlay.minY - 8 - frame.height }
+        origin.x = min(max(origin.x, visible.minX), visible.maxX - frame.width)
+        setFrameOrigin(origin)
+    }
+}

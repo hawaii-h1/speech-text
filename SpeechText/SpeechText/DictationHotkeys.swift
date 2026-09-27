@@ -207,3 +207,125 @@ struct DictationHotkeyGesture {
         }
     }
 }
+
+// MARK: - Holding only the letter
+
+/// How a key of a shortcut is drawn.
+enum KeycapState: Equatable {
+    case up
+    case down
+    /// A modifier of a held shortcut once its letter is down: with hold to talk the
+    /// letter alone keeps the recording going (Carbon reports the hotkey's release only
+    /// when the letter comes up), so ⌃ and ⇧ may be let go — and held on, they turn
+    /// clicks into ⌃-clicks and ⌘Tab into ⌃⇧⌘Tab (#79).
+    case notNeeded
+}
+
+/// The hold tip: teaching that a hold recording needs only its letter held (#79).
+///
+/// Shown beside the overlay for the first hold recordings, and gone once the user has
+/// let go of the modifiers mid-recording `lessons` times; then, once, how to switch to
+/// the other mode while holding. The count lives in `holdTipFollowedCount`. Pure logic,
+/// in both targets; `AppState` shows the panel and keeps the count.
+enum HoldTip {
+    /// Hold recordings in which the tip was *followed* — the modifiers let go with the
+    /// letter still down — before it stops appearing.
+    static let lessons = 3
+
+    enum Stage: Equatable {
+        /// "Keep Q down — you can let go of ⌃⇧."
+        case keepHolding
+        /// "While holding, ⌃⇧A switches to AI." Shown once, after the lessons.
+        case switchHint
+        case none
+    }
+
+    /// What a hold recording shows. `canSwitch`: a dictation with another mode to switch
+    /// to — not an edit, and not the AI shortcut while no AI is set up.
+    static func stage(count: Int, canSwitch: Bool) -> Stage {
+        if count < lessons { return .keepHolding }
+        if count == lessons, canSwitch { return .switchHint }
+        return .none
+    }
+
+    /// The count once a hold recording has ended.
+    static func count(after count: Int, stage: Stage, followed: Bool) -> Int {
+        switch stage {
+        case .keepHolding: return followed ? count + 1 : count
+        case .switchHint: return count + 1
+        case .none: return count
+        }
+    }
+
+    /// The caps of a shortcut: `modifiersDown` one per modifier cap, in order.
+    static func keycaps(modifiersDown: [Bool], letterDown: Bool, holdToTalk: Bool)
+        -> (modifiers: [KeycapState], letter: KeycapState) {
+        let letter: KeycapState = letterDown ? .down : .up
+        if holdToTalk, letterDown {
+            return (modifiersDown.map { _ in .notNeeded }, letter)
+        }
+        return (modifiersDown.map { $0 ? .down : .up }, letter)
+    }
+
+    /// Whether the tip has been followed: every modifier up, the letter still down.
+    static func isFollowed(modifiersDown: [Bool], letterDown: Bool) -> Bool {
+        letterDown && !modifiersDown.isEmpty && !modifiersDown.contains(true)
+    }
+
+    /// The tip's words. `letter` and `modifiers` are the held shortcut's ("Q", "⌃⇧");
+    /// `other` is the other dictation shortcut, for the switch hint. The panel gives the
+    /// text about 210 pt beside the keycaps: the title fits one line, the detail two.
+    static func text(stage: Stage, followed: Bool, isEdit: Bool, letter: String, modifiers: String,
+                     other: String, otherIsAI: Bool) -> (title: String, detail: String) {
+        switch stage {
+        case .switchHint:
+            return (otherIsAI ? "Switch to AI" : "Switch to plain text",
+                    "While holding \(letter), press \(other). Press it again to switch back.")
+        case .keepHolding, .none:
+            if followed {
+                return ("Just \(letter) — that's it",
+                        isEdit ? "Let go of \(letter) to send the instruction." : "Let go of \(letter) when you're done.")
+            }
+            return ("You can let go of \(modifiers)", "\(letter) alone keeps recording, so clicks and ⌘Tab work as usual.")
+        }
+    }
+
+    // The looping demo beside Settings › Hold to talk.
+
+    static let demoPeriod: TimeInterval = 4.8
+
+    enum DemoStep: Equatable {
+        /// Nothing pressed.
+        case rest
+        /// The modifiers going down.
+        case chord
+        /// The whole shortcut down: recording.
+        case held
+        /// The modifiers let go, the letter held: still recording.
+        case letterOnly
+        /// Everything up: pasted.
+        case done
+    }
+
+    /// Where the demo is `time` seconds in; it loops every `demoPeriod`.
+    static func demoStep(at time: TimeInterval) -> DemoStep {
+        let t = time.truncatingRemainder(dividingBy: demoPeriod)
+        switch t {
+        case ..<0.6: return .rest
+        case ..<0.9: return .chord
+        case ..<1.9: return .held
+        case ..<3.9: return .letterOnly
+        default: return .done
+        }
+    }
+
+    /// The keys the demo has down at a step.
+    static func demoKeys(_ step: DemoStep) -> (modifiersDown: Bool, letterDown: Bool) {
+        switch step {
+        case .rest, .done: return (false, false)
+        case .chord: return (true, false)
+        case .held: return (true, true)
+        case .letterOnly: return (false, true)
+        }
+    }
+}

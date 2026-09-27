@@ -29,10 +29,6 @@ final class DictationTest {
     /// The speech model is not ready yet: the shortcuts do nothing rather than start a
     /// recording that can only fail.
     var isBlocked = false
-    /// The dictation shortcut whose key is down right now, so the step can light its cap.
-    /// Carbon takes the shortcut's key event, so this comes from `AppState`, not from the
-    /// window; the modifiers are read off `NSEvent.modifierFlags`.
-    var heldKey: DictationHotkey?
     private(set) var outcome: Outcome?
     private(set) var rewrite: Rewrite?
 

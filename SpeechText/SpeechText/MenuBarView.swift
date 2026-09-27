@@ -562,9 +562,13 @@ struct SettingsView: View {
         SettingsGroup(title: "Recording") {
             SettingsRow(title: "Hold to talk",
                         detail: holdToTalk
-                            ? "Hold a recording shortcut while you speak and let go to paste. A quick tap cancels; a double tap keeps recording hands-free until you press it again."
+                            ? "Hold a recording shortcut while you speak and let go to paste. Once it's recording you can let go of the modifier keys — the letter alone keeps it going. A quick tap cancels; a double tap keeps recording hands-free until you press it again."
                             : "Press a recording shortcut to start, and press it again to stop.") {
                 SettingsSwitch(isOn: $holdToTalk)
+            }
+            if holdToTalk {
+                HoldToTalkDemo()
+                    .padding(.vertical, 8)
             }
             SettingsNote(holdToTalk
                          ? "While holding, tap the other recording shortcut to switch between plain text and AI, as often as you like."
@@ -737,6 +741,45 @@ private struct SpokenLanguagesField: View {
             return stt == .apple
                 ? "Apple's recogniser cannot detect a language, so your keyboard layout picks one of yours — currently \(resolvedLocale())."
                 : "The speech model detects which language you are speaking. This engine accepts only one language, so the list is not sent — name a single language to force one."
+        }
+    }
+}
+
+/// Settings › Hold to talk: the gesture played on a loop, the way System Settings shows a
+/// trackpad gesture — the whole shortcut down, the modifiers let go while the letter
+/// keeps recording, then the letter up (#79).
+private struct HoldToTalkDemo: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let step = HoldTip.demoStep(at: context.date.timeIntervalSinceReferenceDate)
+            let keys = shortcutKeys(shortcutText(for: .inline))
+            let down = HoldTip.demoKeys(step)
+            let caps = HoldTip.keycaps(modifiersDown: [down.modifiersDown], letterDown: down.letterDown, holdToTalk: true)
+            let states = keys.map { isModifierCap($0) ? caps.modifiers[0] : caps.letter }
+            HStack(spacing: 14) {
+                SetupKeycaps(keys: keys, size: 22,
+                             litKeys: states.indexes(of: .down), fadedKeys: states.indexes(of: .notNeeded),
+                             ringKeys: states.contains(.notNeeded) ? states.indexes(of: .down) : [])
+                    .frame(width: 96)
+                Text(caption(step, keys: keys))
+                    .font(.system(size: 12))
+                    .foregroundStyle(SetupColor.label2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(.easeOut(duration: 0.2), value: step)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hold the shortcut to record; once recording, the letter alone keeps it going.")
+    }
+
+    private func caption(_ step: HoldTip.DemoStep, keys: [String]) -> String {
+        let letter = keys.last ?? ""
+        let modifiers = keys.filter(isModifierCap).joined()
+        switch step {
+        case .rest, .chord: return "Hold \(modifiers)\(letter)…"
+        case .held: return "…recording."
+        case .letterOnly: return "Let go of \(modifiers) — \(letter) alone keeps recording."
+        case .done: return "Let go of \(letter) — the text is pasted."
         }
     }
 }
