@@ -35,6 +35,7 @@ struct SettingsView: View {
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
+    @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
     @AppStorage(SettingsKeys.dockIconMode) private var dockIconRaw = DockIconMode.default.rawValue
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -213,7 +214,7 @@ struct SettingsView: View {
                     skinRaw = option.rawValue
                     NotificationCenter.default.post(name: .skinDidChange, object: nil)
                 } preview: {
-                    SkinPreview(skin: option, accentHex: accentHex)
+                    SkinPreview(skin: option, accentHex: accentHex, technoRaw: technoRaw)
                 }
             }
         }
@@ -241,9 +242,63 @@ struct SettingsView: View {
                     }
                 }
             } else {
-                SettingsRow(title: "Accent", detail: "Techno is drawn to a fixed design, so it keeps its own colours.")
+                SettingsRow(title: "Display", detail: technoColorDetail) {
+                    HStack(spacing: 8) {
+                        ForEach(TechnoPhosphor.allCases) { option in
+                            phosphorSwatch(option, selected: option == selectedPhosphor)
+                        }
+                        ColorPicker(
+                            "Colour",
+                            selection: Binding(
+                                get: { TechnoPalette(stored: technoRaw).phosphor },
+                                set: { technoRaw = AccentColor.hex(from: $0) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                        .help("Any colour — the glass and the shell follow its hue")
+                    }
+                }
             }
         }
+    }
+
+    /// The recommended set the stored value names; nil for a colour of the user's own.
+    /// A value that is neither reads as green, as the display does.
+    private var selectedPhosphor: TechnoPhosphor? {
+        if let preset = TechnoPhosphor(rawValue: technoRaw) { return preset }
+        return TechnoPhosphor.customHex(technoRaw) == nil ? .green : nil
+    }
+
+    private var technoColorDetail: String {
+        if let hex = TechnoPhosphor.customHex(technoRaw) {
+            return TechnoPalette.isCloseToAI(hex)
+                ? "Close to AI mode's violet — a plain dictation will be hard to tell from an AI one."
+                : "Your colour, on glass of the same hue. AI mode stays violet."
+        }
+        switch selectedPhosphor {
+        case .green, nil: return "Default — the green of the design."
+        case let preset?: return "\(preset.displayName) dots and text on matching glass. AI mode stays violet."
+        }
+    }
+
+    /// A display colour as the glass would show it: a lit dot on its own screen.
+    private func phosphorSwatch(_ option: TechnoPhosphor, selected: Bool) -> some View {
+        Button {
+            technoRaw = option.rawValue
+        } label: {
+            Circle().fill(option.palette.screen)
+                .overlay(Circle().fill(option.palette.phosphor).padding(4))
+                .frame(width: 18, height: 18)
+                .overlay {
+                    Circle().strokeBorder(
+                        selected ? AnyShapeStyle(SetupTint.green.accent) : AnyShapeStyle(SetupColor.label3),
+                        lineWidth: selected ? 2 : 1
+                    )
+                }
+        }
+        .buttonStyle(.plain)
+        .help(option.displayName)
     }
 
     private func swatch(_ preset: (name: String, hex: String)) -> some View {

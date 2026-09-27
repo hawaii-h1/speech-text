@@ -513,6 +513,10 @@ struct SkinPreview: View {
     /// The accent picked in the Colour row, so the picture follows it; a skin that keeps
     /// its own colours ignores it, as the overlay does.
     var accentHex = AccentColor.neutral
+    /// The display colour picked for techno, which only the techno picture follows.
+    var technoRaw = TechnoPhosphor.green.rawValue
+
+    private var palette: TechnoPalette { TechnoPalette(stored: technoRaw) }
 
     private var accent: Color {
         AccentColor.meter(skin.supportsAccent ? accentHex : AccentColor.neutral)
@@ -547,7 +551,9 @@ struct SkinPreview: View {
         .accessibilityHidden(true)
         // The overlay is drawn light whatever the window is, as it is over most desktops.
         .environment(\.colorScheme, .light)
+        .environment(\.technoPalette, palette)
         .animation(.easeInOut(duration: 0.25), value: accentHex)
+        .animation(.easeInOut(duration: 0.25), value: technoRaw)
     }
 
     @ViewBuilder
@@ -592,8 +598,8 @@ struct SkinPreview: View {
         let glass = RoundedRectangle(cornerRadius: 24, style: .continuous)
         return HStack(spacing: 6) {
             ZStack {
-                glass.fill(TechnoSkin.screen)
-                PixelMatrix(levels: Self.levels, rows: 8, mode: .level)
+                glass.fill(palette.screen)
+                PixelMatrix(levels: Self.levels, rows: 8, mode: .level, palette: .phosphor(palette))
                 InnerShadow(shape: glass, width: 6.6, blur: 3.3)
                 InnerShadow(shape: glass, width: 4, blur: 2, offset: CGSize(width: 0, height: -1))
             }

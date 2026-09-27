@@ -37,8 +37,9 @@ enum AppSkin: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Techno is drawn to a fixed design — every colour in it was matched against the
-    /// design file, so letting the accent loose in there would only break it.
+    /// Whether the free accent colour applies. Techno is drawn to a design — every colour
+    /// in it was matched against the design file, so letting any colour loose in there
+    /// would only break it; its colour is a whole `TechnoPalette` instead (DesignKit.swift).
     var supportsAccent: Bool { self == .minimal }
 
     /// Size of the inline overlay's strip — the meter and the cancel button.

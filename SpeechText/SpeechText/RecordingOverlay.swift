@@ -47,12 +47,14 @@ struct RecordingOverlayView: View {
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
+    @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
 
     @State private var isHoveringCancel = false
     /// The text's own height, for the fade that shows lines have scrolled off the top.
     @State private var textHeight: CGFloat = 0
 
     private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var techno: TechnoPalette { TechnoPalette(stored: technoRaw) }
     private var accent: Color { isAIMode || isEditMode ? Semantic.ai : AccentColor.meter(accentHex) }
     private var isViolet: Bool { isAIMode || isEditMode }
     private var cancelHelp: String {
@@ -75,6 +77,7 @@ struct RecordingOverlayView: View {
         .animation(Self.growth, value: transcriptHeight)
         .frame(width: full.width, height: full.height,
                alignment: growsDown ? .topTrailing : .bottomTrailing)
+        .environment(\.technoPalette, techno)
     }
 
     /// How the transcript grows and shrinks. `RecordingOverlayPanel.growthDuration` has to
@@ -260,8 +263,8 @@ struct RecordingOverlayView: View {
     /// The transcript on a glass of its own, phosphor on black like the Record Window's.
     private var technoTranscript: some View {
         ZStack {
-            Self.transcriptGlass.fill(isEditMode ? TechnoSkin.editScreen : TechnoSkin.screen)
-            transcript(base: isViolet ? TechnoSkin.aiText : TechnoSkin.phosphorText,
+            Self.transcriptGlass.fill(isEditMode ? TechnoSkin.editScreen : techno.screen)
+            transcript(base: isViolet ? TechnoSkin.aiText : techno.phosphorText,
                        font: .system(size: 12, design: .monospaced),
                        horizontal: 16, top: 12, bottom: 12)
             InnerShadow(shape: Self.transcriptGlass, width: 6.6, blur: 3.3)
@@ -274,14 +277,14 @@ struct RecordingOverlayView: View {
     private var technoStrip: some View {
         HStack(spacing: 6) {
             ZStack {
-                Self.glass.fill(isEditMode ? TechnoSkin.editScreen : TechnoSkin.screen)
+                Self.glass.fill(isEditMode ? TechnoSkin.editScreen : techno.screen)
 
                 PixelWaveform(
                     levels: barLevels,
                     columns: Self.technoColumns,
                     rows: Self.technoRows,
                     mode: isBusy ? .busy : .level,
-                    palette: isViolet ? .ai : .phosphor
+                    palette: isViolet ? .ai : .phosphor(techno)
                 )
 
                 if isEditMode {
@@ -364,9 +367,11 @@ struct StatusOverlayView: View {
     let onTap: () -> Void
 
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
     @State private var isHovering = false
 
     private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var techno: TechnoPalette { TechnoPalette(stored: technoRaw) }
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: skin == .techno ? 18 : 16, style: .continuous)
     }
@@ -395,7 +400,7 @@ struct StatusOverlayView: View {
                 Button(action.title, action: action.perform)
                     .controlSize(.small)
                     .buttonStyle(.bordered)
-                    .tint(skin == .techno ? TechnoSkin.phosphor : nil)
+                    .tint(skin == .techno ? techno.phosphor : nil)
                     .fixedSize()
             }
         }
@@ -404,7 +409,7 @@ struct StatusOverlayView: View {
         .background {
             switch skin {
             case .minimal: Rectangle().fill(.ultraThinMaterial)
-            case .techno: shape.fill(TechnoSkin.screen)
+            case .techno: shape.fill(techno.screen)
             }
         }
         .overlay(shape.strokeBorder(borderColor, lineWidth: 1))
@@ -416,16 +421,16 @@ struct StatusOverlayView: View {
     }
 
     private var titleColor: Color {
-        skin == .techno ? TechnoSkin.phosphorText : .primary
+        skin == .techno ? techno.phosphorText : .primary
     }
 
     private var detailColor: Color {
-        skin == .techno ? TechnoSkin.phosphorText.opacity(0.6) : .secondary
+        skin == .techno ? techno.phosphorText.opacity(0.6) : .secondary
     }
 
     private var borderColor: Color {
         skin == .techno
-            ? TechnoSkin.phosphor.opacity(isHovering ? 0.35 : 0.14)
+            ? techno.phosphor.opacity(isHovering ? 0.35 : 0.14)
             : .primary.opacity(isHovering ? 0.25 : 0.10)
     }
 }

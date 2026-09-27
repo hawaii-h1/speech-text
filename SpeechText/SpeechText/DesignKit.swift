@@ -26,8 +26,11 @@ extension Color {
 ///
 /// Both surfaces that wear this skin — the inline overlay and the record window — are
 /// built from this palette, which is what makes them read as one device. Every value
-/// was matched against the design file, so this skin ignores the user's accent colour;
-/// see `AppSkin.supportsAccent`.
+/// was matched against the design file, so this skin ignores the user's free accent
+/// colour (`AppSkin.supportsAccent`); its display colour is a whole `TechnoPalette`
+/// instead — a curated `TechnoPhosphor` preset, or one derived from any colour. The statics here are the design's green — the
+/// setup window borrows them as its own palette, so they never follow the user's pick.
+/// A skin surface reads its glass and phosphor from `\.technoPalette`.
 enum TechnoSkin {
 
     // The glass
@@ -81,6 +84,156 @@ enum TechnoSkin {
     static let pixel: CGFloat = 5
     static let pixelGap: CGFloat = 2
     static var pixelPitch: CGFloat { pixel + pixelGap }
+}
+
+// MARK: - Display colour
+
+/// The inks one display colour is drawn with: the glass, the recesses milled into the
+/// shell, the lit dot, the text printed on the glass and the white a loud dot burns to.
+///
+/// A colour is always a whole set, never a single tint applied to the design: the
+/// design's glass is a very dark green, and amber dots on it look like a fault. Each
+/// set keeps the design's relationships — text a shade darker than the dots, glass and
+/// recess the same hue as the phosphor at almost no brightness.
+struct TechnoPalette: Equatable {
+    let screen: Color
+    let recess: Color
+    let phosphor: Color
+    let phosphorText: Color
+    let peak: Color
+    /// The shell's texture is printed in the design's green; it is turned to the
+    /// display's hue (and drained for white) so the dots on the plastic match the glass.
+    let shellHue: Angle
+    let shellSaturation: Double
+
+    /// The design file, exactly.
+    static let green = TechnoPalette(
+        screen: TechnoSkin.screen, recess: TechnoSkin.recess,
+        phosphor: TechnoSkin.phosphor, phosphorText: TechnoSkin.phosphorText, peak: TechnoSkin.peak,
+        shellHue: .zero, shellSaturation: 1
+    )
+    static let amber = TechnoPalette(
+        screen: Color(hex: 0x251C12), recess: Color(hex: 0x130E09),
+        phosphor: Color(hex: 0xF2AA4C), phosphorText: Color(hex: 0xD9973F), peak: Color(hex: 0xFFF3DE),
+        shellHue: .degrees(-112), shellSaturation: 1
+    )
+    static let cyan = TechnoPalette(
+        screen: Color(hex: 0x122223), recess: Color(hex: 0x0A1314),
+        phosphor: Color(hex: 0x4FD2D6), phosphorText: Color(hex: 0x47BDC0), peak: .white,
+        shellHue: .degrees(36), shellSaturation: 1
+    )
+    static let white = TechnoPalette(
+        screen: Color(hex: 0x1A1D1F), recess: Color(hex: 0x0E1011),
+        phosphor: Color(hex: 0xD5DEE3), phosphorText: Color(hex: 0xB9C3C9), peak: .white,
+        shellHue: .zero, shellSaturation: 0
+    )
+}
+
+extension TechnoPalette {
+    /// The palette a stored `SettingsKeys.technoPhosphor` value names: a preset's
+    /// hand-matched set, a set derived from a `#RRGGBB` colour, or — for anything else —
+    /// the design's green, so the display never draws in a colour nobody chose.
+    init(stored: String) {
+        if let preset = TechnoPhosphor(rawValue: stored) {
+            self = preset.palette
+        } else if let hex = TechnoPhosphor.customHex(stored) {
+            self = TechnoPalette(deriving: hex)
+        } else {
+            self = .green
+        }
+    }
+
+    /// A whole set from one colour, keeping the design's proportions: the design's
+    /// glass is its phosphor's hue at 14% brightness and ~70% of its saturation, the
+    /// recess the same at half that brightness, the text 90% of the dot's brightness.
+    init(deriving hex: UInt32) {
+        let base = NSColor(Color(hex: hex)).usingColorSpace(.sRGB) ?? .white
+        let hue = base.hueComponent
+        let saturation = base.saturationComponent
+        // A dark pick would print dark dots on dark glass; the dots stay lit.
+        let brightness = max(base.brightnessComponent, 0.55)
+        func ink(_ s: CGFloat, _ b: CGFloat) -> Color {
+            Color(hue: Double(hue), saturation: Double(min(max(s, 0), 1)), brightness: Double(b))
+        }
+        let glassSaturation = min(saturation * 0.7, 0.45)
+        self.init(
+            screen: ink(glassSaturation, 0.14),
+            recess: ink(glassSaturation, 0.075),
+            phosphor: ink(saturation, brightness),
+            phosphorText: ink(saturation, brightness * 0.9),
+            peak: .white,
+            // The texture is printed at the design phosphor's hue (146°) and saturation.
+            shellHue: .degrees(Double(hue) * 360 - Self.designHue),
+            shellSaturation: Double(min(saturation / Self.designSaturation, 1))
+        )
+    }
+
+    private static let designHue = 146.0
+    private static let designSaturation: CGFloat = 0.51
+
+    /// How close a colour's hue is to AI mode's violet phosphor. Techno's AI mode
+    /// recolours only the dots, so a display near it would make a plain dictation look
+    /// like an AI one; Settings warns rather than refuses.
+    static func isCloseToAI(_ hex: UInt32) -> Bool {
+        guard let color = NSColor(Color(hex: hex)).usingColorSpace(.sRGB),
+              let ai = NSColor(TechnoSkin.aiPhosphor).usingColorSpace(.sRGB),
+              color.saturationComponent > 0.2 else { return false }
+        let distance = abs(color.hueComponent - ai.hueComponent)
+        return min(distance, 1 - distance) * 360 < 30
+    }
+}
+
+/// The techno display's colour, as stored.
+///
+/// The field's name for it is the *phosphor colour* — green (P1), amber (P3) and white
+/// (P4) are the classic monochrome-monitor phosphors, cyan the vacuum-fluorescent
+/// display's. These are the recommended sets, each matched as a whole (see
+/// `TechnoPalette`); any other colour is stored as `#RRGGBB` and its set derived. None
+/// of them is violet, which is AI mode's phosphor, or red, the error text on the glass.
+enum TechnoPhosphor: String, CaseIterable, Identifiable {
+    case green, amber, cyan, white
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .green: return "Green"
+        case .amber: return "Amber"
+        case .cyan: return "Cyan"
+        case .white: return "White"
+        }
+    }
+
+    var palette: TechnoPalette {
+        switch self {
+        case .green: return .green
+        case .amber: return .amber
+        case .cyan: return .cyan
+        case .white: return .white
+        }
+    }
+
+    /// The colour of a stored `#RRGGBB` value; nil for a preset or anything unreadable.
+    static func customHex(_ stored: String) -> UInt32? {
+        var text = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("#") else { return nil }
+        text.removeFirst()
+        guard text.count == 6 else { return nil }
+        return UInt32(text, radix: 16)
+    }
+}
+
+private struct TechnoPaletteKey: EnvironmentKey {
+    static let defaultValue = TechnoPalette.green
+}
+
+extension EnvironmentValues {
+    /// The display colour the techno parts draw with. Set by each surface's root view
+    /// from `SettingsKeys.technoPhosphor`.
+    var technoPalette: TechnoPalette {
+        get { self[TechnoPaletteKey.self] }
+        set { self[TechnoPaletteKey.self] = newValue }
+    }
 }
 
 // MARK: - SVG path data
@@ -281,9 +434,11 @@ struct LCDScreen<Content: View>: View {
         self.content = content()
     }
 
+    @Environment(\.technoPalette) private var palette
+
     var body: some View {
         LCDScreenShape()
-            .fill(TechnoSkin.screen)
+            .fill(palette.screen)
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .topLeading) {
                 // Color.clear pins the stack to the full glass, so a child's offset is
@@ -312,11 +467,15 @@ struct LCDScreen<Content: View>: View {
 struct ShellBackground: View {
     var cornerRadius: CGFloat = TechnoSkin.shellRadius
 
+    @Environment(\.technoPalette) private var palette
+
     var body: some View {
         Image("PanelBackground")
             .resizable()
             .interpolation(.high)
             .aspectRatio(contentMode: .fill)
+            .hueRotation(palette.shellHue)
+            .saturation(palette.shellSaturation)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -331,14 +490,18 @@ struct ShellBackground: View {
 struct PlasticButton: View {
     let systemImage: String
     var isOn = false
-    var accent: Color = TechnoSkin.phosphor
+    /// The lit colour when on; nil takes the display's phosphor.
+    var accent: Color? = nil
     var isEnabled = true
     var help: String = ""
     let action: () -> Void
 
     static let size: CGFloat = 30
 
+    @Environment(\.technoPalette) private var palette
     @State private var isHovering = false
+
+    private var lit: Color { accent ?? palette.phosphor }
 
     var body: some View {
         Button(action: action) {
@@ -362,11 +525,11 @@ struct PlasticButton: View {
                 }
                 .overlay {
                     if isOn {
-                        Circle().strokeBorder(accent.opacity(0.75), lineWidth: 1)
+                        Circle().strokeBorder(lit.opacity(0.75), lineWidth: 1)
                     }
                 }
                 .shadow(color: .black.opacity(0.6), radius: 2, x: -2, y: 1)
-                .shadow(color: isOn ? accent.opacity(0.35) : .clear, radius: 5)
+                .shadow(color: isOn ? lit.opacity(0.35) : .clear, radius: 5)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -378,7 +541,7 @@ struct PlasticButton: View {
 
     private var foreground: Color {
         guard isEnabled else { return .white.opacity(0.25) }
-        return isOn ? accent : .white.opacity(0.9)
+        return isOn ? lit : .white.opacity(0.9)
     }
 }
 
@@ -389,13 +552,15 @@ struct ButtonRail<Content: View>: View {
     /// Outer width of the rail — the design mills it 3pt wider than the buttons.
     static var width: CGFloat { PlasticButton.size + 6 }
 
+    @Environment(\.technoPalette) private var palette
+
     var body: some View {
         VStack(spacing: 4) {
             content
         }
         .padding(.horizontal, 3)
         .padding(.vertical, 4)
-        .background(Capsule().fill(TechnoSkin.recess))
+        .background(Capsule().fill(palette.recess))
     }
 }
 

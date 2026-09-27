@@ -214,7 +214,9 @@ final class TextInsertionHandler {
 struct LCDTextEditor: NSViewRepresentable {
     @Binding var text: String
     let insertionHandler: TextInsertionHandler
-    var textColor: Color = TechnoSkin.phosphorText
+    var textColor: Color
+    /// The caret and the selection wash; the glass's phosphor.
+    var accent: Color
 
     static let font = NSFont.systemFont(ofSize: 15, weight: .regular)
 
@@ -261,11 +263,7 @@ struct LCDTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.allowsUndo = true
         textView.textColor = NSColor(textColor)
-        textView.insertionPointColor = NSColor(TechnoSkin.phosphor)
-        textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(TechnoSkin.phosphor).withAlphaComponent(0.25),
-            .foregroundColor: NSColor.white,
-        ]
+        applyAccent(to: textView)
         insertionHandler.textView = textView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
@@ -280,6 +278,10 @@ struct LCDTextEditor: NSViewRepresentable {
         if textView.textColor != wanted {
             textView.textColor = wanted
         }
+        // The display colour can change while the window is open.
+        if textView.insertionPointColor != NSColor(accent) {
+            applyAccent(to: textView)
+        }
         if textView.string != text {
             context.coordinator.isUpdating = true
             let range = textView.selectedRange()
@@ -291,6 +293,14 @@ struct LCDTextEditor: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: safeLoc, length: 0))
             context.coordinator.isUpdating = false
         }
+    }
+
+    private func applyAccent(to textView: NSTextView) {
+        textView.insertionPointColor = NSColor(accent)
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor(accent).withAlphaComponent(0.25),
+            .foregroundColor: NSColor.white,
+        ]
     }
 }
 
@@ -335,6 +345,7 @@ struct DirectRecordingPanelView: View {
     @State private var keyboardObserverID: UUID?
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
+    @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
     @AppStorage(SettingsKeys.spokenLanguages) private var spokenLanguages = ""
     @AppStorage(SettingsKeys.aiModeInRecordWindow) private var aiMode = false
 
@@ -358,21 +369,23 @@ struct DirectRecordingPanelView: View {
     private var isBusy: Bool { speechEngine.isTranscribing || isRefining || speechEngine.isStartingEngine }
 
     private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var techno: TechnoPalette { TechnoPalette(stored: technoRaw) }
 
-    /// The transport's colour. Techno is drawn to a fixed design, so it ignores the
-    /// user's accent; AI mode overrides both — it means something.
+    /// The transport's colour. Techno ignores the free accent and lights in its display
+    /// colour; AI mode overrides both — it means something.
     private var accent: Color {
         if aiMode { return skin == .techno ? TechnoSkin.aiPhosphor : Semantic.ai }
-        return skin == .techno ? TechnoSkin.phosphor : AccentColor.transport(accentHex)
+        return skin == .techno ? techno.phosphor : AccentColor.transport(accentHex)
     }
 
     /// The flash after copy / paste / send. Semantic, so it stays put whatever colour
-    /// the rest of the panel is wearing.
+    /// the rest of the panel is wearing — on techno that is the design's green phosphor,
+    /// whichever display colour the user picked.
     private var confirmation: Color {
-        skin == .techno ? TechnoSkin.phosphor : Semantic.confirmation
+        skin == .techno ? TechnoPalette.green.phosphor : Semantic.confirmation
     }
 
-    private var palette: PixelPalette { aiMode ? .ai : .phosphor }
+    private var palette: PixelPalette { aiMode ? .ai : .phosphor(techno) }
 
     private var displayMode: PixelDisplayMode {
         if speechEngine.isRecording { return .level }
@@ -388,6 +401,7 @@ struct DirectRecordingPanelView: View {
             }
         }
         .frame(width: skin.recordPanelSize.width, height: skin.recordPanelSize.height)
+        .environment(\.technoPalette, techno)
         .onAppear {
             refreshLangLabel()
             keyboardObserverID = KeyboardChangeObserver.shared.addHandler { refreshLangLabel() }
@@ -601,13 +615,14 @@ struct DirectRecordingPanelView: View {
             LCDTextEditor(
                 text: $speechEngine.editedText,
                 insertionHandler: insertionHandler,
-                textColor: aiMode ? TechnoSkin.aiText : TechnoSkin.phosphorText
+                textColor: aiMode ? TechnoSkin.aiText : techno.phosphorText,
+                accent: techno.phosphor
             )
 
             // While the first segment is still being spoken there is nothing in the
             // editor yet; showing the partial transcript here is the only feedback
             // that the words are landing.
-            if !hasText, let ghost = ghostView(base: aiMode ? TechnoSkin.aiText : TechnoSkin.phosphorText) {
+            if !hasText, let ghost = ghostView(base: aiMode ? TechnoSkin.aiText : techno.phosphorText) {
                 ghost
                     .font(Font(LCDTextEditor.font))
                     .multilineTextAlignment(.leading)
@@ -676,7 +691,7 @@ struct DirectRecordingPanelView: View {
     private var statusTint: Color {
         if speechEngine.errorMessage != nil || refineFailed { return TechnoSkin.danger }
         if isRefining { return TechnoSkin.aiText }
-        return TechnoSkin.phosphorText.opacity(0.55)
+        return techno.phosphorText.opacity(0.55)
     }
 
     // MARK: - Controls

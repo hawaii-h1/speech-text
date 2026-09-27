@@ -11,7 +11,10 @@ struct PixelPalette {
     let on: Color
     let peak: Color
 
-    static let phosphor = PixelPalette(off: TechnoSkin.pixelOff, on: TechnoSkin.phosphor, peak: TechnoSkin.peak)
+    /// The display in the user's colour.
+    static func phosphor(_ techno: TechnoPalette) -> PixelPalette {
+        PixelPalette(off: TechnoSkin.pixelOff, on: techno.phosphor, peak: techno.peak)
+    }
     /// AI mode: same display, different phosphor.
     static let ai = PixelPalette(off: TechnoSkin.pixelOff, on: TechnoSkin.aiPhosphor, peak: TechnoSkin.aiPeak)
 }
@@ -60,7 +63,7 @@ struct PixelMatrix: View {
     let levels: [CGFloat]
     let rows: Int
     let mode: PixelDisplayMode
-    var palette: PixelPalette = .phosphor
+    let palette: PixelPalette
     /// Sweep position for `.busy`, in columns.
     var sweep: Double = 0
     /// Advances the per-dot texture. Constant within a draw, so a redraw of the same
@@ -159,7 +162,7 @@ struct PixelWaveform: View {
     let columns: Int
     let rows: Int
     let mode: PixelDisplayMode
-    var palette: PixelPalette = .phosphor
+    let palette: PixelPalette
     var cell: CGFloat = TechnoSkin.pixel
     var pitch: CGFloat = TechnoSkin.pixelPitch
 

@@ -87,6 +87,8 @@ enum SettingsKeys {
     static let appSkin = "appSkin"
     /// `#RRGGBB` — only the minimal skin uses it.
     static let accentColor = "accentColor"
+    /// The techno display's colour: a `TechnoPhosphor.rawValue`, or any colour as `#RRGGBB`.
+    static let technoPhosphor = "technoPhosphor"
     /// `DockIconMode.rawValue`: never, while a window is open, or always.
     static let dockIconMode = "dockIconMode"
     /// Where the user dragged the inline overlay: its bottom-left corner as `"x,y"` in
@@ -132,7 +134,7 @@ enum SettingsKeys {
         llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
         openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
-        appSkin, accentColor, dockIconMode,
+        appSkin, accentColor, technoPhosphor, dockIconMode,
         hotkeyLayoutVersion,
     ]
 }
