@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import XCTest
 
 // Whole dictations replayed through `DictationReplay`: what lands in the document, once,
@@ -552,10 +553,10 @@ final class DictationHotkeyGestureTests: XCTestCase {
         XCTAssertEqual(G.action(forPressOf: .ai, in: .recording(ai: true)), .stop)
         XCTAssertEqual(G.action(forPressOf: .ai, in: .recording(ai: false)), .switchTo(ai: true))
         XCTAssertEqual(G.action(forPressOf: .inline, in: .recording(ai: true)), .switchTo(ai: false))
-        XCTAssertEqual(G.action(forPressOf: .inline, in: .starting(ai: false)), .cancel)
+        XCTAssertEqual(G.action(forPressOf: .inline, in: .starting(ai: false)), .cancel(.shortcut))
         XCTAssertEqual(G.action(forPressOf: .ai, in: .starting(ai: false)), .switchTo(ai: true))
-        XCTAssertEqual(G.action(forPressOf: .inline, in: .busy), .cancel)
-        XCTAssertEqual(G.action(forPressOf: .ai, in: .busy), .cancel)
+        XCTAssertEqual(G.action(forPressOf: .inline, in: .busy), .cancel(.shortcut))
+        XCTAssertEqual(G.action(forPressOf: .ai, in: .busy), .cancel(.shortcut))
     }
 
     func testWithoutHoldToTalkAReleaseDoesNothing() {
@@ -578,7 +579,7 @@ final class DictationHotkeyGestureTests: XCTestCase {
         XCTAssertNil(g.owner)
         XCTAssertTrue(g.awaitsSecondTap)
         XCTAssertEqual(g.tapWindowExpired(in: .recording(ai: false), at: 10.2), .ignore, "a timer that fired early")
-        XCTAssertEqual(g.tapWindowExpired(in: .recording(ai: false), at: 10.45), .cancel)
+        XCTAssertEqual(g.tapWindowExpired(in: .recording(ai: false), at: 10.45), .cancel(.tap))
         XCTAssertFalse(g.awaitsSecondTap)
         XCTAssertEqual(g.tapWindowExpired(in: .idle, at: 10.5), .ignore)
     }
@@ -602,14 +603,14 @@ final class DictationHotkeyGestureTests: XCTestCase {
         _ = g.press(.inline, in: .idle, at: 10)
         _ = g.release(.inline, in: .recording(ai: false), at: 10.1)
         // The timer should have cancelled by now; a press that beats it cancels too.
-        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 10.6), .cancel)
+        XCTAssertEqual(g.press(.inline, in: .recording(ai: false), at: 10.6), .cancel(.tap))
     }
 
     func testTheOtherShortcutIsNotTheSecondHalfOfATap() {
         var g = DictationHotkeyGesture(holdToTalk: true)
         _ = g.press(.inline, in: .idle, at: 10)
         _ = g.release(.inline, in: .recording(ai: false), at: 10.1)
-        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 10.2), .cancel)
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 10.2), .cancel(.tap))
         XCTAssertFalse(g.awaitsSecondTap)
     }
 
@@ -667,7 +668,7 @@ final class DictationHotkeyGestureTests: XCTestCase {
     func testAHoldReleasedBeforeTheMicrophoneOpenedCancels() {
         var g = DictationHotkeyGesture(holdToTalk: true)
         _ = g.press(.ai, in: .idle, at: 10)
-        XCTAssertEqual(g.release(.ai, in: .starting(ai: true), at: 11), .cancel)
+        XCTAssertEqual(g.release(.ai, in: .starting(ai: true), at: 11), .cancel(.releasedEarly))
     }
 
     func testAMenuClickLeavesNoOwner() {
@@ -685,6 +686,56 @@ final class DictationHotkeyGestureTests: XCTestCase {
         _ = g.release(.inline, in: .recording(ai: false), at: 12)
         XCTAssertNil(g.owner)
         XCTAssertEqual(g.release(.inline, in: .idle, at: 13), .ignore)
+    }
+
+    // No cancel is silent (#72): each says why, and the notice fits.
+
+    /// The #47 pass: hold Q, press A to switch, let Q go — the owner's release stops the
+    /// dictation — then press Q while the AI rewrites. The table stands (a press in busy
+    /// cancels), but the cancel now carries a reason for its notice.
+    func testAPressDuringTheRewriteCancelsWithAReason() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 20.914)
+        XCTAssertEqual(g.press(.ai, in: .recording(ai: false), at: 23.875), .switchTo(ai: true))
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: true), at: 24.039), .stop)
+        XCTAssertEqual(g.release(.ai, in: .busy, at: 25.505), .ignore)
+        XCTAssertEqual(g.press(.inline, in: .busy, at: 25.938), .cancel(.shortcut))
+    }
+
+    func testAMenuCancelIsTheMenus() {
+        var g = DictationHotkeyGesture()
+        XCTAssertEqual(g.click(.inline, in: .busy), .cancel(.menu))
+        XCTAssertEqual(g.click(.ai, in: .starting(ai: true)), .cancel(.menu))
+        XCTAssertEqual(g.click(.ai, in: .starting(ai: false)), .switchTo(ai: true))
+    }
+
+    func testTheNoticeSaysWhatBecameOfTheDictation() {
+        let reasons: [DictationCancelReason] = [.shortcut, .tap, .releasedEarly, .escape, .closeButton, .menu]
+        for reason in reasons {
+            XCTAssertEqual(reason.notice(savedInHistory: false).title, "Dictation cancelled")
+        }
+        XCTAssertTrue(DictationCancelReason.shortcut.notice(savedInHistory: true).detail.contains("History"))
+        XCTAssertFalse(DictationCancelReason.shortcut.notice(savedInHistory: false).detail.contains("History"))
+        XCTAssertTrue(DictationCancelReason.tap.notice(savedInHistory: false).detail.contains("double-tap"))
+        XCTAssertTrue(DictationCancelReason.releasedEarly.notice(savedInHistory: false).detail.contains("microphone"))
+    }
+
+    /// The status notice's detail is two lines at 11 pt in 272 pt (see
+    /// `RecognitionFailureTests`); past them the explanation is what gets cut.
+    func testEveryCancelNoticeFitsTwoLines() {
+        func laidOutHeight(_ text: String) -> CGFloat {
+            NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 11)])
+                .boundingRect(with: NSSize(width: 272, height: CGFloat.greatestFiniteMagnitude),
+                              options: .usesLineFragmentOrigin).height
+        }
+        let twoLines = laidOutHeight("Ag\nAg")
+        let reasons: [DictationCancelReason] = [.shortcut, .tap, .releasedEarly, .escape, .closeButton, .menu]
+        for reason in reasons {
+            for saved in [false, true] {
+                let detail = reason.notice(savedInHistory: saved).detail
+                XCTAssertLessThanOrEqual(laidOutHeight(detail), twoLines, detail)
+            }
+        }
     }
 }
 

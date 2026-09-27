@@ -19,12 +19,46 @@ enum DictationHotkeyAction: Equatable {
     /// what happens to it at the stop changes.
     case switchTo(ai: Bool)
     case stop
-    case cancel
+    case cancel(DictationCancelReason)
     /// A double tap with hold-to-talk on: the dictation carries on with no key held, and
     /// a later press stops it as the table says. Nothing to perform — it is the cancel
     /// that does not happen.
     case lock
     case ignore
+}
+
+/// Why a dictation was cancelled — what the notice says. No cancel is silent (#72): a
+/// press that lands on the rewrite a moment after the stop throws the dictation away, and
+/// with nothing on screen the user could not tell a cancel from a paste that failed.
+enum DictationCancelReason: Equatable {
+    /// A dictation shortcut pressed while the microphone was opening, or while the
+    /// recording was being transcribed or rewritten.
+    case shortcut
+    /// Hold to talk: a lone tap, or a tap followed by the other shortcut.
+    case tap
+    /// Hold to talk: the shortcut let go before the microphone opened.
+    case releasedEarly
+    case escape
+    /// The overlay's ✕.
+    case closeButton
+    /// The menu's recording item.
+    case menu
+
+    /// The notice's title and detail. `savedInHistory`: the dictation was already
+    /// transcribed, and History holds it — so a cancel during the AI rewrite loses
+    /// nothing the user cannot get back. The detail fits the notice's two lines.
+    func notice(savedInHistory: Bool) -> (title: String, detail: String) {
+        switch self {
+        case .tap:
+            return ("Dictation cancelled", "A quick tap cancels. Hold the shortcut while you speak, or double-tap to record hands-free.")
+        case .releasedEarly:
+            return ("Dictation cancelled", "The shortcut was let go before the microphone opened. Hold it until the overlay listens.")
+        case .shortcut, .escape, .closeButton, .menu:
+            return ("Dictation cancelled", savedInHistory
+                    ? "Nothing was pasted. The dictation is saved in History."
+                    : "Nothing was pasted.")
+        }
+    }
 }
 
 /// Turns presses and releases of the two dictation shortcuts into actions.
@@ -92,11 +126,11 @@ struct DictationHotkeyGesture {
         case .idle:
             return .start(ai: key.isAI)
         case .starting(let ai):
-            return key.isAI == ai ? .cancel : .switchTo(ai: key.isAI)
+            return key.isAI == ai ? .cancel(.shortcut) : .switchTo(ai: key.isAI)
         case .recording(let ai):
             return key.isAI == ai ? .stop : .switchTo(ai: key.isAI)
         case .busy:
-            return .cancel
+            return .cancel(.shortcut)
         }
     }
 
@@ -106,7 +140,7 @@ struct DictationHotkeyGesture {
             switch phase {
             case .starting, .recording:
                 let isSecondTap = key == tap.key && time - tap.releasedAt <= Self.doubleTapWindow
-                return isSecondTap ? .lock : .cancel
+                return isSecondTap ? .lock : .cancel(.tap)
             case .idle, .busy:
                 break
             }
@@ -136,7 +170,8 @@ struct DictationHotkeyGesture {
     /// A menu item: the press table with no key behind it, so no release will follow. A
     /// dictation it starts or ends has no owner.
     mutating func click(_ key: DictationHotkey, in phase: Phase) -> DictationHotkeyAction {
-        let action = Self.action(forPressOf: key, in: phase)
+        var action = Self.action(forPressOf: key, in: phase)
+        if case .cancel = action { action = .cancel(.menu) }
         if case .switchTo = action {} else {
             owner = nil
             tapped = nil
@@ -155,7 +190,7 @@ struct DictationHotkeyGesture {
             }
             // A hold let go before the microphone opened has recorded nothing.
             if case .recording = phase { return .stop }
-            return .cancel
+            return .cancel(.releasedEarly)
         case .idle, .busy:
             return .ignore
         }
@@ -167,7 +202,7 @@ struct DictationHotkeyGesture {
         guard let tap = tapped, time - tap.releasedAt >= Self.doubleTapWindow * 0.9 else { return .ignore }
         tapped = nil
         switch phase {
-        case .starting, .recording: return .cancel
+        case .starting, .recording: return .cancel(.tap)
         case .idle, .busy: return .ignore
         }
     }

@@ -84,7 +84,7 @@ func registerSpellCheckedJoins() {
 
 // MARK: - AppDelegate with NSStatusItem
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let appState = AppState()
     private var settingsWindow: SettingsWindow?
@@ -301,8 +301,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private static let recordingItemTag = 1
+    private static let aiItemTag = 2
+
+    /// The two recording items say what a click does now. Retitled each time the menu
+    /// opens, too: the phase moves on by itself (a rewrite finishing), and a menu built
+    /// while it was busy would otherwise offer to cancel a dictation that is over.
+    private func updateRecordingItemTitles(in menu: NSMenu) {
+        let shortcut = currentShortcutDisplayString()
+        let aiShortcut = currentAIShortcutDisplayString()
+        let (title, aiTitle): (String, String)
+        switch appState.dictationPhase {
+        case .idle:
+            (title, aiTitle) = ("Start Recording (\(shortcut))", "AI Recording (\(aiShortcut))")
+        case .busy:
+            // Transcribing or rewriting: either item cancels.
+            (title, aiTitle) = ("Cancel Dictation (\(shortcut))", "Cancel Dictation (\(aiShortcut))")
+        case .starting(let ai), .recording(let ai):
+            // During a dictation, the other mode's item switches it over rather than stopping it.
+            let own = appState.speechEngine.isRecording ? "Stop" : "Cancel"
+            (title, aiTitle) = ai
+                ? ("Switch to Plain Text (\(shortcut))", "\(own) AI Recording (\(aiShortcut))")
+                : ("\(own) Recording (\(shortcut))", "Switch to AI (\(aiShortcut))")
+        }
+        menu.item(withTag: Self.recordingItemTag)?.title = title
+        menu.item(withTag: Self.aiItemTag)?.title = aiTitle
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        updateRecordingItemTitles(in: menu)
+    }
+
     private func rebuildMenu() {
         let menu = NSMenu()
+        menu.delegate = self
 
         // Which build is this? The app has no window and no About box, so the menu
         // is the only place the answer can live — and after a rebuild it is the
@@ -315,22 +347,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let shortcut = currentShortcutDisplayString()
-        // During a dictation, the other mode's item switches it over rather than stopping it.
-        let title = !appState.speechEngine.isRecording ? "Start Recording (\(shortcut))"
-            : appState.isAIMode ? "Switch to Plain Text (\(shortcut))"
-            : "Stop Recording (\(shortcut))"
-        let recordingItem = NSMenuItem(title: title, action: #selector(toggleRecording), keyEquivalent: "")
+        let recordingItem = NSMenuItem(title: "", action: #selector(toggleRecording), keyEquivalent: "")
         recordingItem.target = self
+        recordingItem.tag = Self.recordingItemTag
         menu.addItem(recordingItem)
 
-        let aiShortcut = currentAIShortcutDisplayString()
-        let aiTitle = !appState.speechEngine.isRecording ? "AI Recording (\(aiShortcut))"
-            : appState.isAIMode ? "Stop AI Recording (\(aiShortcut))"
-            : "Switch to AI (\(aiShortcut))"
-        let aiItem = NSMenuItem(title: aiTitle, action: #selector(toggleAIRecording), keyEquivalent: "")
+        let aiItem = NSMenuItem(title: "", action: #selector(toggleAIRecording), keyEquivalent: "")
         aiItem.target = self
+        aiItem.tag = Self.aiItemTag
         menu.addItem(aiItem)
+        updateRecordingItemTitles(in: menu)
 
         let editItem = NSMenuItem(title: "Edit Selection with AI (\(currentEditShortcutDisplayString()))",
                                   action: #selector(toggleEdit), keyEquivalent: "")
@@ -556,7 +582,7 @@ final class AppState {
     private var hotkeyGesture = DictationHotkeyGesture()
 
     /// Where the inline flow is, in the terms the shortcuts care about.
-    private var dictationPhase: DictationHotkeyGesture.Phase {
+    var dictationPhase: DictationHotkeyGesture.Phase {
         if speechEngine.isTranscribing || isRefining { return .busy }
         if speechEngine.isStartingEngine { return .starting(ai: isAIMode) }
         if speechEngine.isRecording { return .recording(ai: isAIMode) }
@@ -645,11 +671,10 @@ final class AppState {
             if speechEngine.isRecording {
                 stopRecording()
             } else {
-                cancelInlineFlow()
+                cancelInlineFlow(.shortcut)
             }
-        case .cancel:
-            dlog("App", "cancelling mid-flight")
-            cancelInlineFlow()
+        case .cancel(let reason):
+            cancelInlineFlow(reason)
         case .lock:
             dlog("App", "double tap — the dictation stays on hands-free")
             dictationTapTimer?.cancel()
@@ -668,8 +693,12 @@ final class AppState {
         DictationTraceRecorder.record(.modeSwitch, text: toAI ? "ai" : "inline")
     }
 
-    /// Aborts recording, transcription and any in-flight LLM call, and drops the overlay.
-    func cancelInlineFlow() {
+    /// Aborts recording, transcription and any in-flight LLM call, drops the overlay, and
+    /// says so: no cancel is silent (#72).
+    func cancelInlineFlow(_ reason: DictationCancelReason) {
+        // Written at the stop, before the LLM: a cancel during the rewrite leaves it there.
+        let savedInHistory = isRefining && speechEngine.lastRecordID != nil
+        dlog("App", "cancelling mid-flight (\(reason)\(savedInHistory ? ", the transcript stays in History" : ""))")
         transcriptionWaitTask?.cancel()
         transcriptionWaitTask = nil
         refinementTask?.cancel()
@@ -679,6 +708,9 @@ final class AppState {
         DictationTraceRecorder.current = nil
         speechEngine.cancelRecording()
         hideOverlay()
+        let notice = reason.notice(savedInHistory: savedInHistory)
+        showStatus(icon: "xmark.circle", title: notice.title, detail: notice.detail, tint: .secondary,
+                   duration: savedInHistory ? 5 : 3)
     }
 
     private func startRecording() {
@@ -1525,18 +1557,9 @@ final class AppState {
                 self?.cancelEdit()
                 return
             }
-            self?.transcriptionWaitTask?.cancel()
-            self?.transcriptionWaitTask = nil
-            self?.refinementTask?.cancel()
-            self?.refinementTask = nil
-            self?.isRefining = false
-            self?.speechEngine.cancelRecording()
-            // Close this specific panel regardless of what overlayPanel points to
+            self?.cancelInlineFlow(.closeButton)
+            // A stale panel, one `overlayPanel` no longer points to, is closed too.
             panel?.close()
-            if self?.overlayPanel === panel {
-                self?.overlayPanel = nil
-            }
-            self?.updateEscapeShortcut()
         }))
         panel.orderFrontRegardless()
         overlayPanel = panel
@@ -1555,7 +1578,7 @@ final class AppState {
         if isEditMode {
             cancelEdit()
         } else {
-            cancelInlineFlow()
+            cancelInlineFlow(.escape)
         }
     }
 
