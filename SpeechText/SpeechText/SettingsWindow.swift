@@ -112,7 +112,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .speech: "Turns what you say into text. Runs for every dictation."
         case .formatting: "Small fixes made to every transcript before it is pasted."
         case .ai: "Optional. Turns what you dictate into an email, a list, a translation — for the AI Recording shortcut and the ✨ toggle in the Record Window. What you say is the prompt: the model picks the matching preset and rewrites the text."
-        case .apiKeys: "Only the keys your current choices use are shown."
+        case .apiKeys: "The keys your current choices use come first. Each key is tagged with what it can do: Speech, AI Rewrite, or both."
         case .permissions: "What macOS lets SpeechText do."
         }
     }
@@ -317,11 +317,57 @@ struct SettingsStatus: View {
     }
 }
 
+/// What a key can be used for, named after the settings page that makes the choice.
+enum SettingsKeyRole: CaseIterable {
+    case speech, aiRewrite
+
+    var category: SettingsCategory {
+        switch self {
+        case .speech: .speech
+        case .aiRewrite: .ai
+        }
+    }
+
+    var tint: SetupTint {
+        switch self {
+        case .speech: .green
+        case .aiRewrite: .violet
+        }
+    }
+}
+
+/// One of a key's roles: tinted when the current choices use the key for it, grey when
+/// the key could serve it but nothing selected does.
+struct SettingsKeyRoleTag: View {
+    let role: SettingsKeyRole
+    let active: Bool
+
+    var body: some View {
+        let accent = role.tint.accent
+        HStack(spacing: 3) {
+            Image(systemName: role.category.symbol).font(.system(size: 9, weight: .semibold))
+            Text(role.category.title).font(.system(size: 10.5, weight: .semibold))
+        }
+        .foregroundStyle(active ? accent : SetupColor.label2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1.5)
+        .background(Capsule().fill(active ? accent.opacity(0.12) : .clear))
+        .overlay(Capsule().strokeBorder(active ? .clear : SetupColor.panelBorder, lineWidth: 1))
+        .fixedSize()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(active ? "Used for \(role.category.title)" : "Can be used for \(role.category.title)")
+    }
+}
+
 /// An API key: which account it belongs to, where to get one, and the field — drawn like
 /// the setup window's key field, with the value hidden.
 struct SettingsKeyField: View {
     let service: SetupService
     @Binding var value: String
+    /// Everything the key can be used for, in pipeline order.
+    var roles: [SettingsKeyRole] = []
+    /// The roles the current choices use it for.
+    var activeRoles: Set<SettingsKeyRole> = []
     var uses: String?
     /// The current choices use this key: its row says whether it is filled in.
     var inUse = false
@@ -335,6 +381,9 @@ struct SettingsKeyField: View {
                 Text(service.account)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(inUse ? SetupColor.label : SetupColor.label2)
+                ForEach(roles, id: \.self) { role in
+                    SettingsKeyRoleTag(role: role, active: activeRoles.contains(role))
+                }
                 if inUse {
                     SettingsStatus(text: hasValue ? "Added" : "Needed", ok: hasValue)
                 }

@@ -60,23 +60,6 @@ struct SettingsView: View {
         LLMProviderType(rawValue: llmProvider) ?? .groq
     }
 
-    /// The Groq key is one credential serving two independent steps.
-    private var groqKeyUses: [String] {
-        var uses: [String] = []
-        if stt == .groq { uses.append("speech recognition") }
-        if llm == .groq { uses.append("AI text generation") }
-        return uses
-    }
-
-    /// OpenAI, like Groq, is one key with two possible consumers — the speech engine
-    /// and the rewrite pass — so the row names whichever are actually selected.
-    private var openAIKeyUses: [String] {
-        var uses: [String] = []
-        if stt == .openai { uses.append("speech recognition") }
-        if llm == .openai { uses.append("AI text generation") }
-        return uses
-    }
-
     /// The AI page is violet inside the card, as the setup window's AI step is; the
     /// frame's glow stays green.
     private var tint: SetupTint { category == .ai ? .violet : .green }
@@ -442,8 +425,8 @@ struct SettingsView: View {
     @ViewBuilder
     private var apiKeysPage: some View {
         let keys = apiKeys
-        let inUse = keys.filter { $0.uses != nil }
-        let others = keys.filter { $0.uses == nil }
+        let inUse = keys.filter { !$0.active.isEmpty }
+        let others = keys.filter { $0.active.isEmpty }
         SettingsGroup(title: "In use") {
             if inUse.isEmpty {
                 SettingsRow(title: "Nothing to enter", detail: "Everything you've selected runs on this Mac.")
@@ -467,31 +450,39 @@ struct SettingsView: View {
     private struct APIKey {
         let service: SetupService
         let value: Binding<String>
-        /// What the current choices use it for; nil when nothing does.
-        let uses: String?
-        /// What it would be used for, shown while nothing uses it.
-        let offers: String
+        /// Everything the key can be used for.
+        let roles: [SettingsKeyRole]
+        /// The roles the current choices use it for; empty when nothing does.
+        let active: Set<SettingsKeyRole>
+
+        /// The tags say what the key does; a caption is left for the one case they
+        /// don't spell out — a single key serving both steps at once.
+        var uses: String? {
+            active.count > 1 ? "One key, used for both." : nil
+        }
 
         func field(inUse: Bool) -> SettingsKeyField {
-            SettingsKeyField(service: service, value: value, uses: uses ?? offers, inUse: inUse)
+            SettingsKeyField(service: service, value: value, roles: roles, activeRoles: active,
+                             uses: uses, inUse: inUse)
         }
     }
 
     private var apiKeys: [APIKey] {
-        func sharedUses(_ uses: [String]) -> String? {
-            uses.isEmpty ? nil : "One key, used for \(uses.joined(separator: " and "))."
+        func active(speech: Bool, ai: Bool) -> Set<SettingsKeyRole> {
+            var roles: Set<SettingsKeyRole> = []
+            if speech { roles.insert(.speech) }
+            if ai { roles.insert(.aiRewrite) }
+            return roles
         }
         return [
-            APIKey(service: .groq, value: $groqAPIKey, uses: sharedUses(groqKeyUses),
-                   offers: "For Groq's speech recognition and AI text generation."),
-            APIKey(service: .elevenLabs, value: $elevenLabsAPIKey,
-                   uses: stt == .elevenlabs ? "Used for speech recognition." : nil,
-                   offers: "For ElevenLabs Scribe speech recognition."),
-            APIKey(service: .openAI, value: $openAIAPIKey, uses: sharedUses(openAIKeyUses),
-                   offers: "For OpenAI's speech recognition and AI text generation."),
-            APIKey(service: .anthropic, value: $anthropicAPIKey,
-                   uses: llm == .anthropic ? "Used for AI text generation." : nil,
-                   offers: "For Claude AI text generation."),
+            APIKey(service: .groq, value: $groqAPIKey, roles: [.speech, .aiRewrite],
+                   active: active(speech: stt == .groq, ai: llm == .groq)),
+            APIKey(service: .elevenLabs, value: $elevenLabsAPIKey, roles: [.speech],
+                   active: active(speech: stt == .elevenlabs, ai: false)),
+            APIKey(service: .openAI, value: $openAIAPIKey, roles: [.speech, .aiRewrite],
+                   active: active(speech: stt == .openai, ai: llm == .openai)),
+            APIKey(service: .anthropic, value: $anthropicAPIKey, roles: [.aiRewrite],
+                   active: active(speech: false, ai: llm == .anthropic)),
         ]
     }
 
