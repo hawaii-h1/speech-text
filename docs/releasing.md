@@ -92,9 +92,10 @@ Apple ID and the team ID.
 SpeechText updates itself with [Sparkle](https://sparkle-project.org): the app reads an
 **appcast** — an XML feed published as an asset of each release — and installs what it
 finds there. What makes that download trustworthy is not Apple's certificate but an
-**EdDSA key pair of our own**, and the two are deliberately independent: the Apple team
-ID may change (converting the account to an organization would do it), and an update
-signed with the same EdDSA key still installs.
+**EdDSA key pair of our own**, and the two are deliberately independent: if the app is
+ever signed by a different Apple team (a transfer to another account — converting this
+one to an organization keeps its team ID, see above), an update signed with the same
+EdDSA key still installs.
 
 Generate it once, on the maintainer's Mac. The private half stays in that Mac's Keychain:
 
@@ -154,7 +155,7 @@ gh secret set NOTARY_TEAM_ID
 
 1. Write what changed under `## [Unreleased]` in `CHANGELOG.md` as the work lands —
    that section becomes the release notes.
-2. `.claude/skills/rebuild/scripts/rebuild.sh --tag X.Y.Z` sets the version, dates the
+2. `scripts/rebuild.sh --tag X.Y.Z` sets the version, dates the
    CHANGELOG section, commits and tags `vX.Y.Z`. Nothing is pushed.
 3. `git push && git push origin vX.Y.Z`.
 4. The **Release** workflow checks the tag against the project version, signs,
@@ -165,13 +166,109 @@ gh secret set NOTARY_TEAM_ID
    window (the app, the arrow, Applications), and on first launch from Applications open
    the setup window — not permission alerts. Opened straight from the image instead, it should offer to move
    itself to Applications. The rows are in docs/manual-testing.md › Встановлення з DMG.
-   Then publish the draft.
+   Check the image and the installed app with the commands in
+   [Checking a signed build](#checking-a-signed-build). Then publish the draft.
 6. Check that the release it replaces can reach it: on a Mac running the *previous*
    version, SpeechText › Check for Updates… should offer this one, and installing it
-   should leave the app running the new version with its permissions intact.
+   should leave the app running the new version with its permissions intact. The real
+   feed answers only once the draft is published on a public repository; before that,
+   run the same check against a [test feed](#checking-an-update-before-publishing).
 
 A tag pushed before the secrets exist fails the workflow instead of releasing an
 unsigned image.
+
+## A signed build without a tag
+
+The Release workflow can also be started by hand, which signs and notarizes a build of
+any branch without cutting a release:
+
+```bash
+gh workflow run release.yml --ref main
+gh run watch                                   # pick the run
+gh run download <run-id> --dir build/ci        # SpeechText-<sha>/: the .dmg, .sha256, build.log
+```
+
+It runs on the self-hosted Mac with the repository secrets, exactly as a tag does, up to
+and including the image. What a tag adds is skipped: the version check, the release
+notes, the appcast and the draft release. The image is kept as the run's artifact for
+14 days. This is the way to try the pipeline, or to get a newer notarized build for an
+[update test](#checking-an-update-before-publishing), without a tag that would then have
+to be deleted.
+
+One difference to watch: the guard that refuses to release unsigned applies to tags
+only. A manual run with no certificate in the secrets builds and uploads
+`SpeechText-X.Y.Z-unsigned.dmg` and succeeds, so read the file name before trusting it.
+
+## Checking a signed build
+
+`scripts/package-release.sh` runs these at the end; to check an image yourself (one from
+a draft release or a manual run), or the app it installed:
+
+```bash
+xcrun stapler validate SpeechText-X.Y.Z.dmg
+spctl --assess --type open --context context:primary-signature -vv SpeechText-X.Y.Z.dmg
+spctl --assess --type execute -vv /Applications/SpeechText.app
+```
+
+Both `spctl` lines should say `accepted`, `source=Notarized Developer ID` and the
+certificate's `origin=`. The flags matter: a bare `spctl -a` assesses as `--type
+execute`, which only fits an app bundle, so on a `.dmg` it always answers `rejected (the
+code is valid but does not seem to be an app)` — even for an image that is correctly
+notarized. The image needs `--type open --context context:primary-signature`.
+
+An app installed by `scripts/rebuild.sh` answers `source=Unnotarized Developer ID`. That
+is expected: the script signs with the Developer ID certificate when the keychain has
+one, but never sends anything to Apple. It says nothing about the release pipeline; only
+a copy installed from a release image should read `Notarized`.
+
+## Checking an update before publishing
+
+While the repository is private, or before the draft is published, the real feed
+(`…/releases/latest/download/appcast.xml`) answers 404, so an installed copy cannot see
+the new version there. Sparkle reads `SUFeedURL` from the app's defaults before its
+`Info.plist`, which lets one installed copy be pointed at a feed served from this Mac.
+This is how the update from 0.9.0 to the build after it was checked on 2026-09-24.
+
+1. Install the *older* notarized build from its image (not with `rebuild.sh`).
+2. Put the *newer* notarized image — from a [manual run](#a-signed-build-without-a-tag)
+   — alone in a folder, and write a feed for it, signed with the Sparkle key in this
+   Mac's Keychain:
+
+   ```bash
+   scripts/make-appcast.sh --fetch-tools
+   mkdir -p /tmp/feed && cp build/ci/SpeechText-*/SpeechText-*.dmg /tmp/feed/
+   build/tools/sparkle-2.10.0/bin/generate_appcast --download-url-prefix http://localhost:8000/ /tmp/feed
+   ```
+
+   `generate_appcast` directly, not `make-appcast.sh`: the script writes the GitHub
+   release URLs into the feed. Check that the feed's `sparkle:version` is higher than the
+   installed build and that the item has a `sparkle:edSignature`.
+3. Serve the folder, on this Mac only:
+
+   ```bash
+   cd /tmp/feed && python3 -m http.server --bind 127.0.0.1 8000
+   ```
+
+4. Point the installed copy at it, then quit SpeechText and open it again — Sparkle reads
+   the setting at launch:
+
+   ```bash
+   defaults write com.speechtext.app SUFeedURL http://localhost:8000/appcast.xml
+   ```
+
+5. SpeechText › Check for Updates… should offer the new build; Install and Relaunch
+   should leave `/Applications/SpeechText.app` running it, still `Notarized Developer ID`,
+   with its permissions intact. The server's log shows the feed and the image being
+   fetched.
+6. **Always** remove the setting afterwards. Otherwise that copy keeps reading the test
+   feed for good and never sees a real release:
+
+   ```bash
+   defaults delete com.speechtext.app SUFeedURL
+   ```
+
+docs/manual-testing.md › Оновлення uses the same override for the update window's own
+cases (an unreachable feed, a fake newer version).
 
 ## How an installed copy learns about a new version
 
@@ -207,7 +304,8 @@ all: it builds `SpeechText-X.Y.Z-unsigned.dmg`, signed ad-hoc and labelled as no
 distribution — and it only exercises the packaging: the app in it does not start,
 because an ad-hoc signature has no team and the hardened runtime then refuses the
 Sparkle framework (docs/rebuild.md explains; `scripts/rebuild.sh` is how to run a local
-build). `--from-app PATH` packages an app that is already built.
+build). `--from-app PATH` packages an app that is already built. [Checking a signed
+build](#checking-a-signed-build) has the commands that verify the result.
 
 ## The disk image window
 

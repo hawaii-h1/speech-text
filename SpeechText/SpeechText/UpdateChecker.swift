@@ -14,8 +14,8 @@ import Sparkle
 /// the newest version there, and (after the user agrees) downloads the disk image,
 /// replaces the app and restarts it. Every update is signed with an EdDSA key that is
 /// ours alone, separate from the Apple certificate: that is what makes the download
-/// trustworthy even if the Developer ID team changes, which is exactly what converting
-/// the Apple account to an organization would do.
+/// trustworthy even if the Developer ID team changes — a transfer to another account
+/// would do it, though converting this one to an organization keeps its team ID.
 ///
 /// Both halves of that setup live in `Info.plist` — `SUFeedURL` and `SUPublicEDKey` —
 /// and `docs/releasing.md` says where the key comes from.
