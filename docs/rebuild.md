@@ -213,8 +213,17 @@ changed; try it with `⌃⇧Q` (inline), `⌃⇧A` (AI) or `⌃⇧W` (record win
   › Accessibility. It cannot be fixed from code.
 - **Settings look wrong, or a picker is blank.** Provider and model choices live in
   UserDefaults under `com.speechtext.app` and survive reinstalls, so a stale stored
-  value can outlive the code that understood it. `defaults read com.speechtext.app`
-  shows the state. `defaults delete com.speechtext.app` resets everything **including
-  your API keys**.
+  value can outlive the code that understood it. Read the choices one by one:
+
+  ```sh
+  for k in sttProvider groqModel elevenLabsModel openAISTTModel localSTTModel \
+           llmProvider groqLLMModel anthropicModel openAIModel ollamaModel; do
+    printf '%s = %s\n' "$k" "$(defaults read com.speechtext.app "$k" 2>/dev/null || echo '(unset)')"
+  done
+  ```
+
+  Not a bare `defaults read com.speechtext.app`: that prints every API key in clear
+  text, and its output tends to end up pasted into an issue. `defaults delete
+  com.speechtext.app` resets everything **including your API keys**.
 - **Old behaviour persists after a successful launch.** Check `--status`. A second
   copy under a legacy name may still be running and answering the hotkey first.

@@ -22,7 +22,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 ## Done
 
-Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; chunked transcription with text delivered while you speak; local speech and chat models with a hardware-based recommendation; first-run setup.
+Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup.
 
 ## Not planned
 
