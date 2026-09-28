@@ -11,7 +11,7 @@ import Carbon.HIToolbox
 // app is an LSUIElement agent that prompts for microphone access at launch, and hosting
 // tests inside it would hang a headless run. Everything exercised here must therefore
 // be constructible without UserDefaults: the user's real API keys live in the
-// com.speechtext.app domain and the tests never read or write it.
+// app.speech-text.SpeechText domain and the tests never read or write it.
 
 // MARK: - Multipart helpers (STTProvider.swift)
 

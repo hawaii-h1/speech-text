@@ -212,18 +212,18 @@ changed; try it with `⌃⇧Q` (inline), `⌃⇧A` (AI) or `⌃⇧W` (record win
   fix. Otherwise toggle SpeechText off and on in System Settings › Privacy & Security
   › Accessibility. It cannot be fixed from code.
 - **Settings look wrong, or a picker is blank.** Provider and model choices live in
-  UserDefaults under `com.speechtext.app` and survive reinstalls, so a stale stored
+  UserDefaults under `app.speech-text.SpeechText` and survive reinstalls, so a stale stored
   value can outlive the code that understood it. Read the choices one by one:
 
   ```sh
   for k in sttProvider groqModel elevenLabsModel openAISTTModel localSTTModel \
            llmProvider groqLLMModel anthropicModel openAIModel ollamaModel; do
-    printf '%s = %s\n' "$k" "$(defaults read com.speechtext.app "$k" 2>/dev/null || echo '(unset)')"
+    printf '%s = %s\n' "$k" "$(defaults read app.speech-text.SpeechText "$k" 2>/dev/null || echo '(unset)')"
   done
   ```
 
-  Not a bare `defaults read com.speechtext.app`: that prints every API key in clear
+  Not a bare `defaults read app.speech-text.SpeechText`: that prints every API key in clear
   text, and its output tends to end up pasted into an issue. `defaults delete
-  com.speechtext.app` resets everything **including your API keys**.
+  app.speech-text.SpeechText` resets everything **including your API keys**.
 - **Old behaviour persists after a successful launch.** Check `--status`. A second
   copy under a legacy name may still be running and answering the hotkey first.

@@ -19,7 +19,7 @@
 set -uo pipefail
 
 APP_NAME="SpeechText"
-BUNDLE_ID="com.speechtext.app"
+BUNDLE_ID="app.speech-text.SpeechText"
 # Every name this app has shipped under. Each is a separate bundle identifier with
 # its own hotkey registration, so all of them have to be off the field.
 LEGACY_NAMES=("SpeachText" "VoicePeter")

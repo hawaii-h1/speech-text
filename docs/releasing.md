@@ -19,7 +19,9 @@ macOS keys the Accessibility, microphone and speech-recognition grants to the co
 signature's designated requirement, which includes the team ID. Moving to a different
 team later re-asks every user for all of them — the same cost each rename of this app
 has had. Pick the team that should own SpeechText for the long run before the first
-image reaches anyone.
+image reaches anyone. The bundle identifier is in the same requirement, which is why it
+became `app.speech-text.SpeechText` (the project's domain, reversed) before the first
+release rather than after it.
 
 The team's name is what users see in the installer's and System Settings' "developer"
 line, and the account holder is the one Apple holds responsible for what is signed.
@@ -253,7 +255,7 @@ This is how the update from 0.9.0 to the build after it was checked on 2026-09-2
    the setting at launch:
 
    ```bash
-   defaults write com.speechtext.app SUFeedURL http://localhost:8000/appcast.xml
+   defaults write app.speech-text.SpeechText SUFeedURL http://localhost:8000/appcast.xml
    ```
 
 5. SpeechText › Check for Updates… should offer the new build; Install and Relaunch
@@ -264,7 +266,7 @@ This is how the update from 0.9.0 to the build after it was checked on 2026-09-2
    feed for good and never sees a real release:
 
    ```bash
-   defaults delete com.speechtext.app SUFeedURL
+   defaults delete app.speech-text.SpeechText SUFeedURL
    ```
 
 docs/manual-testing.md › Оновлення uses the same override for the update window's own

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **SpeechText has a new bundle identifier**, `app.speech-text.SpeechText`, taken from the project's own domain. macOS asks once more for the microphone, speech recognition and Accessibility; your settings, API keys, shortcuts, presets, History and downloaded models carry over. The old grants can be cleared with `tccutil reset All com.speechtext.app`.
 - **No cancel is silent.** Every cancelled dictation or edit now says so, and why. A dictation cancelled while the AI was rewriting it says it is saved in History. While a dictation is being transcribed or rewritten, the menu's recording items read *Cancel Dictation*.
 - **Edit with AI works on what is selected when you finish the instruction**, not what was selected when you started. If you select other text while speaking, that is the text that gets edited.
 - Clearer messages when a selection edit can no longer find the text it was asked to change.

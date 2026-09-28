@@ -137,7 +137,7 @@ If it finds any others, that is a new gap.
 `.github/workflows/ci.yml` runs on every pull request. **On a public repository
 no job may run on the organisation's self-hosted Mac.** A pull request is code,
 and anyone can open one; building and running it on someone's own Mac would hand
-a stranger that machine's keychain, SSH keys and the app's `com.speechtext.app`
+a stranger that machine's keychain, SSH keys and the app's `app.speech-text.SpeechText`
 defaults domain, which is where the API keys live.
 
 So every `runs-on` is keyed on the repository's visibility, and the flip is what

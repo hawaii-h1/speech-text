@@ -147,10 +147,12 @@ enum SettingsKeys {
 /// Preference domains this app has run under before, newest first.
 ///
 /// `com.voicepeter.app` is the original name; `com.speachtext.app` is the rename that
-/// shipped the typo the product name no longer has. Newest first matters: a machine
-/// that saw both should take the *later* value, and the loop below never overwrites a
-/// key it has already adopted.
-private let preRenameDefaultsDomains = ["com.speachtext.app", "com.voicepeter.app"]
+/// shipped the typo the product name no longer has; `com.speechtext.app` fixed the typo
+/// but named a domain the project does not own, and gave way to `app.speech-text.SpeechText`
+/// (the speech-text.app domain, reversed) before the first public release. Newest first
+/// matters: a machine that saw several should take the *latest* value, and the loop below
+/// never overwrites a key it has already adopted.
+private let preRenameDefaultsDomains = ["com.speechtext.app", "com.speachtext.app", "com.voicepeter.app"]
 
 /// Preferences are keyed by bundle identifier, so each rename leaves every setting —
 /// API keys, shortcuts and prompt presets included — reading as empty, which looks

@@ -84,7 +84,7 @@ final class TranscriptionHistory {
     /// Archived audio is only useful for a retry; expire it so the disk doesn't grow forever.
     private let audioRetention: TimeInterval = 7 * 24 * 60 * 60
 
-    private let ioQueue = DispatchQueue(label: "com.speechtext.history.io")
+    private let ioQueue = DispatchQueue(label: "app.speech-text.SpeechText.history.io")
     /// The write scheduled by the last mutation, or nil when nothing is pending.
     /// Main-thread-only, like `records`.
     @ObservationIgnored private var pendingSave: DispatchWorkItem?
