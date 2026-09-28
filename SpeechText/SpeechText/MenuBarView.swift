@@ -13,9 +13,7 @@ struct SettingsView: View {
     @State private var category: SettingsCategory = .general
 
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
-    @AppStorage(SettingsKeys.groqAPIKey) private var groqAPIKey = ""
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
-    @AppStorage(SettingsKeys.elevenLabsAPIKey) private var elevenLabsAPIKey = ""
     @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
     @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
@@ -24,11 +22,22 @@ struct SettingsView: View {
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
-    @AppStorage(SettingsKeys.anthropicAPIKey) private var anthropicAPIKey = ""
     @AppStorage(SettingsKeys.anthropicModel) private var anthropicModel = defaultAnthropicModel
-    @AppStorage(SettingsKeys.openAIAPIKey) private var openAIAPIKey = ""
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+
+    /// The API keys are not in UserDefaults (see `APIKeyStore`), so they are bound to the
+    /// store rather than through `@AppStorage`; the store is observable, so the fields and
+    /// the ready/needs-a-key statuses follow every edit.
+    private var keys: APIKeyStore { APIKeyStore.shared }
+    private var groqAPIKey: String { keys.value(for: SettingsKeys.groqAPIKey) }
+    private var anthropicAPIKey: String { keys.value(for: SettingsKeys.anthropicAPIKey) }
+    private var openAIAPIKey: String { keys.value(for: SettingsKeys.openAIAPIKey) }
+
+    private func keyBinding(_ name: String) -> Binding<String> {
+        Binding(get: { APIKeyStore.shared.value(for: name) },
+                set: { APIKeyStore.shared.set($0, for: name) })
+    }
 
     @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
     @AppStorage(SettingsKeys.escapeCancelsDictation) private var escapeCancelsDictation = false
@@ -530,13 +539,13 @@ struct SettingsView: View {
             return roles
         }
         return [
-            APIKey(service: .groq, value: $groqAPIKey, roles: [.speech, .aiRewrite],
+            APIKey(service: .groq, value: keyBinding(SettingsKeys.groqAPIKey), roles: [.speech, .aiRewrite],
                    active: active(speech: stt == .groq, ai: llm == .groq)),
-            APIKey(service: .elevenLabs, value: $elevenLabsAPIKey, roles: [.speech],
+            APIKey(service: .elevenLabs, value: keyBinding(SettingsKeys.elevenLabsAPIKey), roles: [.speech],
                    active: active(speech: stt == .elevenlabs, ai: false)),
-            APIKey(service: .openAI, value: $openAIAPIKey, roles: [.speech, .aiRewrite],
+            APIKey(service: .openAI, value: keyBinding(SettingsKeys.openAIAPIKey), roles: [.speech, .aiRewrite],
                    active: active(speech: stt == .openai, ai: llm == .openai)),
-            APIKey(service: .anthropic, value: $anthropicAPIKey, roles: [.aiRewrite],
+            APIKey(service: .anthropic, value: keyBinding(SettingsKeys.anthropicAPIKey), roles: [.aiRewrite],
                    active: active(speech: false, ai: llm == .anthropic)),
         ]
     }
@@ -644,8 +653,8 @@ struct SettingsView: View {
         .fixedSize()
     }
 
-    /// Mirrors `LLMConfiguration.isConfigured`, but off the @AppStorage bindings so
-    /// the status updates live while the key is being typed.
+    /// Mirrors `LLMConfiguration.isConfigured`, but off the observed store and
+    /// `@AppStorage`, so the status updates live while the key is being typed.
     private var hasLLMKey: Bool {
         let key: String
         switch llm {

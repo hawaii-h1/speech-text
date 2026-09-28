@@ -118,7 +118,7 @@ enum SetupService: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Where the app keeps this key. Groq's and OpenAI's serve speech and AI alike.
+    /// The key's name in `APIKeyStore`. Groq's and OpenAI's serve speech and AI alike.
     var settingsKey: String {
         switch self {
         case .groq: SettingsKeys.groqAPIKey

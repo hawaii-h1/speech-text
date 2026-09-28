@@ -127,17 +127,21 @@ enum SettingsKeys {
     /// `SUSkippedVersion`) are missing for the same reason, and should stay missing: a
     /// new identity re-defaults to checking for updates, whereas a carried-over
     /// `SUSkippedVersion` would suppress an update the new install never saw offered.
+    ///
+    /// The API keys are missing too, but not left behind: `APIKeyStore.open` walks the
+    /// same chain of domains for them, moves them into the keychain and deletes every
+    /// plain-text copy — which a copy made here would only multiply.
     static let portable: [String] = [
         selectedLanguage, spokenLanguages,
-        sttProvider, groqAPIKey, groqModel, elevenLabsAPIKey, elevenLabsModel,
+        sttProvider, groqModel, elevenLabsModel,
         openAISTTModel, localSTTModel,
         removeDisfluencies, dashStyle,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         editHotkeyKeyCode, editHotkeyModifierFlags,
-        llmProvider, groqLLMModel, anthropicAPIKey, anthropicModel,
-        openAIAPIKey, openAIModel, ollamaModel, ollamaBaseURL,
+        llmProvider, groqLLMModel, anthropicModel,
+        openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
         appSkin, accentColor, technoPhosphor, dockIconMode,
         hotkeyLayoutVersion,
@@ -152,11 +156,11 @@ enum SettingsKeys {
 /// (the speech-text.app domain, reversed) before the first public release. Newest first
 /// matters: a machine that saw several should take the *latest* value, and the loop below
 /// never overwrites a key it has already adopted.
-private let preRenameDefaultsDomains = ["com.speechtext.app", "com.speachtext.app", "com.voicepeter.app"]
+let preRenameDefaultsDomains = ["com.speechtext.app", "com.speachtext.app", "com.voicepeter.app"]
 
 /// Preferences are keyed by bundle identifier, so each rename leaves every setting —
-/// API keys, shortcuts and prompt presets included — reading as empty, which looks
-/// exactly like a factory reset. Copy them across once.
+/// shortcuts and prompt presets included — reading as empty, which looks exactly like a
+/// factory reset. Copy them across once. The API keys are `APIKeyStore.open`'s to carry.
 ///
 /// Runs before `normalizeStoredProviders()` so anything stale that comes over is
 /// still checked against the current catalogues.

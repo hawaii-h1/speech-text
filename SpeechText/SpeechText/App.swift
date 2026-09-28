@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // (`spokenLanguages`, always), and read after them every new install looked like
         // an old one — setup never opened, and the two permission alerts did instead.
         adoptPreRenameDefaults()
+        openAPIKeyStore()
         let setupGate = decideSetupGate()
         migrateSelectedLanguageIfNeeded()
         normalizeStoredProviders()
@@ -215,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let defaults = UserDefaults.standard
         let usedBefore = defaults.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
             || SettingsKeys.portable.contains { defaults.object(forKey: $0) != nil }
+            || APIKeyStore.shared.hasAnyKey
         let gate = OnboardingGate.decide(
             completed: defaults.object(forKey: SettingsKeys.onboardingCompleted) as? Bool,
             hasUsedTheAppBefore: usedBefore)

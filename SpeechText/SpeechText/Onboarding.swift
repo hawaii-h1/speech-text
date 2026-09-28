@@ -169,7 +169,7 @@ final class OnboardingModel {
         }
 
         for service in SetupService.allCases {
-            let stored = (defaults.string(forKey: service.settingsKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let stored = APIKeyStore.shared.value(for: service.settingsKey).trimmingCharacters(in: .whitespacesAndNewlines)
             keys[service] = KeyEntry(value: stored, status: stored.isEmpty ? .empty : .valid)
         }
 
@@ -442,7 +442,7 @@ final class OnboardingModel {
     }
 
     private func saveKey(_ service: SetupService) {
-        UserDefaults.standard.set(key(service).value, forKey: service.settingsKey)
+        APIKeyStore.shared.set(key(service).value, for: service.settingsKey)
     }
 
     /// Back from the browser: the clipboard is read once for a key of the awaited shape.

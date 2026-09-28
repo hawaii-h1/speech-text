@@ -144,11 +144,22 @@ jobs:
           SPT_NOTARY_APPLE_ID: ${{ github.event_name != 'pull_request' && secrets.NOTARY_APPLE_ID || '' }}
           SPT_NOTARY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.NOTARY_APP_PASSWORD || '' }}
           SPT_NOTARY_TEAM_ID: ${{ github.event_name != 'pull_request' && secrets.NOTARY_TEAM_ID || '' }}
+          # The Developer ID provisioning profile that authorises the keychain group the
+          # API keys live in; package-release.sh refuses a signed image without it.
+          PROFILE_BASE64: ${{ github.event_name != 'pull_request' && secrets.DEVELOPER_ID_PROFILE_BASE64 || '' }}
         run: |
           set -euo pipefail
           if [ -n "$NOTARY_KEY_P8" ]; then
             printf '%s' "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
             export SPT_NOTARY_KEY="$RUNNER_TEMP/notary.p8"
+          fi
+          if [ -n "$PROFILE_BASE64" ]; then
+            printf '%s' "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.provisionprofile"
+            export SPT_PROVISIONING_PROFILE="$RUNNER_TEMP/developer-id.provisionprofile"
+          else
+            # Never the maintainer's own copy under ~/.config on the self-hosted Mac: a
+            # release is signed from the repository's secrets or not at all.
+            export SPT_PROVISIONING_PROFILE="$RUNNER_TEMP/no-provisioning-profile"
           fi
           scripts/package-release.sh --out "$RUNNER_TEMP/release"
 
@@ -215,7 +226,7 @@ jobs:
       - name: Remove the signing keychain and the notary key
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/developer-id.p12"
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/developer-id.provisionprofile"
           keychain="$RUNNER_TEMP/release.keychain-db"
           if [ -f "$RUNNER_TEMP/keychains-before" ]; then
             security list-keychains -d user -s $(cat "$RUNNER_TEMP/keychains-before")

@@ -300,11 +300,11 @@ enum LLMConfiguration {
     }
 
     static func apiKey(for type: LLMProviderType) -> String {
-        let defaults = UserDefaults.standard
+        let keys = APIKeyStore.shared
         switch type {
-        case .groq: return defaults.string(forKey: SettingsKeys.groqAPIKey) ?? ""
-        case .anthropic: return defaults.string(forKey: SettingsKeys.anthropicAPIKey) ?? ""
-        case .openai: return defaults.string(forKey: SettingsKeys.openAIAPIKey) ?? ""
+        case .groq: return keys.value(for: SettingsKeys.groqAPIKey)
+        case .anthropic: return keys.value(for: SettingsKeys.anthropicAPIKey)
+        case .openai: return keys.value(for: SettingsKeys.openAIAPIKey)
         case .ollama: return ""
         }
     }

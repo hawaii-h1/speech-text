@@ -62,8 +62,17 @@ signature; the script then re-signs the finished bundle with this certificate us
 `codesign` directly, because Xcode's own manual signing rejects a self-signed
 certificate as untrusted. The first time, macOS asks whether `codesign` may use the
 key: choose **Always Allow**. Run with `SPT_SIGN_IDENTITY="Other Name"` if you named
-yours differently. Whichever way it
-went, the summary at the end of a run says which you got:
+yours differently.
+
+**3. Optional: the provisioning profile.** With the Developer ID certificate *and*
+`~/.config/speech-text/SpeechText_Developer_ID.provisionprofile` (docs/releasing.md ›
+The provisioning profile; `SPT_PROVISIONING_PROFILE` points elsewhere), the build is
+signed for the data-protection keychain and keeps the API keys there, as a release does
+— the run prints `Signed for the keychain`. The profile is embedded only when its team,
+app and certificate match the signing identity, since one that does not match is an app
+that never launches; anything else prints why and keeps the keys in UserDefaults.
+
+Whichever way it went, the summary at the end of a run says which you got:
 
 ```
   Signing:    stable — Accessibility permission survives rebuilds
@@ -137,8 +146,9 @@ roll back to.
 different bundle identifier. Installing the correctly-spelled one:
 
 - fires the two one-shot migrations (`adoptPreRenameStore`, `adoptPreRenameDefaults`)
-  that carry history, API keys, shortcuts and presets across — **once**, on the first
-  launch that finds them;
+  that carry history, shortcuts and presets across — **once**, on the first launch that
+  finds them — and the API keys, which `APIKeyStore` moves into the keychain (or, in a
+  build without the profile, copies across) from every old domain;
 - re-asks for microphone, speech recognition and accessibility, because macOS keys
   those to the bundle identifier;
 - registers itself as a login item, since `hasRegisteredLaunchAtLogin` deliberately
@@ -166,6 +176,10 @@ microphone, paste-back — only appear when it is actually running.
   executable's hash against the newest backup and skips an identical copy. Without
   that, building a few times while debugging something unrelated would quietly push
   the last good version out of a three-deep window, precisely when you need it.
+- **A rollback past the keychain move finds no keys.** The first launch of a build
+  signed for the keychain moves the API keys out of the preferences; an older build
+  reads only the preferences, so it starts with none. Enter them again, or roll
+  forward.
 - **Rollback swaps the binary only.** The working tree still holds the code that
   produced the bad build. Going back in the source as well is a git operation; the
   script deliberately does not touch your files.
@@ -222,8 +236,11 @@ changed; try it with `⌃⇧Q` (inline), `⌃⇧A` (AI) or `⌃⇧W` (record win
   done
   ```
 
-  Not a bare `defaults read app.speech-text.SpeechText`: that prints every API key in clear
-  text, and its output tends to end up pasted into an issue. `defaults delete
-  app.speech-text.SpeechText` resets everything **including your API keys**.
+  Not a bare `defaults read app.speech-text.SpeechText`: a build without the keychain
+  keeps its API keys there, and that prints them in clear text — output that tends to
+  end up pasted into an issue. `defaults delete app.speech-text.SpeechText` resets every
+  setting; the API keys go with it only in such a build. A build signed for the keychain
+  keeps them there, where `defaults` cannot reach: clear a key in Settings › API Keys to
+  remove it.
 - **Old behaviour persists after a successful launch.** Check `--status`. A second
   copy under a legacy name may still be running and answering the hotkey first.

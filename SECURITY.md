@@ -25,3 +25,7 @@ SpeechText handles unusually sensitive things, so these matter most:
 ## Design notes
 
 There is no SpeechText server. The app talks only to the providers you configured, with keys you supplied. There is no telemetry and no account.
+
+**Where your API keys are kept.** A signed release keeps them in the macOS *data-protection keychain*, in an access group that only code signed by the SpeechText team can use. Another app running as you cannot read them, even if you click Allow. They are tied to this Mac and cannot be restored onto another one, so on a new Mac you enter them again. Keys that earlier versions kept in the preferences file are moved into the keychain on first launch and deleted from every preferences domain the app has used (`app.speech-text.SpeechText`, `com.speechtext.app`, `com.speachtext.app`, `com.voicepeter.app`). Older Time Machine snapshots still hold those files, so replacing the keys at the provider once after that move is worth doing.
+
+What it does not protect against: software that already runs as you and can read the screen, the clipboard (a key is on it while you paste it into setup) or your keystrokes. A build made without the project's signing profile — an Xcode run or your own clone — cannot use that keychain and keeps the keys in its preferences file (`~/Library/Preferences/app.speech-text.SpeechText.plist`, readable by any process running as you), as every version before 0.10 did. See [docs/development.md](docs/development.md#api-keys).

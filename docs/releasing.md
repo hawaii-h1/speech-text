@@ -151,7 +151,32 @@ gh secret set NOTARY_ISSUER_ID
 gh secret set NOTARY_APPLE_ID
 gh secret set NOTARY_APP_PASSWORD
 gh secret set NOTARY_TEAM_ID
+
+# The provisioning profile (section 5):
+gh secret set DEVELOPER_ID_PROFILE_BASE64 < <(base64 -i ~/.config/speech-text/SpeechText_Developer_ID.provisionprofile)
 ```
+
+### 5. The provisioning profile
+
+The API keys live in the data-protection keychain (docs/development.md › API keys), and
+macOS lets an app use it only when a provisioning profile authorises the app's keychain
+group. A Developer ID app can carry one:
+
+1. developer.apple.com › Certificates, IDs & Profiles › Identifiers › **+** › App IDs ›
+   App: description `SpeechText`, platform macOS, explicit bundle ID
+   `app.speech-text.SpeechText`. No capability needs switching on — the profile
+   authorises `TEAMID.*` keychain groups by default.
+2. Profiles › **+** › Distribution › **Developer ID**, that App ID, the *Developer ID
+   Application* certificate from section 1; name it `SpeechText Developer ID`.
+3. Save it as `~/.config/speech-text/SpeechText_Developer_ID.provisionprofile`, where
+   `rebuild.sh` and a local `package-release.sh` look for it (`SPT_PROVISIONING_PROFILE`
+   overrides the path), and set the secret above for the release workflow.
+
+The profile lists the certificates it authorises. A new Developer ID certificate
+therefore needs the profile regenerated with it too, or the next image is refused by
+`package-release.sh` — which checks team, app and certificate before it embeds anything,
+because a profile that does not match is an app that never launches. The profile issued
+on 2026-09-28 expires in 2044.
 
 ## Cutting a release
 

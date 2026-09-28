@@ -7,7 +7,7 @@ name: CI
 # self-hosted Mac. A pull request is code, and on a public repository anyone may
 # open one: `xcodebuild test` on that machine would be a stranger's code running
 # against someone's own keychain, SSH keys and the app's `app.speech-text.SpeechText`
-# defaults domain, which is where the API keys live.
+# defaults domain, which is where a build without the profile keeps the API keys.
 #
 # So every `runs-on` below is keyed on the repository's visibility rather than
 # hard-coded, and the flip is what moves the work: while private, where only

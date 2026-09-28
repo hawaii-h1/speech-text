@@ -146,10 +146,11 @@ struct RecordingConfiguration {
         }
     }
 
-    /// One read of UserDefaults. `locale` defaults to `resolvedLocale()` (keyboard-layout
+    /// One read of UserDefaults, and of the API keys `APIKeyStore` holds. `locale` defaults to `resolvedLocale()` (keyboard-layout
     /// aware) but callers that already resolved it pass it through.
     static func current(locale: String = resolvedLocale()) -> RecordingConfiguration {
         let defaults = UserDefaults.standard
+        let keys = APIKeyStore.shared
         let raw = defaults.string(forKey: SettingsKeys.sttProvider) ?? "apple"
         let spoken = storedSpokenLanguages()
         return RecordingConfiguration(
@@ -157,11 +158,11 @@ struct RecordingConfiguration {
             locale: locale,
             languages: spoken,
             localeIsAutomatic: spoken.count != 1,
-            groqAPIKey: defaults.string(forKey: SettingsKeys.groqAPIKey) ?? "",
+            groqAPIKey: keys.value(for: SettingsKeys.groqAPIKey),
             groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
-            elevenLabsAPIKey: defaults.string(forKey: SettingsKeys.elevenLabsAPIKey) ?? "",
+            elevenLabsAPIKey: keys.value(for: SettingsKeys.elevenLabsAPIKey),
             elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? defaultElevenLabsModel,
-            openAIAPIKey: defaults.string(forKey: SettingsKeys.openAIAPIKey) ?? "",
+            openAIAPIKey: keys.value(for: SettingsKeys.openAIAPIKey),
             openAISTTModel: defaults.string(forKey: SettingsKeys.openAISTTModel) ?? defaultOpenAISTTModel,
             localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,

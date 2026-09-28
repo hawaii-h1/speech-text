@@ -23,6 +23,11 @@
 #   SPT_NOTARY_PASSWORD   an app-specific password for it, and
 #   SPT_NOTARY_TEAM_ID    the team ID
 #
+#   SPT_PROVISIONING_PROFILE  the Developer ID provisioning profile that lets the app keep
+#                         its API keys in the data-protection keychain (default:
+#                         ~/.config/speech-text/SpeechText_Developer_ID.provisionprofile).
+#                         A distributable image is refused without it.
+#
 # The disk image window is laid out by dmgbuild (scripts/dmg/), installed from PyPI into a
 # throwaway virtual environment, pinned by hash. It needs Python 3.10 or later: whatever
 # SPT_PYTHON names, else the first of `python3`, `python3.14` … `python3.10` on PATH that is
@@ -163,8 +168,21 @@ if [ -d "$APP/Contents/Frameworks" ]; then
 fi
 # The entitlements are passed explicitly rather than preserved: a Debug-style
 # get-task-allow carried over from the build would make notarization refuse the app.
+#
+# A distributable app also carries the provisioning profile and the keychain group it
+# authorises, or its API keys would sit in a plist any process of the user's can read
+# (APIKeyStore.swift). Refused rather than skipped, like a missing update key: an image
+# without it looks fine and quietly stores every user's keys in the clear.
+SIGN_ENTITLEMENTS="$ENTITLEMENTS"
+if [ "$DISTRIBUTABLE" -eq 1 ]; then
+    source "$REPO_ROOT/scripts/keychain-profile.sh"
+    PROFILE="${SPT_PROVISIONING_PROFILE:-$DEFAULT_PROVISIONING_PROFILE}"
+    prepare_keychain_signing "$APP" "$IDENTITY" "$PROFILE" "$ENTITLEMENTS" "$WORK/entitlements.plist" ||
+        die "cannot sign for the keychain: $KEYCHAIN_SKIP_REASON (docs/releasing.md, Provisioning profile)"
+    SIGN_ENTITLEMENTS="$WORK/entitlements.plist"
+fi
 codesign --force --options runtime "${TIMESTAMP[@]}" \
-    --entitlements "$ENTITLEMENTS" --sign "$SIGN_AS" "$APP"
+    --entitlements "$SIGN_ENTITLEMENTS" --sign "$SIGN_AS" "$APP"
 codesign --verify --deep --strict "$APP" || die "the signature does not verify"
 
 # codesign's output is captured before grep sees it: piped straight into `grep -q`,
@@ -175,6 +193,9 @@ if grep -q 'get-task-allow' <<< "$(codesign -d --entitlements - "$APP" 2>/dev/nu
 fi
 grep -q 'flags=.*runtime' <<< "$(codesign -dv "$APP" 2>&1)" ||
     die "the signed app is missing the hardened runtime flag"
+if [ "$DISTRIBUTABLE" -eq 1 ] && ! has_keychain_entitlement "$APP"; then
+    die "the signed app names no keychain access group"
+fi
 
 # The same question, asked of everything nested: a helper signed without the flag is
 # found by the notary service and not by `codesign --verify`.

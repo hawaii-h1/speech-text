@@ -529,11 +529,28 @@ sign_nested() {
            -o -name '*.xpc' -o -name 'Autoupdate' \) -print0)
 }
 
+# The keychain. With the Developer ID provisioning profile (docs/releasing.md) a team
+# build is signed for the data-protection keychain, where the API keys live; without it
+# the app keeps them in UserDefaults. keychain-profile.sh embeds the profile only when it
+# matches the certificate, because a mismatch is an app that never launches.
+source "$REPO_ROOT/scripts/keychain-profile.sh"
+PROFILE="${SPT_PROVISIONING_PROFILE:-$DEFAULT_PROVISIONING_PROFILE}"
+KEYCHAIN_SIGNED=0
+
 sign_local() {
     if [ "$HAVE_IDENTITY" -eq 1 ]; then
         sign_nested || return 1
     fi
-    if [ "$HAS_TEAM" -eq 1 ]; then
+    if [ "$HAS_TEAM" -eq 1 ] &&
+        prepare_keychain_signing "$BUILT" "$SIGN_IDENTITY" "$PROFILE" \
+            "$REPO_ROOT/$APP_NAME/$APP_NAME/$APP_NAME.entitlements" "$LOG.keychain.plist"; then
+        # The tracked entitlements plus the keychain group, not Xcode's: they are the
+        # ones a release is signed with.
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime \
+            --entitlements "$LOG.keychain.plist" "$BUILT" || return 1
+        rm -f "$LOG.keychain.plist"
+        KEYCHAIN_SIGNED=1
+    elif [ "$HAS_TEAM" -eq 1 ]; then
         # Keep the entitlements Xcode signed in (sandbox off), regenerate everything
         # else so the designated requirement names the certificate rather than a hash.
         codesign --force --sign "$SIGN_IDENTITY" --preserve-metadata=entitlements,flags "$BUILT" || return 1
@@ -561,6 +578,11 @@ if ! sign_local > "$LOG.sign" 2>&1; then
     exit 1
 fi
 rm -f "$LOG.sign"
+if [ "$KEYCHAIN_SIGNED" -eq 1 ]; then
+    echo "Signed for the keychain: API keys are kept there."
+else
+    echo "Not signed for the keychain (${KEYCHAIN_SKIP_REASON:-no team certificate}): API keys stay in UserDefaults."
+fi
 
 echo "Stopping:"
 stop_all

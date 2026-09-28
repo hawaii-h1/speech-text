@@ -51,7 +51,20 @@ The test bundle is **standalone** — no `TEST_HOST`, no `@testable import`. The
 
 **Consequence:** if your test needs a new app file, add that file to *both* targets' Sources phases. The same goes for anything it depends on. Files in the test subset must not reach into the app's view or state graph (SwiftUI views, `AppState`, `SpeechEngine`) — if they do, the subset stops being a subset.
 
-Tests never touch `UserDefaults`: your real API keys live in that domain. Construct values directly instead.
+Tests never touch `UserDefaults` or the keychain: your real settings live in that domain, and a build without the profile keeps your API keys there too. Construct values directly instead; `APIKeyStoreTests` gives the store an isolated `suiteName` and a keychain in memory.
+
+## API keys
+
+The four API keys (Groq, ElevenLabs, OpenAI, Anthropic) are billing credentials, so they are not ordinary settings. `APIKeyStore` holds them in memory, and where they live on disk depends on how the build was signed:
+
+- **Signed with the Developer ID provisioning profile** (releases, and `scripts/rebuild.sh` when the profile is in `~/.config/speech-text/`): the *data-protection keychain*, in the access group `TEAMID.app.speech-text.SpeechText`. Only code signed by this team with a profile that authorises the group can name it, so another process running as the user cannot read an item, with or without a prompt — unlike a plist, which any of them reads silently, and unlike the file-based login keychain, which asks the user and is one click away from saying yes. Items are `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`: tied to this Mac, never restored onto another. The group is fixed at `TEAMID.app.speech-text.SpeechText` rather than derived from the bundle identifier, so a future rename still finds the keys.
+- **Without it** (Xcode ⌘R, a contributor's clone, a self-signed `SpeechText Dev` build): that keychain answers `errSecMissingEntitlement`, so the keys stay in UserDefaults, as they always did. A plist is not a store for secrets — mode `0600`, but readable by anything running as you and copied by every backup — which is why nothing distributed is built this way.
+
+The mode is fixed at launch from the app's own signature (whether it carries `keychain-access-groups`), never from a failed call, so a passing keychain error cannot send a release's keys back into a plist. In keychain mode the first launch moves every key it finds — in the current domain first, then the pre-rename chain — writes it, reads it back, and only then deletes it from all four domains; a write that fails keeps every copy. A key found in the current domain *after* that is newer than the keychain's (a ⌘R build shares the domain) and replaces it.
+
+The entitlements that name the group are **restricted**: signed without a profile that authorises them for this team, this app and this certificate, the app does not launch. So they are never in the tracked `SpeechText.entitlements`; `scripts/keychain-profile.sh` adds them only after checking all three, and `package-release.sh` refuses to make a distributable image without them. Setting the profile up is in [releasing.md](releasing.md#5-the-provisioning-profile).
+
+Two costs follow. A change of Apple team makes the items unreachable, and every user enters their keys again (releasing.md says why the team is not expected to change). And a ⌘R build cannot see the keys a signed build moved — enter them there too, or sign ⌘R builds with an Apple Development profile of your own.
 
 ## Pull requests
 
@@ -138,7 +151,7 @@ If it finds any others, that is a new gap.
 no job may run on the organisation's self-hosted Mac.** A pull request is code,
 and anyone can open one; building and running it on someone's own Mac would hand
 a stranger that machine's keychain, SSH keys and the app's `app.speech-text.SpeechText`
-defaults domain, which is where the API keys live.
+defaults domain, which is where a build without the profile keeps the API keys.
 
 So every `runs-on` is keyed on the repository's visibility, and the flip is what
 moves the work:

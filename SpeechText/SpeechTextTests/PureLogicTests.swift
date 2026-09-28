@@ -1822,7 +1822,7 @@ final class STTModelCatalogTests: XCTestCase {
                 guard case .apiKey(let key) = model.requirement else {
                     XCTFail("\(model.id) is served from the cloud but needs no key"); continue
                 }
-                XCTAssertTrue(SettingsKeys.portable.contains(key), "\(model.id): \(key)")
+                XCTAssertTrue(APIKeyStore.keys.contains(key), "\(model.id): \(key)")
             case .onDevice:
                 XCTAssertEqual(model.requirement, .installedModel, model.id)
             case .systemRecognizer:
