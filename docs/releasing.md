@@ -294,10 +294,10 @@ rest by the next release.
 ## Building a release locally
 
 ```bash
-xcrun notarytool store-credentials speechtext-notary    # once; prompts for the credentials
+xcrun notarytool store-credentials speech-text-notary    # once; prompts for the credentials
 
 SPT_DEVELOPER_ID="Developer ID Application: Name (TEAMID)" \
-SPT_NOTARY_PROFILE=speechtext-notary \
+SPT_NOTARY_PROFILE=speech-text-notary \
 scripts/package-release.sh
 ```
 

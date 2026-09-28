@@ -5,7 +5,7 @@
  * reloads and the next screen see them. Review-bar controls drive what the Mac would report.
  */
 const Setup = (() => {
-  const STORE = "speechtext-setup";
+  const STORE = "speech-text-setup";
   const PAGES = [
     { file: "01-welcome.html",     name: "Welcome" },
     { file: "02-speech.html",      name: "Speech" },

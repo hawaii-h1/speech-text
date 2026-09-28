@@ -97,7 +97,7 @@ if [ -z "$FROM_APP" ] && ! { git -C "$REPO_ROOT" diff --quiet && git -C "$REPO_R
     COMMIT="$COMMIT+"
 fi
 
-WORK="$(mktemp -d -t speechtext-release)"
+WORK="$(mktemp -d -t speech-text-release)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT"
 

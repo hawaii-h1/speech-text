@@ -454,7 +454,7 @@ else
 fi
 
 echo "Building $SCHEME ($CONFIG) from $COMMIT..."
-LOG="$(mktemp -t speechtext-build)"
+LOG="$(mktemp -t speech-text-build)"
 echo "  (takes a minute or two; to follow along: tail -f $LOG)"
 BUILD_STARTED=$SECONDS
 xcodebuild \
