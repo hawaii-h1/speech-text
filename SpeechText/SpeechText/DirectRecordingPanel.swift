@@ -343,7 +343,7 @@ struct DirectRecordingPanelView: View {
     @State private var isHoveringTransport = false
     @State private var langLabel = ""
     @State private var keyboardObserverID: UUID?
-    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.default.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
     @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
     @AppStorage(SettingsKeys.spokenLanguages) private var spokenLanguages = ""
@@ -368,7 +368,7 @@ struct DirectRecordingPanelView: View {
 
     private var isBusy: Bool { speechEngine.isTranscribing || isRefining || speechEngine.isStartingEngine }
 
-    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .default }
     private var techno: TechnoPalette { TechnoPalette(stored: technoRaw) }
 
     /// The transport's colour. Techno ignores the free accent and lights in its display

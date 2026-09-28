@@ -42,7 +42,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
     @AppStorage(SettingsKeys.escapeCancelsDictation) private var escapeCancelsDictation = false
 
-    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.default.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
     @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
     @AppStorage(SettingsKeys.dockIconMode) private var dockIconRaw = DockIconMode.default.rawValue
@@ -212,7 +212,7 @@ struct SettingsView: View {
 
     // MARK: - Appearance
 
-    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .default }
 
     @ViewBuilder
     private var appearancePage: some View {

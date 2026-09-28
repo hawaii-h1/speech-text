@@ -45,7 +45,7 @@ struct RecordingOverlayView: View {
     var onTranscriptHeight: (CGFloat) -> Void = { _ in }
     let onCancel: () -> Void
 
-    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.default.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
     @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
 
@@ -53,7 +53,7 @@ struct RecordingOverlayView: View {
     /// The text's own height, for the fade that shows lines have scrolled off the top.
     @State private var textHeight: CGFloat = 0
 
-    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .default }
     private var techno: TechnoPalette { TechnoPalette(stored: technoRaw) }
     private var accent: Color { isAIMode || isEditMode ? Semantic.ai : AccentColor.meter(accentHex) }
     private var isViolet: Bool { isAIMode || isEditMode }
@@ -366,11 +366,11 @@ struct StatusOverlayView: View {
     var action: StatusOverlayAction? = nil
     let onTap: () -> Void
 
-    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.default.rawValue
     @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
     @State private var isHovering = false
 
-    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .default }
     private var techno: TechnoPalette { TechnoPalette(stored: technoRaw) }
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: skin == .techno ? 18 : 16, style: .continuous)
@@ -702,8 +702,8 @@ struct HoldTipView: View {
     let other: ShortcutAction?
     let followed: Bool
 
-    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.minimal.rawValue
-    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .minimal }
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.default.rawValue
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .default }
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: skin == .techno ? 18 : 16, style: .continuous)
     }

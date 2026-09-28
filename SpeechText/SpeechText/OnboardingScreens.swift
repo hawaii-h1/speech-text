@@ -190,6 +190,9 @@ private struct WelcomeDemo: View {
     @State private var typedWords = 0
     @State private var sent: String?
     @State private var composerActive = false
+    @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.default.rawValue
+
+    private var skin: AppSkin { AppSkin(rawValue: skinRaw) ?? .default }
 
     var body: some View {
         ZStack {
@@ -203,9 +206,10 @@ private struct WelcomeDemo: View {
                 Spacer()
                 HStack {
                     Spacer()
-                    DemoStrip(listening: listening)
+                    DemoStrip(skin: skin, listening: listening)
                         .scaleEffect(0.62, anchor: .bottomTrailing)
-                        .frame(width: 300 * 0.62, height: 44 * 0.62, alignment: .bottomTrailing)
+                        .frame(width: skin.overlayStripSize.width * 0.62,
+                               height: skin.overlayStripSize.height * 0.62, alignment: .bottomTrailing)
                         .opacity(stripShown ? 1 : 0)
                         .offset(y: stripShown ? 0 : 9)
                         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: stripShown)
@@ -385,13 +389,52 @@ private struct Caret: View {
     }
 }
 
-/// `RecordingOverlayView`'s minimal strip, drawn at its real 300 × 44: microphone (or
-/// sparkles), 12 bars, ✕.
+/// `RecordingOverlayView`'s strip in the skin the overlay will wear, drawn at its real
+/// size: the dot-matrix glass and the moulded ✕, or microphone (or sparkles), 12 bars, ✕.
 private struct DemoStrip: View {
+    let skin: AppSkin
     let listening: Bool
     var ai = false
 
+    @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
+
     var body: some View {
+        switch skin {
+        case .techno: techno
+        case .minimal: minimal
+        }
+    }
+
+    /// `RecordingOverlayView.technoStrip`, fed a scripted voice instead of the microphone.
+    private var techno: some View {
+        let glass = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        let palette = TechnoPalette(stored: technoRaw)
+        return TimelineView(.periodic(from: .now, by: 0.09)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let loudness = listening ? CGFloat(0.12 + 0.2 * abs(sin(t * 3.1))) : 0
+            HStack(spacing: 6) {
+                ZStack {
+                    glass.fill(palette.screen)
+                    PixelWaveform(levels: [loudness], columns: 16, rows: 8,
+                                  mode: listening ? .level : .idle,
+                                  palette: ai ? .ai : .phosphor(palette))
+                    InnerShadow(shape: glass, width: 6.6, blur: 3.3)
+                    InnerShadow(shape: glass, width: 4, blur: 2, offset: CGSize(width: 0, height: -1))
+                }
+                .frame(width: 100, height: 56)
+                .clipShape(glass)
+                ButtonRail {
+                    PlasticButton(systemImage: "xmark", action: {})
+                }
+            }
+            .frame(width: skin.overlayStripSize.width, height: skin.overlayStripSize.height)
+            .allowsHitTesting(false)
+            .environment(\.technoPalette, palette)
+            .shadow(color: .black.opacity(0.25), radius: 12, y: 8)
+        }
+    }
+
+    private var minimal: some View {
         TimelineView(.periodic(from: .now, by: 0.09)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let loudness = listening ? 0.35 + 0.65 * abs(sin(t * 3.1)) : 0

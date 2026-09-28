@@ -224,7 +224,7 @@ A new install opens the setup window instead of asking for the microphone and Ac
 | `promptPresets` | JSON-encoded `[PromptPreset]` | built-in defaults |
 | `defaultPresetID` | UUID of the fallback preset | Clean-up |
 | `aiModeInRecordWindow` | Record Window ✨ toggle state | `false` |
-| `appSkin` | Appearance (`"minimal"` or `"techno"`) | `"minimal"` |
+| `appSkin` | Appearance (`"techno"` or `"minimal"`) | `"techno"` |
 | `dockIconMode` | When the app shows a Dock / ⌘Tab icon (`"never"`, `"whileWindowOpen"`, `"always"`) — an agent's Settings window is otherwise unfindable once covered | `"whileWindowOpen"` |
 | `accentColor` | Minimal skin's tint, `#RRGGBB`; empty means neutral | `""` |
 | `technoPhosphor` | Techno skin's display colour: a recommended set (`"green"`, `"amber"`, `"cyan"`, `"white"`) or any colour as `#RRGGBB`; anything else reads as green | `"green"` |

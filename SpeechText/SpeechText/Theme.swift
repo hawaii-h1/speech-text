@@ -15,11 +15,16 @@ import AppKit
 ///
 /// Adding a third skin means: a case here, its two sizes, and a `body` branch in each
 /// of those two views.
+/// The cases are in the order Settings lists them, the default first.
 enum AppSkin: String, CaseIterable, Identifiable {
-    /// Native macOS: material panels, SF Symbols, a bar waveform. Neutral by default.
-    case minimal
     /// The moulded handset with the dark-green dot-matrix LCD, drawn to the design file.
     case techno
+    /// Native macOS: material panels, SF Symbols, a bar waveform. Neutral by default.
+    case minimal
+
+    /// What an install that never picked a skin wears — and what an unreadable stored
+    /// value reads as.
+    static let `default` = AppSkin.techno
 
     var id: String { rawValue }
 
@@ -79,7 +84,7 @@ enum AppSkin: String, CaseIterable, Identifiable {
     /// `@AppStorage` instead so they redraw when it changes.
     static var current: AppSkin {
         AppSkin(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.appSkin) ?? "")
-            ?? .minimal
+            ?? .default
     }
 }
 
