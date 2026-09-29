@@ -151,15 +151,18 @@ enum MacTier: Int, CaseIterable, Comparable {
     static func < (lhs: MacTier, rhs: MacTier) -> Bool { lhs.rawValue < rhs.rawValue }
 
     /// Shown in Settings so the user can see which class the recommendation was made for.
+    /// Memory only, never a model name: the label sits beside the real chip, and naming a
+    /// Mac there read as the app deciding which Mac this is — an M2 Air was told it was a
+    /// MacBook Neo.
     var displayName: String {
         switch self {
         case .intel: "Intel Mac"
-        case .entry: "8 GB class (MacBook Neo)"
-        case .standard: "16 GB class (MacBook Air, iMac, Mac mini)"
+        case .entry: "8 GB class"
+        case .standard: "16 GB class"
         case .plus: "24–32 GB class"
-        case .pro: "36–64 GB class (M5 Pro / M5 Max)"
-        case .max: "96–128 GB class (M5 Max, Mac Studio)"
-        case .ultra: "256 GB+ class (Mac Studio M5 Ultra)"
+        case .pro: "36–64 GB class"
+        case .max: "96–128 GB class"
+        case .ultra: "256 GB+ class"
         }
     }
 }

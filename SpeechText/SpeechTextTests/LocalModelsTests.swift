@@ -169,7 +169,7 @@ final class LocalSTTReasonTests: XCTestCase {
     func testReasonNamesTheCase() {
         XCTAssertTrue(localSTTRecommendationReason(for: mac(ram: 64, appleSilicon: false)).contains("Neural Engine"))
         XCTAssertTrue(localSTTRecommendationReason(for: mac(ram: 32, disk: 1)).contains("disk"))
-        XCTAssertTrue(localSTTRecommendationReason(for: mac(ram: 8)).contains("MacBook Neo"))
+        XCTAssertTrue(localSTTRecommendationReason(for: mac(ram: 8)).contains("8 GB class"))
     }
 }
 
