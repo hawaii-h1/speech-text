@@ -20,13 +20,12 @@ import Foundation
 /// - a trailing-off `...` / `…` at the end of a word becomes a full stop, and the next
 ///   word is capitalised; one standing alone between two words is dropped.
 ///
-/// The function is applied to the *cumulative* strings the sessions report, and
-/// `SpeechEngine` pastes committed spans as they arrive. So it must be **monotone**: when
-/// one input extends another by whole words, the cleaned result must extend the cleaned
+/// The function is applied to the *cumulative* strings the sessions report, and the
+/// overlay draws committed spans as they arrive. So it must be **monotone**: when one
+/// input extends another by whole words, the cleaned result must extend the cleaned
 /// shorter one by whole words too — the span layer takes the difference as a new span
-/// and joins spans with a space. Otherwise text already in the user's document stops
-/// matching the final transcript, `InsertionLedger.remainder` reads that as disagreement,
-/// and the tail is never pasted. That is why every rule rewrites a word only from the
+/// and joins spans with a space. Otherwise text already drawn stops being a prefix of
+/// the cleaned transcript and is redrawn as a revision. That is why every rule rewrites a word only from the
 /// word itself and what came *before* it, and never touches a word already written:
 /// a filler's full stop is dropped rather than moved back onto the previous word.
 ///

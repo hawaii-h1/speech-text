@@ -6,8 +6,8 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 ## Now
 
-- **Distribution** — the signed, notarized `.dmg` and the in-app updater are in place; what is left is the first public release and a Homebrew cask. Today the only way to run SpeechText is to build it, which excludes almost everyone.
-- **Accuracy for technical speech** — library names, identifiers and mixed-language dictation are where every engine struggles. A user dictionary feeds the term list to the engine, to a post-transcription replacement table, and to the LLM prompt.
+- **Distribution** — the signed, notarized `.dmg` and the in-app updater are in place, and 0.9.1 is packaged as a draft release; what is left is making the repository public, publishing that release, and a Homebrew cask. Until then the only way for anyone else to run SpeechText is to build it, which excludes almost everyone.
+- **Accuracy for technical speech** — library names, identifiers and mixed-language dictation are where every engine struggles. The plan is a user dictionary that would feed its term list to the engine, to a post-transcription replacement table, and to the LLM prompt. None of it is built yet.
 
 ## Next
 
@@ -22,7 +22,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 ## Done
 
-Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup.
+Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup; signed, notarized releases that update themselves; OpenAI as a speech engine; API keys in the keychain; dictations made offline saved and retried once the network is back.
 
 ## Not planned
 

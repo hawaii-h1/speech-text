@@ -26,6 +26,7 @@ name: Release
 #   NOTARY_KEY_P8_BASE64, NOTARY_KEY_ID, NOTARY_ISSUER_ID (issuer empty for an individual key)
 #   or an Apple ID —
 #   NOTARY_APPLE_ID, NOTARY_APP_PASSWORD, NOTARY_TEAM_ID
+#   DEVELOPER_ID_PROFILE_BASE64                          the provisioning profile (keychain group)
 #   SPARKLE_ED_PRIVATE_KEY                               the update-signing key
 
 on:
@@ -88,7 +89,7 @@ jobs:
           set -euo pipefail
           project=$(sed -n 's/.*MARKETING_VERSION = \([0-9][0-9.]*\);.*/\1/p' SpeechText/SpeechText.xcodeproj/project.pbxproj | head -1)
           if [ "v$project" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project. Cut releases with /rebuild --tag."
+            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project. Cut releases with scripts/rebuild.sh --tag."
             exit 1
           fi
 

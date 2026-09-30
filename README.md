@@ -12,15 +12,16 @@ Open source, bring your own API keys. A month of heavy dictation costs cents ins
 
 ## What it does
 
-Hold a global hotkey, talk, release. SpeechText transcribes what you said and pastes it at the cursor in whatever app you were just using — your editor, a chat box, an email, anywhere.
+Press a global hotkey, talk, press it again — or, with Hold to talk on, hold it while you speak and let go. SpeechText transcribes what you said and pastes it at the cursor in whatever app you were just using — your editor, a chat box, an email, anywhere.
 
-**Three ways to use it:**
+**Four ways to use it:**
 
 | Mode | Hotkey | What happens |
 |---|---|---|
 | **Inline** | `Ctrl+Shift+Q` | Speak → text is pasted at your cursor |
 | **AI** | `Ctrl+Shift+A` | Speak → an LLM cleans it up → pasted at your cursor |
 | **Record Window** | `Ctrl+Shift+W` | A floating panel for longer dictation you want to edit first |
+| **Edit with AI** | `Ctrl+Shift+E` | Select text, optionally say what to change → the rewrite replaces the selection |
 
 All hotkeys are configurable.
 
@@ -40,11 +41,11 @@ Pick per your priorities — all configurable in Settings:
 |---|---|---|
 | **Apple** (on-device) | free | Nothing leaves your Mac |
 | **Groq** (Whisper) | ~$0.04/hour | Fast, accurate, needs an API key |
-| **ElevenLabs** (Scribe v2) | pay-as-you-go | Realtime streaming, live partial text |
+| **ElevenLabs** (Scribe v2) | pay-as-you-go | Upload, or realtime streaming with live partial text; needs an API key |
 | **OpenAI** | pay-as-you-go | Upload or realtime streaming, needs an API key; the newest engine, and the least exercised |
 | **Local model** | free | Parakeet or Whisper, downloaded to your Mac in one click; no key, works offline |
 
-For local models, Settings reads your Mac's chip, memory and free disk, places it in a class from an 8 GB MacBook Neo to a 512 GB Mac Studio, and marks two models for it: a **recommended** one (the fastest of good quality) and a **best quality** one. Heavier models stay available, labelled. On Apple Silicon both are **Parakeet v3** — NVIDIA's multilingual model, 25 European languages, 483 MB, and on our Ukrainian test it matched the best cloud engine in under a second. Intel Macs have no Neural Engine and are pointed at the small Whisper models instead.
+For local models, Settings reads your Mac's chip, memory and free disk, places it in a memory class from 8 GB to 256 GB and up, and marks two models for it: a **recommended** one (the fastest of good quality) and a **best quality** one. Heavier models stay available, labelled. On Apple Silicon both are **Parakeet v3** — NVIDIA's multilingual model, 25 European languages, 483 MB, and on our Ukrainian test it matched the best cloud engine in under a second. Intel Macs have no Neural Engine and are pointed at the small Whisper models instead.
 
 For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** with your own key — or run it locally through [Ollama](https://ollama.com), where Settings offers Qwen3.5 / 3.6 / 3.8, Gemma 4 and gpt-oss models from 1 GB to 81 GB, recommends a pair for your Mac, and downloads them in one click.
 
@@ -53,7 +54,7 @@ For the AI pass you can use **Groq**, **Anthropic** or **OpenAI** with your own 
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- Xcode 15+ — only if you build from source
+- Xcode 16+ — only if you build from source
 - Optional: API keys for the cloud engines you want to use
 - Optional: [Ollama](https://ollama.com) for local AI processing
 
@@ -102,7 +103,7 @@ SpeechText runs as a menu bar agent. It shows a Dock icon while one of its own w
 
 ### Build it yourself
 
-You need macOS 14 or later and Xcode 15+:
+You need macOS 14 or later and Xcode 16+ (FluidAudio needs Swift 6 tools):
 
 ```bash
 git clone https://github.com/yavno/speech-text.git
@@ -123,7 +124,7 @@ This matters, so it is stated plainly:
 - **Groq / ElevenLabs / OpenAI** — audio is uploaded to that provider, using *your* API key, under *their* privacy policy. SpeechText has no server and never sees your audio or your keys.
 - **AI mode** — the transcript text (not the audio) is sent to the LLM provider you selected, with your key.
 - **History** — transcripts are stored locally in `~/Library/Application Support/SpeechText/`. Failed recordings keep their audio for 7 days so you can retry, then it is deleted.
-- **API keys** — stored in your local user defaults. Never transmitted anywhere except to the provider they belong to.
+- **API keys** — a release keeps them in the macOS keychain, where no other app can read them; a build you make yourself keeps them in its preferences file (see [SECURITY.md](SECURITY.md)). Never transmitted anywhere except to the provider they belong to.
 
 There is no telemetry, no analytics, and no account.
 

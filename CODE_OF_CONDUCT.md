@@ -61,9 +61,7 @@ representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement.
 
-Report to the maintainer, @yavno on GitHub, by opening a private report through
-GitHub's abuse reporting or by email to the address on the maintainer's GitHub
-profile.
+Report to the maintainer, Vladyslav Husakov, by email at vladhskv@gmail.com.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

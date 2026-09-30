@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Techno is the default skin.** A skin you picked in Settings is kept; an install that never picked one switches to techno, and Minimal is one click away in Settings › Appearance. Setup's Try it step shows the overlay in the skin you will actually get.
+- The Mac classes in Settings are named by memory alone ("16 GB class"), because naming a Mac model beside the real chip read as the app deciding which Mac this is.
 - **SpeechText has a new bundle identifier**, `app.speech-text.SpeechText`, taken from the project's own domain. macOS asks once more for the microphone, speech recognition and Accessibility; your settings, API keys, shortcuts, presets, History and downloaded models carry over. The old grants can be cleared with `tccutil reset All com.speechtext.app`.
 - **No cancel is silent.** Every cancelled dictation or edit now says so, and why. A dictation cancelled while the AI was rewriting it says it is saved in History. While a dictation is being transcribed or rewritten, the menu's recording items read *Cancel Dictation*.
 - **Edit with AI works on what is selected when you finish the instruction**, not what was selected when you started. If you select other text while speaking, that is the text that gets edited.
@@ -31,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A disk image that shows how to install.** Opening it shows SpeechText, an arrow and your Applications folder, and says what happens next. Opened straight from the disk image, SpeechText offers to move itself to Applications and starts again from there; once it is installed, setup offers to eject the disk image and move it to the Trash.
+- **A disk image that shows how to install.** Opening it shows SpeechText, an arrow and your Applications folder, and says what happens next. Opened straight from the disk image, SpeechText offers to move itself to Applications and starts again from there. The disk image is left for you to eject.
 - **A setup window on first run**, instead of two unexplained permission alerts. It walks through choosing a speech engine, an optional AI provider, the keys those need, the microphone and Accessibility permissions and whether to launch at login — and ends with a dictation you can try before you rely on it. Close it half-way and it opens where you left it. It is in the menu any time as *Continue Setup…*.
 - **Automatic updates.** SpeechText now checks once a day whether a newer version has been released, offers it with that version's release notes, and installs it when you agree — the menu's *Check for Updates…* asks right away. Every update is signed with a key of the project's own, checked before anything is installed.
 - **Local speech recognition** with open-source models, run on-device, installed, cancelled or removed with one click. No key, and nothing leaves the Mac. Two engines: **Parakeet v3** — NVIDIA's multilingual model in 25 European languages, through FluidAudio — and Whisper, through WhisperKit.
@@ -72,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Record Window's ✨ rewrites only the segment you just dictated, instead of rewriting everything above it in that segment's style. A rewrite that would cut the text to less than half is refused and the dictation kept as you said it — unless it went to a preset meant to shorten, such as Notes or Bullets.
 - With the Apple engine, a recognition failure at the very start ends the recording at once, with a notice that says what to do — add the language to Dictation, or allow Speech Recognition — instead of leaving the overlay listening to nothing until you stop.
 - "Auto (System)" no longer forces the keyboard layout's language on a cloud speech model. Whisper and Scribe detect the language themselves; being told the wrong one made them drop most of a recording and translate the rest. Apple's recogniser, which has no auto mode, still follows the layout.
-- The end of a dictation is no longer lost when the connection drops mid-sentence. The upload that takes over re-words the opening slightly, which used to read as a different dictation and stop everything after it from being pasted. Where the text really is unrelated, a notice now says part of the dictation wasn't pasted and opens History, instead of saying nothing.
+- The end of a dictation is no longer lost when the connection drops mid-sentence. The upload that takes over re-words the opening slightly, which used to read as a different dictation and stop everything after it from being pasted. A dictation is now pasted whole, once, at the stop.
 - Connecting AirPods or unplugging an interface in the middle of a sentence no longer loses the first half of the dictation. A headset that keeps reconnecting ends the recording with what you said rather than looping.
 - A word the live stream cut in two ("…база дани" + "х, звідки") is glued back together instead of being pasted with a space in the middle.
 - A muted or dead microphone no longer produces "Thank you for watching." Silence is not uploaded, and the recording is kept so you can retry it from History once the microphone works.

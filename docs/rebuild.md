@@ -11,12 +11,14 @@ current source, replaces `/Applications/SpeechText.app`, and starts it.
 |---|---|
 | *(none)* | Build Release, install, launch |
 | `--debug` | Debug configuration instead (backups are kept per configuration) |
+| `--release` | Release configuration (the default; undoes an earlier `--debug` on the same line) |
 | `--no-launch` | Build and install, leave it stopped |
 | `--status` | What is installed, what is running, whether either is HEAD |
 | `--list` | The retained previous builds |
 | `--rollback [ID]` | Reinstall the previous build, or a named one, and launch it |
 | `--remove-legacy` | Move `SpeachText.app` / `VoicePeter.app` to the Trash |
 | `--tag X.Y.Z` | Cut a release: version, CHANGELOG, commit, annotated tag |
+| `-h`, `--help` | Print the usage lines from the script's header |
 
 The script prints one line per stage and exits non-zero on failure, then ends every
 build and rollback — successful or not — with a **SUMMARY** block: what happened, the
@@ -25,7 +27,7 @@ and from where (a copy running from anywhere else is called out), the signing, a
 pre-rename copy still in `/Applications`. Open the build log only when the summary
 points you at one.
 
-## Two things to do once, before the first run
+## Two things to do once, before the first run (and a third, optional)
 
 **1. Accept the Xcode licence.** Xcode's GUI licence was agreed for an older version
 than the one installed, and `xcodebuild` refuses to run until the terminal one is
@@ -69,7 +71,7 @@ yours differently.
 The provisioning profile; `SPT_PROVISIONING_PROFILE` points elsewhere), the build is
 signed for the data-protection keychain and keeps the API keys there, as a release does
 — the run prints `Signed for the keychain`. The profile is embedded only when its team,
-app and certificate match the signing identity, since one that does not match is an app
+app and certificate match the signing identity and it has not expired, since one that does not match is an app
 that never launches; anything else prints why and keeps the keys in UserDefaults.
 
 Whichever way it went, the summary at the end of a run says which you got:
@@ -102,7 +104,8 @@ shows it:
 SpeechText 0.9.0 (build 47 · a18a7d1 · 2026-09-16 14:20)
 ```
 
-`0.9.0` is the release version from CHANGELOG.md and only moves on `--tag`. `build 47`
+`0.9.0` is the release version — `MARKETING_VERSION` in `project.pbxproj` — and only moves on
+`--tag`, which dates the matching CHANGELOG section at the same time. `build 47`
 is the commit count, `a18a7d1` the commit — with a trailing `+` when the working
 tree had uncommitted changes, which is the whole warning: what ran is not any commit,
 so a bug found in it cannot be reproduced from git alone. Clicking the line copies it,
@@ -132,9 +135,11 @@ app "sometimes ignores the hotkey" — and the cause is invisible, because a men
 agent has no dock icon to reveal that two are running.
 
 The script stops **every name the app has shipped under** — `SpeechText`,
-`SpeachText`, `VoicePeter` — not just the current one. They are three different
-bundle identifiers with three separate registrations, so stopping only the current
-name leaves exactly the race this is meant to prevent.
+`SpeachText`, `VoicePeter` — not just the current one. Behind those three process names
+are four bundle identifiers (`com.voicepeter.app`, `com.speachtext.app`, then
+`com.speechtext.app` and `app.speech-text.SpeechText`, both shipped as `SpeechText`),
+each with its own registration, so stopping only the current name leaves exactly the
+race this is meant to prevent.
 
 The stop happens **after** a successful build, not before it. A build that fails
 therefore leaves the app you were using running and installed; there is nothing to
@@ -160,11 +165,17 @@ moves it to the Trash (not `rm -rf`, so it can be fished back out), and the old 
 item is worth clearing in System Settings › General › Login Items, or two agents
 start at every boot.
 
+The last step, `com.speechtext.app` → `app.speech-text.SpeechText`, kept the name, so it
+installs over the same `/Applications/SpeechText.app` and there is no old bundle to
+remove — `--remove-legacy` knows only `SpeachText` and `VoicePeter`. It still re-asks for
+the three permissions, and a login item registered under the old identifier is worth
+clearing in Login Items the same way.
+
 ## Backups and rollback
 
 Before each install the outgoing `/Applications/SpeechText.app` is copied to
 `build/backups/<config>/<timestamp>/` with the stamp it carried. The last three are
-kept (~4 MB each). Only the built bundle is saved, never the source — the source is
+kept (~40 MB each). Only the built bundle is saved, never the source — the source is
 in git, and a second source-history mechanism would drift out of step with it.
 
 What this buys you is the case git cannot cover on its own: a change that compiles and
@@ -198,8 +209,9 @@ to you. Run the script again afterwards to install the build that now says `0.10
 
 Pushing the tag is what publishes: the **Release** workflow signs and notarizes the
 build and opens a *draft* GitHub release with the disk image, which a person then
-checks and publishes. That needs the Developer ID secrets; without them the workflow
-fails instead of releasing an unsigned image. See `docs/releasing.md`.
+checks and publishes. That needs the Developer ID secrets, the provisioning profile
+(`DEVELOPER_ID_PROFILE_BASE64`) and the Sparkle key (`SPARKLE_ED_PRIVATE_KEY`); without
+them the workflow fails instead of releasing an unsigned image. See `docs/releasing.md`.
 
 It never writes release notes. What goes under `[Unreleased]` is written by hand as
 the work happens; a generated summary of commit subjects is not a changelog.

@@ -145,8 +145,7 @@ func transcriptOverlap(head: [TranscriptWord], tail: [TranscriptWord]) -> (words
 ///
 /// Judged by the words' longest common subsequence rather than position by position, so
 /// a word revised into three, or three into one, costs only the words it changed. It
-/// counts when the subsequence keeps `restatementAgreement` of `head`'s words in order —
-/// the tolerance `InsertionLedger.remainder` already falls back to for the same reason.
+/// counts when the subsequence keeps `restatementAgreement` of `head`'s words in order.
 ///
 /// `end` is the number of `tail`'s words the restatement takes up: the shortest prefix
 /// holding every match, plus one word for each of `head`'s words after its last match,

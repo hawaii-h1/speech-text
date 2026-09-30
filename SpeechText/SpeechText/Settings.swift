@@ -24,7 +24,7 @@ enum SettingsKeys {
     /// `openAIModel`, which is the chat model for the rewrite pass — the two tiers
     /// pick independently and share only `openAIAPIKey`.
     static let openAISTTModel = "openAISTTModel"
-    /// `LocalSTTModel.id` (a WhisperKit variant) the local engine transcribes with.
+    /// `LocalSTTModel.id` (a WhisperKit variant or Parakeet) the local engine transcribes with.
     static let localSTTModel = "localSTTModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
     static let removeDisfluencies = "removeDisfluencies"
@@ -65,13 +65,12 @@ enum SettingsKeys {
     static let defaultPresetID = "defaultPresetID"
     /// Whether the Record Window's ✨ toggle is on.
     static let aiModeInRecordWindow = "aiModeInRecordWindow"
-    /// Whether an AI dictation tells the model which app, window and field it is for.
 
     // Launch at Login
     static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
 
-    /// Whether holding a dictation shortcut records until it is let go. A quick tap still
-    /// toggles, so this only adds the hold. Off by default.
+    /// Whether holding a dictation shortcut records until it is let go. A lone tap then
+    /// cancels and a double tap locks the dictation on. Off by default.
     static let holdToTalk = "holdToTalk"
 
     /// ⎋ cancels a dictation or an edit while its overlay is up. Off by default: the
@@ -119,9 +118,9 @@ enum SettingsKeys {
 
     /// Everything worth carrying across a rename.
     ///
-    /// Deliberately not the whole domain: `hasRegisteredLaunchAtLogin` and the
-    /// accessibility prompt flag describe grants made to the *old* bundle identifier,
-    /// and copying them would leave the new app unregistered and unprompted.
+    /// Deliberately not the whole domain: `hasRegisteredLaunchAtLogin` describes a
+    /// registration made under the *old* bundle identifier, and copying it would leave
+    /// the new app convinced it is a login item when it is not.
     ///
     /// Sparkle's own keys (`SUEnableAutomaticChecks`, `SULastCheckTime`,
     /// `SUSkippedVersion`) are missing for the same reason, and should stay missing: a
@@ -140,6 +139,7 @@ enum SettingsKeys {
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         editHotkeyKeyCode, editHotkeyModifierFlags,
+        holdToTalk, escapeCancelsDictation,
         llmProvider, groqLLMModel, anthropicModel,
         openAIModel, ollamaModel, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow,

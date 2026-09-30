@@ -26,7 +26,7 @@ is_staged() { git diff --cached --name-only | grep -Fxq "$1"; }
 # 1. Xcode puts the signing team back into project.pbxproj whenever a build
 #    setting changes, and the repo has to build for anyone who clones it.
 if is_staged "$pbxproj"; then
-    team=$(staged_content "$pbxproj" | grep -n 'DEVELOPMENT_TEAM = "[A-Z0-9]')
+    team=$(staged_content "$pbxproj" | grep -nE 'DEVELOPMENT_TEAM = "?[A-Z0-9]')
     if [ -n "$team" ]; then
         note "project.pbxproj carries a DEVELOPMENT_TEAM:"
         printf '%s\n' "$team" >&2

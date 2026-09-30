@@ -48,14 +48,14 @@ Two consequences follow, and both matter more than they look:
 - **The account holder's own name is what users see** in the installer and in System
   Settings' developer line until the migration happens.
 
-**The repository will be made public.** Two things must happen first, and neither is
-optional:
+**The repository will be made public.** Two things had to happen first; one is left:
 
-1. The history rewrite that removes the competitive research (issue #45). `git log -p`
-   reaches every deleted blob; making the repository public publishes them.
-2. The continuous-integration rework (issue #59). `ci.yml` runs `on: pull_request` on a
-   self-hosted Mac, which is the organisation's own machine. On a public repository a
-   pull request from any stranger would execute there.
+1. The history rewrite that removes the competitive research (issue #45, still open).
+   `git log -p` reaches every deleted blob; making the repository public publishes them.
+2. Done: the continuous-integration rework (issue #59). Every `runs-on` in `ci.yml`, and
+   the pull-request run in `release.yml`, is keyed on the repository's visibility, so once
+   it is public a pull request runs on a GitHub-hosted machine, never on the
+   organisation's self-hosted Mac.
 
 ## One-time setup
 
@@ -175,7 +175,8 @@ group. A Developer ID app can carry one:
 The profile lists the certificates it authorises. A new Developer ID certificate
 therefore needs the profile regenerated with it too, or the next image is refused by
 `package-release.sh` — which checks team, app and certificate before it embeds anything,
-because a profile that does not match is an app that never launches. The profile issued
+because a profile that does not match is an app that never launches (and an expired
+one is refused the same way). The profile issued
 on 2026-09-28 expires in 2044.
 
 ## Cutting a release
@@ -228,7 +229,8 @@ only. A manual run with no certificate in the secrets builds and uploads
 
 ## Checking a signed build
 
-`scripts/package-release.sh` runs these at the end; to check an image yourself (one from
+`scripts/package-release.sh` runs the two `spctl` checks at the end (it staples, but does
+not run `stapler validate`); to check an image yourself (one from
 a draft release or a manual run), or the app it installed:
 
 ```bash
@@ -331,7 +333,8 @@ all: it builds `SpeechText-X.Y.Z-unsigned.dmg`, signed ad-hoc and labelled as no
 distribution — and it only exercises the packaging: the app in it does not start,
 because an ad-hoc signature has no team and the hardened runtime then refuses the
 Sparkle framework (docs/rebuild.md explains; `scripts/rebuild.sh` is how to run a local
-build). `--from-app PATH` packages an app that is already built. [Checking a signed
+build). `--from-app PATH` packages an app that is already built, and `--out DIR` puts the image
+somewhere other than `build/release` (the workflow uses it). [Checking a signed
 build](#checking-a-signed-build) has the commands that verify the result.
 
 ## The disk image window

@@ -85,7 +85,7 @@ jobs:
 
       - name: DEVELOPMENT_TEAM must be empty
         run: |
-          if grep -n 'DEVELOPMENT_TEAM = "[A-Z0-9]' SpeechText/SpeechText.xcodeproj/project.pbxproj; then
+          if grep -nE 'DEVELOPMENT_TEAM = "?[A-Z0-9]' SpeechText/SpeechText.xcodeproj/project.pbxproj; then
             echo
             echo "project.pbxproj carries a DEVELOPMENT_TEAM. Xcode puts it back whenever a"
             echo "build setting changes — revert that hunk so the repo builds for anyone."
