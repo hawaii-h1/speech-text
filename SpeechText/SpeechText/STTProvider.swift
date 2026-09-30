@@ -108,6 +108,13 @@ enum STTTuning {
     /// OpenAI and could never be retried from History.
     static let minimumSegmentSeconds: Double = 0.3
 
+    /// A segment no longer than this whose whole result is a known hallucination
+    /// (`HallucinationFilter`) is kept as an empty result, its audio archived. Long
+    /// enough for a shortcut pressed with a breath or a cough behind it; short enough
+    /// that a real dictation of one of those phrases on its own is unlikely. A starting
+    /// value, not a measurement: the audio corpus (#80) is what tunes it.
+    static let hallucinationSegmentSeconds: Double = 2.0
+
     /// Batch upload timeouts. `URLSession.shared` ignores `URLRequest.timeoutInterval`
     /// and enforces its own 60 s default, which a multi-minute FLAC can exceed. 120 s
     /// per request covers a stalled response; 300 s for the whole resource covers a

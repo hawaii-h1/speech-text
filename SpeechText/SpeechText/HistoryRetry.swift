@@ -67,7 +67,13 @@ final class HistoryRetry {
         do {
             let provider = makeBatchProvider(configuration: configuration)
             let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
-            let trimmed = configuration.cleaned(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            var trimmed = configuration.cleaned(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            // A retry sends the same short clip to a model again, and gets the same
+            // invented sign-off back — which would land on the clipboard as a success.
+            if HallucinationFilter.isHallucination(trimmed, segmentSeconds: record.duration) {
+                dlog("History", "retry \(recordID.uuidString.prefix(8)): the whole result is a known hallucination — dropped")
+                trimmed = ""
+            }
             guard !trimmed.isEmpty else {
                 let message = "Retry returned no text"
                 history.markRetryFailed(id: recordID, error: message)

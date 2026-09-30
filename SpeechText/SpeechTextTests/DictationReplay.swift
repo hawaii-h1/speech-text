@@ -154,6 +154,9 @@ final class DictationReplay {
         var aiMode = false
         var removesDisfluencies = true
         var dashStyle = DashStyle.default
+        /// The segment's audio, for the guards that measure it. nil is an empty writer:
+        /// nothing measured, so only the text decides.
+        var writer: AudioBufferWriter?
     }
 
     enum Step {
@@ -353,7 +356,7 @@ final class DictationReplay {
         // A reconnect opens a fresh scripted socket, at once: the policy's waits are
         // real time, and what they pace is not what a replay is about.
         session = StreamingRecognitionSession(
-            provider: provider, writer: AudioBufferWriter(), languages: [], fallback: fallback,
+            provider: provider, writer: setup.writer ?? AudioBufferWriter(), languages: [], fallback: fallback,
             reconnect: { [unowned self] in
                 MainActor.assumeIsolated {
                     let next = ScriptedStreamingProvider()

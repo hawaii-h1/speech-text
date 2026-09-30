@@ -1921,3 +1921,47 @@ final class STTModelCatalogTests: XCTestCase {
                        "Parakeet v3 isn't installed — download it in Settings.")
     }
 }
+
+// MARK: - Known hallucinations (HallucinationFilter.swift)
+
+final class HallucinationFilterTests: XCTestCase {
+
+    func testAKnownPhraseThatIsTheWholeResultOfAShortSegmentIsAHallucination() {
+        for text in ["Thank you for watching!", "  thanks for watching.", "Evet.", "Seyit.",
+                     "Дякую за перегляд!", "Продолжение следует...", "Субтитры сделал DimaTorzok", "Субтитрування DimaTorzok",
+                     "Subtitles by the Amara.org community"] {
+            XCTAssertTrue(HallucinationFilter.isHallucination(text, segmentSeconds: 1.2), text)
+        }
+    }
+
+    func testTheSamePhraseInALongerSegmentIsLeftAlone() {
+        XCTAssertFalse(HallucinationFilter.isHallucination("Evet.", segmentSeconds: 2.5))
+        XCTAssertTrue(HallucinationFilter.isHallucination("Evet.", segmentSeconds: STTTuning.hallucinationSegmentSeconds))
+    }
+
+    /// Only the whole result: the words inside a real dictation are speech.
+    func testAPhraseInsideADictationIsLeftAlone() {
+        for text in ["Evet, bu doğru.", "Thank you for watching the demo yesterday.",
+                     "Дякую за перегляд документа", "Субтитрик", "Altyazılar hazır",
+                     "Transcription by Friday.", "Субтитры готовы.", "Subtitles by tomorrow, please."] {
+            XCTAssertFalse(HallucinationFilter.isHallucination(text, segmentSeconds: 1), text)
+        }
+    }
+
+    /// Phrases a person plausibly dictates on their own are not on the list.
+    func testShortRealRepliesAreNotOnTheList() {
+        for text in ["Thank you.", "Дякую за увагу.", "Так.", "Yes.", ""] {
+            XCTAssertFalse(HallucinationFilter.isHallucination(text, segmentSeconds: 1), text)
+        }
+    }
+
+    /// A writer that measured nothing (0 s) leaves the phrase as the only evidence.
+    func testAnUnmeasuredSegmentCountsAsShort() {
+        XCTAssertTrue(HallucinationFilter.isHallucination("Evet.", segmentSeconds: 0))
+    }
+
+    func testNormalisationKeepsWordsAndDropsEverythingElse() {
+        XCTAssertEqual(HallucinationFilter.normalized("  Don’t — STOP!! 42 "), "dont stop 42")
+        XCTAssertEqual(HallucinationFilter.normalized("Дякую\nза   перегляд…"), "дякую за перегляд")
+    }
+}

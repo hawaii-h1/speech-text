@@ -68,6 +68,10 @@ final class BatchRecognitionSession: RecognitionSession {
             dlog("Engine", "BatchRecognitionSession.finish: calling provider, language=\(language ?? "auto")…")
             let text = try await provider.transcribe(audioFileURL: fileURL, language: language).trimmingCharacters(in: .whitespacesAndNewlines)
             dlog("Engine", "BatchRecognitionSession.finish: done, \(text.count) chars")
+            if HallucinationFilter.isHallucination(text, segmentSeconds: duration) {
+                dlog("Engine", "BatchRecognitionSession.finish: the whole result is a known hallucination of a \(String(format: "%.1f", duration))s segment — dropped, audio kept")
+                return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: false)
+            }
             return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false)
         } catch {
             dlog("Engine", "BatchRecognitionSession.finish: error: \(error.localizedDescription)")

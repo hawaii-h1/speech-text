@@ -160,7 +160,21 @@ final class StreamingRecognitionSession: RecognitionSession {
                 failure = error.localizedDescription
             }
         }
-        onEvent?(.live(committed: committedText, partial: partialText))
+        emitLive()
+    }
+
+    /// What the overlay draws. A stream opened on silence may answer with a known
+    /// hallucination ("Evet.") as its first words; while that is everything the segment
+    /// holds, the overlay shows nothing rather than flash it. The text itself is kept —
+    /// once real words follow, the whole of it is shown, which only extends the empty
+    /// view, so the span layer sees no revision.
+    private func emitLive() {
+        let whole = joinedSegments(committedText, partialText)
+        if HallucinationFilter.isHallucination(whole, segmentSeconds: writer.bufferedDuration) {
+            onEvent?(.live(committed: "", partial: ""))
+        } else {
+            onEvent?(.live(committed: committedText, partial: partialText))
+        }
     }
 
     /// Schedules the stream's reconnect after `error`, when the policy allows one. False
@@ -286,6 +300,7 @@ final class StreamingRecognitionSession: RecognitionSession {
         }
 
         if failure == nil, !hadOutage, !text.isEmpty {
+            if let dropped = await guardedStreamResult(text) { return dropped }
             dlog("Engine", "StreamingRecognitionSession.finish: stream done, \(text.count) chars")
             return RecognitionOutcome(text: text, error: nil, audioFileURL: nil, cancelled: false)
         }
@@ -299,6 +314,35 @@ final class StreamingRecognitionSession: RecognitionSession {
             DictationTraceRecorder.record(.fallback, text: outcome.text, error: outcome.error)
         }
         return outcome
+    }
+
+    /// The upload's guards, applied to the stream's answer: a segment too short to be
+    /// speech, a silent one and one whose whole text is a known hallucination come back
+    /// as they would from `BatchRecognitionSession`, not as text to paste. A stream is
+    /// answered by the server's model whatever the microphone heard, so without these it
+    /// pasted "Evet." for a shortcut pressed and let go. nil lets the text through.
+    ///
+    /// The silent and hallucinated segments are an empty result with no file: the engine
+    /// archives the writer's audio for a History retry itself (`recordOutcome`). A writer
+    /// that holds nothing measured nothing, and only the phrase test applies.
+    private func guardedStreamResult(_ text: String) async -> RecognitionOutcome? {
+        let duration = writer.bufferedDuration
+        let empty = RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: false)
+        var dropped: RecognitionOutcome?
+        if duration > 0, duration < STTTuning.minimumSegmentSeconds {
+            dlog("Engine", "StreamingRecognitionSession.finish: \(String(format: "%.2f", duration))s is too short to be speech — dropped")
+            dropped = .discarded
+        } else if duration > 0, !writer.hasAudibleSignal {
+            dlog("Engine", "StreamingRecognitionSession.finish: the segment is silent — its text dropped")
+            dropped = empty
+        } else if HallucinationFilter.isHallucination(text, segmentSeconds: duration) {
+            dlog("Engine", "StreamingRecognitionSession.finish: the whole result is a known hallucination of a \(String(format: "%.1f", duration))s segment — dropped")
+            dropped = empty
+        }
+        guard let dropped else { return nil }
+        // The overlay may still show what the stream said; it is not what the stop pastes.
+        await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
+        return dropped
     }
 
     func cancel() {

@@ -1083,3 +1083,37 @@ final class SelectionEditTests: XCTestCase {
         XCTAssertEqual(parsed.text, "The text.")
     }
 }
+
+// MARK: - A stream that invents words (#74)
+
+@MainActor
+final class HallucinationReplayTests: XCTestCase {
+
+    /// A shortcut pressed with nothing said: the stream answered "Evet." (#47). The
+    /// overlay never shows it and nothing is pasted.
+    func testAStreamThatAnswersOnlyWithAKnownHallucinationPastesNothing() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(in: app, [
+            .partial("Evet."),
+            .committed("Evet."),
+        ])
+
+        XCTAssertFalse(run.overlay.contains { $0.text.contains("Evet") })
+        XCTAssertEqual(run.document, "")
+        XCTAssertEqual(run.stop, .noSpeech)
+    }
+
+    /// The trace from the #47 pass: "Evet." as the first partial of a real dictation. It
+    /// is never drawn, and the real words replace it as a partial always replaces one.
+    func testAHallucinatedFirstPartialIsNeverDrawn() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(in: app, [
+            .partial("Evet."),
+            .partial("Привіт"),
+            .committed("Привіт, як справи."),
+        ])
+
+        XCTAssertFalse(run.overlay.contains { $0.text.contains("Evet") })
+        XCTAssertEqual(run.document, "Привіт, як справи. ")
+    }
+}

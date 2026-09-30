@@ -239,6 +239,136 @@ final class BatchRecognitionSessionTests: XCTestCase {
     }
 }
 
+private final class AnsweringBatchProvider: BatchSTTProvider, @unchecked Sendable {
+    let answer: String
+    init(_ answer: String) { self.answer = answer }
+    func transcribe(audioFileURL: URL, language: String?) async throws -> String { answer }
+}
+
+/// The upload's and the stream's guards against text nobody said (#74).
+final class HallucinationGuardTests: XCTestCase {
+
+    private func writer(seconds: Double, amplitude: Float = 0.5) -> AudioBufferWriter {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        for _ in 0 ..< Int((seconds / 0.1).rounded()) {
+            writer.append(makeSineBuffer(format: mono48k(), frames: 4_800, amplitude: amplitude))
+        }
+        return writer
+    }
+
+    private func upload(_ answer: String, seconds: Double) async -> RecognitionOutcome {
+        let session = BatchRecognitionSession(provider: AnsweringBatchProvider(answer),
+                                              writer: writer(seconds: seconds), language: nil)
+        return await session.finish()
+    }
+
+    /// The whole answer for a short segment is a subtitle sign-off: nothing to paste, the
+    /// audio kept for a History retry.
+    func testAnUploadAnsweredWithAKnownHallucinationIsEmptyAndKeepsItsAudio() async {
+        let outcome = await upload("Thank you for watching!", seconds: 1)
+        defer { outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
+
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertNil(outcome.error)
+        XCTAssertNotNil(outcome.audioFileURL)
+        XCTAssertFalse(outcome.cancelled, "an empty result, which History records")
+    }
+
+    func testTheSameAnswerForALongerSegmentIsKept() async {
+        let outcome = await upload("Thank you for watching!", seconds: 2.5)
+        defer { outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
+
+        XCTAssertEqual(outcome.text, "Thank you for watching!")
+    }
+
+    private func stream(_ text: String, writer: AudioBufferWriter) async -> RecognitionOutcome {
+        let provider = ScriptedStreamingProvider()
+        provider.eventsAtFinish = [.committed(text)]
+        let session = StreamingRecognitionSession(provider: provider, writer: writer, languages: [],
+                                                  fallback: ScriptedSegment(error: "no fallback expected"))
+        try! session.start()
+        return await session.finish()
+    }
+
+    /// A stream is answered by the server whatever the microphone heard, so the upload's
+    /// guards now apply to its text too.
+    func testAStreamAnsweredWithAKnownHallucinationIsEmpty() async {
+        let outcome = await stream("Evet.", writer: writer(seconds: 1))
+
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertNil(outcome.error)
+        XCTAssertFalse(outcome.cancelled)
+    }
+
+    func testAStreamOverASilentSegmentIsEmpty() async {
+        let outcome = await stream("Hello there.", writer: writer(seconds: 1, amplitude: 0.001))
+
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertFalse(outcome.cancelled, "an empty result, archived by the engine")
+    }
+
+    func testAStreamOverASegmentTooShortToBeSpeechLeavesNoTrace() async {
+        let outcome = await stream("Hello.", writer: writer(seconds: 0.2))
+
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertTrue(outcome.cancelled, "the one outcome the engine records nothing for")
+    }
+
+    func testAnAudibleStreamIsKept() async {
+        let outcome = await stream("Hello there.", writer: writer(seconds: 1))
+
+        XCTAssertEqual(outcome.text, "Hello there.")
+    }
+}
+
+/// The stream's guards seen where they matter: the stop pastes the span layer, not the
+/// session's outcome, so the words the overlay already drew must be taken back too.
+@MainActor
+final class HallucinationGuardReplayTests: XCTestCase {
+
+    private func writer(seconds: Double, amplitude: Float) -> AudioBufferWriter {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        for _ in 0 ..< Int((seconds / 0.1).rounded()) {
+            writer.append(makeSineBuffer(format: mono48k(), frames: 4_800, amplitude: amplitude))
+        }
+        return writer
+    }
+
+    private func replay(over writer: AudioBufferWriter) async -> DictationReplay.Result {
+        var setup = DictationReplay.Setup()
+        setup.writer = writer
+        return await DictationReplay.run(setup, in: FakeApp(), [
+            .partial("Hello"),
+            .committed("Hello there."),
+        ])
+    }
+
+    func testWordsAStreamInventedOverSilenceAreDrawnThenTakenBack() async {
+        let run = await replay(over: writer(seconds: 1, amplitude: 0.001))
+
+        XCTAssertTrue(run.overlay.contains { $0.text == "Hello there." })
+        XCTAssertEqual(run.overlay.last?.text, "")
+        XCTAssertEqual(run.document, "")
+        XCTAssertEqual(run.stop, .noSpeech)
+    }
+
+    func testWordsOverASegmentTooShortToBeSpeechAreTakenBack() async {
+        let run = await replay(over: writer(seconds: 0.2, amplitude: 0.5))
+
+        XCTAssertEqual(run.overlay.last?.text, "")
+        XCTAssertEqual(run.document, "")
+        XCTAssertEqual(run.stop, .noSpeech)
+    }
+
+    func testAnAudibleSegmentIsPasted() async {
+        let run = await replay(over: writer(seconds: 1, amplitude: 0.5))
+
+        XCTAssertEqual(run.document, "Hello there. ")
+    }
+}
+
 // MARK: - Recogniser failures (RecognitionSession.swift)
 
 final class RecognitionFailureTests: XCTestCase {
