@@ -30,6 +30,11 @@ enum SettingsKeys {
     static let removeDisfluencies = "removeDisfluencies"
     /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
     static let dashStyle = "dashStyle"
+    /// JSON-encoded `[VocabularyTerm]`: words and names the speech engine should expect.
+    static let customVocabulary = "customVocabulary"
+    /// Whether `customVocabulary` is sent to the engines that accept a term list. On
+    /// when absent; the vocabulary starts empty, so that sends nothing.
+    static let sendVocabularyToEngine = "sendVocabularyToEngine"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -135,6 +140,7 @@ enum SettingsKeys {
         sttProvider, groqModel, elevenLabsModel,
         openAISTTModel, localSTTModel,
         removeDisfluencies, dashStyle,
+        customVocabulary, sendVocabularyToEngine,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,

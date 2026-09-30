@@ -46,6 +46,19 @@ struct RecordingConfiguration {
     /// How the recogniser's em dashes are drawn — see `DashStyle`. Independent of
     /// `removesDisfluencies`: a user who wants every "е-е-е" kept may still not want "—".
     var dashStyle: DashStyle = .default
+    /// The user's vocabulary in the order it is sent (`CustomVocabulary.ranked`), or
+    /// empty when the switch is off. Each model takes what its limits allow
+    /// (`vocabulary(for:)`). Defaulted so a configuration built by hand sends nothing.
+    var vocabulary: [String] = []
+
+    /// The terms the selected model is sent — the stream, or Apple's recogniser.
+    var liveVocabulary: [String] { vocabulary(for: model) }
+    /// The terms a file upload is sent: the batch tier, the stream's fallback, a retry.
+    var batchVocabulary: [String] { vocabulary(for: batchDescriptor) }
+
+    func vocabulary(for descriptor: STTModelDescriptor) -> [String] {
+        CustomVocabulary.selected(vocabulary, limits: descriptor.vocabulary.limits)
+    }
 
     /// `cleanedTranscript(text)` when the setting is on, `text` untouched otherwise, with
     /// its dashes in the chosen style either way.
@@ -153,7 +166,7 @@ struct RecordingConfiguration {
         let keys = APIKeyStore.shared
         let raw = defaults.string(forKey: SettingsKeys.sttProvider) ?? "apple"
         let spoken = storedSpokenLanguages()
-        return RecordingConfiguration(
+        var configuration = RecordingConfiguration(
             provider: STTProviderType(rawValue: raw) ?? .apple,
             locale: locale,
             languages: spoken,
@@ -168,5 +181,16 @@ struct RecordingConfiguration {
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
             dashStyle: .current
         )
+        if CustomVocabulary.isSent(defaults) {
+            let terms = CustomVocabulary.stored(defaults)
+            // History is searched only when a model this session may use cannot take
+            // every term — this runs on every start, before the socket opens.
+            let capacities = [configuration.model, configuration.batchDescriptor]
+                .compactMap { $0.vocabulary.limits?.maxTerms }
+            let rankByUse = capacities.contains { $0 < terms.count }
+            configuration.vocabulary = CustomVocabulary.ranked(terms, now: Date(), rankByUse: rankByUse,
+                                                               historyTexts: CustomVocabulary.historyTexts)
+        }
+        return configuration
     }
 }

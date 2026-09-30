@@ -44,9 +44,14 @@ final class AppleRecognitionSession: RecognitionSession {
     private var finishContinuation: CheckedContinuation<Bool, Never>?
     private var finishDeadline: DispatchWorkItem?
 
-    init(recognizer: SFSpeechRecognizer?, locale: String) {
+    /// The user's vocabulary, fitted to Apple's limit — set on every chunk's request,
+    /// since each rotation builds a new one.
+    private let contextualStrings: [String]
+
+    init(recognizer: SFSpeechRecognizer?, locale: String, contextualStrings: [String] = []) {
         self.recognizer = recognizer
         self.locale = locale
+        self.contextualStrings = contextualStrings
     }
 
     func start() throws {
@@ -74,6 +79,9 @@ final class AppleRecognitionSession: RecognitionSession {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
+        if !contextualStrings.isEmpty {
+            request.contextualStrings = contextualStrings
+        }
         self.request = request
 
         chunkToken += 1

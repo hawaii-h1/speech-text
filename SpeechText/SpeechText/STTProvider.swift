@@ -159,9 +159,11 @@ func multipartAudioPart(for fileURL: URL) -> (filename: String, mimeType: String
 func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvider {
     switch configuration.provider {
     case .elevenlabs:
-        ElevenLabsSTTProvider(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel)
+        ElevenLabsSTTProvider(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel,
+                              keyterms: configuration.batchVocabulary)
     case .openai:
-        OpenAISTTProvider(apiKey: configuration.openAIAPIKey, model: configuration.batchModel)
+        OpenAISTTProvider(apiKey: configuration.openAIAPIKey, model: configuration.batchModel,
+                          keywords: configuration.batchVocabulary)
     case .groq, .apple:
         GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel)
     case .local:
@@ -256,6 +258,9 @@ enum GroqError: LocalizedError {
 struct ElevenLabsSTTProvider: BatchSTTProvider {
     let apiKey: String
     let model: String
+    /// The user's vocabulary, already fitted to this model (`RecordingConfiguration
+    /// .batchVocabulary`). Empty sends no field at all.
+    let keyterms: [String]
 
     /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
     private static let session: URLSession = {
@@ -265,9 +270,10 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = defaultElevenLabsModel) {
+    init(apiKey: String, model: String = defaultElevenLabsModel, keyterms: [String] = []) {
         self.apiKey = apiKey
         self.model = model
+        self.keyterms = keyterms
     }
 
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {
@@ -281,28 +287,11 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
 
         let audioData = try Data(contentsOf: audioFileURL)
         let part = multipartAudioPart(for: audioFileURL)
-        dlog("ElevenLabs", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")")
+        // The count only: terms are often people's names, and the log is public.
+        dlog("ElevenLabs", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil"), keyterms=\(keyterms.count)")
 
-        var body = Data()
-
-        body.appendMultipartFile(boundary: boundary, name: "file",
-                                 filename: part.filename, mimeType: part.mimeType,
-                                 data: audioData)
-        body.appendMultipartField(boundary: boundary, name: "model_id", value: model)
-        // Quality flags — see `STTTuning`. Both are accepted by every batch model ID
-        // (verified against scribe_v1 and scribe_v2).
-        body.appendMultipartField(boundary: boundary, name: "tag_audio_events",
-                                  value: STTTuning.tagAudioEvents ? "true" : "false")
-        body.appendMultipartField(boundary: boundary, name: "no_verbatim",
-                                  value: STTTuning.noVerbatim ? "true" : "false")
-
-        if let language {
-            let iso639 = String(language.prefix(2))
-            body.appendMultipartField(boundary: boundary, name: "language_code", value: iso639)
-        }
-
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
+        request.httpBody = Self.multipartBody(boundary: boundary, audio: audioData, part: part,
+                                              model: model, language: language, keyterms: keyterms)
 
         let startTime = CFAbsoluteTimeGetCurrent()
         dlog("ElevenLabs", "transcribe: sending request…")
@@ -319,6 +308,39 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
         let decoded = try JSONDecoder().decode(ElevenLabsTranscriptionResponse.self, from: data)
         dlog("ElevenLabs", "transcribe: success, text=\(decoded.text.count) chars")
         return decoded.text
+    }
+}
+
+extension ElevenLabsSTTProvider {
+    /// The upload's form, apart so its fields can be tested without a request.
+    static func multipartBody(boundary: String, audio: Data, part: (filename: String, mimeType: String),
+                              model: String, language: String?, keyterms: [String]) -> Data {
+        var body = Data()
+
+        body.appendMultipartFile(boundary: boundary, name: "file",
+                                 filename: part.filename, mimeType: part.mimeType,
+                                 data: audio)
+        body.appendMultipartField(boundary: boundary, name: "model_id", value: model)
+        // Quality flags — see `STTTuning`. Both are accepted by every batch model ID
+        // (verified against scribe_v1 and scribe_v2).
+        body.appendMultipartField(boundary: boundary, name: "tag_audio_events",
+                                  value: STTTuning.tagAudioEvents ? "true" : "false")
+        body.appendMultipartField(boundary: boundary, name: "no_verbatim",
+                                  value: STTTuning.noVerbatim ? "true" : "false")
+
+        if let language {
+            let iso639 = String(language.prefix(2))
+            body.appendMultipartField(boundary: boundary, name: "language_code", value: iso639)
+        }
+
+        // A list field is the same name repeated, which is how the vendor's own SDK
+        // sends it. +20 % on the transcription's price, so nothing unless there are terms.
+        for term in keyterms {
+            body.appendMultipartField(boundary: boundary, name: "keyterms", value: term)
+        }
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
     }
 }
 
@@ -355,6 +377,9 @@ enum ElevenLabsError: LocalizedError {
 struct OpenAISTTProvider: BatchSTTProvider {
     let apiKey: String
     let model: String
+    /// The user's vocabulary, already fitted to this model (`RecordingConfiguration
+    /// .batchVocabulary`). Empty sends no field at all.
+    let keywords: [String]
 
     /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
     private static let session: URLSession = {
@@ -364,9 +389,10 @@ struct OpenAISTTProvider: BatchSTTProvider {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = defaultOpenAISTTModel) {
+    init(apiKey: String, model: String = defaultOpenAISTTModel, keywords: [String] = []) {
         self.apiKey = apiKey
         self.model = model
+        self.keywords = keywords
     }
 
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {
@@ -380,25 +406,11 @@ struct OpenAISTTProvider: BatchSTTProvider {
 
         let audioData = try Data(contentsOf: audioFileURL)
         let part = multipartAudioPart(for: audioFileURL)
-        dlog("OpenAI", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")")
+        // The count only: terms are often people's names, and the log is public.
+        dlog("OpenAI", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil"), keywords=\(keywords.count)")
 
-        var body = Data()
-
-        body.appendMultipartFile(boundary: boundary, name: "file",
-                                 filename: part.filename, mimeType: part.mimeType,
-                                 data: audioData)
-        body.appendMultipartField(boundary: boundary, name: "model", value: model)
-
-        if let language {
-            // `language` (singular) is what whisper-1 documents; gpt-transcribe documents
-            // `languages` but accepts this one too and normalises it — verified against
-            // the live endpoint, which answered `"languages":[{"code":"uk"}]` to it.
-            let iso639 = String(language.prefix(2))
-            body.appendMultipartField(boundary: boundary, name: "language", value: iso639)
-        }
-
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
+        request.httpBody = Self.multipartBody(boundary: boundary, audio: audioData, part: part,
+                                              model: model, language: language, keywords: keywords)
 
         let startTime = CFAbsoluteTimeGetCurrent()
         dlog("OpenAI", "transcribe: sending request…")
@@ -432,6 +444,35 @@ struct OpenAISTTProvider: BatchSTTProvider {
             return objects.compactMap { $0["code"] as? String }.joined(separator: ",")
         }
         return String(describing: raw)
+    }
+}
+
+extension OpenAISTTProvider {
+    /// The upload's form, apart so its fields can be tested without a request.
+    static func multipartBody(boundary: String, audio: Data, part: (filename: String, mimeType: String),
+                              model: String, language: String?, keywords: [String]) -> Data {
+        var body = Data()
+
+        body.appendMultipartFile(boundary: boundary, name: "file",
+                                 filename: part.filename, mimeType: part.mimeType,
+                                 data: audio)
+        body.appendMultipartField(boundary: boundary, name: "model", value: model)
+
+        if let language {
+            // `language` (singular) is what whisper-1 documents; gpt-transcribe documents
+            // `languages` but accepts this one too and normalises it — verified against
+            // the live endpoint, which answered `"languages":[{"code":"uk"}]` to it.
+            let iso639 = String(language.prefix(2))
+            body.appendMultipartField(boundary: boundary, name: "language", value: iso639)
+        }
+
+        // `keywords[]`, one field per term, as the vendor's guide writes it.
+        for term in keywords {
+            body.appendMultipartField(boundary: boundary, name: "keywords[]", value: term)
+        }
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
     }
 }
 

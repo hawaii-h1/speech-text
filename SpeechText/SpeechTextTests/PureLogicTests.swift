@@ -1965,3 +1965,201 @@ final class HallucinationFilterTests: XCTestCase {
         XCTAssertEqual(HallucinationFilter.normalized("Дякую\nза   перегляд…"), "дякую за перегляд")
     }
 }
+
+// MARK: - Custom vocabulary (CustomVocabulary.swift)
+
+final class CustomVocabularyTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 2_000_000_000)
+    private func term(_ text: String, daysAgo: Double) -> VocabularyTerm {
+        VocabularyTerm(text: text, added: now.addingTimeInterval(-daysAgo * 86_400))
+    }
+
+    // MARK: Entry
+
+    func testAnEntryIsTrimmedToOneLine() {
+        XCTAssertEqual(CustomVocabulary.normalizedEntry("  Speech\nText  \t app "), "Speech Text app")
+    }
+
+    func testAnEntryAnyEngineWouldRefuseIsNotStored() {
+        XCTAssertEqual(CustomVocabulary.entryProblem("   ", existing: []), .empty)
+        XCTAssertEqual(CustomVocabulary.entryProblem("<b>", existing: []), .forbiddenCharacter("<"))
+        XCTAssertEqual(CustomVocabulary.entryProblem("a[1]", existing: []), .forbiddenCharacter("["))
+        XCTAssertEqual(CustomVocabulary.entryProblem(String(repeating: "x", count: 50), existing: []), .tooLong)
+        XCTAssertEqual(CustomVocabulary.entryProblem("one two three four five six", existing: []), .tooManyWords)
+        XCTAssertEqual(CustomVocabulary.entryProblem("kubectl", existing: [term("Kubectl", daysAgo: 1)]), .duplicate)
+        XCTAssertNil(CustomVocabulary.entryProblem("C++", existing: []))
+        XCTAssertNil(CustomVocabulary.entryProblem("Гусаков", existing: []))
+        XCTAssertNil(CustomVocabulary.entryProblem(String(repeating: "x", count: 49), existing: []))
+    }
+
+    func testTheStoredListRoundTripsAndGarbageReadsAsEmpty() {
+        let terms = [term("SpeechText", daysAgo: 0), term("Parakeet", daysAgo: 3)]
+        XCTAssertEqual(CustomVocabulary.decode(CustomVocabulary.encode(terms)), terms)
+        XCTAssertEqual(CustomVocabulary.decode(Data("nope".utf8)), [])
+        XCTAssertEqual(CustomVocabulary.decode(nil), [])
+    }
+
+    // MARK: Ranking
+
+    func testTermsAddedThisWeekGoFirstNewestFirst() {
+        let terms = [term("Old", daysAgo: 30), term("Newer", daysAgo: 1), term("Newest", daysAgo: 0.1)]
+        let ranked = CustomVocabulary.ranked(terms, now: now, rankByUse: true,
+                                             historyTexts: { ["Old old old"] })
+        XCTAssertEqual(ranked, ["Newest", "Newer", "Old"])
+    }
+
+    func testOlderTermsAreRankedByWholeWordUseInHistory() {
+        let terms = [term("API", daysAgo: 20), term("Kubernetes", daysAgo: 30), term("AC-42", daysAgo: 40)]
+        let history = ["A rapid rapid change", "kubernetes, and Kubernetes again", "ac-42 shipped"]
+        let ranked = CustomVocabulary.ranked(terms, now: now, rankByUse: true, historyTexts: { history })
+        // "rapid" is not "API"; case and punctuation are ignored.
+        XCTAssertEqual(ranked, ["Kubernetes", "AC-42", "API"])
+    }
+
+    func testHistoryIsNotReadWhenNoModelNeedsTheRanking() {
+        let terms = [term("B", daysAgo: 30), term("A", daysAgo: 20)]
+        let ranked = CustomVocabulary.ranked(terms, now: now, rankByUse: false,
+                                             historyTexts: { XCTFail("History read"); return [] })
+        XCTAssertEqual(ranked, ["A", "B"])
+    }
+
+    // MARK: Fitting a list to a model
+
+    func testAModelGetsWhatItAcceptsUpToItsCountAndNothingIsCut() {
+        let ranked = ["Short", "A name longer than twenty", "Two", "Three"]
+        let limits = TermListLimits(maxTerms: 2, maxCharacters: 20, maxWords: 5, forbidden: [])
+        XCTAssertEqual(CustomVocabulary.selected(ranked, limits: limits), ["Short", "Two"])
+        XCTAssertEqual(CustomVocabulary.selected(ranked, limits: nil), [])
+    }
+
+    func testAForbiddenCharacterSkipsTheTermNotTheRequest() {
+        // Stored JSON may come from anywhere — an older domain, a hand edit.
+        let ranked = ["ok", "a<b", "line\nbreak", "{x}"]
+        XCTAssertEqual(CustomVocabulary.selected(ranked, limits: .openAIKeywords), ["ok", "{x}"])
+        XCTAssertEqual(CustomVocabulary.selected(ranked, limits: .scribeUpload), ["ok"])
+    }
+
+    func testTheCataloguesLimits() {
+        let hundred = (0..<150).map { "term\($0)" }
+        XCTAssertEqual(CustomVocabulary.selected(hundred, limits: .scribeUpload).count, 100)
+        XCTAssertEqual(CustomVocabulary.selected(hundred, limits: .scribeRealtime).count, 50)
+        XCTAssertEqual(CustomVocabulary.selected(hundred, limits: .appleContextualStrings).count, 100)
+        XCTAssertEqual(CustomVocabulary.selected(["twenty-one characters"], limits: .scribeRealtime), [])
+    }
+}
+
+// MARK: - Vocabulary on the wire
+
+final class VocabularyWireTests: XCTestCase {
+    private let vocabulary = ["SpeechText", "C++", "R&D", "a = b", "an overly long realtime term"]
+
+    private func config(_ provider: STTProviderType, elevenLabsModel: String = defaultElevenLabsModel,
+                        openAISTTModel: String = defaultOpenAISTTModel) -> RecordingConfiguration {
+        var configuration = RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true,
+                                                   groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
+                                                   elevenLabsAPIKey: "", elevenLabsModel: elevenLabsModel,
+                                                   openAISTTModel: openAISTTModel)
+        configuration.vocabulary = vocabulary
+        return configuration
+    }
+
+    // MARK: Which models are sent a list
+
+    func testOnlyListParametersAreSent() {
+        XCTAssertEqual(config(.groq).liveVocabulary, [])
+        XCTAssertEqual(config(.groq).batchVocabulary, [])
+        XCTAssertEqual(config(.local).batchVocabulary, [])
+        XCTAssertEqual(config(.openai, openAISTTModel: "gpt-4o-mini-transcribe").batchVocabulary, [])
+        XCTAssertEqual(config(.openai).batchVocabulary, vocabulary)
+        XCTAssertEqual(config(.elevenlabs).batchVocabulary, vocabulary)
+        // Apple's live recogniser takes them; its upload (to Groq) does not.
+        XCTAssertEqual(config(.apple).liveVocabulary, vocabulary)
+        XCTAssertEqual(config(.apple).batchVocabulary, [])
+    }
+
+    func testARealtimeModelAndItsFallbackEachGetTheirOwnFit() {
+        let scribe = config(.elevenlabs, elevenLabsModel: elevenLabsRealtimeModel)
+        XCTAssertFalse(scribe.liveVocabulary.contains("an overly long realtime term"))
+        XCTAssertTrue(scribe.batchVocabulary.contains("an overly long realtime term"))
+        XCTAssertEqual(config(.openai, openAISTTModel: openAIRealtimeSTTModel).liveVocabulary, vocabulary)
+    }
+
+    func testAnUnlistedModelIsSentNothing() {
+        XCTAssertEqual(sttModel(vendor: .openAI, id: "whisper-1").vocabulary, .none)
+        XCTAssertEqual(sttModel(vendor: .elevenLabs, id: "scribe_v9").vocabulary, .none)
+        XCTAssertEqual(config(.openai, openAISTTModel: "whisper-1").batchVocabulary, [])
+    }
+
+    func testEveryLocalAndGroqModelTakesNone() {
+        for model in sttModels(of: .local) + sttModels(of: .groq) {
+            XCTAssertEqual(model.vocabulary, .none, model.id)
+        }
+    }
+
+    // MARK: Uploads
+
+    private func fields(_ body: Data, named name: String) -> [String] {
+        let text = String(decoding: body, as: UTF8.self)
+        let marker = "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"
+        return text.components(separatedBy: marker).dropFirst().map {
+            String($0[..<$0.range(of: "\r\n")!.lowerBound])
+        }
+    }
+
+    private let part = (filename: "recording.flac", mimeType: "audio/flac")
+
+    func testScribeUploadRepeatsTheKeytermsField() {
+        let body = ElevenLabsSTTProvider.multipartBody(boundary: "B", audio: Data([1]), part: part,
+                                                       model: "scribe_v2", language: nil,
+                                                       keyterms: ["SpeechText", "C++"])
+        XCTAssertEqual(fields(body, named: "keyterms"), ["SpeechText", "C++"])
+    }
+
+    func testOpenAIUploadSendsKeywordsAsAnArray() {
+        let body = OpenAISTTProvider.multipartBody(boundary: "B", audio: Data([1]), part: part,
+                                                   model: "gpt-transcribe", language: "uk",
+                                                   keywords: ["SpeechText", "R&D"])
+        XCTAssertEqual(fields(body, named: "keywords[]"), ["SpeechText", "R&D"])
+        XCTAssertEqual(fields(body, named: "language"), ["uk"])
+    }
+
+    /// The owner's promise: nothing changes for anyone until they add terms.
+    func testNoVocabularyMeansNoFieldAtAll() {
+        let scribe = String(decoding: ElevenLabsSTTProvider.multipartBody(
+            boundary: "B", audio: Data([1]), part: part, model: "scribe_v2", language: nil, keyterms: []), as: UTF8.self)
+        let openAI = String(decoding: OpenAISTTProvider.multipartBody(
+            boundary: "B", audio: Data([1]), part: part, model: "gpt-transcribe", language: nil, keywords: []), as: UTF8.self)
+        XCTAssertFalse(scribe.contains("keyterms"))
+        XCTAssertFalse(openAI.contains("keywords"))
+        XCTAssertFalse(ElevenLabsRealtimeProvider.realtimeURL(model: elevenLabsRealtimeModel, languages: [], keyterms: [])
+            .absoluteString.contains("keyterms"))
+        let session = OpenAIRealtimeProvider.encodeSessionUpdate(model: openAIRealtimeSTTModel, languages: [],
+                                                                 sampleRate: 24_000, keywords: [])
+        XCTAssertFalse(session?.contains("keywords") ?? true)
+    }
+
+    // MARK: Sockets
+
+    func testScribeRealtimeEscapesWhatAQueryStringWouldMisread() throws {
+        let url = ElevenLabsRealtimeProvider.realtimeURL(model: elevenLabsRealtimeModel, languages: ["uk"],
+                                                         keyterms: ["C++", "R&D", "a = b"])
+        let query = try XCTUnwrap(url.query(percentEncoded: true))
+        XCTAssertTrue(query.contains("keyterms=C%2B%2B"), query)
+        XCTAssertTrue(query.contains("keyterms=R%26D"), query)
+        XCTAssertTrue(query.contains("keyterms=a%20%3D%20b"), query)
+        XCTAssertEqual(url.scheme, "wss")
+        let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(items.filter { $0.name == "keyterms" }.map(\.value), ["C++", "R&D", "a = b"])
+        XCTAssertEqual(items.first { $0.name == "language_code" }?.value, "uk")
+        XCTAssertEqual(items.first { $0.name == "model_id" }?.value, elevenLabsRealtimeModel)
+    }
+
+    func testOpenAIRealtimeCarriesKeywordsInTheTranscriptionBlock() throws {
+        let raw = try XCTUnwrap(OpenAIRealtimeProvider.encodeSessionUpdate(
+            model: openAIRealtimeSTTModel, languages: [], sampleRate: 24_000, keywords: ["SpeechText", "C++"]))
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+        let transcription = try XCTUnwrap(((((json["session"] as? [String: Any])?["audio"] as? [String: Any])?["input"]
+            as? [String: Any])?["transcription"]) as? [String: Any])
+        XCTAssertEqual(transcription["keywords"] as? [String], ["SpeechText", "C++"])
+    }
+}

@@ -49,10 +49,12 @@ func makeStreamingProvider(configuration: RecordingConfiguration) -> StreamingST
     switch configuration.provider {
     case .elevenlabs:
         return ElevenLabsRealtimeProvider(apiKey: configuration.elevenLabsAPIKey,
-                                          model: configuration.elevenLabsModel)
+                                          model: configuration.elevenLabsModel,
+                                          keyterms: configuration.liveVocabulary)
     case .openai:
         return OpenAIRealtimeProvider(apiKey: configuration.openAIAPIKey,
-                                      model: configuration.openAISTTModel)
+                                      model: configuration.openAISTTModel,
+                                      keywords: configuration.liveVocabulary)
     case .apple, .groq, .local:
         return nil
     }
@@ -80,6 +82,8 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
 
     private let apiKey: String
     private let model: String
+    /// Sent as `keyterms` — already fitted to this model's limits.
+    private let keyterms: [String]
     private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
 
     private let lock = NSLock()
@@ -130,17 +134,35 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String) {
+    init(apiKey: String, model: String, keyterms: [String] = []) {
         self.apiKey = apiKey
         self.model = model
+        self.keyterms = keyterms
         var continuation: AsyncStream<StreamingSTTEvent>.Continuation!
         events = AsyncStream { continuation = $0 }
         self.continuation = continuation
     }
 
     func connect(languages: [String]) {
-        var components = URLComponents(string: "https://api.elevenlabs.io/v1/speech-to-text/realtime")!
-        components.scheme = "wss"
+        var request = URLRequest(url: Self.realtimeURL(model: model, languages: languages, keyterms: keyterms))
+        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+
+        // The count only: terms are often people's names, and the log is public.
+        dlog("ElevenLabs", "realtime: connecting, model=\(model), language=\(languages.count == 1 ? languages[0] : "auto"), keyterms=\(keyterms.count)")
+        let task = Self.session.webSocketTask(with: request)
+        lock.lock()
+        self.task = task
+        lock.unlock()
+        task.resume()
+
+        receiveLoop = Task { [weak self] in
+            await self?.runReceiveLoop(task)
+        }
+    }
+
+    /// The socket's address. Every value is percent-encoded by hand: `URLComponents`
+    /// leaves `+`, which the server reads as a space, so "C++" would arrive as "C  ".
+    static func realtimeURL(model: String, languages: [String], keyterms: [String]) -> URL {
         var items = [
             URLQueryItem(name: "model_id", value: model),
             URLQueryItem(name: "audio_format", value: "pcm_16000"),
@@ -157,21 +179,17 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         if languages.count == 1 {
             items.append(URLQueryItem(name: "language_code", value: languages[0]))
         }
-        components.queryItems = items
+        // An array parameter is the name repeated. Nothing when there are no terms: they
+        // cost extra.
+        items += keyterms.map { URLQueryItem(name: "keyterms", value: $0) }
 
-        var request = URLRequest(url: components.url!)
-        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
-
-        dlog("ElevenLabs", "realtime: connecting, model=\(model), language=\(languages.count == 1 ? languages[0] : "auto")")
-        let task = Self.session.webSocketTask(with: request)
-        lock.lock()
-        self.task = task
-        lock.unlock()
-        task.resume()
-
-        receiveLoop = Task { [weak self] in
-            await self?.runReceiveLoop(task)
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "+&=")
+        var components = URLComponents(string: "wss://api.elevenlabs.io/v1/speech-to-text/realtime")!
+        components.percentEncodedQueryItems = items.map {
+            URLQueryItem(name: $0.name, value: $0.value?.addingPercentEncoding(withAllowedCharacters: allowed))
         }
+        return components.url!
     }
 
     func send(pcm16: Data) {
@@ -549,6 +567,9 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
 
     private let apiKey: String
     private let model: String
+    /// Sent as `keywords` in the session's transcription block — already fitted to this
+    /// model's limits.
+    private let keywords: [String]
     private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
 
     private let lock = NSLock()
@@ -600,9 +621,10 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String) {
+    init(apiKey: String, model: String, keywords: [String] = []) {
         self.apiKey = apiKey
         self.model = model
+        self.keywords = keywords
         var continuation: AsyncStream<StreamingSTTEvent>.Continuation!
         events = AsyncStream { continuation = $0 }
         self.continuation = continuation
@@ -612,7 +634,8 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime?intent=transcription")!)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
-        dlog("OpenAI", "realtime: connecting, model=\(model), languages=\(languages.isEmpty ? "auto" : languages.joined(separator: ","))")
+        // The count only: terms are often people's names, and the log is public.
+        dlog("OpenAI", "realtime: connecting, model=\(model), languages=\(languages.isEmpty ? "auto" : languages.joined(separator: ",")), keywords=\(keywords.count)")
         let task = Self.session.webSocketTask(with: request)
         lock.lock()
         self.task = task
@@ -817,8 +840,14 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         cont?.resume()
     }
 
-    static func encodeSessionUpdate(model: String, languages: [String], sampleRate: Double) -> String? {
+    static func encodeSessionUpdate(model: String, languages: [String], sampleRate: Double,
+                                    keywords: [String] = []) -> String? {
         var transcription: [String: Any] = ["model": model]
+        // Absent rather than empty when there are none, so a session without a
+        // vocabulary is configured exactly as it always was.
+        if !keywords.isEmpty {
+            transcription["keywords"] = keywords
+        }
         switch languages.count {
         case 0:
             break
@@ -917,7 +946,7 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
             lock.unlock()
             dlog("OpenAI", "realtime: session created — configuring")
             if let task, let update = Self.encodeSessionUpdate(model: model, languages: languages,
-                                                              sampleRate: sampleRate) {
+                                                              sampleRate: sampleRate, keywords: keywords) {
                 sendMessages([update], over: task)
             }
         case "session.updated":
@@ -989,7 +1018,9 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
         let transcription = input["transcription"] as? [String: Any] ?? [:]
         let rate = (input["format"] as? [String: Any])?["rate"] ?? "?"
         let languages = transcription["languages"] ?? transcription["language"] ?? "auto"
-        return "model=\(transcription["model"] ?? "?"), rate=\(rate), language=\(languages)"
+        // The keywords' count, never the words: the log is public.
+        let keywords = (transcription["keywords"] as? [Any])?.count ?? 0
+        return "model=\(transcription["model"] ?? "?"), rate=\(rate), language=\(languages), keywords=\(keywords)"
     }
 
     private static func errorDetail(in json: [String: Any]) -> String? {

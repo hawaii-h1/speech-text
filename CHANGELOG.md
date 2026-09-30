@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **API Keys lists every key.** The ones your current choices need come first, marked *Added* or *Needed*. Each key is tagged with what it can serve, *Speech*, *AI Rewrite* or both, so a key can be entered before you pick the engine that needs it.
 - **Display colours for the techno skin**: green (the original), amber, cyan, white, or any colour of your own. AI mode stays violet whatever you pick.
 - **Hold to talk needs only the letter.** Once a hold recording has started you can let go of the modifier keys and keep holding just the letter, so clicks and ⌘Tab work normally while you speak. A small tip beside the overlay teaches this for your first few recordings, and setup and Settings show it too.
+- **Vocabulary.** Settings › Speech › Vocabulary takes the names, products and jargon you want spelled right, and sends them with each dictation to the engines that accept a word list: OpenAI's GPT Transcribe and GPT Live Transcribe, ElevenLabs Scribe and Apple's on-device recogniser. One switch turns it off for all of them. An engine that takes fewer terms than you have gets the ones you use most, and anything added this week first; the page says how many are sent. ElevenLabs charges 20 % more for a transcription that carries a vocabulary.
 
 ### Changed
 

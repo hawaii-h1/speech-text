@@ -15,7 +15,8 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
                             recognizer: SFSpeechRecognizer?) -> RecognitionSession {
     switch configuration.provider {
     case .apple:
-        return AppleRecognitionSession(recognizer: recognizer, locale: configuration.locale)
+        return AppleRecognitionSession(recognizer: recognizer, locale: configuration.locale,
+                                       contextualStrings: configuration.liveVocabulary)
     case .groq, .elevenlabs, .openai, .local:
         let batch = BatchRecognitionSession(provider: makeBatchProvider(configuration: configuration),
                                             writer: writer, language: configuration.cloudLanguage)

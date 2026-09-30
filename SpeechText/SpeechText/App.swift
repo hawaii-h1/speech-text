@@ -64,6 +64,17 @@ enum AppVersion {
     }
 }
 
+/// Lets `CustomVocabulary.ranked` count how often each term appears in History, so
+/// the terms a model is sent when it cannot take them all are the ones actually used.
+/// History is written on the main thread; read from anywhere else it gives nothing, and
+/// the terms keep their date order.
+func registerVocabularyHistory() {
+    CustomVocabulary.historyTexts = {
+        guard Thread.isMainThread else { return [] }
+        return TranscriptionHistory.shared.records.map(\.text)
+    }
+}
+
 /// Points `TranscriptJoin.isWord` at the macOS spell checker, so a segment boundary the
 /// provider cut mid-word can be glued back. The language follows the script: the English
 /// checker waves every Cyrillic word through, so it would call any fragment a word.
@@ -146,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         registerLocalSTT()
         registerSpellCheckedJoins()
+        registerVocabularyHistory()
         dockIcon = DockIconController()
         migrateHotkeyLayoutIfNeeded()
 

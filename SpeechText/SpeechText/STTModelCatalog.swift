@@ -72,6 +72,10 @@ struct STTModelDescriptor: Identifiable, Hashable {
     let batchUpload: BatchUpload
     /// What must be in place before the model can run.
     let requirement: Requirement
+    /// Whether the model takes the user's vocabulary, and within what limits. `var` with
+    /// a default so a descriptor built without it — every model that takes none, and an
+    /// unlisted ID — sends nothing.
+    var vocabulary: Vocabulary = .none
 
     enum Delivery: Hashable {
         /// A file POSTed after the segment ends.
@@ -135,9 +139,44 @@ struct STTModelDescriptor: Identifiable, Hashable {
         case installedModel
     }
 
+    /// Whether a model is handed the user's vocabulary (`CustomVocabulary`). Only a
+    /// *list* parameter counts: a free-text prompt (Groq's `prompt`, WhisperKit's prompt
+    /// tokens) is reported to be echoed back on silence, and waits for the #80 corpus.
+    enum Vocabulary: Hashable {
+        case none
+        case termList(TermListLimits)
+
+        var limits: TermListLimits? {
+            if case .termList(let limits) = self { limits } else { nil }
+        }
+    }
+
     var isRealtime: Bool {
         if case .realtime = delivery { true } else { false }
     }
+}
+
+extension TermListLimits {
+    private static let scribeForbidden: Set<Character> = ["<", ">", "{", "}", "[", "]", "\\"]
+
+    /// Scribe v2's `keyterms` form field. The API takes 1000 terms of under 50
+    /// characters and at most five words — but bills a request carrying more than 100
+    /// as at least 20 seconds, which a five-second dictation would pay four times over.
+    /// So 100 is ours, not the vendor's (checked 2026-09-30).
+    static let scribeUpload = TermListLimits(maxTerms: 100, maxCharacters: 49, maxWords: 5,
+                                             forbidden: scribeForbidden)
+    /// Scribe v2 Realtime's `keyterms` query parameter: 50 terms of 20 characters.
+    static let scribeRealtime = TermListLimits(maxTerms: 50, maxCharacters: 20, maxWords: 5,
+                                               forbidden: scribeForbidden)
+    /// OpenAI's `keywords` (gpt-transcribe, gpt-live-transcribe). The vendor states no
+    /// count or length, only that `<`, `>` and line breaks fail the request; 100 terms is
+    /// our unmeasured choice, as is keeping each to the page's own entry limit.
+    static let openAIKeywords = TermListLimits(maxTerms: 100, maxCharacters: CustomVocabulary.maxEntryCharacters,
+                                               maxWords: nil, forbidden: ["<", ">"])
+    /// `SFSpeechRecognitionRequest.contextualStrings`, which Apple asks to keep to 100
+    /// phrases.
+    static let appleContextualStrings = TermListLimits(maxTerms: 100, maxCharacters: CustomVocabulary.maxEntryCharacters,
+                                                       maxWords: nil, forbidden: [])
 }
 
 /// Apple's recogniser in the catalogue. Never stored — `sttProvider == "apple"` selects
@@ -156,7 +195,8 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: appleSpeechModelID, vendor: .apple, displayName: "Apple on-device",
             delivery: .systemRecognizer, language: .localeRequired,
-            batchUpload: .selectedModel(of: .groq), requirement: .none
+            batchUpload: .selectedModel(of: .groq), requirement: .none,
+            vocabulary: .termList(.appleContextualStrings)
         ),
 
         STTModelDescriptor(
@@ -174,14 +214,16 @@ let sttModelCatalog: [STTModelDescriptor] = {
         // (checked 2026-09-16) — stored values for either are normalised to scribe_v2.
         STTModelDescriptor(
             id: defaultElevenLabsModel, vendor: .elevenLabs, displayName: "Scribe v2",
-            delivery: .upload, language: .single, batchUpload: .itself, requirement: elevenLabsKey
+            delivery: .upload, language: .single, batchUpload: .itself, requirement: elevenLabsKey,
+            vocabulary: .termList(.scribeUpload)
         ),
         // Scribe's `language_code` is one value, so the realtime query string carries it
         // only when the user named exactly one language.
         STTModelDescriptor(
             id: elevenLabsRealtimeModel, vendor: .elevenLabs, displayName: "Scribe v2 Realtime — live text",
             delivery: .realtime(.init(sampleRate: 16_000, transcripts: .cumulative, serverVAD: true)),
-            language: .single, batchUpload: .model(defaultElevenLabsModel), requirement: elevenLabsKey
+            language: .single, batchUpload: .model(defaultElevenLabsModel), requirement: elevenLabsKey,
+            vocabulary: .termList(.scribeRealtime)
         ),
 
         // Checked against `GET /v1/models` on 2026-09-21 rather than against the docs.
@@ -197,8 +239,11 @@ let sttModelCatalog: [STTModelDescriptor] = {
         // should not be offered at all.
         STTModelDescriptor(
             id: defaultOpenAISTTModel, vendor: .openAI, displayName: "GPT Transcribe",
-            delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey
+            delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey,
+            vocabulary: .termList(.openAIKeywords)
         ),
+        // No vocabulary: `keywords` is documented for gpt-transcribe, and this model
+        // takes only a free-text prompt.
         STTModelDescriptor(
             id: "gpt-4o-mini-transcribe", vendor: .openAI, displayName: "GPT-4o mini Transcribe — cheaper",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey
@@ -206,7 +251,8 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: openAIRealtimeSTTModel, vendor: .openAI, displayName: "GPT Live Transcribe — live text",
             delivery: .realtime(.init(sampleRate: 24_000, transcripts: .incremental, serverVAD: false)),
-            language: .set, batchUpload: .model(defaultOpenAISTTModel), requirement: openAIKey
+            language: .set, batchUpload: .model(defaultOpenAISTTModel), requirement: openAIKey,
+            vocabulary: .termList(.openAIKeywords)
         ),
     ]
 
@@ -238,6 +284,8 @@ func sttModel(vendor: STTVendor, id: String) -> STTModelDescriptor {
         return listed
     }
     let template = sttModels(of: vendor).first { !$0.isRealtime } ?? sttModels(of: vendor)[0]
+    // No vocabulary, whatever the template takes: a parameter the model may not know
+    // can fail the whole request.
     return STTModelDescriptor(
         id: id, vendor: vendor, displayName: id,
         delivery: template.delivery, language: template.language,
