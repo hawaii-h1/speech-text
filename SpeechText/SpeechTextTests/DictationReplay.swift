@@ -154,6 +154,8 @@ final class DictationReplay {
         var aiMode = false
         var removesDisfluencies = true
         var dashStyle = DashStyle.default
+        var dictionary: [VocabularyEntry] = []
+        var replacements: [TextReplacementPair] = []
         /// The segment's audio, for the guards that measure it. nil is an empty writer:
         /// nothing measured, so only the text decides.
         var writer: AudioBufferWriter?
@@ -436,7 +438,11 @@ final class DictationReplay {
                                            isSecureField: false)
         }
         var outcome = await session.finish()
-        outcome.text = cleaned(outcome.text)
+        // SpeechEngine.stopRecording → configuration.finished: the segment result gets the
+        // Dictionary and the Replacements; the live events above get only `cleaned`.
+        outcome.text = RecordingConfiguration.finished(outcome.text, removesDisfluencies: setup.removesDisfluencies,
+                                                       dashStyle: setup.dashStyle, dictionary: setup.dictionary,
+                                                       replacements: setup.replacements)
 
         let finalText = outcome.text
         layer.commitSegment(outcome.text)

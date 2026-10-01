@@ -37,6 +37,9 @@ enum SettingsKeys {
     /// Whether the Dictionary's words are sent to the speech engine — the switch on the
     /// Dictionary page. On when absent; the Dictionary starts empty, so that sends nothing.
     static let sendVocabularyToEngine = "sendVocabularyToEngine"
+    /// The Dictionary page's Replacements table: JSON-encoded `[TextReplacementPair]`.
+    /// Written only by that page.
+    static let textReplacements = "textReplacements"
 
     // Hotkey (inline recording)
     static let hotkeyKeyCode = "hotkeyKeyCode"
@@ -155,7 +158,7 @@ enum SettingsKeys {
         sttProvider, groqModel, elevenLabsModel,
         openAISTTModel, localSTTModel,
         removeDisfluencies, dashStyle,
-        vocabulary, sendVocabularyToEngine,
+        vocabulary, sendVocabularyToEngine, textReplacements,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,

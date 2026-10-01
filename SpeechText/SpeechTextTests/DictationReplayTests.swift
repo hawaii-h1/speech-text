@@ -1117,3 +1117,22 @@ final class HallucinationReplayTests: XCTestCase {
         XCTAssertEqual(run.document, "Привіт, як справи. ")
     }
 }
+
+// MARK: - The Dictionary and Replacements (#74)
+
+@MainActor
+final class DictionaryReplayTests: XCTestCase {
+    /// The overlay shows what the engine wrote; the paste is corrected — a two-word
+    /// spelling never rewrites a word already drawn.
+    func testThePasteIsCorrectedAndTheOverlayIsNot() async {
+        let app = FakeApp()
+        let setup = DictationReplay.Setup(dictionary: [VocabularyEntry(term: "SpeechText", misheard: ["спіч текст"])],
+                                          replacements: [TextReplacementPair(replace: "джіпіті", with: "GPT")])
+        let run = await DictationReplay.run(setup, in: app, [
+            .partial("Відкрий спіч"),
+            .committed("Відкрий спіч текст і джіпіті."),
+        ])
+        XCTAssertFalse(run.overlay.contains { $0.text.contains("SpeechText") || $0.text.contains("GPT") })
+        XCTAssertEqual(run.document, "Відкрий SpeechText і GPT. ")
+    }
+}

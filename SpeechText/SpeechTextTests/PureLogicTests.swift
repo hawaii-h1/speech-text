@@ -2158,3 +2158,83 @@ final class VocabularyWireTests: XCTestCase {
         XCTAssertEqual(transcription["keywords"] as? [String], ["SpeechText", "C++"])
     }
 }
+
+// MARK: - Replacements and the Dictionary's corrections (TextReplacements.swift)
+
+final class TextReplacementTests: XCTestCase {
+    private func rules(_ pairs: [(String, String)]) -> TextReplacementRules {
+        TextReplacementRules(pairs.map { TextReplacementPair(replace: $0.0, with: $0.1) })
+    }
+
+    func testWholeWordsInAnyCaseWrittenAsTyped() {
+        let r = rules([("gpt", "GPT"), ("кубектл", "kubectl")])
+        XCTAssertEqual(r.applied(to: "Gpt і КУБЕКТЛ, gpt."), "GPT і kubectl, GPT.")
+        XCTAssertEqual(r.applied(to: "gpts, chat-gpt, gpt-4, gpt'"), "gpts, chat-gpt, gpt-4, gpt'",
+                       "not inside a word, a hyphenated compound or across an apostrophe")
+    }
+
+    func testCyrillicWordEdgesAreUnicodeAware() {
+        let r = rules([("об", "OB"), ("бот", "Bot")])
+        XCTAssertEqual(r.applied(to: "об'єкт, чат-бот, бот, обід"), "об'єкт, чат-бот, Bot, обід")
+    }
+
+    func testAnyOfTheThreeApostrophesMatches() {
+        let r = rules([("Мар'яна", "Maryana")])
+        XCTAssertEqual(r.applied(to: "Мар'яна, Мар’яна, Марʼяна"), "Maryana, Maryana, Maryana")
+    }
+
+    func testSeveralWordsMatchAcrossAnyWhitespaceButNotPunctuation() {
+        let r = rules([("send it to the team", "📨"), ("chat gpt", "ChatGPT")])
+        XCTAssertEqual(r.applied(to: "Open Chat  GPT and send it to\nthe team"), "Open ChatGPT and 📨")
+        XCTAssertEqual(r.applied(to: "chat, gpt"), "chat, gpt")
+    }
+
+    func testTheLongerRuleWinsAndOutputIsNeverMatchedAgain() {
+        let r = rules([("chat", "Talk"), ("chat gpt", "ChatGPT"), ("Talk", "Speak")])
+        XCTAssertEqual(r.applied(to: "chat gpt and chat"), "ChatGPT and Talk")
+    }
+
+    func testTheTableComesBeforeTheDictionaryAndCapitalsArePutBack() {
+        let entries = [VocabularyEntry(term: "SpeechText", misheard: ["speech text", "кома"]), VocabularyEntry(term: "iPhone")]
+        let r = TextReplacementRules(entries: entries, replacements: [TextReplacementPair(replace: "кома", with: ",")])
+        XCTAssertEqual(r.applied(to: "speech text кома IPHONE"), "SpeechText , iPhone",
+                       "the table's own rule for a source wins")
+    }
+
+    func testARuleThePageWouldRefuseIsSkipped() {
+        let r = rules([("", "Y"), ("z", " "), ("gpt", "GPT"), ("GPT", "Other")])
+        XCTAssertEqual(r.applied(to: "z gpt"), "z GPT")
+        XCTAssertTrue(TextReplacementRules([]).isEmpty)
+    }
+
+    func testEntryChecks() {
+        let existing = [TextReplacementPair(replace: "Chat GPT", with: "ChatGPT")]
+        XCTAssertEqual(TextReplacements.entryProblem(replace: " ", with: "x", existing: []), .emptyReplace)
+        XCTAssertEqual(TextReplacements.entryProblem(replace: "a", with: " ", existing: []), .emptyWith)
+        XCTAssertEqual(TextReplacements.entryProblem(replace: "...", with: "x", existing: []), .noWord)
+        XCTAssertEqual(TextReplacements.entryProblem(replace: "chat  gpt", with: "x", existing: existing), .duplicate)
+        XCTAssertNil(TextReplacements.entryProblem(replace: "три слова тут", with: "x", existing: existing))
+        let stored = TextReplacements.normalized(replace: " chat\n gpt ", with: " ChatGPT ")
+        XCTAssertEqual(stored.replace, "chat gpt")
+        XCTAssertEqual(stored.with, "ChatGPT")
+        XCTAssertEqual(TextReplacements.decode(TextReplacements.encode([stored])), [stored])
+        XCTAssertEqual(TextReplacements.decode(Data("nope".utf8)), [])
+    }
+
+    func testAFinishedSegmentGetsBothAndItsDashesLast() {
+        var configuration = RecordingConfiguration(provider: .groq, locale: "uk-UA", localeIsAutomatic: true,
+                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
+                                                   elevenLabsModel: "")
+        configuration.dictionary = [VocabularyEntry(term: "SpeechText", misheard: ["спіч текст"])]
+        configuration.replacements = [TextReplacementPair(replace: "тире", with: "—")]
+        XCTAssertEqual(configuration.finished("е-е-е, спіч текст тире гпт"), "SpeechText – гпт")
+        XCTAssertEqual(configuration.cleaned("спіч текст"), "спіч текст", "the live text is not corrected")
+    }
+
+    func testEveryLLMReplyIsCorrected() {
+        let reply = TextRefinementService.polishedReply(
+            "Open Speech Text — now", dictionary: [VocabularyEntry(term: "SpeechText", misheard: ["speech text"])],
+            replacements: [TextReplacementPair(replace: "now", with: "today")], dashStyle: .hyphen)
+        XCTAssertEqual(reply, "Open SpeechText - today")
+    }
+}

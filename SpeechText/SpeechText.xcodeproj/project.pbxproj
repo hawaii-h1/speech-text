@@ -124,9 +124,11 @@
 		F78002000000000000000001 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
 		F74002000000000000000001 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000001 /* HallucinationFilter.swift */; };
 		F74002000000000000000002 /* CustomVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000002 /* CustomVocabulary.swift */; };
+		F74002000000000000000003 /* TextReplacements.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000003 /* TextReplacements.swift */; };
 		F78003000000000000000001 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
 		F74003000000000000000001 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000001 /* HallucinationFilter.swift */; };
 		F74003000000000000000002 /* CustomVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000002 /* CustomVocabulary.swift */; };
+		F74003000000000000000003 /* TextReplacements.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000003 /* TextReplacements.swift */; };
 		F79002000000000000000001 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000001 /* APIKeyStore.swift */; };
 		F79003000000000000000001 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000001 /* APIKeyStore.swift */; };
 		F79002000000000000000002 /* KeychainSecretStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000002 /* KeychainSecretStorage.swift */; };
@@ -226,6 +228,7 @@
 		F78001000000000000000001 /* NetworkFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkFailure.swift; sourceTree = "<group>"; };
 		F74001000000000000000001 /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
 		F74001000000000000000002 /* CustomVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVocabulary.swift; sourceTree = "<group>"; };
+		F74001000000000000000003 /* TextReplacements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReplacements.swift; sourceTree = "<group>"; };
 		F79001000000000000000001 /* APIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStore.swift; sourceTree = "<group>"; };
 		F79001000000000000000002 /* KeychainSecretStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStorage.swift; sourceTree = "<group>"; };
 		F78001000000000000000002 /* HistoryRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRetry.swift; sourceTree = "<group>"; };
@@ -343,6 +346,7 @@
 				F78001000000000000000001 /* NetworkFailure.swift */,
 				F74001000000000000000001 /* HallucinationFilter.swift */,
 				F74001000000000000000002 /* CustomVocabulary.swift */,
+				F74001000000000000000003 /* TextReplacements.swift */,
 				F79001000000000000000001 /* APIKeyStore.swift */,
 				F79001000000000000000002 /* KeychainSecretStorage.swift */,
 				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
@@ -545,6 +549,7 @@
 				F78002000000000000000001 /* NetworkFailure.swift in Sources */,
 				F74002000000000000000001 /* HallucinationFilter.swift in Sources */,
 				F74002000000000000000002 /* CustomVocabulary.swift in Sources */,
+				F74002000000000000000003 /* TextReplacements.swift in Sources */,
 				F79002000000000000000001 /* APIKeyStore.swift in Sources */,
 				F79002000000000000000002 /* KeychainSecretStorage.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
@@ -597,6 +602,7 @@
 				F78003000000000000000001 /* NetworkFailure.swift in Sources */,
 				F74003000000000000000001 /* HallucinationFilter.swift in Sources */,
 				F74003000000000000000002 /* CustomVocabulary.swift in Sources */,
+				F74003000000000000000003 /* TextReplacements.swift in Sources */,
 				F79003000000000000000001 /* APIKeyStore.swift in Sources */,
 				E6000200000000000000001A /* OnboardingTests.swift in Sources */,
 				F78003000000000000000010 /* NetworkTests.swift in Sources */,

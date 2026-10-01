@@ -34,6 +34,7 @@ struct DictionaryView: View {
                     MainPageTitle(.dictionary)
                     adder(suggestions: Vocabulary.suggestions(from: texts, excluding: entries))
                     words(texts: texts)
+                    DictionaryReplacements()
                     DictionaryEffects(entries: entries)
                     HStack(spacing: 6) {
                         Image(systemName: "lock")
@@ -404,6 +405,120 @@ private struct DictionaryWordEditor: View {
     }
 }
 
+// MARK: - Replacements
+
+/// Replace / With pairs, as macOS's own Text Replacements lays them out: the entry row,
+/// then the pairs, newest first. Unlike a word they reach no engine and no prompt — they
+/// only correct the final text (`TextReplacementRules`).
+private struct DictionaryReplacements: View {
+    @State private var pairs: [TextReplacementPair] = TextReplacements.load()
+    @State private var replace = ""
+    @State private var with = ""
+    @State private var problem: TextReplacements.EntryProblem?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MainSectionHeader("Replacements", detail: pairs.isEmpty ? nil : "\(pairs.count)")
+            MainPanel(padding: EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Write something your way whenever it is said — “кома” as “,”, “mail sign” as your signature. Whole words, any capitals. Unlike a word above, a replacement isn't sent to the engine or AI Rewrite; it only puts the text right.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(MainColor.ink2)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        MainTextField(placeholder: "Replace", text: $replace, height: 36, fill: MainColor.card) { add() }
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(MainColor.ink3)
+                        MainTextField(placeholder: "With", text: $with, height: 36, fill: MainColor.card) { add() }
+                        Button { add() } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "plus").font(.system(size: 10.5, weight: .bold))
+                                Text("Add")
+                            }
+                        }
+                        .buttonStyle(SetupButtonStyle(kind: .secondary, height: 36))
+                        .disabled(replace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                  || with.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .pointingHandCursor()
+                    }
+                    .onChange(of: replace) { problem = nil }
+                    .onChange(of: with) { problem = nil }
+                    if let problem {
+                        Text(message(for: problem))
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(SetupColor.warn)
+                    }
+                    if !pairs.isEmpty {
+                        VStack(spacing: 0) {
+                            ForEach(Array(pairs.reversed().enumerated()), id: \.element.id) { index, pair in
+                                if index > 0 { MainRule() }
+                                row(pair)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(_ pair: TextReplacementPair) -> some View {
+        HStack(spacing: 10) {
+            Text(pair.replace)
+                .strikethrough(color: MainColor.ink3)
+                .foregroundStyle(MainColor.ink2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "arrow.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(MainColor.ink3)
+            Text(pair.with)
+                .fontWeight(.medium)
+                .foregroundStyle(MainColor.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                remove(pair)
+            } label: {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(MainColor.ink3)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Remove “\(pair.replace)”")
+        }
+        .font(.system(size: 13))
+        .lineLimit(1)
+        .padding(.vertical, 9)
+    }
+
+    private func add() {
+        if let found = TextReplacements.entryProblem(replace: replace, with: with, existing: pairs) {
+            problem = found
+            return
+        }
+        withAnimation(.easeOut(duration: 0.2)) {
+            pairs.append(TextReplacements.normalized(replace: replace, with: with))
+        }
+        TextReplacements.save(pairs)
+        replace = ""
+        with = ""
+    }
+
+    private func remove(_ pair: TextReplacementPair) {
+        withAnimation(.easeOut(duration: 0.18)) { pairs.removeAll { $0.id == pair.id } }
+        TextReplacements.save(pairs)
+    }
+
+    private func message(for problem: TextReplacements.EntryProblem) -> String {
+        switch problem {
+        case .emptyReplace: "Type what is recognised now."
+        case .emptyWith: "Type how it should be written."
+        case .noWord: "Replace needs at least one letter or digit."
+        case .duplicate: "That already has a replacement."
+        }
+    }
+}
+
 // MARK: - What a word does
 
 /// The three things a word does, each said for the engine and AI provider in use — so the
@@ -435,7 +550,7 @@ private struct DictionaryEffects: View {
                 }
                 MainRule()
                 row(symbol: "arrow.left.arrow.right", title: "Wrong spellings are replaced",
-                    detail: "In what every engine writes, before it's pasted or rewritten — and in History.", on: true)
+                    detail: "With the Replacements, in what every engine writes before it's pasted or rewritten, in AI Rewrite's and Edit's replies, and in History.", on: true)
                 MainRule()
                 row(symbol: "sparkles", title: "AI Rewrite keeps them as written",
                     detail: aiReady ? "It's given your words with every AI dictation and told to spell them your way."

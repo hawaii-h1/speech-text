@@ -76,6 +76,8 @@ struct RecordingConfiguration {
     /// engine through `vocabulary`; this is what corrects the final text, whatever the
     /// switch says.
     var dictionary: [VocabularyEntry] = []
+    /// The Dictionary page's Replacements table — read once at the start, like the words.
+    var replacements: [TextReplacementPair] = []
 
     /// A segment's text once it is final: `cleaned`, then the Dictionary's wrong
     /// spellings replaced. Not applied to the live text while the user speaks, as
@@ -83,7 +85,16 @@ struct RecordingConfiguration {
     /// overlay, which the span layer would have to draw as a revision. The segment result
     /// replaces the live spans anyway (`commitSegment`), so the stop pastes this.
     func finished(_ text: String) -> String {
-        Vocabulary.corrected(cleaned(text), entries: dictionary)
+        Self.finished(text, removesDisfluencies: removesDisfluencies, dashStyle: dashStyle,
+                      dictionary: dictionary, replacements: replacements)
+    }
+
+    /// `finished`, from its parts — `DictationReplay` calls it with a replay's setup. The
+    /// dashes are drawn again last, so a replacement that writes "—" follows the style too.
+    static func finished(_ text: String, removesDisfluencies: Bool, dashStyle: DashStyle,
+                         dictionary: [VocabularyEntry], replacements: [TextReplacementPair]) -> String {
+        let clean = dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
+        return dashStyle.applied(to: Vocabulary.corrected(clean, entries: dictionary, replacements: replacements))
     }
 
     /// The language to force on a cloud provider — nil unless the user named exactly one
@@ -206,7 +217,8 @@ struct RecordingConfiguration {
             localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
             dashStyle: .current,
-            dictionary: Vocabulary.load()
+            dictionary: Vocabulary.load(),
+            replacements: TextReplacements.load()
         )
         if CustomVocabulary.isSent(defaults) {
             let entries = configuration.dictionary

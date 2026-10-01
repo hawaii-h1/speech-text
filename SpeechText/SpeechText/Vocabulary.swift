@@ -60,32 +60,13 @@ struct VocabularyEntry: Identifiable, Codable, Hashable {
 enum Vocabulary {
     // MARK: Replacing
 
-    /// `text` with every listed wrong spelling replaced by its word: whole words only,
-    /// ignoring case, the longest spelling first; a spelling of several words matches
-    /// across any run of spaces. Replacing a word that is already right changes nothing,
-    /// so running this twice is the same as running it once.
-    static func corrected(_ text: String, entries: [VocabularyEntry]) -> String {
-        guard !text.isEmpty else { return text }
-        var pairs: [(wrong: String, right: String)] = []
-        for entry in entries {
-            let term = entry.trimmedTerm
-            guard !term.isEmpty else { continue }
-            pairs += entry.replacements.map { ($0, term) }
-            if entry.fixesCapitals { pairs.append((term, term)) }
-        }
-        guard !pairs.isEmpty else { return text }
-        pairs.sort { $0.wrong.count > $1.wrong.count }
-
-        var result = text
-        for (wrong, right) in pairs {
-            let words = wrong.split(whereSeparator: \.isWhitespace)
-                .map { NSRegularExpression.escapedPattern(for: String($0)) }
-            let pattern = #"(?<![\p{L}\p{N}_])"# + words.joined(separator: #"\s+"#) + #"(?![\p{L}\p{N}_])"#
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
-            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result),
-                                                    withTemplate: NSRegularExpression.escapedTemplate(for: right))
-        }
-        return result
+    /// `text` with every listed wrong spelling replaced by its word, and the Replacements
+    /// table's pairs written in — one pass under `TextReplacementRules`' rules: whole
+    /// words with Unicode edges, ignoring case, the longest source first, no chaining. A
+    /// word already right changes nothing, so running it twice is the same as once.
+    static func corrected(_ text: String, entries: [VocabularyEntry],
+                          replacements: [TextReplacementPair] = []) -> String {
+        TextReplacementRules(entries: entries, replacements: replacements).applied(to: text)
     }
 
     // MARK: Telling the speech engine

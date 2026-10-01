@@ -47,7 +47,9 @@ enum TextRefinementService {
         // Models love "—" as much as Scribe does, and the prompt cannot be trusted to stop
         // them; the paste gets the user's dash either way. The model also quietly swaps
         // ordinary characters for look-alikes — see `replacingConfusablePunctuation`.
-        let text = DashStyle.current.applied(to: replacingConfusablePunctuation(parsed.text))
+        // The user's Dictionary and Replacements go in too: a model that rewrote
+        // "SpeechText" back into "speech text" would otherwise undo them.
+        let text = polishedReply(parsed.text)
         dlog("Refine", "preset=\(parsed.presetName ?? "—"), in=\(source.count) chars, out=\(text.count) chars")
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
@@ -69,12 +71,23 @@ enum TextRefinementService {
         )
 
         let parsed = parse(raw, presetNames: presets.map(\.name) + [editDefaultModeName, editCustomModeName])
-        let text = DashStyle.current.applied(to: replacingConfusablePunctuation(parsed.text))
+        let text = polishedReply(parsed.text)
         dlog("Refine", "edit: mode=\(parsed.presetName ?? "—"), instruction=\(spoken?.isEmpty == false ? "yes" : "no"), in=\(selection.count) chars, out=\(text.count) chars")
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
         return Result(text: text, presetName: parsed.presetName,
                       provider: providerType.rawValue, model: modelID)
+    }
+
+    /// An LLM reply as the paste gets it: look-alike characters undone, the Dictionary's
+    /// wrong spellings and the Replacements table written in, and the dashes in the user's
+    /// style — as a dictation's final text. The Edit shortcut's reply too, at the owner's
+    /// call (#74): a selection's own wrong spellings are put right with it.
+    static func polishedReply(_ reply: String, dictionary: [VocabularyEntry] = Vocabulary.load(),
+                              replacements: [TextReplacementPair] = TextReplacements.load(),
+                              dashStyle: DashStyle = .current) -> String {
+        dashStyle.applied(to: Vocabulary.corrected(replacingConfusablePunctuation(reply),
+                                                   entries: dictionary, replacements: replacements))
     }
 
     // MARK: - Collapse guard

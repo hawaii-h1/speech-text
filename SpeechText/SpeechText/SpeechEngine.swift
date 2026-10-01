@@ -196,7 +196,7 @@ final class SpeechEngine {
         barLevels = Array(repeating: 0, count: 12)
 
         if let liveSegment = session.pause().map(configuration.cleaned) {
-            let segmentText = Vocabulary.corrected(liveSegment, entries: configuration.dictionary)
+            let segmentText = configuration.finished(liveSegment)
             // The session already has the text (Apple): hand it over, no transcribing state.
             dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
             phase = .paused(segmentInFlight: false)
