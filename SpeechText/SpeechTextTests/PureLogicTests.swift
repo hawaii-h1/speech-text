@@ -494,6 +494,29 @@ final class FocusContextTests: XCTestCase {
         XCTAssertLessThanOrEqual(ours.count, 2000)
     }
 
+    /// The Edit shortcut's prompt goes out on every edit, so it has a budget too (#74).
+    /// It holds more than the routing prompt — the selection/instruction split and the
+    /// polish rules — and was compressed (wording, not rules) to make room for the
+    /// `<vocabulary>` rule.
+    func testTheEditPromptStaysWithinItsBudget() {
+        let ours = TextRefinementService.buildEditSystemPrompt(presets: [])
+        XCTAssertLessThanOrEqual(ours.count, 2500)
+    }
+
+    func testBothPromptsDescribeTheVocabularyBlockAndEditCarriesIt() {
+        for prompt in [TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil),
+                       TextRefinementService.buildEditSystemPrompt(presets: [])] {
+            XCTAssertTrue(prompt.contains("<vocabulary>"))
+            XCTAssertTrue(prompt.contains("never add one otherwise"))
+        }
+        let block = Vocabulary.promptBlock([VocabularyEntry(term: "SpeechText")])
+        let message = TextRefinementService.editUserMessage(selection: "t", instruction: "i", context: nil,
+                                                            vocabulary: block)
+        XCTAssertTrue(message.hasPrefix("<vocabulary>\nSpeechText\n</vocabulary>\n\n<selected_text>"))
+        XCTAssertFalse(TextRefinementService.editUserMessage(selection: "t", instruction: nil, context: nil)
+            .contains("<vocabulary>"))
+    }
+
 }
 
 // MARK: - Realtime stream echo suppression (StreamingSTTProvider.swift)
