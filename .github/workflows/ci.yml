@@ -13,7 +13,7 @@ name: CI
 # hard-coded, and the flip is what moves the work: while private, where only
 # collaborators can open a pull request, the jobs run on the self-hosted Mac as
 # they always have; the moment visibility changes, the tests go to a
-# GitHub-hosted Mac — a throwaway VM — and the three checks that need no Mac at
+# GitHub-hosted Mac — a throwaway VM — and the checks that need no Mac at
 # all go to Linux, where they are faster and cost a tenth as much. Nobody has to
 # remember a second pull request, and there is no window in which the
 # arrangement is wrong.
@@ -117,6 +117,19 @@ jobs:
             echo "The header is the file's licence notice, not decoration — see CONTRIBUTING.md."
             exit 1
           fi
+
+  provider-guide:
+    name: Provider guide
+    # docs/adding-a-provider.md names the files and declarations a new provider
+    # touches, and explains every capability a model can have; this fails when one
+    # of them is renamed or removed, or a capability is added, and the guide was not
+    # updated with it. Shell and grep only. No Mac involved.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The guide matches the provider code
+        run: scripts/check-provider-guide.sh
 
   dco:
     name: DCO sign-off
