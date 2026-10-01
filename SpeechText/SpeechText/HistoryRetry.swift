@@ -65,7 +65,7 @@ final class HistoryRetry {
         dlog("History", "retry \(recordID.uuidString.prefix(8)): \(configuration.provider.rawValue), language=\(language ?? "auto")")
 
         do {
-            let provider = makeBatchProvider(configuration: configuration)
+            let provider = makeBatchTranscriber(configuration: configuration)
             let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
             var trimmed = configuration.finished(text.trimmingCharacters(in: .whitespacesAndNewlines))
             // A retry sends the same short clip to a model again, and gets the same

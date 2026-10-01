@@ -96,9 +96,9 @@ final class FakeApp {
 
 // MARK: - The recogniser
 
-/// Hands the session whatever the test scripts, the way `ElevenLabsRealtimeProvider`
+/// Hands the session whatever the test scripts, the way `ElevenLabsRealtimeTranscriber`
 /// would have received it from the server.
-final class ScriptedStreamingProvider: StreamingSTTProvider {
+final class ScriptedStreamingTranscriber: StreamingTranscriber {
     let sampleRate = AudioBufferWriter.uploadSampleRate
     let events: AsyncStream<StreamingSTTEvent>
     private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
@@ -115,7 +115,7 @@ final class ScriptedStreamingProvider: StreamingSTTProvider {
 
     func connect(languages: [String]) {}
     func send(pcm16: Data) {}
-    /// The server's answer to the stop, settled as `ElevenLabsRealtimeProvider` settles
+    /// The server's answer to the stop, settled as `ElevenLabsRealtimeTranscriber` settles
     /// it: a partial after a commit reply is held, and one no commit carried fails the
     /// stream, so the stop takes the upload.
     func finish() async {
@@ -247,7 +247,7 @@ final class DictationReplay {
     private var recordWindow: String?
     private var layer = TranscriptSpanLayer()
     /// The socket in use: the first one, or the one the latest reconnect opened.
-    private var provider = ScriptedStreamingProvider()
+    private var provider = ScriptedStreamingTranscriber()
     private var providersOpened = 1
     private var eventsAtFinish: [StreamingSTTEvent] = []
     private var session: StreamingRecognitionSession!
@@ -378,7 +378,7 @@ final class DictationReplay {
             provider: provider, writer: setup.writer ?? AudioBufferWriter(), languages: [], fallback: fallback,
             reconnect: { [unowned self] in
                 MainActor.assumeIsolated {
-                    let next = ScriptedStreamingProvider()
+                    let next = ScriptedStreamingTranscriber()
                     next.eventsAtFinish = self.eventsAtFinish
                     self.provider = next
                     self.providersOpened += 1

@@ -192,7 +192,7 @@ final class AudioBufferWriterTests: XCTestCase {
 // MARK: - BatchRecognitionSession
 
 /// Counts uploads instead of making them.
-private final class RecordingBatchProvider: BatchSTTProvider, @unchecked Sendable {
+private final class RecordingBatchTranscriber: BatchTranscriber, @unchecked Sendable {
     private(set) var uploads: [URL] = []
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {
         uploads.append(audioFileURL)
@@ -214,7 +214,7 @@ final class BatchRecognitionSessionTests: XCTestCase {
     /// A shortcut pressed and let go at once: no upload, no error, and an outcome the
     /// engine writes no History row for.
     func testASegmentTooShortToBeSpeechIsDroppedWithoutATrace() async {
-        let provider = RecordingBatchProvider()
+        let provider = RecordingBatchTranscriber()
         let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.2), language: nil)
 
         let outcome = await session.finish()
@@ -227,7 +227,7 @@ final class BatchRecognitionSessionTests: XCTestCase {
     }
 
     func testASegmentLongEnoughToBeSpeechIsUploaded() async {
-        let provider = RecordingBatchProvider()
+        let provider = RecordingBatchTranscriber()
         let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.4), language: nil)
 
         let outcome = await session.finish()
@@ -239,7 +239,7 @@ final class BatchRecognitionSessionTests: XCTestCase {
     }
 }
 
-private final class AnsweringBatchProvider: BatchSTTProvider, @unchecked Sendable {
+private final class AnsweringBatchTranscriber: BatchTranscriber, @unchecked Sendable {
     let answer: String
     init(_ answer: String) { self.answer = answer }
     func transcribe(audioFileURL: URL, language: String?) async throws -> String { answer }
@@ -258,7 +258,7 @@ final class HallucinationGuardTests: XCTestCase {
     }
 
     private func upload(_ answer: String, seconds: Double) async -> RecognitionOutcome {
-        let session = BatchRecognitionSession(provider: AnsweringBatchProvider(answer),
+        let session = BatchRecognitionSession(provider: AnsweringBatchTranscriber(answer),
                                               writer: writer(seconds: seconds), language: nil)
         return await session.finish()
     }
@@ -283,7 +283,7 @@ final class HallucinationGuardTests: XCTestCase {
     }
 
     private func stream(_ text: String, writer: AudioBufferWriter) async -> RecognitionOutcome {
-        let provider = ScriptedStreamingProvider()
+        let provider = ScriptedStreamingTranscriber()
         provider.eventsAtFinish = [.committed(text)]
         let session = StreamingRecognitionSession(provider: provider, writer: writer, languages: [],
                                                   fallback: ScriptedSegment(error: "no fallback expected"))

@@ -22,16 +22,16 @@ final class StreamingRecognitionSession: RecognitionSession {
     var onEvent: ((RecognitionEvent) -> Void)?
 
     /// The stream events are read from. Replaced on a reconnect; main-thread state.
-    private var provider: StreamingSTTProvider
+    private var provider: StreamingTranscriber
     /// The one `feed` sends to, read on the audio thread; nil while nothing should be
     /// sent — the stream failed for good, or is between a drop and its reconnect.
-    private let sendTarget = ProviderBox()
+    private let sendTarget = TranscriberBox()
     /// A fresh provider for a reconnect; nil when the stream is not to be reopened.
-    private let reconnect: (() -> StreamingSTTProvider?)?
+    private let reconnect: (() -> StreamingTranscriber?)?
     private let policy: StreamReconnectPolicy
     private let writer: AudioBufferWriter
     /// The user's stated languages, handed to the provider whole — see
-    /// `StreamingSTTProvider.connect(languages:)` for what each one does with the count.
+    /// `StreamingTranscriber.connect(languages:)` for what each one does with the count.
     private let languages: [String]
     /// A `BatchRecognitionSession` over the same writer in the app. Typed by the protocol
     /// so a replay can stand in the upload's answer without a network or an audio file.
@@ -69,7 +69,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     // A provider whose socket wants a rate other than the writer's owns a converter of
     // its own, fed from the *native* tap buffer rather than from the writer's output:
     // 48 kHz → 24 kHz in one step is both cheaper and cleaner than 48 → 16 → 24. This is
-    // what `StreamingSTTProvider.sampleRate` was declared for ("the engine converts the
+    // what `StreamingTranscriber.sampleRate` was declared for ("the engine converts the
     // mic feed to it"); before OpenAI's realtime tier, every provider happened to want
     // the writer's 16 kHz and the mismatch simply skipped the stream.
     private let needsResampling: Bool
@@ -89,9 +89,9 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// provider again, and the converter below is built for it.
     private let sampleRate: Double
 
-    init(provider: StreamingSTTProvider, writer: AudioBufferWriter, languages: [String],
+    init(provider: StreamingTranscriber, writer: AudioBufferWriter, languages: [String],
          fallback: RecognitionSession,
-         reconnect: (() -> StreamingSTTProvider?)? = nil,
+         reconnect: (() -> StreamingTranscriber?)? = nil,
          policy: StreamReconnectPolicy = StreamReconnectPolicy()) {
         self.needsResampling = provider.sampleRate != AudioBufferWriter.uploadSampleRate
         self.sampleRate = provider.sampleRate
@@ -111,7 +111,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// Opens `provider`'s socket and makes it the one events are read from and audio is
     /// sent to. The provider buffers what `feed` sends until its session is ready — the
     /// same pre-session buffer a first connection relies on.
-    private func attach(_ provider: StreamingSTTProvider) {
+    private func attach(_ provider: StreamingTranscriber) {
         generation += 1
         let generation = self.generation
         self.provider = provider
@@ -273,7 +273,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     func finish() async -> RecognitionOutcome {
         // Snapshot under main-actor isolation: `cancel()` nils `eventsTask` on main, a
         // reconnect replaces `provider` there, and this function runs off it.
-        let (connected, events, provider, hadOutage) = await MainActor.run { () -> (Bool, Task<Void, Never>?, StreamingSTTProvider, Bool) in
+        let (connected, events, provider, hadOutage) = await MainActor.run { () -> (Bool, Task<Void, Never>?, StreamingTranscriber, Bool) in
             self.closing = true
             self.reconnectTask?.cancel()
             self.reconnectTask = nil
@@ -362,17 +362,17 @@ final class StreamingRecognitionSession: RecognitionSession {
 /// read or write the reference — never across a `send`, which takes the provider's own
 /// locks. A buffer that read the old provider just before a swap goes to a closed
 /// socket, whose `send` does nothing.
-private final class ProviderBox: @unchecked Sendable {
+private final class TranscriberBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var provider: StreamingSTTProvider?
+    private var provider: StreamingTranscriber?
 
-    var current: StreamingSTTProvider? {
+    var current: StreamingTranscriber? {
         lock.lock()
         defer { lock.unlock() }
         return provider
     }
 
-    func set(_ provider: StreamingSTTProvider?) {
+    func set(_ provider: StreamingTranscriber?) {
         lock.lock()
         self.provider = provider
         lock.unlock()

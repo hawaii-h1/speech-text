@@ -138,8 +138,8 @@ actor WhisperKitPipelineCache {
 }
 
 /// The batch provider the recognition tier actually calls. Thin on purpose — it exists
-/// so `makeBatchProvider` gets the same `BatchSTTProvider` shape the cloud tiers have.
-struct WhisperKitLocalProvider: BatchSTTProvider {
+/// so `makeBatchTranscriber` gets the same `BatchTranscriber` shape the cloud tiers have.
+struct WhisperKitLocalTranscriber: BatchTranscriber {
     let modelID: String
 
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {

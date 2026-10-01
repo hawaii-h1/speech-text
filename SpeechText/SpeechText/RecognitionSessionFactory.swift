@@ -18,14 +18,14 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
         return AppleRecognitionSession(recognizer: recognizer, locale: configuration.locale,
                                        contextualStrings: configuration.liveVocabulary)
     case .groq, .elevenlabs, .openai, .local:
-        let batch = BatchRecognitionSession(provider: makeBatchProvider(configuration: configuration),
+        let batch = BatchRecognitionSession(provider: makeBatchTranscriber(configuration: configuration),
                                             writer: writer, language: configuration.cloudLanguage)
-        if let streamer = makeStreamingProvider(configuration: configuration) {
+        if let streamer = makeStreamingTranscriber(configuration: configuration) {
             // A reconnect makes the same provider again, from the same snapshot of the
             // settings — a dropped stream never comes back as a different engine.
             return StreamingRecognitionSession(provider: streamer, writer: writer,
                                                languages: configuration.languages, fallback: batch,
-                                               reconnect: { makeStreamingProvider(configuration: configuration) })
+                                               reconnect: { makeStreamingTranscriber(configuration: configuration) })
         }
         return batch
     }

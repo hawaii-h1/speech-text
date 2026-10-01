@@ -19,7 +19,7 @@ enum StreamingSTTEvent {
 /// A provider that transcribes audio as it is being captured, over a persistent
 /// connection, instead of taking a finished file. Audio is pushed as 16-bit PCM at
 /// `sampleRate`; text comes back through `events` while the user is still speaking.
-protocol StreamingSTTProvider: AnyObject {
+protocol StreamingTranscriber: AnyObject {
     /// The sample rate `send(pcm16:)` expects. The engine converts the mic feed to it.
     var sampleRate: Double { get }
     var events: AsyncStream<StreamingSTTEvent> { get }
@@ -44,15 +44,15 @@ protocol StreamingSTTProvider: AnyObject {
 
 /// Builds a streaming provider for a session's configuration, or nil when the
 /// selected engine/model works in batch mode.
-func makeStreamingProvider(configuration: RecordingConfiguration) -> StreamingSTTProvider? {
+func makeStreamingTranscriber(configuration: RecordingConfiguration) -> StreamingTranscriber? {
     guard configuration.streams else { return nil }
     switch configuration.provider {
     case .elevenlabs:
-        return ElevenLabsRealtimeProvider(apiKey: configuration.elevenLabsAPIKey,
+        return ElevenLabsRealtimeTranscriber(apiKey: configuration.elevenLabsAPIKey,
                                           model: configuration.elevenLabsModel,
                                           keyterms: configuration.liveVocabulary)
     case .openai:
-        return OpenAIRealtimeProvider(apiKey: configuration.openAIAPIKey,
+        return OpenAIRealtimeTranscriber(apiKey: configuration.openAIAPIKey,
                                       model: configuration.openAISTTModel,
                                       keywords: configuration.liveVocabulary)
     case .apple, .groq, .local:
@@ -76,7 +76,7 @@ func makeStreamingProvider(configuration: RecordingConfiguration) -> StreamingST
 /// the socket messages it will become, on the audio thread — and flushed the moment it
 /// does: the server does not promise to keep audio sent ahead of that message, and
 /// the first syllable of a dictation is exactly what must not be lost.
-final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
+final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable {
     let sampleRate: Double = 16_000
     let events: AsyncStream<StreamingSTTEvent>
 
@@ -651,7 +651,7 @@ struct StreamFinishSettle {
 /// (16 kHz is "below minimum", 48 kHz "above maximum"), which is why
 /// `StreamingRecognitionSession` resamples for this provider instead of handing over
 /// the 16 kHz bytes the upload file is made of.
-final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
+final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable {
     /// Fixed by the service — see the class comment.
     let sampleRate: Double = 24_000
     let events: AsyncStream<StreamingSTTEvent>
@@ -665,7 +665,7 @@ final class OpenAIRealtimeProvider: StreamingSTTProvider, @unchecked Sendable {
 
     private let lock = NSLock()
     /// Serialises the socket's `send` calls — same discipline as
-    /// `ElevenLabsRealtimeProvider`: always acquired before `lock`, never while holding
+    /// `ElevenLabsRealtimeTranscriber`: always acquired before `lock`, never while holding
     /// it, because a send completion URLSession runs synchronously re-enters `fail` →
     /// `close`, which take `lock`.
     private let sendLock = NSLock()

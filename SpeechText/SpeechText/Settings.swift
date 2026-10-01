@@ -224,7 +224,7 @@ let defaultElevenLabsModel = "scribe_v2"
 let elevenLabsModels = pickerModels(of: .elevenLabs)
 
 /// OpenAI's streaming transcription model. Picking it switches the engine from a file
-/// upload after the recording to the realtime WebSocket — see `OpenAIRealtimeProvider`.
+/// upload after the recording to the realtime WebSocket — see `OpenAIRealtimeTranscriber`.
 /// It exists only there: the upload endpoint rejects it, so `batchModel` maps it to
 /// `defaultOpenAISTTModel` for the stream's fallback and for History retries.
 let openAIRealtimeSTTModel = "gpt-live-transcribe"

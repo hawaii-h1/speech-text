@@ -61,7 +61,7 @@ let openAIChatModels: [(id: String, name: String)] = [
 
 // MARK: - Protocol
 
-protocol LLMChatProvider {
+protocol ChatClient {
     /// Sends a single-turn completion and returns the assistant's plain-text reply.
     func complete(system: String, user: String) async throws -> String
 }
@@ -87,7 +87,7 @@ enum LLMError: LocalizedError {
 }
 
 /// Shared session — URLSession.shared enforces its own 60s timeout regardless of
-/// URLRequest.timeoutInterval, so we build our own like GroqSTTProvider does.
+/// URLRequest.timeoutInterval, so we build our own like GroqTranscriber does.
 private let llmSession: URLSession = {
     let config = URLSessionConfiguration.default
     config.timeoutIntervalForRequest = 90
@@ -100,7 +100,7 @@ private let llmSession: URLSession = {
 /// Both Groq and OpenAI expose the same `/chat/completions` shape, so one
 /// implementation covers them. They diverge on which parameters they accept —
 /// see `Dialect`.
-struct OpenAICompatibleLLMProvider: LLMChatProvider {
+struct OpenAICompatibleChatClient: ChatClient {
     /// The two backends share an endpoint shape but not its parameters.
     enum Dialect {
         /// Groq: classic Chat Completions — `max_tokens` and sampling params accepted.
@@ -210,7 +210,7 @@ struct ChatCompletionResponse: Decodable {
 
 // MARK: - Anthropic
 
-struct AnthropicLLMProvider: LLMChatProvider {
+struct AnthropicChatClient: ChatClient {
     let apiKey: String
     let model: String
 
@@ -331,12 +331,12 @@ enum LLMConfiguration {
         return !value.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    static func makeProvider() throws -> LLMChatProvider {
+    static func makeChatClient() throws -> ChatClient {
         let type = providerType
         if type == .ollama {
             let model = model(for: type)
             guard !model.isEmpty else { throw LLMError.noLocalModel }
-            return OllamaLLMProvider(model: model)
+            return OllamaChatClient(model: model)
         }
         let key = apiKey(for: type).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw LLMError.missingAPIKey(type) }
@@ -344,19 +344,19 @@ enum LLMConfiguration {
 
         switch type {
         case .groq:
-            return OpenAICompatibleLLMProvider(
+            return OpenAICompatibleChatClient(
                 label: "Groq",
                 baseURL: URL(string: "https://api.groq.com/openai/v1/chat/completions")!,
                 apiKey: key, model: model, dialect: .classic
             )
         case .openai:
-            return OpenAICompatibleLLMProvider(
+            return OpenAICompatibleChatClient(
                 label: "OpenAI",
                 baseURL: URL(string: "https://api.openai.com/v1/chat/completions")!,
                 apiKey: key, model: model, dialect: .reasoning
             )
         case .anthropic:
-            return AnthropicLLMProvider(apiKey: key, model: model)
+            return AnthropicChatClient(apiKey: key, model: model)
         case .ollama:
             preconditionFailure("handled above — Ollama has no key to check")
         }

@@ -141,7 +141,7 @@ enum STTTuning {
 
 // MARK: - Batch STT Protocol
 
-protocol BatchSTTProvider {
+protocol BatchTranscriber {
     func transcribe(audioFileURL: URL, language: String?) async throws -> String
 }
 
@@ -164,25 +164,25 @@ func multipartAudioPart(for fileURL: URL) -> (filename: String, mimeType: String
 /// the same snapshot. The realtime→scribe_v2 and Apple→Groq mappings live on
 /// `RecordingConfiguration.batchModel`. The local tier goes through `LocalSTT` so this
 /// file never names WhisperKit (it is compiled into the standalone test bundle).
-func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvider {
+func makeBatchTranscriber(configuration: RecordingConfiguration) -> BatchTranscriber {
     switch configuration.provider {
     case .elevenlabs:
-        ElevenLabsSTTProvider(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel,
+        ElevenLabsTranscriber(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel,
                               keyterms: configuration.batchVocabulary)
     case .openai:
-        OpenAISTTProvider(apiKey: configuration.openAIAPIKey, model: configuration.batchModel,
+        OpenAITranscriber(apiKey: configuration.openAIAPIKey, model: configuration.batchModel,
                           keywords: configuration.batchVocabulary)
     case .groq, .apple:
-        GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel,
+        GroqTranscriber(apiKey: configuration.groqAPIKey, model: configuration.batchModel,
                         prompt: configuration.whisperPrompt)
     case .local:
-        LocalSTT.providerFactory(configuration.localModel)
+        LocalSTT.transcriberFactory(configuration.localModel)
     }
 }
 
 // MARK: - Groq Implementation
 
-struct GroqSTTProvider: BatchSTTProvider {
+struct GroqTranscriber: BatchTranscriber {
     let apiKey: String
     let model: String
     /// Whisper's `prompt`: the Dictionary's words, so it spells them that way when it
@@ -271,7 +271,7 @@ enum GroqError: LocalizedError {
 
 // MARK: - ElevenLabs Implementation
 
-struct ElevenLabsSTTProvider: BatchSTTProvider {
+struct ElevenLabsTranscriber: BatchTranscriber {
     let apiKey: String
     let model: String
     /// The user's vocabulary, already fitted to this model (`RecordingConfiguration
@@ -327,7 +327,7 @@ struct ElevenLabsSTTProvider: BatchSTTProvider {
     }
 }
 
-extension ElevenLabsSTTProvider {
+extension ElevenLabsTranscriber {
     /// The upload's form, apart so its fields can be tested without a request.
     static func multipartBody(boundary: String, audio: Data, part: (filename: String, mimeType: String),
                               model: String, language: String?, keyterms: [String]) -> Data {
@@ -390,7 +390,7 @@ enum ElevenLabsError: LocalizedError {
 /// webm) omits it, but the endpoint accepts it — verified with a real request on
 /// 2026-09-21 against `gpt-transcribe` and `whisper-1`. Do not "fix" this to WAV on the
 /// strength of the docs: WAV is twice the bytes against a 25 MB ceiling.
-struct OpenAISTTProvider: BatchSTTProvider {
+struct OpenAITranscriber: BatchTranscriber {
     let apiKey: String
     let model: String
     /// The user's vocabulary, already fitted to this model (`RecordingConfiguration
@@ -463,7 +463,7 @@ struct OpenAISTTProvider: BatchSTTProvider {
     }
 }
 
-extension OpenAISTTProvider {
+extension OpenAITranscriber {
     /// The upload's form, apart so its fields can be tested without a request.
     static func multipartBody(boundary: String, audio: Data, part: (filename: String, mimeType: String),
                               model: String, language: String?, keywords: [String]) -> Data {

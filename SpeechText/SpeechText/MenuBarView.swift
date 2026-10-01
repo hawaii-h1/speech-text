@@ -713,7 +713,7 @@ private struct SpokenLanguagesField: View {
     private var selected: [String] { parseSpokenLanguages(stored) }
 
     /// The one engine that takes a *set* rather than a single language, so the only one
-    /// where naming several changes what is sent — see `OpenAIRealtimeProvider`.
+    /// where naming several changes what is sent — see `OpenAIRealtimeTranscriber`.
     private var narrowsToTheSet: Bool {
         stt == .openai && openAISTTModel == openAIRealtimeSTTModel
     }

@@ -10,12 +10,12 @@ import AVFoundation
 final class BatchRecognitionSession: RecognitionSession {
     var onEvent: ((RecognitionEvent) -> Void)?
 
-    private let provider: BatchSTTProvider
+    private let provider: BatchTranscriber
     private let writer: AudioBufferWriter
     /// nil leaves the language to the model — see `RecordingConfiguration.cloudLanguage`.
     private let language: String?
 
-    init(provider: BatchSTTProvider, writer: AudioBufferWriter, language: String?) {
+    init(provider: BatchTranscriber, writer: AudioBufferWriter, language: String?) {
         self.provider = provider
         self.writer = writer
         self.language = language

@@ -153,9 +153,9 @@ actor ParakeetPipelineCache {
     }
 }
 
-/// The batch provider the recognition tier calls. Thin, like `WhisperKitLocalProvider`:
-/// it exists so `makeBatchProvider` gets the same `BatchSTTProvider` shape.
-struct ParakeetLocalProvider: BatchSTTProvider {
+/// The batch provider the recognition tier calls. Thin, like `WhisperKitLocalTranscriber`:
+/// it exists so `makeBatchTranscriber` gets the same `BatchTranscriber` shape.
+struct ParakeetLocalTranscriber: BatchTranscriber {
     let modelID: String
 
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {

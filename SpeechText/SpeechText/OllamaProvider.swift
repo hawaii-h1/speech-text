@@ -321,7 +321,7 @@ enum OllamaService {
 ///
 /// Uses Ollama's OpenAI-compatible `/v1/chat/completions`, so the request and response
 /// shapes are exactly the cloud ones, with reasoning switched off (see the payload).
-struct OllamaLLMProvider: LLMChatProvider {
+struct OllamaChatClient: ChatClient {
     let model: String
 
     /// Generous: a 14B model on a cold start has to load several gigabytes off disk

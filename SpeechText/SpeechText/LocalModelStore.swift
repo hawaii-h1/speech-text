@@ -216,11 +216,11 @@ final class LocalModelStore {
 /// an ID that is not in the catalogue at all falls through to the unavailable provider,
 /// which throws rather than returning empty text, so the audio is kept for a retry.
 func registerLocalSTT() {
-    LocalSTT.providerFactory = { modelID in
+    LocalSTT.transcriberFactory = { modelID in
         switch localSTTModel(id: modelID)?.engine {
-        case .whisperKit: WhisperKitLocalProvider(modelID: modelID)
-        case .parakeet: ParakeetLocalProvider(modelID: modelID)
-        case nil: UnavailableLocalSTTProvider(modelID: modelID)
+        case .whisperKit: WhisperKitLocalTranscriber(modelID: modelID)
+        case .parakeet: ParakeetLocalTranscriber(modelID: modelID)
+        case nil: UnavailableLocalTranscriber(modelID: modelID)
         }
     }
     // Both, unconditionally: Settings removed *a* model and we are not told which engine

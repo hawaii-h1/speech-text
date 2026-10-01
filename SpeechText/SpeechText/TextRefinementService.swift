@@ -31,7 +31,7 @@ enum TextRefinementService {
                           provider: providerType.rawValue, model: modelID)
         }
 
-        let provider = try LLMConfiguration.makeProvider()
+        let provider = try LLMConfiguration.makeChatClient()
         let presets = PromptPresetStore.load()
         // The system prompt describes <context> whether or not this dictation has one:
         // it stays the same from one recording to the next, and a missing block needs
@@ -62,7 +62,7 @@ enum TextRefinementService {
     static func edit(_ selection: String, instruction: String?, context: FocusContext? = nil) async throws -> Result {
         let providerType = LLMConfiguration.providerType
         let modelID = LLMConfiguration.model(for: providerType)
-        let provider = try LLMConfiguration.makeProvider()
+        let provider = try LLMConfiguration.makeChatClient()
         let presets = PromptPresetStore.load()
         let spoken = instruction?.trimmingCharacters(in: .whitespacesAndNewlines)
         let raw = try await provider.complete(

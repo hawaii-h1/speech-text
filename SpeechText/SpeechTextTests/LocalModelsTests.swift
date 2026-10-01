@@ -348,10 +348,10 @@ final class LocalRecordingConfigurationTests: XCTestCase {
         XCTAssertTrue(config(.elevenlabs, elevenKey: "").batchUnavailableReason()!.contains("ElevenLabs"))
     }
 
-    func testUnregisteredLocalProviderFailsLoudly() async {
+    func testUnregisteredLocalTranscriberFailsLoudly() async {
         // The test target never registers WhisperKit — which is exactly the state that
         // must produce an error rather than an empty "successful" transcript.
-        let provider = makeBatchProvider(configuration: config(.local))
+        let provider = makeBatchTranscriber(configuration: config(.local))
         do {
             _ = try await provider.transcribe(audioFileURL: URL(fileURLWithPath: "/dev/null"), language: nil)
             XCTFail("expected the unregistered local tier to throw")

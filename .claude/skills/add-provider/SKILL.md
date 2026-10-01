@@ -18,7 +18,7 @@ section of the guide when you reach it.
    For a new model of an existing vendor, use guide §3 instead; the script cannot help
    there.
 5. **Write the code.** Follow the guide section for the shape, and copy the closest
-   existing provider.
+   existing transcriber or chat client.
 6. **Tests and docs.** Guide §8. Run the tests (CLAUDE.md › Tests).
 7. **Keep the guide true.** If you changed what adding a provider involves, update the
    guide in the same change, then run `scripts/check-provider-guide.sh`.

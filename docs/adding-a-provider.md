@@ -15,10 +15,10 @@ Two rules before any code:
 
 | The vendor offers | What you write |
 |---|---|
-| An endpoint that takes an audio file | a `BatchSTTProvider` struct (~80 lines) |
-| A WebSocket with live text | a `StreamingSTTProvider` (~500 lines) **plus** an upload model from the same vendor |
-| OpenAI-compatible `/chat/completions` | a case returning `OpenAICompatibleLLMProvider(baseURL:dialect:)` |
-| Its own chat API | a `LLMChatProvider` struct, like `AnthropicLLMProvider` |
+| An endpoint that takes an audio file | a `BatchTranscriber` struct (~80 lines) |
+| A WebSocket with live text | a `StreamingTranscriber` (~500 lines) **plus** an upload model from the same vendor |
+| OpenAI-compatible `/chat/completions` | a case returning `OpenAICompatibleChatClient(baseURL:dialect:)` |
+| Its own chat API | a `ChatClient` struct, like `AnthropicChatClient` |
 | A new model for a vendor already here | a catalogue entry (section 3) |
 | A model that runs on the Mac | **stop**: that is a new dependency, the maintainer's decision |
 
@@ -92,7 +92,7 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
 
 1. Add the case to `STTProviderType` and `STTVendor`, build, and fill every `switch` the
    compiler reports.
-2. Write the provider in `STTProvider.swift`, copying `GroqSTTProvider`:
+2. Write the transcriber in `STTProvider.swift`, copying `GroqTranscriber`:
    - own `URLSession` with the `STTTuning` batch timeouts;
    - `multipartAudioPart(for:)` for filename and MIME type (FLAC or WAV);
    - `language == nil` means "let the model detect": send nothing, or the vendor's
@@ -105,7 +105,7 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
 3. Catalogue entries, a model key in `SettingsKeys` + `portable`, the picker
    (`pickerModels(of:)`), a `normalizeStoredModel` line.
 4. `RecordingConfiguration`: key and model as `var` with defaults; read in `current()`.
-5. `makeBatchProvider` and `makeRecognitionSession`.
+5. `makeBatchTranscriber` and `makeRecognitionSession`.
 
 ## 5. Realtime speech engine
 
@@ -113,24 +113,24 @@ Read CLAUDE.md's streaming sections first. The rules:
 
 - **An upload twin is required**: `batchUpload: .model(id)` from the same vendor. A failed
   or dropped stream is finished by uploading the same audio.
-- Follow the `StreamingSTTProvider` protocol comments: `send` never blocks, `finish()` pads
+- Follow the `StreamingTranscriber` protocol comments: `send` never blocks, `finish()` pads
   the tail with silence and waits a bounded time, `connect` once per instance.
-- Events are **cumulative per segment**; accumulate deltas inside the provider.
+- Events are **cumulative per segment**; accumulate deltas inside the transcriber.
   `.committed` means the segment ended at a pause.
 - Hold audio until the session is ready (bounded buffer); if it fills, emit `.failed`,
   never drop audio.
 - Keep the lock order: `sendLock` before `lock`, and never hold `lock` across `task.send`.
 - Add the vendor's "no session" error to `StreamReconnectPolicy.isReconnectable`.
 - If the vendor uses one model name on both endpoints, coin a realtime ID
-  (`<model>-realtime`) and map it back in the provider.
-- Start from the closer existing provider: ElevenLabs (cumulative, server VAD) or OpenAI
+  (`<model>-realtime`) and map it back in the transcriber.
+- Start from the closer existing transcriber: ElevenLabs (cumulative, server VAD) or OpenAI
   (incremental, client commit).
 
 ## 6. AI Rewrite provider
 
-- OpenAI-compatible: a case in `LLMConfiguration.makeProvider` with `baseURL` and a
+- OpenAI-compatible: a case in `LLMConfiguration.makeChatClient` with `baseURL` and a
   `Dialect`. Parameters that fit neither dialect → a new `Dialect`, not a name check.
-- Own API: a struct like `AnthropicLLMProvider`; build the request body in a pure
+- Own API: a struct like `AnthropicChatClient`; build the request body in a pure
   function so it can be tested.
 - Either way: `LLMProviderType` case, `…ChatModels` (fastest good model first) and a
   default, `SettingsKeys` model key + `portable` + `normalizeStoredModel`.
@@ -176,8 +176,8 @@ Kinds: `stt`, `realtime`, `llm`, `key` (a new API key), `docs`. Check: `compiler
 ```touchpoints
 # kind   | file                                                  | anchor (must exist in the file)               | check       | what to do
 stt      | SpeechText/SpeechText/STTProvider.swift               | enum STTProviderType                          | compiler    | case, displayName, subtitle (key? live text? what it is good at)
-stt      | SpeechText/SpeechText/STTProvider.swift               | protocol BatchSTTProvider                     | manual:file | the provider struct and its error enum
-stt      | SpeechText/SpeechText/STTProvider.swift               | func makeBatchProvider                        | compiler    | a case returning the provider with configuration.batchModel
+stt      | SpeechText/SpeechText/STTProvider.swift               | protocol BatchTranscriber                     | manual:file | the transcriber struct and its error enum
+stt      | SpeechText/SpeechText/STTProvider.swift               | func makeBatchTranscriber                     | compiler    | a case returning the transcriber with configuration.batchModel
 stt      | SpeechText/SpeechText/STTProvider.swift               | private func providerErrorReason              | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | enum STTVendor                                | compiler    | case, displayName, apiKeyPhrase; and STTProviderType.vendor below it
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | let sttModelCatalog                           | manual      | one descriptor per model, with a dated comment on why it is offered
@@ -193,14 +193,14 @@ stt      | SpeechText/SpeechText/MenuBarView.swift               | struct Spoken
 stt      | SpeechText/SpeechText/Onboarding.swift                | Setup run again: open on what is set up now   | manual      | map the stored engine to its service (default: break hides a new one)
 stt      | SpeechText/SpeechText/Onboarding.swift                | func continueFromSpeech                       | manual      | a vendor with no card must not fall into case .groq, .anthropic; a card that promises live words saves the realtime model
 stt      | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testPickersKeepTheirOrderAndNames        | manual      | the new picker's ids and names
-realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | protocol StreamingSTTProvider                 | manual:file | the provider class
-realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | func makeStreamingProvider                    | compiler    | a case returning the realtime provider
+realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | protocol StreamingTranscriber                 | manual:file | the transcriber class
+realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
 realtime | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testRealtimeShapesMatchTheirProviders    | manual      | its provider ternary covers two vendors only
 realtime | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testEveryRealtimeModelFallsBackToAnUploadModelOfItsOwnVendor | manual | the realtime model IDs, listed by hand
 realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | manual      | the vendor's own "no session" error, or its stream is never reconnected
 llm      | SpeechText/SpeechText/LLMProvider.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
 llm      | SpeechText/SpeechText/LLMProvider.swift               | let openAIChatModels                          | manual:file | <vendor>ChatModels next to the others, and default<Vendor>Model
-llm      | SpeechText/SpeechText/LLMProvider.swift               | static func makeProvider                      | compiler    | OpenAICompatibleLLMProvider(baseURL:dialect:) or a new struct
+llm      | SpeechText/SpeechText/LLMProvider.swift               | static func makeChatClient                    | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct
 llm      | SpeechText/SpeechText/LLMProvider.swift               | static func model(for type: LLMProviderType)  | compiler    | the stored model key and default
 llm      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the chat model key, and in portable
 llm      | SpeechText/SpeechText/Settings.swift                  | func normalizeStoredProviders                 | manual      | a normalizeStoredModel line

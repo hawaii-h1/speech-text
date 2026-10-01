@@ -226,7 +226,7 @@ enum LocalModelError: LocalizedError {
 
 // MARK: - Runtime registration
 
-/// How `makeBatchProvider` reaches the local engines without naming either of them.
+/// How `makeBatchTranscriber` reaches the local engines without naming either of them.
 ///
 /// The test target compiles `STTProvider.swift`, so that file's switch has to cover
 /// `.local` — but it must not drag WhisperKit or FluidAudio in, or the standalone test
@@ -237,8 +237,8 @@ enum LocalModelError: LocalizedError {
 /// unavailable instead of crashing.
 enum LocalSTT {
     /// Builds a batch provider for an installed model ID. Replaced at launch.
-    nonisolated(unsafe) static var providerFactory: (String) -> BatchSTTProvider = {
-        UnavailableLocalSTTProvider(modelID: $0)
+    nonisolated(unsafe) static var transcriberFactory: (String) -> BatchTranscriber = {
+        UnavailableLocalTranscriber(modelID: $0)
     }
 
     /// Drops the loaded model from memory — `LocalModelStore.remove` calls it, so deleting
@@ -297,7 +297,7 @@ func isLocalModelInstalled(_ modelID: String, in directory: URL = localModelsDir
 /// Stands in for the local engine when none was registered. It never silently returns
 /// empty text: a dictation that produced nothing has to surface as an error so the
 /// existing failure paths (status overlay, History entry with the audio kept) run.
-struct UnavailableLocalSTTProvider: BatchSTTProvider {
+struct UnavailableLocalTranscriber: BatchTranscriber {
     let modelID: String
 
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {

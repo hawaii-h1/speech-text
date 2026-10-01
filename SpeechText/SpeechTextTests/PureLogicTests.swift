@@ -300,14 +300,14 @@ final class RefinementCollapseTests: XCTestCase {
 
 final class LLMRequestPayloadTests: XCTestCase {
 
-    private func provider(_ model: String, _ dialect: OpenAICompatibleLLMProvider.Dialect)
-        -> OpenAICompatibleLLMProvider
+    private func provider(_ model: String, _ dialect: OpenAICompatibleChatClient.Dialect)
+        -> OpenAICompatibleChatClient
     {
-        OpenAICompatibleLLMProvider(label: "Test", baseURL: URL(string: "https://example.invalid")!,
+        OpenAICompatibleChatClient(label: "Test", baseURL: URL(string: "https://example.invalid")!,
                                     apiKey: "k", model: model, dialect: dialect)
     }
 
-    private func body(_ model: String, _ dialect: OpenAICompatibleLLMProvider.Dialect) -> [String: Any] {
+    private func body(_ model: String, _ dialect: OpenAICompatibleChatClient.Dialect) -> [String: Any] {
         provider(model, dialect).payload(system: "system", user: "user")
     }
 
@@ -323,7 +323,7 @@ final class LLMRequestPayloadTests: XCTestCase {
 
     func testEveryCatalogueReasoningModelGetsTheEffort() {
         for (id, _) in openAIChatModels {
-            XCTAssertEqual(OpenAICompatibleLLMProvider.reasoningEffort(for: id), "none", id)
+            XCTAssertEqual(OpenAICompatibleChatClient.reasoningEffort(for: id), "none", id)
         }
     }
 
@@ -331,7 +331,7 @@ final class LLMRequestPayloadTests: XCTestCase {
         // Only the 5.6 family was measured against the live API. A value a later model
         // rejects is an HTTP 400 and costs the whole rewrite; a default effort only
         // costs time, so anything unknown is sent nothing.
-        XCTAssertNil(OpenAICompatibleLLMProvider.reasoningEffort(for: "gpt-6-astra"))
+        XCTAssertNil(OpenAICompatibleChatClient.reasoningEffort(for: "gpt-6-astra"))
         XCTAssertNil(body("gpt-6-astra", .reasoning)["reasoning_effort"])
     }
 
@@ -527,28 +527,28 @@ final class RealtimeEchoTests: XCTestCase {
     /// `partial_transcript` carrying the same words. Joined onto the committed text it
     /// pastes the dictation twice.
     func testPartialRepeatingTheCommittedSegmentIsAnEcho() {
-        XCTAssertTrue(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+        XCTAssertTrue(ElevenLabsRealtimeTranscriber.isEchoOfCommitted(
             partial: "Проаналізуй результати тесту.",
             lastCommitted: "Проаналізуй результати тесту."))
     }
 
     func testEchoComparisonIgnoresSurroundingWhitespace() {
-        XCTAssertTrue(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+        XCTAssertTrue(ElevenLabsRealtimeTranscriber.isEchoOfCommitted(
             partial: "  Hello there. ", lastCommitted: "Hello there."))
     }
 
     func testAGrowingNextSegmentIsNotAnEcho() {
         // Prefixes of the committed text are how a genuine new segment starts.
-        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+        XCTAssertFalse(ElevenLabsRealtimeTranscriber.isEchoOfCommitted(
             partial: "Проаналізуй", lastCommitted: "Проаналізуй результати тесту."))
-        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(
+        XCTAssertFalse(ElevenLabsRealtimeTranscriber.isEchoOfCommitted(
             partial: "Проаналізуй результати тесту. І ще", lastCommitted: "Проаналізуй результати тесту."))
     }
 
     func testEmptyPartialOrNoCommitYetIsNotAnEcho() {
-        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(partial: "", lastCommitted: ""))
-        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(partial: "   ", lastCommitted: "Hello."))
-        XCTAssertFalse(ElevenLabsRealtimeProvider.isEchoOfCommitted(partial: "Hello.", lastCommitted: ""))
+        XCTAssertFalse(ElevenLabsRealtimeTranscriber.isEchoOfCommitted(partial: "", lastCommitted: ""))
+        XCTAssertFalse(ElevenLabsRealtimeTranscriber.isEchoOfCommitted(partial: "   ", lastCommitted: "Hello."))
+        XCTAssertFalse(ElevenLabsRealtimeTranscriber.isEchoOfCommitted(partial: "Hello.", lastCommitted: ""))
     }
 }
 
@@ -1750,7 +1750,7 @@ final class OpenAISTTTests: XCTestCase {
     // MARK: The realtime session's configuration
 
     private func sessionUpdate(languages: [String]) throws -> [String: Any] {
-        let raw = try XCTUnwrap(OpenAIRealtimeProvider.encodeSessionUpdate(
+        let raw = try XCTUnwrap(OpenAIRealtimeTranscriber.encodeSessionUpdate(
             model: openAIRealtimeSTTModel, languages: languages, sampleRate: 24_000))
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
         let session = try XCTUnwrap(json["session"] as? [String: Any])
@@ -1796,11 +1796,11 @@ final class OpenAISTTTests: XCTestCase {
 
     /// The tier the factory picks, and the rate it asks the engine to convert to. 16 kHz
     /// — what the upload file is made of — is refused by the service as below minimum.
-    func testTheFactoryBuildsARealtimeProviderAtTwentyFourKilohertz() {
-        let streaming = makeStreamingProvider(configuration: config(openAIModel: openAIRealtimeSTTModel))
-        XCTAssertTrue(streaming is OpenAIRealtimeProvider)
+    func testTheFactoryBuildsARealtimeTranscriberAtTwentyFourKilohertz() {
+        let streaming = makeStreamingTranscriber(configuration: config(openAIModel: openAIRealtimeSTTModel))
+        XCTAssertTrue(streaming is OpenAIRealtimeTranscriber)
         XCTAssertEqual(streaming?.sampleRate, 24_000)
-        XCTAssertNil(makeStreamingProvider(configuration: config(openAIModel: defaultOpenAISTTModel)))
+        XCTAssertNil(makeStreamingTranscriber(configuration: config(openAIModel: defaultOpenAISTTModel)))
     }
 }
 
@@ -1916,7 +1916,7 @@ final class STTModelCatalogTests: XCTestCase {
         for model in sttModelCatalog {
             guard case .realtime(let shape) = model.delivery else { continue }
             let provider: STTProviderType = model.vendor == .elevenLabs ? .elevenlabs : .openai
-            let streaming = try XCTUnwrap(makeStreamingProvider(configuration: config(
+            let streaming = try XCTUnwrap(makeStreamingTranscriber(configuration: config(
                 provider, elevenLabsModel: model.id, openAISTTModel: model.id)))
             XCTAssertEqual(streaming.sampleRate, shape.sampleRate, model.id)
         }
@@ -2161,14 +2161,14 @@ final class VocabularyWireTests: XCTestCase {
     private let part = (filename: "recording.flac", mimeType: "audio/flac")
 
     func testScribeUploadRepeatsTheKeytermsField() {
-        let body = ElevenLabsSTTProvider.multipartBody(boundary: "B", audio: Data([1]), part: part,
+        let body = ElevenLabsTranscriber.multipartBody(boundary: "B", audio: Data([1]), part: part,
                                                        model: "scribe_v2", language: nil,
                                                        keyterms: ["SpeechText", "C++"])
         XCTAssertEqual(fields(body, named: "keyterms"), ["SpeechText", "C++"])
     }
 
     func testOpenAIUploadSendsKeywordsAsAnArray() {
-        let body = OpenAISTTProvider.multipartBody(boundary: "B", audio: Data([1]), part: part,
+        let body = OpenAITranscriber.multipartBody(boundary: "B", audio: Data([1]), part: part,
                                                    model: "gpt-transcribe", language: "uk",
                                                    keywords: ["SpeechText", "R&D"])
         XCTAssertEqual(fields(body, named: "keywords[]"), ["SpeechText", "R&D"])
@@ -2177,15 +2177,15 @@ final class VocabularyWireTests: XCTestCase {
 
     /// The owner's promise: nothing changes for anyone until they add terms.
     func testNoVocabularyMeansNoFieldAtAll() {
-        let scribe = String(decoding: ElevenLabsSTTProvider.multipartBody(
+        let scribe = String(decoding: ElevenLabsTranscriber.multipartBody(
             boundary: "B", audio: Data([1]), part: part, model: "scribe_v2", language: nil, keyterms: []), as: UTF8.self)
-        let openAI = String(decoding: OpenAISTTProvider.multipartBody(
+        let openAI = String(decoding: OpenAITranscriber.multipartBody(
             boundary: "B", audio: Data([1]), part: part, model: "gpt-transcribe", language: nil, keywords: []), as: UTF8.self)
         XCTAssertFalse(scribe.contains("keyterms"))
         XCTAssertFalse(openAI.contains("keywords"))
-        XCTAssertFalse(ElevenLabsRealtimeProvider.realtimeURL(model: elevenLabsRealtimeModel, languages: [], keyterms: [])
+        XCTAssertFalse(ElevenLabsRealtimeTranscriber.realtimeURL(model: elevenLabsRealtimeModel, languages: [], keyterms: [])
             .absoluteString.contains("keyterms"))
-        let session = OpenAIRealtimeProvider.encodeSessionUpdate(model: openAIRealtimeSTTModel, languages: [],
+        let session = OpenAIRealtimeTranscriber.encodeSessionUpdate(model: openAIRealtimeSTTModel, languages: [],
                                                                  sampleRate: 24_000, keywords: [])
         XCTAssertFalse(session?.contains("keywords") ?? true)
     }
@@ -2193,7 +2193,7 @@ final class VocabularyWireTests: XCTestCase {
     // MARK: Sockets
 
     func testScribeRealtimeEscapesWhatAQueryStringWouldMisread() throws {
-        let url = ElevenLabsRealtimeProvider.realtimeURL(model: elevenLabsRealtimeModel, languages: ["uk"],
+        let url = ElevenLabsRealtimeTranscriber.realtimeURL(model: elevenLabsRealtimeModel, languages: ["uk"],
                                                          keyterms: ["C++", "R&D", "a = b"])
         let query = try XCTUnwrap(url.query(percentEncoded: true))
         XCTAssertTrue(query.contains("keyterms=C%2B%2B"), query)
@@ -2207,7 +2207,7 @@ final class VocabularyWireTests: XCTestCase {
     }
 
     func testOpenAIRealtimeCarriesKeywordsInTheTranscriptionBlock() throws {
-        let raw = try XCTUnwrap(OpenAIRealtimeProvider.encodeSessionUpdate(
+        let raw = try XCTUnwrap(OpenAIRealtimeTranscriber.encodeSessionUpdate(
             model: openAIRealtimeSTTModel, languages: [], sampleRate: 24_000, keywords: ["SpeechText", "C++"]))
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
         let transcription = try XCTUnwrap(((((json["session"] as? [String: Any])?["audio"] as? [String: Any])?["input"]
