@@ -67,6 +67,10 @@ Short on purpose. Anything a machine can refuse for you is not on it:
 
 Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, and add the sign-off itself.
 
+## Language
+
+Everything in the repository is written in English: code, comments, commit messages, pull requests, issues and documentation — the same language as the app's UI. Words in other languages appear only as data, such as a Ukrainian transcript a test or an explanation quotes. A few older documents predate this rule; one kept as a historical record says so at its top.
+
 ## Setting up
 
 [docs/development.md](docs/development.md) covers building, testing and the project layout. [`CLAUDE.md`](CLAUDE.md) is the full architecture reference — read the relevant section before changing the recording pipeline.
