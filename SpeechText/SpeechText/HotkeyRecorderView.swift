@@ -35,7 +35,7 @@ struct HotkeyRecorderView: View {
                 Button(action: toggleRecording) {
                     if isRecording {
                         Text("Press shortcut...")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(SetupColor.danger)
                             .frame(minWidth: 140)
                     } else {
                         // Drawn as keys, lit while held — as in setup — so pressing the

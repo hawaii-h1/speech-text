@@ -7,6 +7,24 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F7A002000000000000000001 /* HomeSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000001 /* HomeSummary.swift */; };
+		F7A003000000000000000001 /* HomeSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000001 /* HomeSummary.swift */; };
+		F7A002000000000000000002 /* MainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000002 /* MainWindow.swift */; };
+		F7A002000000000000000003 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000003 /* HomeView.swift */; };
+		F7A003000000000000000004 /* HomeSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000004 /* HomeSummaryTests.swift */; };
+		F7A002000000000000000005 /* HistorySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000005 /* HistorySummary.swift */; };
+		F7A003000000000000000007 /* HistorySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000005 /* HistorySummary.swift */; };
+		F7A003000000000000000006 /* HistorySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000006 /* HistorySummaryTests.swift */; };
+		F7A002000000000000000010 /* Vocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000010 /* Vocabulary.swift */; };
+		F7A003000000000000000010 /* Vocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000010 /* Vocabulary.swift */; };
+		F7A002000000000000000011 /* UsageSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000011 /* UsageSummary.swift */; };
+		F7A003000000000000000011 /* UsageSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000011 /* UsageSummary.swift */; };
+		F7A003000000000000000012 /* MainPagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000012 /* MainPagesTests.swift */; };
+		F7A002000000000000000013 /* UsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000013 /* UsageView.swift */; };
+		F7A002000000000000000014 /* PromptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000014 /* PromptsView.swift */; };
+		F7A002000000000000000015 /* DictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000015 /* DictionaryView.swift */; };
+		F7A002000000000000000016 /* MainPageKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000016 /* MainPageKit.swift */; };
+		F7A003000000000000000005 /* TranscriptionHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000014 /* TranscriptionHistory.swift */; };
 		D10000010000000000000005 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
 		D30000010000000000000008 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
 		D10000010000000000000001 /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
@@ -59,7 +77,6 @@
 		A10000010000000000000015 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000018 /* LLMProvider.swift */; };
 		A10000010000000000000016 /* PromptPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000019 /* PromptPresets.swift */; };
 		A10000010000000000000017 /* TextRefinementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001A /* TextRefinementService.swift */; };
-		A10000010000000000000018 /* PromptPresetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001B /* PromptPresetsView.swift */; };
 		A10000010000000000000019 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001C /* DesignKit.swift */; };
 		A1000001000000000000001A /* PixelDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001D /* PixelDisplay.swift */; };
 		A1000001000000000000001B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001E /* Theme.swift */; };
@@ -125,6 +142,19 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F7A001000000000000000001 /* HomeSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSummary.swift; sourceTree = "<group>"; };
+		F7A001000000000000000002 /* MainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindow.swift; sourceTree = "<group>"; };
+		F7A001000000000000000003 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		F7A001000000000000000004 /* HomeSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSummaryTests.swift; sourceTree = "<group>"; };
+		F7A001000000000000000005 /* HistorySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySummary.swift; sourceTree = "<group>"; };
+		F7A001000000000000000006 /* HistorySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySummaryTests.swift; sourceTree = "<group>"; };
+		F7A001000000000000000010 /* Vocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Vocabulary.swift; sourceTree = "<group>"; };
+		F7A001000000000000000011 /* UsageSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageSummary.swift; sourceTree = "<group>"; };
+		F7A001000000000000000012 /* MainPagesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainPagesTests.swift; sourceTree = "<group>"; };
+		F7A001000000000000000013 /* UsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageView.swift; sourceTree = "<group>"; };
+		F7A001000000000000000014 /* PromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptsView.swift; sourceTree = "<group>"; };
+		F7A001000000000000000015 /* DictionaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryView.swift; sourceTree = "<group>"; };
+		F7A001000000000000000016 /* MainPageKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainPageKit.swift; sourceTree = "<group>"; };
 		D20000010000000000000005 /* DictationTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationTrace.swift; sourceTree = "<group>"; };
 		D20000010000000000000001 /* InlineDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineDelivery.swift; sourceTree = "<group>"; };
 		D20000990000000000000001 /* DictationHotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationHotkeys.swift; sourceTree = "<group>"; };
@@ -166,7 +196,6 @@
 		A20000010000000000000018 /* LLMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
 		A20000010000000000000019 /* PromptPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptPresets.swift; sourceTree = "<group>"; };
 		A2000001000000000000001A /* TextRefinementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextRefinementService.swift; sourceTree = "<group>"; };
-		A2000001000000000000001B /* PromptPresetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptPresetsView.swift; sourceTree = "<group>"; };
 		A2000001000000000000001C /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		A2000001000000000000001D /* PixelDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelDisplay.swift; sourceTree = "<group>"; };
 		A2000001000000000000001E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
@@ -259,7 +288,6 @@
 				A20000010000000000000018 /* LLMProvider.swift */,
 				A20000010000000000000019 /* PromptPresets.swift */,
 				A2000001000000000000001A /* TextRefinementService.swift */,
-				A2000001000000000000001B /* PromptPresetsView.swift */,
 				A2000001000000000000001C /* DesignKit.swift */,
 				A2000001000000000000001D /* PixelDisplay.swift */,
 				A2000001000000000000001E /* Theme.swift */,
@@ -297,6 +325,16 @@
 				E200010000000000000001 /* OnboardingScreens.swift */,
 				E300010000000000000001 /* OnboardingWindow.swift */,
 				E700010000000000000001 /* SettingsWindow.swift */,
+				F7A001000000000000000001 /* HomeSummary.swift */,
+				F7A001000000000000000002 /* MainWindow.swift */,
+				F7A001000000000000000003 /* HomeView.swift */,
+				F7A001000000000000000005 /* HistorySummary.swift */,
+				F7A001000000000000000010 /* Vocabulary.swift */,
+				F7A001000000000000000011 /* UsageSummary.swift */,
+				F7A001000000000000000013 /* UsageView.swift */,
+				F7A001000000000000000014 /* PromptsView.swift */,
+				F7A001000000000000000015 /* DictionaryView.swift */,
+				F7A001000000000000000016 /* MainPageKit.swift */,
 				E400010000000000000001 /* Onboarding.swift */,
 				E500010000000000000001 /* SetupServices.swift */,
 				F78001000000000000000004 /* OfflineRetry.swift */,
@@ -332,6 +370,9 @@
 				C20000010000000000000100 /* LocalModelsTests.swift */,
 				E6000100000000000000001A /* OnboardingTests.swift */,
 				F78001000000000000000010 /* NetworkTests.swift */,
+				F7A001000000000000000004 /* HomeSummaryTests.swift */,
+				F7A001000000000000000006 /* HistorySummaryTests.swift */,
+				F7A001000000000000000012 /* MainPagesTests.swift */,
 				F79001000000000000000003 /* APIKeyStoreTests.swift */,
 				B20000010000000000000002 /* AudioPipelineTests.swift */,
 				D20000010000000000000003 /* DictationReplay.swift */,
@@ -431,6 +472,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F7A002000000000000000001 /* HomeSummary.swift in Sources */,
+				F7A002000000000000000002 /* MainWindow.swift in Sources */,
+				F7A002000000000000000003 /* HomeView.swift in Sources */,
+				F7A002000000000000000005 /* HistorySummary.swift in Sources */,
+				F7A002000000000000000010 /* Vocabulary.swift in Sources */,
+				F7A002000000000000000011 /* UsageSummary.swift in Sources */,
+				F7A002000000000000000013 /* UsageView.swift in Sources */,
+				F7A002000000000000000014 /* PromptsView.swift in Sources */,
+				F7A002000000000000000015 /* DictionaryView.swift in Sources */,
+				F7A002000000000000000016 /* MainPageKit.swift in Sources */,
 				A10000010000000000000001 /* App.swift in Sources */,
 				A10000010000000000000002 /* MenuBarView.swift in Sources */,
 				A10000010000000000000003 /* RecordingOverlay.swift in Sources */,
@@ -498,7 +549,6 @@
 				F79002000000000000000002 /* KeychainSecretStorage.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
 				D10000010000000000000005 /* DictationTrace.swift in Sources */,
-				A10000010000000000000018 /* PromptPresetsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -506,6 +556,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F7A003000000000000000001 /* HomeSummary.swift in Sources */,
+				F7A003000000000000000004 /* HomeSummaryTests.swift in Sources */,
+				F7A003000000000000000007 /* HistorySummary.swift in Sources */,
+				F7A003000000000000000006 /* HistorySummaryTests.swift in Sources */,
+				F7A003000000000000000010 /* Vocabulary.swift in Sources */,
+				F7A003000000000000000011 /* UsageSummary.swift in Sources */,
+				F7A003000000000000000012 /* MainPagesTests.swift in Sources */,
+				F7A003000000000000000005 /* TranscriptionHistory.swift in Sources */,
 				B10000010000000000000001 /* PureLogicTests.swift in Sources */,
 				B10000010000000000000002 /* AudioPipelineTests.swift in Sources */,
 				B10000010000000000000010 /* Settings.swift in Sources */,

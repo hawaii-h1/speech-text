@@ -46,7 +46,9 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     var text: String
     var status: Status
     var errorMessage: String?
-    let provider: String
+    /// The speech engine's `STTProviderType` raw value. A retry that succeeds rewrites
+    /// it with the engine that transcribed it then.
+    var provider: String
     let locale: String?
     let duration: TimeInterval
     /// Filename (not a full path — the container may move) of the archived audio kept
@@ -59,6 +61,10 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     /// written before the stop chose where the text went.
     var originApp: String?
     var destinationApp: String?
+    /// The speech model's ID (`STTModelDescriptor.id`) — the one selected, for a stream
+    /// that fell back to its upload too. Nil for entries written before it was kept, which
+    /// Usage then names by their engine alone.
+    var sttModel: String?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
 
@@ -82,7 +88,7 @@ final class TranscriptionHistory {
     /// Cap on retained entries. Archived audio for pruned entries is deleted with them.
     private let maxRecords = 300
     /// Archived audio is only useful for a retry; expire it so the disk doesn't grow forever.
-    private let audioRetention: TimeInterval = 7 * 24 * 60 * 60
+    static let audioRetention: TimeInterval = 7 * 24 * 60 * 60
 
     private let ioQueue = DispatchQueue(label: "app.speech-text.SpeechText.history.io")
     /// The write scheduled by the last mutation, or nil when nothing is pending.
@@ -150,12 +156,12 @@ final class TranscriptionHistory {
 
     /// Returns the new record's id so a later LLM pass can be attached to this entry.
     @discardableResult
-    func recordSuccess(text: String, provider: String, locale: String?,
+    func recordSuccess(text: String, provider: String, model: String? = nil, locale: String?,
                        duration: TimeInterval) -> UUID {
         let id = UUID()
         add(TranscriptionRecord(id: id, date: Date(), text: text, status: .success,
                                 errorMessage: nil, provider: provider, locale: locale,
-                                duration: duration, audioFileName: nil))
+                                duration: duration, audioFileName: nil, sttModel: model))
         return id
     }
 
@@ -222,13 +228,13 @@ final class TranscriptionHistory {
     /// audio file here transfers ownership — do not call `AudioBufferWriter.cleanup` on it after.
     /// Returns the new record's id, so a failure the user can retry can name its row.
     @discardableResult
-    func recordFailure(error: String, provider: String, locale: String?,
+    func recordFailure(error: String, provider: String, model: String? = nil, locale: String?,
                        duration: TimeInterval, audioURL: URL?) -> UUID {
         let archived = archive(audioURL: audioURL)
         let id = UUID()
         add(TranscriptionRecord(id: id, date: Date(), text: "", status: .failed,
                                 errorMessage: error, provider: provider, locale: locale,
-                                duration: duration, audioFileName: archived))
+                                duration: duration, audioFileName: archived, sttModel: model))
         return id
     }
 
@@ -238,15 +244,17 @@ final class TranscriptionHistory {
 
     /// Transcription succeeded technically but produced no words. Audio is kept too —
     /// an empty result is often a provider hiccup worth retrying.
-    func recordEmpty(provider: String, locale: String?, duration: TimeInterval, audioURL: URL?) {
+    func recordEmpty(provider: String, model: String? = nil, locale: String?, duration: TimeInterval, audioURL: URL?) {
         let archived = archive(audioURL: audioURL)
         add(TranscriptionRecord(id: UUID(), date: Date(), text: "", status: .empty,
                                 errorMessage: nil, provider: provider, locale: locale,
-                                duration: duration, audioFileName: archived))
+                                duration: duration, audioFileName: archived, sttModel: model))
     }
 
     /// Replace a failed record's outcome after a successful retry.
-    func markRetrySucceeded(id: UUID, text: String) {
+    /// `provider` and `model`: the engine the retry went to — the current settings', not
+    /// the recording's — so Usage counts and prices the work where it was done.
+    func markRetrySucceeded(id: UUID, text: String, provider: String? = nil, model: String? = nil) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         var record = records[index]
         // The audio has served its purpose — reclaim the disk.
@@ -257,6 +265,10 @@ final class TranscriptionHistory {
         record.status = .success
         record.errorMessage = nil
         record.audioFileName = nil
+        if let provider {
+            record.provider = provider
+            record.sttModel = model
+        }
         // The old refinement described text that no longer exists.
         record.refinement = nil
         records[index] = record
@@ -325,7 +337,7 @@ final class TranscriptionHistory {
     }
 
     private func pruneExpiredAudio() {
-        let cutoff = Date().addingTimeInterval(-audioRetention)
+        let cutoff = Date().addingTimeInterval(-Self.audioRetention)
         var changed = false
         for index in records.indices where records[index].audioFileName != nil {
             guard records[index].date < cutoff else { continue }

@@ -50,6 +50,11 @@
   --step-current: var(--brand);
   --canvas: #d9ddda;
 
+  /* The dot field: the icon's dot matrix printed on a surface, fading out. One recipe for every
+     place it appears (① Welcome's desktop, the main window's Home) — so it reads as one thing. */
+  --dot-field: radial-gradient(circle, color-mix(in srgb, #61c58c 55%, transparent) 1px, transparent 1.4px);
+  --dot-field-size: 7px 7px;
+
   --title-font: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
 }

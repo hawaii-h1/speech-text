@@ -10,7 +10,12 @@ import AVFoundation
 /// setup window's frame. The parts are in SettingsWindow.swift.
 struct SettingsView: View {
     let window: SetupWindowRef
-    @State private var category: SettingsCategory = .general
+    @State private var category: SettingsCategory
+
+    init(window: SetupWindowRef, category: SettingsCategory = .general) {
+        self.window = window
+        _category = State(initialValue: category)
+    }
 
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
     @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
@@ -51,7 +56,6 @@ struct SettingsView: View {
     // Sparkle keeps this in its own defaults key, so it is read from the updater rather
     // than through @AppStorage.
     @State private var checksForUpdates = false
-    @State private var presetsWindow: PromptPresetsWindow?
     // Read when the window opens and whenever the app comes back to the front — the user
     // grants both in System Settings, outside the app.
     @State private var micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -103,6 +107,10 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissions()
             launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+        // The main window asked for a page while the window was already open.
+        .onReceive(NotificationCenter.default.publisher(for: .settingsShowCategory)) { note in
+            if let asked = note.object as? SettingsCategory { category = asked }
         }
     }
 
@@ -469,10 +477,10 @@ struct SettingsView: View {
                 .padding(.vertical, 11)
         }
 
-        SettingsGroup(title: "Presets") {
-            SettingsRow(title: "Prompt presets",
+        SettingsGroup(title: "Prompts") {
+            SettingsRow(title: "Prompts",
                         detail: "What a dictation can become — an email, a list, a translation. The model picks the one that matches what you said.") {
-                Button("Edit Presets…") { openPresets() }
+                Button("Edit Prompts…") { openPresets() }
                     .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
             }
         }
@@ -682,17 +690,11 @@ struct SettingsView: View {
         return !key.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    /// The prompts are a page of the main window now.
     private func openPresets() {
-        if let existing = presetsWindow {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-        let window = PromptPresetsWindow()
-        window.makeKeyAndOrderFront(nil)
-        presetsWindow = window
-        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: .openMainWindowPage, object: MainPage.prompts.rawValue)
     }
+
 }
 
 

@@ -104,6 +104,19 @@ enum SettingsKeys {
     /// Machine-local, like the overlay's spot: a new Mac is a fresh start, so not in
     /// `portable`.
     static let holdTipFollowedCount = "holdTipFollowedCount"
+    /// The main window's Home had its intro card — the shortcut to learn — closed with its
+    /// ✕. A lesson taken on this Mac, so not in `portable`.
+    static let homeIntroHidden = "homeIntroHidden"
+    /// The Prompts page had its card on how AI Rewrite picks a prompt closed with its ✕.
+    /// Machine-local, like Home's.
+    static let promptsIntroHidden = "promptsIntroHidden"
+    /// The main window's Dictionary: JSON-encoded `[VocabularyEntry]`. Absent on every
+    /// install that predates it, so nothing in an old preference domain to carry over and
+    /// not in `portable`.
+    static let vocabulary = "vocabulary"
+    /// The user's typing speed in words a minute, which Usage and Home weigh dictation
+    /// against; absent means the average, `HomeWeek.typingWordsPerMinute`.
+    static let typingWordsPerMinute = "typingWordsPerMinute"
 
     // Debug
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-

@@ -44,7 +44,8 @@ final class AppleRecognitionSession: RecognitionSession {
     private var finishContinuation: CheckedContinuation<Bool, Never>?
     private var finishDeadline: DispatchWorkItem?
 
-    /// The user's vocabulary, fitted to Apple's limit — set on every chunk's request,
+    /// The user's vocabulary and the Dictionary's words, fitted to Apple's limit
+    /// (`RecordingConfiguration.appleContextualStrings`) — set on every chunk's request,
     /// since each rotation builds a new one.
     private let contextualStrings: [String]
 

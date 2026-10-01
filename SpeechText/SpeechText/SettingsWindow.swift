@@ -20,7 +20,7 @@ final class SettingsWindow: NSWindow {
 
     private let onClose: () -> Void
 
-    init(onClose: @escaping () -> Void) {
+    init(category: SettingsCategory = .general, onClose: @escaping () -> Void) {
         self.onClose = onClose
         super.init(contentRect: NSRect(origin: .zero, size: Self.size),
                    styleMask: [.borderless, .miniaturizable],
@@ -31,7 +31,7 @@ final class SettingsWindow: NSWindow {
         hasShadow = true
         isMovableByWindowBackground = true
         title = "SpeechText Settings"
-        let host = NSHostingView(rootView: SettingsView(window: SetupWindowRef(self)))
+        let host = NSHostingView(rootView: SettingsView(window: SetupWindowRef(self), category: category))
         host.frame = NSRect(origin: .zero, size: Self.size)
         contentView = host
         center()
@@ -61,6 +61,11 @@ final class SettingsWindow: NSWindow {
         }
         return super.performKeyEquivalent(with: event)
     }
+}
+
+extension Notification.Name {
+    /// Posted with a `SettingsCategory` to turn an open Settings window to that page.
+    static let settingsShowCategory = Notification.Name("SettingsShowCategory")
 }
 
 // MARK: - Categories
@@ -124,6 +129,11 @@ enum SettingsColor {
     /// The card: white, as asked; the setup card's own dark grey in Dark Mode, where a
     /// white card would glare.
     static let background = Color.setup(0xFFFFFF, dark: 0x2A2A2C)
+    /// The grey of a group, the selected sidebar entry and the glyph wells: the main
+    /// window's (`MainColor.panel`, under Home's Last 7 days), so Settings and the pages
+    /// read as one design — not the setup window's cooler grey, which sits on its own card.
+    static let panel = MainColor.panel
+    static let panelBorder = MainColor.panelBorder
 }
 
 // MARK: - Sidebar
@@ -172,8 +182,8 @@ private struct SettingsSidebarItem: View {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(isSelected
                           ? AnyShapeStyle(LinearGradient(colors: tint.glyph, startPoint: .topLeading, endPoint: .bottomTrailing))
-                          : AnyShapeStyle(SetupColor.panel))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(isSelected ? .clear : SetupColor.panelBorder, lineWidth: 0.5))
+                          : AnyShapeStyle(SettingsColor.panel))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(isSelected ? .clear : SettingsColor.panelBorder, lineWidth: 0.5))
                     .frame(width: 24, height: 24)
                     .overlay {
                         Image(systemName: category.symbol)
@@ -189,9 +199,9 @@ private struct SettingsSidebarItem: View {
             .padding(.vertical, 5)
             .background {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? SetupColor.panel : hovering ? SetupColor.panel.opacity(0.6) : .clear)
+                    .fill(isSelected ? SettingsColor.panel : hovering ? SettingsColor.panel.opacity(0.6) : .clear)
             }
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? SetupColor.panelBorder : .clear, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? SettingsColor.panelBorder : .clear, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
@@ -228,8 +238,8 @@ struct SettingsGroup<Content: View>: View {
                 .padding(.horizontal, inset)
                 .padding(.vertical, inset < 14 ? inset : 0)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 14).fill(SetupColor.panel))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(SetupColor.panelBorder, lineWidth: 1))
+                // No outline, as the main window's grey surfaces have none.
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(SettingsColor.panel))
         }
     }
 }
@@ -352,7 +362,7 @@ struct SettingsKeyRoleTag: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 1.5)
         .background(Capsule().fill(active ? accent.opacity(0.12) : .clear))
-        .overlay(Capsule().strokeBorder(active ? .clear : SetupColor.panelBorder, lineWidth: 1))
+        .overlay(Capsule().strokeBorder(active ? .clear : SettingsColor.panelBorder, lineWidth: 1))
         .fixedSize()
         .accessibilityElement(children: .combine)
         .accessibilityLabel(active ? "Used for \(role.category.title)" : "Can be used for \(role.category.title)")
@@ -400,7 +410,7 @@ struct SettingsKeyField: View {
                 .padding(.horizontal, 10)
                 .frame(height: 30)
                 .background(shape.fill(SetupColor.control))
-                .overlay(shape.strokeBorder(focused ? tint.accent : SetupColor.panelBorder, lineWidth: focused ? 1.5 : 1))
+                .overlay(shape.strokeBorder(focused ? tint.accent : SettingsColor.panelBorder, lineWidth: focused ? 1.5 : 1))
                 .background(shape.fill(tint.glow.opacity(focused ? 0.25 : 0)).padding(-3))
             if let uses {
                 SettingsNote(uses)
@@ -428,7 +438,7 @@ struct SettingsPermissionRow<Control: View>: View {
                 .fill(granted
                       ? AnyShapeStyle(LinearGradient(colors: SetupTint.green.glyph, startPoint: .topLeading, endPoint: .bottomTrailing))
                       : AnyShapeStyle(SetupColor.control))
-                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(granted ? .clear : SetupColor.panelBorder, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(granted ? .clear : SettingsColor.panelBorder, lineWidth: 1))
                 .overlay(Image(systemName: symbol).font(.system(size: 16))
                     .foregroundStyle(granted ? SetupColor.phosphor : SetupColor.label2))
                 .frame(width: 38, height: 38)
@@ -485,7 +495,7 @@ struct SettingsPreviewRow<Preview: View>: View {
             preview
                 .overlay {
                     RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(isSelected ? tint.accent.opacity(0.6) : SetupColor.panelBorder, lineWidth: 1)
+                        .strokeBorder(isSelected ? tint.accent.opacity(0.6) : SettingsColor.panelBorder, lineWidth: 1)
                 }
         }
         .padding(.leading, 10)
@@ -496,7 +506,7 @@ struct SettingsPreviewRow<Preview: View>: View {
                 .fill(isSelected ? SetupColor.control : hovering ? SetupColor.control.opacity(0.6) : .clear)
                 .shadow(color: .black.opacity(isSelected ? 0.05 : 0), radius: 1, y: 1)
         }
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isSelected ? SetupColor.panelBorder : .clear, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isSelected ? SettingsColor.panelBorder : .clear, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture(perform: action)
         .onHover { hovering = $0 }

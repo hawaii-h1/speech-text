@@ -39,7 +39,8 @@ enum TextRefinementService {
         let raw = try await provider.complete(
             system: buildSystemPrompt(presets: presets,
                                       defaultPresetID: PromptPresetStore.storedDefaultPresetID()),
-            user: userMessage(transcript: source, context: context)
+            user: userMessage(transcript: source, context: context,
+                              vocabulary: Vocabulary.promptBlock(Vocabulary.load()))
         )
 
         let parsed = parse(raw, presetNames: presets.map(\.name))
@@ -197,12 +198,15 @@ enum TextRefinementService {
         """
     }
 
-    /// The transcript, preceded by where it is going when that is known. Data only —
-    /// what may be done with it is the system prompt's business.
-    static func userMessage(transcript: String, context: FocusContext?) -> String {
-        let body = "<transcript>\n\(transcript)\n</transcript>"
-        guard let context, !context.isEmpty else { return body }
-        return "\(context.promptBlock)\n\n\(body)"
+    /// The transcript, preceded by where it is going when that is known and by the
+    /// user's Dictionary (`Vocabulary.promptBlock`) when it has words. Data only — what
+    /// may be done with it is the system prompt's business.
+    static func userMessage(transcript: String, context: FocusContext?, vocabulary: String? = nil) -> String {
+        var blocks: [String] = []
+        if let context, !context.isEmpty { blocks.append(context.promptBlock) }
+        if let vocabulary { blocks.append(vocabulary) }
+        blocks.append("<transcript>\n\(transcript)\n</transcript>")
+        return blocks.joined(separator: "\n\n")
     }
 
     /// `defaultPresetID` is the user's chosen fallback, and it is a parameter rather than
@@ -245,6 +249,7 @@ enum TextRefinementService {
         - Write in the language the user asked for; if they did not ask, the one they \
         dictated in.
         - Too short or garbled to act on: output it cleaned up, never invented.
+        - Words in a <vocabulary> block: spell them exactly so, near-misses too.
 
         \(contextSection)
 

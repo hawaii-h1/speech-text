@@ -67,7 +67,7 @@ final class HistoryRetry {
         do {
             let provider = makeBatchProvider(configuration: configuration)
             let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
-            var trimmed = configuration.cleaned(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            var trimmed = configuration.finished(text.trimmingCharacters(in: .whitespacesAndNewlines))
             // A retry sends the same short clip to a model again, and gets the same
             // invented sign-off back — which would land on the clipboard as a success.
             if HallucinationFilter.isHallucination(trimmed, segmentSeconds: record.duration) {
@@ -79,7 +79,9 @@ final class HistoryRetry {
                 history.markRetryFailed(id: recordID, error: message)
                 return .failed(message)
             }
-            history.markRetrySucceeded(id: recordID, text: trimmed)
+            history.markRetrySucceeded(id: recordID, text: trimmed,
+                                       provider: configuration.batchProvider.rawValue,
+                                       model: configuration.batchModel)
             return .succeeded(trimmed)
         } catch {
             dlog("History", "retry \(recordID.uuidString.prefix(8)) failed: \(error.localizedDescription)")

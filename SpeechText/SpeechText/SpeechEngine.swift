@@ -195,7 +195,8 @@ final class SpeechEngine {
         stopAudioEngine(audioEngine)
         barLevels = Array(repeating: 0, count: 12)
 
-        if let segmentText = session.pause().map(configuration.cleaned) {
+        if let liveSegment = session.pause().map(configuration.cleaned) {
+            let segmentText = Vocabulary.corrected(liveSegment, entries: configuration.dictionary)
             // The session already has the text (Apple): hand it over, no transcribing state.
             dlog("Engine", "pauseRecording(apple): segmentText=\(segmentText.count) chars")
             phase = .paused(segmentInFlight: false)
@@ -206,6 +207,11 @@ final class SpeechEngine {
                 recordOutcome(RecognitionOutcome(text: segmentText, error: nil,
                                                  audioFileURL: nil, cancelled: false),
                               writer: audioBufferWriter, locale: configuration.historyLocale)
+                // The Dictionary changed a word the live spans still spell the old way:
+                // the segment's text is the authority, as a batch result is.
+                if segmentText != liveSegment {
+                    spanLayer.commitSegment(segmentText)
+                }
                 setPendingInsertion(segmentText)
             }
             return
@@ -224,7 +230,7 @@ final class SpeechEngine {
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
             var finished = await session.finish()
-            finished.text = configuration.cleaned(finished.text)
+            finished.text = configuration.finished(finished.text)
             let outcome = finished
             // A resume can cancel this task while the upload is still in flight. The
             // segment was still transcribed, so it is still written to History (that is
@@ -548,7 +554,7 @@ final class SpeechEngine {
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
             var finished = await session.finish()
-            finished.text = configuration.cleaned(finished.text)
+            finished.text = configuration.finished(finished.text)
             let outcome = finished
             await MainActor.run {
                 // A stale task must never touch a newer session's state — but the
@@ -638,6 +644,7 @@ final class SpeechEngine {
             return
         }
         let provider = providerType.rawValue
+        let model = configuration?.model.id
         let duration = writer?.bufferedDuration ?? 0
         let history = TranscriptionHistory.shared
         // The session only knows its own errors; engine-level failures (e.g.
@@ -650,7 +657,7 @@ final class SpeechEngine {
         }
         if !outcome.text.isEmpty {
             if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
-            lastRecordID = history.recordSuccess(text: outcome.text, provider: provider,
+            lastRecordID = history.recordSuccess(text: outcome.text, provider: provider, model: model,
                                                  locale: locale, duration: duration)
             return
         }
@@ -667,14 +674,14 @@ final class SpeechEngine {
         let tooShortToRetry = failure != nil && duration < STTTuning.minimumSegmentSeconds
         let audioURL = outcome.audioFileURL ?? (tooShortToRetry ? nil : (try? writer?.writeAudioFile()) ?? nil)
         if let error = failure {
-            let id = history.recordFailure(error: error, provider: provider, locale: locale,
+            let id = history.recordFailure(error: error, provider: provider, model: model, locale: locale,
                                            duration: duration, audioURL: audioURL)
             if outcome.offline, !superseded, history.record(id: id)?.isRetryable == true {
                 offlineRecordID = id
                 onSavedOffline?(id)
             }
         } else {
-            history.recordEmpty(provider: provider, locale: locale,
+            history.recordEmpty(provider: provider, model: model, locale: locale,
                                 duration: duration, audioURL: audioURL)
         }
     }

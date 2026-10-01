@@ -1,0 +1,301 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+
+// What the main window's Usage page says, worked out from History — pure, so the numbers,
+// the chart's buckets and the breakdowns are testable without a window. Counted as Home's
+// week counts (`HomeWeek`): words that ended up as text, time saved against typing, and
+// the providers' list prices (`UsagePrices`) for what they price. History keeps the last
+// 300 dictations, so "All" is what it holds. The page is UsageView.swift.
+
+/// The page's periods.
+enum UsagePeriod: String, CaseIterable, Identifiable {
+    case week, month, quarter, all
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .week: "7 days"
+        case .month: "30 days"
+        case .quarter: "90 days"
+        case .all: "All"
+        }
+    }
+
+    var days: Int? {
+        switch self {
+        case .week: 7
+        case .month: 30
+        case .quarter: 90
+        case .all: nil
+        }
+    }
+}
+
+struct UsageSummary: Equatable {
+    /// One bar of the chart: a day, a week or a month.
+    struct Bucket: Equatable, Identifiable {
+        let start: Date
+        /// Words pasted as dictated, and words AI Rewrite wrote.
+        var dictatedWords = 0
+        var rewrittenWords = 0
+        var speechCost: Double = 0
+        var aiCost: Double = 0
+
+        var id: Date { start }
+        var words: Int { dictatedWords + rewrittenWords }
+        var cost: Double { speechCost + aiCost }
+    }
+
+    enum Granularity: Equatable { case day, week, month }
+
+    /// What a dictation was: said and pasted, rewritten by AI Rewrite, or an edit of a
+    /// selection. History does not record which shortcut started it, so the Record
+    /// Window's dictations count as what they became.
+    enum Kind: String, CaseIterable, Identifiable {
+        case dictated, rewritten, edit
+
+        var id: String { rawValue }
+    }
+
+    struct KindUse: Equatable {
+        var count = 0
+        var words = 0
+        var speechCost: Double = 0
+        var aiCost: Double = 0
+        var cost: Double { speechCost + aiCost }
+    }
+
+    /// One model that did the work: a speech model, or an AI Rewrite model — each model
+    /// apart, so a user who changes models sees every one they used.
+    struct EngineUse: Equatable, Identifiable {
+        enum Step: Equatable { case speech, ai }
+        let step: Step
+        /// The speech provider's raw value, or the chat model's ID.
+        let key: String
+        /// The chat provider's raw value for an AI Rewrite model; the speech model's ID for
+        /// a speech one, nil for records written before History kept it.
+        var provider: String?
+        var uses = 0
+        var minutes: Double = 0
+        /// Nil when `UsagePrices` does not know its price.
+        var cost: Double? = 0
+        var isLocal = false
+
+        var id: String { "\(step)-\(key)-\(provider ?? "")" }
+    }
+
+    struct AppUse: Equatable, Identifiable {
+        let app: String
+        var words = 0
+        var dictations = 0
+        var id: String { app }
+    }
+
+    var words = 0
+    var dictations = 0
+    var rewrites = 0
+    var edits = 0
+    var failed = 0
+    /// Minutes of speech behind `words`.
+    var speakingMinutes: Double = 0
+    var savedMinutes: Double = 0
+    var speechCost: Double = 0
+    var aiCost: Double = 0
+    var unpricedModels: [String] = []
+    var buckets: [Bucket] = []
+    var granularity: Granularity = .day
+    var kinds: [Kind: KindUse] = [:]
+    var engines: [EngineUse] = []
+    var apps: [AppUse] = []
+    /// The oldest dictation History still holds.
+    var since: Date?
+    let typingWordsPerMinute: Double
+
+    var spent: Double { speechCost + aiCost }
+
+    /// Words a minute while speaking; nil before there is a minute's worth to divide.
+    var speakingWordsPerMinute: Double? {
+        guard speakingMinutes >= 0.5, words > 0 else { return nil }
+        return Double(words) / speakingMinutes
+    }
+
+    /// How many times faster speaking was than typing.
+    var speedup: Double? {
+        speakingWordsPerMinute.map { $0 / typingWordsPerMinute }
+    }
+
+    init(records: [TranscriptionRecord], period: UsagePeriod, typingWordsPerMinute: Double = HomeWeek.typingWordsPerMinute,
+         now: Date = Date(), calendar: Calendar = .current) {
+        self.typingWordsPerMinute = typingWordsPerMinute
+        let today = calendar.startOfDay(for: now)
+        since = records.map(\.date).min()
+
+        // The period's first day: the period back from today, or History's oldest day.
+        let first: Date
+        if let days = period.days {
+            first = calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today
+        } else {
+            first = since.map { calendar.startOfDay(for: $0) } ?? today
+        }
+        let span = (calendar.dateComponents([.day], from: first, to: today).day ?? 0) + 1
+        granularity = span <= 31 ? .day : span <= 120 ? .week : .month
+        buckets = Self.bucketStarts(from: first, to: today, granularity: granularity, calendar: calendar)
+            .map { Bucket(start: $0) }
+
+        var unpriced: [String] = []
+        var engineIndex: [String: Int] = [:]
+        var appIndex: [String: Int] = [:]
+
+        func engine(_ step: EngineUse.Step, _ key: String, provider: String? = nil) -> Int {
+            let id = "\(step)-\(key)-\(provider ?? "")"
+            if let index = engineIndex[id] { return index }
+            engines.append(EngineUse(step: step, key: key, provider: provider))
+            engineIndex[id] = engines.count - 1
+            return engines.count - 1
+        }
+
+        for record in records where record.date >= first && record.date <= now {
+            dictations += 1
+            let edit = record.refinement?.isSelectionEdit == true
+            let kind: Kind = edit ? .edit : record.refinement?.succeeded == true ? .rewritten : .dictated
+            let minutes = record.duration / 60
+            let bucket = Self.bucketIndex(for: record.date, in: buckets, granularity: granularity, calendar: calendar)
+
+            // The speech step.
+            let speechPrice = UsagePrices.speech(provider: record.provider)
+            let speech = speechPrice.map { minutes * $0 }
+            let s = engine(.speech, record.provider, provider: record.sttModel)
+            engines[s].uses += 1
+            engines[s].minutes += minutes
+            engines[s].isLocal = speechPrice == 0
+            if let speech {
+                speechCost += speech
+                engines[s].cost = engines[s].cost.map { $0 + speech }
+                if let bucket { buckets[bucket].speechCost += speech }
+            } else {
+                engines[s].cost = nil
+                unpriced.append(HistoryFormat.engine(record.provider))
+            }
+
+            // The AI Rewrite step.
+            var ai: Double = 0
+            if let refinement = record.refinement {
+                if edit { edits += 1 } else if refinement.succeeded { rewrites += 1 }
+                let a = engine(.ai, refinement.model, provider: refinement.provider)
+                engines[a].uses += 1
+                if let price = UsagePrices.chat(provider: refinement.provider, model: refinement.model) {
+                    ai = price.cost(inputWords: homeWordCount(refinement.inputText),
+                                    outputWords: homeWordCount(refinement.outputText))
+                    aiCost += ai
+                    engines[a].cost = engines[a].cost.map { $0 + ai }
+                    engines[a].isLocal = price.inputPerToken == 0 && price.outputPerToken == 0
+                    if let bucket { buckets[bucket].aiCost += ai }
+                } else {
+                    engines[a].cost = nil
+                    unpriced.append(refinement.model)
+                }
+            }
+
+            var use = kinds[kind] ?? KindUse()
+            use.count += 1
+            use.speechCost += speech ?? 0
+            use.aiCost += ai
+
+            if record.status != .success || record.refinement?.succeeded == false { failed += 1 }
+            if !edit, record.status == .success {
+                let count = homeWordCount(record.deliveredText)
+                words += count
+                use.words += count
+                speakingMinutes += minutes
+                savedMinutes += max(0, Double(count) / typingWordsPerMinute - minutes)
+                if let bucket {
+                    if kind == .rewritten { buckets[bucket].rewrittenWords += count } else { buckets[bucket].dictatedWords += count }
+                }
+                let app = HomeRecentEntry(record).place
+                if appIndex[app] == nil { apps.append(AppUse(app: app)); appIndex[app] = apps.count - 1 }
+                if let index = appIndex[app] {
+                    apps[index].words += count
+                    apps[index].dictations += 1
+                }
+            }
+            kinds[kind] = use
+        }
+
+        var seen = Set<String>()
+        unpricedModels = unpriced.filter { seen.insert($0).inserted }
+        engines.sort { ($0.step == .speech ? 0 : 1, -($0.cost ?? 0), -$0.uses) < ($1.step == .speech ? 0 : 1, -($1.cost ?? 0), -$1.uses) }
+        apps.sort { $0.words > $1.words }
+    }
+
+    /// Each bucket's first day, oldest first, ending with the one that holds today.
+    static func bucketStarts(from first: Date, to today: Date, granularity: Granularity, calendar: Calendar) -> [Date] {
+        var starts: [Date] = []
+        var cursor: Date
+        let step: Calendar.Component
+        switch granularity {
+        case .day:
+            cursor = first; step = .day
+        case .week:
+            cursor = calendar.dateInterval(of: .weekOfYear, for: first)?.start ?? first; step = .weekOfYear
+        case .month:
+            cursor = calendar.dateInterval(of: .month, for: first)?.start ?? first; step = .month
+        }
+        while cursor <= today {
+            starts.append(cursor)
+            guard let next = calendar.date(byAdding: step, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return starts
+    }
+
+    private static func bucketIndex(for date: Date, in buckets: [Bucket], granularity: Granularity,
+                                    calendar: Calendar) -> Int? {
+        buckets.lastIndex { $0.start <= date }
+    }
+
+    /// The tallest bar's words — the chart's scale.
+    var mostWords: Int { buckets.map(\.words).max() ?? 0 }
+    var mostCost: Double { buckets.map(\.cost).max() ?? 0 }
+}
+
+// MARK: - Formatting
+
+enum UsageFormat {
+    /// A bar's label under the chart: "Mon" for a week of days, "14" for a month of them,
+    /// "28 Sep" for a week, "Sep" for a month.
+    static func label(_ start: Date, granularity: UsageSummary.Granularity, dayCount: Int,
+                      calendar: Calendar = .current) -> String {
+        let format = switch granularity {
+        case .day: dayCount <= 7 ? "EEE" : "d"
+        case .week: "d MMM"
+        case .month: "MMM"
+        }
+        return HistoryFormat.formatter(format, calendar: calendar).string(from: start)
+    }
+
+    /// What a bar is, in full, for its tooltip: "Monday 28 September", "Week of 28
+    /// September", "September 2026".
+    static func title(_ start: Date, granularity: UsageSummary.Granularity, calendar: Calendar = .current) -> String {
+        switch granularity {
+        case .day: HistoryFormat.formatter("EEEE d MMMM", calendar: calendar).string(from: start)
+        case .week: "Week of " + HistoryFormat.formatter("d MMMM", calendar: calendar).string(from: start)
+        case .month: HistoryFormat.formatter("MMMM yyyy", calendar: calendar).string(from: start)
+        }
+    }
+
+    /// "3.6×", "12×".
+    static func speedup(_ value: Double) -> String {
+        value >= 10 ? "\(Int(value.rounded()))×" : String(format: "%.1f×", value)
+    }
+
+    /// A small cost as a person would say it: "$0.75", "0.3¢".
+    static func cents(_ value: Double) -> String {
+        if value >= 0.01 { return HomeFormat.money(value) }
+        if value <= 0 { return "$0" }
+        let cents = value * 100
+        return String(format: cents >= 0.1 ? "%.1f¢" : "%.2f¢", cents)
+    }
+}

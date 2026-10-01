@@ -99,8 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let appState = AppState()
     private var settingsWindow: SettingsWindow?
+    /// A Settings window built ahead, while the main window is open, so its Settings opens
+    /// at once: building and laying one out costs about a third of a second.
+    private var preparedSettingsWindow: SettingsWindow?
+    private var mainWindow: MainWindow?
     private var debugLogWindow: DebugLogWindow?
-    private var historyWindow: HistoryWindow?
     private var dockIcon: DockIconController?
     private var setupWindow: OnboardingWindow?
 
@@ -212,6 +215,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) { [weak self] _ in
             self?.openHistory()
         }
+        // Settings' Edit Prompts… asks for the main window's Prompts page the same way.
+        NotificationCenter.default.addObserver(
+            forName: .openMainWindowPage, object: nil, queue: .main
+        ) { [weak self] note in
+            self?.showMainWindow(on: (note.object as? String).flatMap(MainPage.init(rawValue:)))
+        }
 
         // Auto-register as login item on first launch (default: ON) — unless setup is
         // open, whose Permissions step turns it on where the switch for it is, rather
@@ -267,11 +276,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         TranscriptionHistory.shared.flush()
     }
 
-    /// A click on the Dock icon with nothing on screen opens Settings — otherwise the icon
-    /// the user asked for would do nothing at all when clicked.
+    /// A click on the Dock icon with nothing on screen opens the main window — otherwise
+    /// the icon the user asked for would do nothing at all when clicked.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !DockIconController.hasOpenWindow() {
-            openSettings()
+            openMainWindow()
         }
         return true
     }
@@ -358,6 +367,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         versionItem.target = self
         versionItem.toolTip = "Click to copy this build's version"
         menu.addItem(versionItem)
+
+        menu.addItem(.separator())
+
+        let mainItem = NSMenuItem(title: "Open SpeechText", action: #selector(openMainWindow), keyEquivalent: "")
+        mainItem.target = self
+        menu.addItem(mainItem)
 
         menu.addItem(.separator())
 
@@ -457,28 +472,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         showSettings()
     }
 
-    /// Reached from the status menu, the app menu's Settings… and
-    /// `applicationShouldHandleReopen`, all on main. A closed window is let go, so the next
-    /// one opens on General with every status read afresh.
-    func showSettings() {
+    /// Reached from the status menu, the app menu's Settings… and the main window, all on
+    /// main. A closed window is let go, so the next one opens on General — or the page the
+    /// main window asked for — with every status read afresh.
+    func showSettings(category: SettingsCategory? = nil) {
         MainActor.assumeIsolated {
-            if settingsWindow == nil {
-                settingsWindow = SettingsWindow { [weak self] in self?.settingsWindow = nil }
+            if let settingsWindow {
+                if let category {
+                    NotificationCenter.default.post(name: .settingsShowCategory, object: category)
+                }
+                settingsWindow.present()
+                return
             }
-            settingsWindow?.present()
+            if let window = preparedSettingsWindow {
+                preparedSettingsWindow = nil
+                settingsWindow = window
+                window.present()
+                if let category, category != .general {
+                    NotificationCenter.default.post(name: .settingsShowCategory, object: category)
+                }
+                return
+            }
+            let window = SettingsWindow(category: category ?? .general) { [weak self] in
+                self?.settingsWindow = nil
+                self?.prepareSettingsWindowSoon()
+            }
+            settingsWindow = window
+            window.present()
         }
     }
 
-    @objc private func openHistory() {
-        if let existing = historyWindow {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
+    /// Builds the next Settings window a moment after the main window has drawn — and again
+    /// after Settings closes while the main window is still open — so it is read afresh
+    /// for each opening, as before, only earlier.
+    private func prepareSettingsWindowSoon() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.mainWindow?.isVisible == true,
+                      self.settingsWindow == nil, self.preparedSettingsWindow == nil else { return }
+                let window = SettingsWindow(category: .general) { [weak self] in
+                    self?.settingsWindow = nil
+                    self?.prepareSettingsWindowSoon()
+                }
+                window.contentView?.layoutSubtreeIfNeeded()
+                self.preparedSettingsWindow = window
+            }
         }
-        let window = HistoryWindow()
-        window.makeKeyAndOrderFront(nil)
-        historyWindow = window
-        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The main window: from the status menu and a click on the Dock icon. Let go when
+    /// closed, like Settings, so it opens again on Home.
+    @objc private func openMainWindow() {
+        showMainWindow()
+    }
+
+    /// History is a page of the main window: the status menu's History…, and a notice's
+    /// way to a dictation it saved, open the window on it.
+    @objc private func openHistory() {
+        showMainWindow(on: .history)
+    }
+
+    private func showMainWindow(on page: MainPage? = nil) {
+        MainActor.assumeIsolated {
+            if mainWindow == nil {
+                let actions = MainWindowActions(
+                    openSettings: { [weak self] category in self?.showSettings(category: category) })
+                mainWindow = MainWindow(actions: actions) { [weak self] in
+                    self?.mainWindow = nil
+                    self?.preparedSettingsWindow = nil
+                }
+            }
+            mainWindow?.present(page)
+            prepareSettingsWindowSoon()
+        }
     }
 
     @objc private func openDebugLog() {
@@ -535,6 +601,8 @@ extension Notification.Name {
     /// Posted when something (menu item, status overlay tap) wants the History window.
     /// AppDelegate owns the window, so AppState signals rather than opening it directly.
     static let openHistoryWindow = Notification.Name("openHistoryWindow")
+    /// A page of the main window, by `MainPage` raw value as the object.
+    static let openMainWindowPage = Notification.Name("openMainWindowPage")
 }
 
 // MARK: - AppState

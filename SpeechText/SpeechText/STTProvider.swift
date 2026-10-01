@@ -165,7 +165,8 @@ func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvide
         OpenAISTTProvider(apiKey: configuration.openAIAPIKey, model: configuration.batchModel,
                           keywords: configuration.batchVocabulary)
     case .groq, .apple:
-        GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel)
+        GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel,
+                        prompt: Vocabulary.whisperPrompt(configuration.dictionary))
     case .local:
         LocalSTT.providerFactory(configuration.localModel)
     }
@@ -176,6 +177,9 @@ func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvide
 struct GroqSTTProvider: BatchSTTProvider {
     let apiKey: String
     let model: String
+    /// Whisper's `prompt`: the Dictionary's words, so it spells them that way when it
+    /// hears them (`Vocabulary.whisperPrompt`). Nil sends none.
+    var prompt: String?
 
     /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
     private static let session: URLSession = {
@@ -185,9 +189,10 @@ struct GroqSTTProvider: BatchSTTProvider {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = "whisper-large-v3-turbo") {
+    init(apiKey: String, model: String = "whisper-large-v3-turbo", prompt: String? = nil) {
         self.apiKey = apiKey
         self.model = model
+        self.prompt = prompt
     }
 
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {
@@ -214,6 +219,9 @@ struct GroqSTTProvider: BatchSTTProvider {
         if let language {
             let iso639 = String(language.prefix(2))
             body.appendMultipartField(boundary: boundary, name: "language", value: iso639)
+        }
+        if let prompt {
+            body.appendMultipartField(boundary: boundary, name: "prompt", value: prompt)
         }
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)

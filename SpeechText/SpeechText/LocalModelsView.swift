@@ -130,7 +130,7 @@ private struct LocalSpeechModelRow: View {
                 if case .failed(let message) = state {
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(SetupColor.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -350,7 +350,7 @@ struct OllamaModelsView: View {
                     ProgressView(value: fraction).progressViewStyle(.linear)
                 }
                 if let error = manager.errors[id] {
-                    Text(error).font(.caption).foregroundStyle(.red)
+                    Text(error).font(.caption).foregroundStyle(SetupColor.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

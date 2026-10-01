@@ -41,7 +41,9 @@ enum SetupColor {
     static let control = Color.setup(0xFFFFFF, dark: 0xFFFFFF, 0.08)
     static let ok = Color.setup(0x1E8E46, dark: 0x30D158)
     static let warn = Color.setup(0xB35F00, dark: 0xFF9F0A)
-    static let danger = Color(hex: 0xFF453A)
+    /// Something is wrong — a key refused, a download failed: the main window's calm
+    /// teal-green (`MainColor.problem`), not an alarm red.
+    static let danger = Color.setup(0x2F7A70, dark: 0x6CC3B5)
     static let ai = Semantic.ai
 }
 

@@ -66,6 +66,28 @@ struct RecordingConfiguration {
         dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
     }
 
+    /// The user's Dictionary, read once at the start like everything else here — see
+    /// `Vocabulary`. Empty for a value built by hand (the tests). Apart from `vocabulary`,
+    /// the Speech page's term list: the Dictionary also corrects the final text.
+    var dictionary: [VocabularyEntry] = []
+
+    /// What Apple's recogniser is told to expect: the vocabulary first, then the
+    /// Dictionary's words it does not already hold, fitted to Apple's limit together.
+    var appleContextualStrings: [String] {
+        let terms = vocabulary.map { $0.lowercased() }
+        let words = Vocabulary.hints(dictionary).filter { !terms.contains($0.lowercased()) }
+        return CustomVocabulary.selected(vocabulary + words, limits: model.vocabulary.limits)
+    }
+
+    /// A segment's text once it is final: `cleaned`, then the Dictionary's wrong
+    /// spellings replaced. Not applied to the live text while the user speaks, as
+    /// `cleaned` is: a spelling of two words would rewrite a word already drawn on the
+    /// overlay, which the span layer would have to draw as a revision. The segment result
+    /// replaces the live spans anyway (`commitSegment`), so the stop pastes this.
+    func finished(_ text: String) -> String {
+        Vocabulary.corrected(cleaned(text), entries: dictionary)
+    }
+
     /// The language to force on a cloud provider — nil unless the user named exactly one
     /// language, which leaves the model to detect it. Two languages named is still nil:
     /// no provider API takes a set (checked 2026-09-21 — Groq's `language` and
@@ -105,6 +127,12 @@ struct RecordingConfiguration {
     /// The realtime model only exists behind the WebSocket, so it maps to its vendor's
     /// upload model; Apple has no batch API, so an Apple session's upload goes to Groq.
     var batchModel: String { batchDescriptor.id }
+
+    /// The engine a file upload goes to — Groq for an Apple session, the selected one
+    /// otherwise.
+    var batchProvider: STTProviderType {
+        STTProviderType.allCases.first { $0.vendor == batchDescriptor.vendor } ?? provider
+    }
 
     /// The model a file upload goes to, per the selected model's `batchUpload`.
     private var batchDescriptor: STTModelDescriptor {
@@ -179,7 +207,8 @@ struct RecordingConfiguration {
             openAISTTModel: defaults.string(forKey: SettingsKeys.openAISTTModel) ?? defaultOpenAISTTModel,
             localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
-            dashStyle: .current
+            dashStyle: .current,
+            dictionary: Vocabulary.load()
         )
         if CustomVocabulary.isSent(defaults) {
             let terms = CustomVocabulary.stored(defaults)

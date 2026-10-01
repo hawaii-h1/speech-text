@@ -167,3 +167,49 @@ enum PromptPresetStore {
         UserDefaults.standard.set(id.uuidString, forKey: SettingsKeys.defaultPresetID)
     }
 }
+
+// MARK: - What History says about them
+
+/// How often AI Rewrite chose each prompt, from History — the Prompts page's counts and
+/// its "last chosen for" examples. Models write a prompt's name in their own capitals
+/// ("EMAIL / MESSAGE"), so a name is matched ignoring case. An edit reports its own modes
+/// (Polish, Instruction) and is not a dictation's choice, so edits are left out.
+enum PresetUsage {
+    struct Use: Equatable {
+        var count = 0
+        var last: Date?
+    }
+
+    /// Successful rewrites of a dictation, by the lowercased name of the prompt chosen.
+    static func uses(in records: [TranscriptionRecord]) -> [String: Use] {
+        var uses: [String: Use] = [:]
+        for record in records {
+            guard let name = chosenPreset(record) else { continue }
+            var use = uses[name.lowercased()] ?? Use()
+            use.count += 1
+            use.last = max(use.last ?? record.date, record.date)
+            uses[name.lowercased()] = use
+        }
+        return uses
+    }
+
+    /// The latest dictations rewritten with `preset`, newest first.
+    static func recent(_ preset: PromptPreset, in records: [TranscriptionRecord], limit: Int = 3) -> [TranscriptionRecord] {
+        Array(records.filter { chosenPreset($0)?.caseInsensitiveCompare(preset.name) == .orderedSame }
+            .sorted { $0.date > $1.date }
+            .prefix(limit))
+    }
+
+    /// Rewrites History records with no prompt name at all — a model that wrote no marker.
+    static func unnamed(in records: [TranscriptionRecord]) -> Int {
+        records.filter {
+            guard let refinement = $0.refinement, !refinement.isSelectionEdit, refinement.succeeded else { return false }
+            return refinement.presetName == nil
+        }.count
+    }
+
+    private static func chosenPreset(_ record: TranscriptionRecord) -> String? {
+        guard let refinement = record.refinement, !refinement.isSelectionEdit, refinement.succeeded else { return nil }
+        return refinement.presetName
+    }
+}
