@@ -20,11 +20,7 @@ struct UsageView: View {
     /// A chat model's name from the catalogues, without its picker note; the ID itself for
     /// one no catalogue lists.
     static func chatModelName(_ id: String) -> String {
-        HomeEngines.plainName(anthropicChatModels.first { $0.id == id }?.name
-                              ?? groqChatModels.first { $0.id == id }?.name
-                              ?? openAIChatModels.first { $0.id == id }?.name
-                              ?? localLLMModel(id: id)?.displayName
-                              ?? id)
+        HomeEngines.plainName(chatModelCatalog.first { $0.id == id }?.displayName ?? id)
     }
 
     var body: some View {

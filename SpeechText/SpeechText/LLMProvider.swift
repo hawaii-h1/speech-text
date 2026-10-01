@@ -33,36 +33,127 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Model Catalogs
+// MARK: - Model catalogue
 
-/// Checked against Groq's model and deprecation pages on 2026-09-16. Both Llama models,
-/// Qwen3 32B and Kimi K2 were shut down for free and developer accounts between April
-/// and August 2026 — the old default among them, so a stored ID for any of those is
+/// How a model's reasoning is kept out of its reply, where its API has a switch for it.
+enum ReasoningOutput: Equatable {
+    /// Nothing sent: the model documents no switch, or needs none.
+    case unchanged
+    /// `include_reasoning: false` — Groq's gpt-oss, which rejects `reasoning_format`.
+    case excluded
+    /// `reasoning_format: hidden` — Groq's Qwen, whose default `raw` puts `<think>` into
+    /// the content ahead of the `<<mode:NAME>>` marker.
+    case hidden
+}
+
+/// A chat model AI Rewrite can use: who serves it, its picker name, and the request
+/// switches measured for it. Which switches a model accepts is exactly what goes wrong —
+/// the wrong one is an HTTP 400 and the whole rewrite lost — so they are written down per
+/// model here, and no request is built from a check on the model's name. The local
+/// entries are derived from `localLLMModels`, so each model is written down once.
+struct ChatModelDescriptor: Equatable {
+    let provider: LLMProviderType
+    let id: String
+    let displayName: String
+    /// Sent as `reasoning_effort` (Anthropic: `output_config.effort`); nil sends nothing.
+    let reasoningEffort: String?
+    let reasoningOutput: ReasoningOutput
+    /// Anthropic's server-side refusal fallbacks, documented for the Opus 5 / Fable 5 tier.
+    let refusalFallbacks: Bool
+}
+
+/// Groq: checked against Groq's model and deprecation pages on 2026-09-16. Both Llama
+/// models, Qwen3 32B and Kimi K2 were shut down for free and developer accounts between
+/// April and August 2026 — the old default among them, so a stored ID for any of those is
 /// normalised to `defaultGroqLLMModel` at launch. The two preview models are labelled as
-/// such: Groq may withdraw a preview without notice.
-let groqChatModels: [(id: String, name: String)] = [
-    ("openai/gpt-oss-120b", "GPT-OSS 120B"),
-    ("openai/gpt-oss-20b", "GPT-OSS 20B (fastest)"),
-    ("qwen/qwen3.8-27b", "Qwen3.8 27B (preview)"),
-    ("minimaxai/minimax-m2.7", "MiniMax M2.7 (preview)"),
-]
+/// such: Groq may withdraw a preview without notice. Groq's reasoning models take
+/// different switches, and the wrong one is an HTTP 400 rather than something ignored:
+/// gpt-oss rejects `reasoning_format` and has no `none` effort; Qwen defaults to `raw`.
+/// MiniMax M2.7 documents no switch, so its reply goes through `strippingReasoning`.
+///
+/// Anthropic: Fable 5.1 is left out on purpose: it is the slowest and most expensive
+/// model, and a dictation clean-up gains nothing from it. Haiku 4.5 is scheduled for
+/// retirement no sooner than 2026-10-15 — when it goes, dropping it here lets
+/// normalisation move users. `output_config.effort` is rejected by pre-4.6-era models
+/// such as Haiku 4.5; elsewhere `low` keeps latency down while leaving adaptive thinking
+/// on (disabling it can leak `<thinking>` tags).
+///
+/// OpenAI: GPT-6 Astra is left out: it is built for long agentic work, and a dictation
+/// clean-up would only pay for its latency. `reasoning_effort: none` — measured
+/// 2026-09-21 on `gpt-5.6-luna` against the live API: median 1.63 s on the default
+/// effort, 0.98 s with `none`, and `low` matched that median with a longer tail. The
+/// accepted values are `none / low / medium / high / xhigh`; `minimal` is rejected. Only
+/// the 5.6 family was measured, so a model added here without a measurement is sent
+/// nothing: an unsupported value costs the whole rewrite, a default effort only time.
+let chatModelCatalog: [ChatModelDescriptor] = [
+    ChatModelDescriptor(provider: .groq, id: "openai/gpt-oss-120b", displayName: "GPT-OSS 120B",
+                        reasoningEffort: "low", reasoningOutput: .excluded, refusalFallbacks: false),
+    ChatModelDescriptor(provider: .groq, id: "openai/gpt-oss-20b", displayName: "GPT-OSS 20B (fastest)",
+                        reasoningEffort: "low", reasoningOutput: .excluded, refusalFallbacks: false),
+    ChatModelDescriptor(provider: .groq, id: "qwen/qwen3.8-27b", displayName: "Qwen3.8 27B (preview)",
+                        reasoningEffort: "none", reasoningOutput: .hidden, refusalFallbacks: false),
+    ChatModelDescriptor(provider: .groq, id: "minimaxai/minimax-m2.7", displayName: "MiniMax M2.7 (preview)",
+                        reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false),
 
-/// Fable 5.1 is left out on purpose: it is the slowest and most expensive model, and a
-/// dictation clean-up gains nothing from it. Haiku 4.5 is scheduled for retirement no
-/// sooner than 2026-10-15 — when it goes, dropping it here lets normalisation move users.
-let anthropicChatModels: [(id: String, name: String)] = [
-    ("claude-sonnet-5", "Claude Sonnet 5"),
-    ("claude-opus-5", "Claude Opus 5"),
-    ("claude-haiku-4-5", "Claude Haiku 4.5 (fastest)"),
-]
+    ChatModelDescriptor(provider: .anthropic, id: "claude-sonnet-5", displayName: "Claude Sonnet 5",
+                        reasoningEffort: "low", reasoningOutput: .unchanged, refusalFallbacks: false),
+    ChatModelDescriptor(provider: .anthropic, id: "claude-opus-5", displayName: "Claude Opus 5",
+                        reasoningEffort: "low", reasoningOutput: .unchanged, refusalFallbacks: true),
+    ChatModelDescriptor(provider: .anthropic, id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5 (fastest)",
+                        reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false),
 
-/// GPT-6 Astra is left out: it is built for long agentic work, and a dictation clean-up
-/// would only pay for its latency.
-let openAIChatModels: [(id: String, name: String)] = [
-    ("gpt-5.6-luna", "GPT-5.6 Luna — fastest"),
-    ("gpt-5.6-terra", "GPT-5.6 Terra — balanced"),
-    ("gpt-5.6-sol", "GPT-5.6 Sol — flagship"),
-]
+    ChatModelDescriptor(provider: .openai, id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna — fastest",
+                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false),
+    ChatModelDescriptor(provider: .openai, id: "gpt-5.6-terra", displayName: "GPT-5.6 Terra — balanced",
+                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false),
+    ChatModelDescriptor(provider: .openai, id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol — flagship",
+                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false),
+] + localLLMModels.map { local in
+    ChatModelDescriptor(provider: .ollama, id: local.id, displayName: local.displayName,
+                        reasoningEffort: local.reasoningEffort, reasoningOutput: .unchanged, refusalFallbacks: false)
+}
+
+func chatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
+    chatModelCatalog.filter { $0.provider == provider }
+}
+
+/// The catalogue's entry for this model, or nil for an ID it does not list.
+func listedChatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor? {
+    chatModelCatalog.first { $0.provider == provider && $0.id == id }
+}
+
+/// The model a request is built for: its catalogue entry, or what an unlisted ID is sent.
+func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
+    if let listed = listedChatModel(provider: provider, id: id) { return listed }
+    switch provider {
+    case .groq, .anthropic, .openai:
+        // Normalisation moves a stored cloud ID the catalogue no longer lists to the
+        // default at launch, so only an ID nobody measured gets here. It is sent no
+        // switch: an unsupported one costs the whole rewrite, a default effort only time.
+        return ChatModelDescriptor(provider: provider, id: id, displayName: id, reasoningEffort: nil,
+                                   reasoningOutput: .unchanged, refusalFallbacks: false)
+    case .ollama:
+        // Ollama runs any tag the daemon has. A tag takes the effort of the catalogue
+        // family its name begins with (any gpt-oss build takes `gpt-oss:20b`'s `low`), and
+        // `none` otherwise — which Qwen honours and a model with no thinking mode accepts.
+        let family = chatModels(of: .ollama)
+            .map { (name: String($0.id.prefix { $0 != ":" }), model: $0) }
+            .filter { id.hasPrefix($0.name) }
+            .max { $0.name.count < $1.name.count }
+        return ChatModelDescriptor(provider: .ollama, id: id, displayName: id,
+                                   reasoningEffort: family?.model.reasoningEffort ?? "none",
+                                   reasoningOutput: .unchanged, refusalFallbacks: false)
+    }
+}
+
+/// The Settings pickers' (id, name) pairs, in catalogue order.
+private func chatPickerModels(of provider: LLMProviderType) -> [(id: String, name: String)] {
+    chatModels(of: provider).map { (id: $0.id, name: $0.displayName) }
+}
+
+let groqChatModels = chatPickerModels(of: .groq)
+let anthropicChatModels = chatPickerModels(of: .anthropic)
+let openAIChatModels = chatPickerModels(of: .openai)
 
 // MARK: - Protocol
 
@@ -112,24 +203,22 @@ struct OpenAICompatibleChatClient: ChatClient {
         case classic
         /// OpenAI's GPT-5.x reasoning models: `max_tokens` and `temperature` are both
         /// rejected with HTTP 400. The output cap moved to `max_completion_tokens`, and
-        /// how hard the model thinks before answering is `reasoning_effort` — see
-        /// `reasoningEffort(for:)`.
+        /// how hard the model thinks before answering is the descriptor's
+        /// `reasoningEffort`.
         case reasoning
     }
 
     let label: String
     let baseURL: URL
     let apiKey: String
-    let model: String
+    let model: ChatModelDescriptor
     let dialect: Dialect
 
     /// The request body, built apart from the network so it can be asserted directly.
-    /// Which switches a model accepts is exactly the part of this provider that goes
-    /// wrong, and the wrong one is an HTTP 400 — the whole rewrite lost — rather than
-    /// something quietly ignored.
+    /// The switches are the model's descriptor's; see `chatModelCatalog`.
     func payload(system: String, user: String) -> [String: Any] {
         var body: [String: Any] = [
-            "model": model,
+            "model": model.id,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user],
@@ -139,40 +228,18 @@ struct OpenAICompatibleChatClient: ChatClient {
         case .classic:
             body["max_tokens"] = 8192
             body["temperature"] = 0.3
-            // Groq's reasoning models take different switches, and the wrong one is an
-            // HTTP 400 rather than something ignored: gpt-oss rejects `reasoning_format`
-            // and has no `none` effort; Qwen defaults to `raw`, which puts `<think>` into
-            // the content ahead of the `<<mode:NAME>>` marker.
-            if model.hasPrefix("openai/gpt-oss") {
-                body["reasoning_effort"] = "low"
-                body["include_reasoning"] = false
-            } else if model.hasPrefix("qwen/") {
-                body["reasoning_effort"] = "none"
-                body["reasoning_format"] = "hidden"
-            }
         case .reasoning:
             body["max_completion_tokens"] = 8192
-            if let effort = Self.reasoningEffort(for: model) {
-                body["reasoning_effort"] = effort
-            }
+        }
+        if let effort = model.reasoningEffort {
+            body["reasoning_effort"] = effort
+        }
+        switch model.reasoningOutput {
+        case .unchanged: break
+        case .excluded: body["include_reasoning"] = false
+        case .hidden: body["reasoning_format"] = "hidden"
         }
         return body
-    }
-
-    /// How hard a GPT-5.x model is asked to think before rewriting a dictation: not at
-    /// all. Sent nothing, it runs on its own default effort and spends about 0.6 s per
-    /// dictation on reasoning no one reads — measured 2026-09-21 on `gpt-5.6-luna`
-    /// against the live API: median 1.63 s on the default, 0.98 s with `none`, and `low`
-    /// matched that median with a longer tail. The user is waiting for the paste, and a
-    /// clean-up is not a task that thinking improves.
-    ///
-    /// The accepted values are `none / low / medium / high / xhigh`; `minimal` is
-    /// rejected. Only the 5.6 family was measured, so any other model is sent nothing at
-    /// all: an unsupported value costs the whole rewrite, while a default effort only
-    /// costs time. Should a later model refuse `none`, the request fails with HTTP 400
-    /// and the dictation falls back to the raw transcript with a notice.
-    static func reasoningEffort(for model: String) -> String? {
-        model.hasPrefix("gpt-5.6") ? "none" : nil
     }
 
     func complete(system: String, user: String) async throws -> String {
@@ -184,7 +251,7 @@ struct OpenAICompatibleChatClient: ChatClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: payload(system: system, user: user))
 
         let start = CFAbsoluteTimeGetCurrent()
-        dlog("LLM", "\(label): sending request, model=\(model), input=\(user.count) chars")
+        dlog("LLM", "\(label): sending request, model=\(model.id), input=\(user.count) chars")
         let (data, response) = try await llmSession.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
@@ -217,16 +284,29 @@ struct ChatCompletionResponse: Decodable {
 
 struct AnthropicChatClient: ChatClient {
     let apiKey: String
-    let model: String
+    let model: ChatModelDescriptor
 
-    /// `output_config.effort` is rejected by pre-4.6-era models such as Haiku 4.5.
-    private var supportsEffort: Bool {
-        !model.hasPrefix("claude-haiku")
+    /// The request body, built apart from the network so it can be asserted directly.
+    func payload(system: String, user: String) -> [String: Any] {
+        var payload: [String: Any] = [
+            "model": model.id,
+            "max_tokens": 16000,
+            "system": system,
+            "messages": [["role": "user", "content": user]],
+        ]
+
+        if let effort = model.reasoningEffort {
+            payload["output_config"] = ["effort": effort]
+        }
+        if model.refusalFallbacks {
+            payload["fallbacks"] = "default"
+        }
+        return payload
     }
 
-    /// Server-side refusal fallbacks are documented for the Opus 5 / Fable 5 tier.
-    private var supportsFallbacks: Bool {
-        model.contains("opus-5") || model.contains("fable")
+    /// The `anthropic-beta` header the body's `fallbacks` needs, or nil.
+    var betaHeader: String? {
+        model.refusalFallbacks ? "server-side-fallback-2026-07-01" : nil
     }
 
     func complete(system: String, user: String) async throws -> String {
@@ -235,28 +315,13 @@ struct AnthropicChatClient: ChatClient {
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var payload: [String: Any] = [
-            "model": model,
-            "max_tokens": 16000,
-            "system": system,
-            "messages": [["role": "user", "content": user]],
-        ]
-
-        // Rewriting a dictation is a shallow task — low effort keeps latency down
-        // while leaving adaptive thinking on (disabling it can leak <thinking> tags).
-        if supportsEffort {
-            payload["output_config"] = ["effort": "low"]
+        if let betaHeader {
+            request.setValue(betaHeader, forHTTPHeaderField: "anthropic-beta")
         }
-        if supportsFallbacks {
-            request.setValue("server-side-fallback-2026-07-01", forHTTPHeaderField: "anthropic-beta")
-            payload["fallbacks"] = "default"
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload(system: system, user: user))
 
         let start = CFAbsoluteTimeGetCurrent()
-        dlog("LLM", "Anthropic: sending request, model=\(model), input=\(user.count) chars")
+        dlog("LLM", "Anthropic: sending request, model=\(model.id), input=\(user.count) chars")
         let (data, response) = try await llmSession.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
@@ -341,11 +406,11 @@ enum LLMConfiguration {
         if type == .ollama {
             let model = model(for: type)
             guard !model.isEmpty else { throw LLMError.noLocalModel }
-            return OllamaChatClient(model: model)
+            return OllamaChatClient(model: chatModel(provider: .ollama, id: model))
         }
         let key = apiKey(for: type).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw LLMError.missingAPIKey(type) }
-        let model = model(for: type)
+        let model = chatModel(provider: type, id: model(for: type))
 
         switch type {
         case .groq:

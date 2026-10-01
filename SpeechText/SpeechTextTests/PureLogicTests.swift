@@ -303,8 +303,9 @@ final class LLMRequestPayloadTests: XCTestCase {
     private func provider(_ model: String, _ dialect: OpenAICompatibleChatClient.Dialect)
         -> OpenAICompatibleChatClient
     {
-        OpenAICompatibleChatClient(label: "Test", baseURL: URL(string: "https://example.invalid")!,
-                                    apiKey: "k", model: model, dialect: dialect)
+        let vendor: LLMProviderType = dialect == .classic ? .groq : .openai
+        return OpenAICompatibleChatClient(label: "Test", baseURL: URL(string: "https://example.invalid")!,
+                                          apiKey: "k", model: chatModel(provider: vendor, id: model), dialect: dialect)
     }
 
     private func body(_ model: String, _ dialect: OpenAICompatibleChatClient.Dialect) -> [String: Any] {
@@ -322,8 +323,8 @@ final class LLMRequestPayloadTests: XCTestCase {
     }
 
     func testEveryCatalogueReasoningModelGetsTheEffort() {
-        for (id, _) in openAIChatModels {
-            XCTAssertEqual(OpenAICompatibleChatClient.reasoningEffort(for: id), "none", id)
+        for model in chatModels(of: .openai) {
+            XCTAssertEqual(model.reasoningEffort, "none", model.id)
         }
     }
 
@@ -331,8 +332,9 @@ final class LLMRequestPayloadTests: XCTestCase {
         // Only the 5.6 family was measured against the live API. A value a later model
         // rejects is an HTTP 400 and costs the whole rewrite; a default effort only
         // costs time, so anything unknown is sent nothing.
-        XCTAssertNil(OpenAICompatibleChatClient.reasoningEffort(for: "gpt-6-astra"))
+        XCTAssertNil(chatModel(provider: .openai, id: "gpt-6-astra").reasoningEffort)
         XCTAssertNil(body("gpt-6-astra", .reasoning)["reasoning_effort"])
+        XCTAssertNil(chatModel(provider: .anthropic, id: "claude-fable-5-1").reasoningEffort)
     }
 
     func testReasoningDialectSendsNeitherRejectedParameter() {
@@ -368,6 +370,138 @@ final class LLMRequestPayloadTests: XCTestCase {
         XCTAssertEqual(messages?.count, 2)
         XCTAssertEqual(messages?.first?["role"], "system")
         XCTAssertEqual(messages?.last?["content"], "user")
+    }
+}
+
+// MARK: - Chat model catalogue (LLMProvider.swift)
+
+final class ChatModelCatalogTests: XCTestCase {
+
+    func testEveryProviderOffersModelsAndItsDefaultIsOne() {
+        for provider in LLMProviderType.allCases {
+            XCTAssertFalse(chatModels(of: provider).isEmpty, provider.rawValue)
+        }
+        XCTAssertNotNil(listedChatModel(provider: .groq, id: defaultGroqLLMModel))
+        XCTAssertNotNil(listedChatModel(provider: .anthropic, id: defaultAnthropicModel))
+        XCTAssertNotNil(listedChatModel(provider: .openai, id: defaultOpenAIModel))
+    }
+
+    func testEveryIDIsListedOnce() {
+        let ids = chatModelCatalog.map(\.id)
+        XCTAssertEqual(ids.count, Set(ids).count)
+    }
+
+    func testTheLocalEntriesAreOllamasCatalogue() {
+        XCTAssertEqual(chatModels(of: .ollama).map(\.id), localLLMModels.map(\.id))
+        XCTAssertEqual(chatModels(of: .ollama).map(\.displayName), localLLMModels.map(\.displayName))
+    }
+
+    /// Switches only where a provider's API has them: `reasoning_format` and
+    /// `include_reasoning` are Groq's, the refusal fallbacks Anthropic's.
+    func testNoModelClaimsASwitchItsProviderLacks() {
+        for model in chatModelCatalog {
+            if model.reasoningOutput != .unchanged { XCTAssertEqual(model.provider, .groq, model.id) }
+            if model.refusalFallbacks { XCTAssertEqual(model.provider, .anthropic, model.id) }
+        }
+    }
+
+    /// The pickers read the catalogue, in the order and with the names they had.
+    func testPickersKeepTheirOrderAndNames() {
+        XCTAssertEqual(groqChatModels.map(\.id), ["openai/gpt-oss-120b", "openai/gpt-oss-20b",
+                                                   "qwen/qwen3.8-27b", "minimaxai/minimax-m2.7"])
+        XCTAssertEqual(groqChatModels.map(\.name), ["GPT-OSS 120B", "GPT-OSS 20B (fastest)",
+                                                     "Qwen3.8 27B (preview)", "MiniMax M2.7 (preview)"])
+        XCTAssertEqual(anthropicChatModels.map(\.id), ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"])
+        XCTAssertEqual(anthropicChatModels.map(\.name), ["Claude Sonnet 5", "Claude Opus 5", "Claude Haiku 4.5 (fastest)"])
+        XCTAssertEqual(openAIChatModels.map(\.id), ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"])
+        XCTAssertEqual(openAIChatModels.map(\.name), ["GPT-5.6 Luna — fastest", "GPT-5.6 Terra — balanced",
+                                                       "GPT-5.6 Sol — flagship"])
+    }
+
+    func testAnUnlistedIDIsNamedByItselfAndListedNowhere() {
+        XCTAssertNil(listedChatModel(provider: .ollama, id: "llama3.2:3b"))
+        XCTAssertEqual(chatModel(provider: .ollama, id: "llama3.2:3b").displayName, "llama3.2:3b")
+        XCTAssertNil(listedChatModel(provider: .groq, id: "gpt-5.6-luna"))
+    }
+}
+
+/// Every catalogue chat model's whole request body, written out literally. A switch sent
+/// to a model that rejects it is an HTTP 400 and the whole rewrite lost, so these pin what
+/// each model is sent today: a change to how the switches are chosen must leave every one
+/// of them as it is.
+final class ChatRequestBodyTests: XCTestCase {
+
+    private let turns: [[String: String]] = [["role": "system", "content": "S"], ["role": "user", "content": "U"]]
+
+    private func assertBody(_ body: [String: Any], _ expected: [String: Any], _ model: String,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(body as NSDictionary, expected as NSDictionary, model, file: file, line: line)
+    }
+
+    private func groq(_ model: String) -> [String: Any] {
+        OpenAICompatibleChatClient(label: "Groq", baseURL: URL(string: "https://example.invalid")!,
+                                   apiKey: "k", model: chatModel(provider: .groq, id: model),
+                                   dialect: .classic).payload(system: "S", user: "U")
+    }
+
+    private func openAI(_ model: String) -> [String: Any] {
+        OpenAICompatibleChatClient(label: "OpenAI", baseURL: URL(string: "https://example.invalid")!,
+                                   apiKey: "k", model: chatModel(provider: .openai, id: model),
+                                   dialect: .reasoning).payload(system: "S", user: "U")
+    }
+
+    func testGroqModels() {
+        for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b"] {
+            assertBody(groq(model), ["model": model, "messages": turns, "max_tokens": 8192, "temperature": 0.3,
+                                     "reasoning_effort": "low", "include_reasoning": false], model)
+        }
+        assertBody(groq("qwen/qwen3.8-27b"), ["model": "qwen/qwen3.8-27b", "messages": turns, "max_tokens": 8192,
+                                              "temperature": 0.3, "reasoning_effort": "none",
+                                              "reasoning_format": "hidden"], "qwen")
+        assertBody(groq("minimaxai/minimax-m2.7"), ["model": "minimaxai/minimax-m2.7", "messages": turns,
+                                                    "max_tokens": 8192, "temperature": 0.3], "minimax")
+    }
+
+    func testOpenAIModels() {
+        for model in ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"] {
+            assertBody(openAI(model), ["model": model, "messages": turns, "max_completion_tokens": 8192,
+                                       "reasoning_effort": "none"], model)
+        }
+    }
+
+    func testAnthropicModels() {
+        let userTurn = [["role": "user", "content": "U"]]
+        let sonnet = AnthropicChatClient(apiKey: "k", model: chatModel(provider: .anthropic, id: "claude-sonnet-5"))
+        assertBody(sonnet.payload(system: "S", user: "U"),
+                   ["model": "claude-sonnet-5", "max_tokens": 16000, "system": "S", "messages": userTurn,
+                    "output_config": ["effort": "low"]], "sonnet")
+        XCTAssertNil(sonnet.betaHeader)
+
+        let opus = AnthropicChatClient(apiKey: "k", model: chatModel(provider: .anthropic, id: "claude-opus-5"))
+        assertBody(opus.payload(system: "S", user: "U"),
+                   ["model": "claude-opus-5", "max_tokens": 16000, "system": "S", "messages": userTurn,
+                    "output_config": ["effort": "low"], "fallbacks": "default"], "opus")
+        XCTAssertEqual(opus.betaHeader, "server-side-fallback-2026-07-01")
+
+        let haiku = AnthropicChatClient(apiKey: "k", model: chatModel(provider: .anthropic, id: "claude-haiku-4-5"))
+        assertBody(haiku.payload(system: "S", user: "U"),
+                   ["model": "claude-haiku-4-5", "max_tokens": 16000, "system": "S", "messages": userTurn], "haiku")
+        XCTAssertNil(haiku.betaHeader)
+    }
+
+    /// Ollama runs any model the daemon has, so tags outside the catalogue are pinned too:
+    /// a gpt-oss build of any name takes `low`, everything else `none`.
+    func testOllamaModels() {
+        let low = ["gpt-oss:120b", "gpt-oss:20b", "gpt-oss:latest", "gpt-oss-safeguard:20b"]
+        let none = ["qwen3.5:122b", "qwen3.6:35b-a3b", "gemma4:31b", "gemma4:26b", "qwen3.8:27b", "gemma4:12b",
+                    "qwen3.5:9b", "qwen3.5:4b", "qwen3.5:2b", "qwen3.5:0.8b", "llama3.2:3b", "hf.co/org/model:Q4"]
+        for (models, effort) in [(low, "low"), (none, "none")] {
+            for model in models {
+                assertBody(OllamaChatClient(model: chatModel(provider: .ollama, id: model)).payload(system: "S", user: "U"),
+                           ["model": model, "messages": turns, "temperature": 0.3, "stream": false,
+                            "reasoning_effort": effort], model)
+            }
+        }
     }
 }
 

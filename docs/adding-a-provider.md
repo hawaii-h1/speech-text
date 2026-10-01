@@ -43,6 +43,9 @@ are one provider, one key, two catalogue entries. All capability values:
 | `Vocabulary` | `.none` / `.termList(TermListLimits)` | takes the user's term list, and its limits |
 | `Dialect` (chat) | `.classic` | `max_tokens` + `temperature` (Groq) |
 | | `.reasoning` | `max_completion_tokens` + measured `reasoning_effort` (OpenAI) |
+| `ReasoningOutput` (chat) | `.unchanged` | nothing sent |
+| | `.excluded` | `include_reasoning: false` (Groq gpt-oss) |
+| | `.hidden` | `reasoning_format: hidden` (Groq Qwen) |
 
 A vendor that fits none of these is a change to this table (section 9), not a special
 case in a `switch`.
@@ -78,8 +81,10 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
 
 - Speech: one `STTModelDescriptor` in `sttModelCatalog`, with a dated comment. Update
   `testPickersKeepTheirOrderAndNames`.
-- Chat: one tuple in `…ChatModels`; a new model family gets a `payload` branch and a
-  `LLMRequestPayloadTests` case.
+- Chat: one `ChatModelDescriptor` in `chatModelCatalog`, with its measured switches
+  (`reasoningEffort`, `reasoningOutput`, `refusalFallbacks`) and a dated comment, and its
+  whole body in `ChatRequestBodyTests`. An Ollama model is a `LocalLLMModel`, with its
+  `reasoningEffort`; its descriptor is derived.
 - **Changing a default is a trap.** `defaultOpenAISTTModel` / `defaultElevenLabsModel` are
   also a catalogue entry's ID and the realtime model's fallback. Moving the constant
   removes the old model and migrates its users. Instead: give the old entry a literal ID,
@@ -129,10 +134,12 @@ Read CLAUDE.md's streaming sections first. The rules:
 ## 6. AI Rewrite provider
 
 - OpenAI-compatible: a case in `LLMConfiguration.makeChatClient` with `baseURL` and a
-  `Dialect`. Parameters that fit neither dialect → a new `Dialect`, not a name check.
+  `Dialect`. Parameters that fit neither dialect → a new `Dialect` or a descriptor field,
+  never a check on the model's name.
 - Own API: a struct like `AnthropicChatClient`; build the request body in a pure
   function so it can be tested.
-- Either way: `LLMProviderType` case, `…ChatModels` (fastest good model first) and a
+- Either way: `LLMProviderType` case, `chatModelCatalog` entries (fastest good model
+  first) and a `<vendor>ChatModels` picker list, and a
   default, `SettingsKeys` model key + `portable` + `normalizeStoredModel`.
 - Throw on any failure; the app falls back to the raw transcript.
 
@@ -199,16 +206,15 @@ realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | protocol Stre
 realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
 realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | manual      | the vendor's own "no session" error, or its stream is never reconnected
 llm      | SpeechText/SpeechText/LLMProvider.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
-llm      | SpeechText/SpeechText/LLMProvider.swift               | let openAIChatModels                          | manual:file | <vendor>ChatModels next to the others, and default<Vendor>Model
+llm      | SpeechText/SpeechText/LLMProvider.swift               | let chatModelCatalog                          | manual      | the vendor's models with their switches; a <vendor>ChatModels picker list and default<Vendor>Model below it
 llm      | SpeechText/SpeechText/LLMProvider.swift               | static func makeChatClient                    | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct
 llm      | SpeechText/SpeechText/LLMProvider.swift               | static func model(for type: LLMProviderType)  | compiler    | the stored model key and default
 llm      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the chat model key, and in portable
 llm      | SpeechText/SpeechText/Settings.swift                  | func normalizeStoredProviders                 | manual      | a normalizeStoredModel line
 llm      | SpeechText/SpeechText/MenuBarView.swift               | private var aiPage                            | compiler    | model picker
 llm      | SpeechText/SpeechText/MenuBarView.swift               | private var hasLLMKey                         | compiler    | the key (or model) that makes it configured
-llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class LLMRequestPayloadTests            | manual      | each model family's body, and what it must not carry
+llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class ChatRequestBodyTests              | manual      | each model's whole request body, written out
 llm      | SpeechText/SpeechText/HomeSummary.swift               | static func chat(provider: String, model: String) | review      | its models' token prices, or they show as not priced (#129)
-llm      | SpeechText/SpeechText/UsageView.swift                 | static func chatModelName                     | review      | its models' names on Usage
 key      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | <vendor>APIKey
 key      | SpeechText/SpeechText/APIKeyStore.swift               | static let keys                               | manual      | the key constant
 key      | SpeechText/SpeechText/LLMProvider.swift               | static func apiKey(for type: LLMProviderType) | compiler    | only if the vendor serves AI Rewrite

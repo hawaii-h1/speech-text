@@ -242,9 +242,9 @@ final class LocalLLMRecommendationTests: XCTestCase {
     }
 
     func testReasoningIsTurnedDownAsFarAsEachModelAllows() {
-        XCTAssertEqual(ollamaReasoningEffort(for: "gpt-oss:120b"), "low")
-        XCTAssertEqual(ollamaReasoningEffort(for: "qwen3.5:9b"), "none")
-        XCTAssertEqual(ollamaReasoningEffort(for: "gemma4:26b"), "none")
+        XCTAssertEqual(chatModel(provider: .ollama, id: "gpt-oss:120b").reasoningEffort, "low")
+        XCTAssertEqual(chatModel(provider: .ollama, id: "qwen3.5:9b").reasoningEffort, "none")
+        XCTAssertEqual(chatModel(provider: .ollama, id: "gemma4:26b").reasoningEffort, "none")
     }
 }
 

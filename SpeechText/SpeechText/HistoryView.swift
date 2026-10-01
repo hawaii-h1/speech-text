@@ -516,14 +516,8 @@ private struct HistoryDetail: View {
     }
 
     private func modelName(_ refinement: TranscriptionRecord.Refinement) -> String {
-        let provider = LLMProviderType(rawValue: refinement.provider)
-        let name: String? = switch provider {
-        case .anthropic: anthropicChatModels.first { $0.id == refinement.model }?.name
-        case .groq: groqChatModels.first { $0.id == refinement.model }?.name
-        case .openai: openAIChatModels.first { $0.id == refinement.model }?.name
-        case .ollama: localLLMModel(id: refinement.model)?.displayName
-        case nil: nil
-        }
+        let name = LLMProviderType(rawValue: refinement.provider)
+            .flatMap { listedChatModel(provider: $0, id: refinement.model)?.displayName }
         return HomeEngines.plainName(name ?? refinement.model)
     }
 

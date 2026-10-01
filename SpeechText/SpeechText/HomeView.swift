@@ -831,13 +831,12 @@ struct HomeEngines: View {
                 + Text("Choose a provider").foregroundStyle(MainColor.aiInk)
         }
         let id = LLMConfiguration.model(for: type)
+        let listed = listedChatModel(provider: type, id: id)?.displayName ?? id
         let (vendor, name): (String, String) = switch type {
-        case .anthropic:
-            ("Claude", Self.plainName(anthropicChatModels.first { $0.id == id }?.name ?? id)
-                .replacingOccurrences(of: "Claude ", with: ""))
-        case .groq: ("Groq", Self.plainName(groqChatModels.first { $0.id == id }?.name ?? id))
-        case .openai: ("OpenAI", Self.plainName(openAIChatModels.first { $0.id == id }?.name ?? id))
-        case .ollama: ("On this Mac", localLLMModel(id: id)?.displayName ?? id)
+        case .anthropic: ("Claude", Self.plainName(listed).replacingOccurrences(of: "Claude ", with: ""))
+        case .groq: ("Groq", Self.plainName(listed))
+        case .openai: ("OpenAI", Self.plainName(listed))
+        case .ollama: ("On this Mac", listed)
         }
         return Text("\(vendor) · \(name)")
     }

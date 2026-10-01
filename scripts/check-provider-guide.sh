@@ -96,7 +96,8 @@ check_anchors() {
         "SpeechText/SpeechText/STTModelCatalog.swift|enum BatchUpload" \
         "SpeechText/SpeechText/STTModelCatalog.swift|enum Requirement" \
         "SpeechText/SpeechText/STTModelCatalog.swift|enum Vocabulary" \
-        "SpeechText/SpeechText/LLMProvider.swift|enum Dialect"; do
+        "SpeechText/SpeechText/LLMProvider.swift|enum Dialect" \
+        "SpeechText/SpeechText/LLMProvider.swift|enum ReasoningOutput"; do
         file=${spec%%|*}
         anchor=${spec#*|}
         vocab=$(block "$file" "$anchor" | sed -n 's/^[[:space:]]*case \([A-Za-z_][A-Za-z0-9_]*\).*/\1/p')

@@ -32,6 +32,12 @@ struct LocalLLMModel: Identifiable, Hashable {
     /// An older daemon does not refuse the pull — it downloads gigabytes and then fails
     /// every request with "unknown model architecture", which the user cannot act on.
     let minimumOllamaVersion: String
+    /// How to switch the model's reasoning off, or as far down as it goes, sent as
+    /// `reasoning_effort`. Every candidate thinks by default, and the user is waiting on
+    /// the paste. `none` is honoured by Qwen (2.0 s → 0.22 s for the same clean-up on
+    /// qwen3:0.6b, Ollama 0.18.1) and accepted by models with no thinking mode, but
+    /// gpt-oss only takes low / medium / high — for it `low` is the floor.
+    let reasoningEffort: String
     let summary: String
 
     var downloadSizeDescription: String {
@@ -58,57 +64,57 @@ private let gigabyte: UInt64 = 1_073_741_824
 let localLLMModels: [LocalLLMModel] = [
     LocalLLMModel(
         id: "qwen3.5:122b", displayName: "Qwen3.5 122B",
-        downloadBytes: 81_370_035_877, memoryFloorBytes: 128 * gigabyte, minimumOllamaVersion: "0.17.4",
+        downloadBytes: 81_370_035_877, memoryFloorBytes: 128 * gigabyte, minimumOllamaVersion: "0.17.4", reasoningEffort: "none",
         summary: "The largest model that runs on a Mac. Mixture-of-experts with 10B active, so it answers faster than its size suggests."
     ),
     LocalLLMModel(
         id: "gpt-oss:120b", displayName: "gpt-oss 120B",
-        downloadBytes: 65_369_818_451, memoryFloorBytes: 96 * gigabyte, minimumOllamaVersion: "0.11.0",
+        downloadBytes: 65_369_818_451, memoryFloorBytes: 96 * gigabyte, minimumOllamaVersion: "0.11.0", reasoningEffort: "low",
         summary: "OpenAI's open model. Mixture-of-experts with 5B active; its reasoning can be turned down but not off."
     ),
     LocalLLMModel(
         id: "qwen3.6:35b-a3b", displayName: "Qwen3.6 35B",
-        downloadBytes: 22_621_314_161, memoryFloorBytes: 36 * gigabyte, minimumOllamaVersion: "0.24.0",
+        downloadBytes: 22_621_314_161, memoryFloorBytes: 36 * gigabyte, minimumOllamaVersion: "0.24.0", reasoningEffort: "none",
         summary: "Mixture-of-experts with 3B active — large-model knowledge at small-model speed."
     ),
     LocalLLMModel(
         id: "gemma4:31b", displayName: "Gemma 4 31B",
-        downloadBytes: 19_868_981_317, memoryFloorBytes: 36 * gigabyte, minimumOllamaVersion: "0.20.0",
+        downloadBytes: 19_868_981_317, memoryFloorBytes: 36 * gigabyte, minimumOllamaVersion: "0.20.0", reasoningEffort: "none",
         summary: "Google's largest dense Gemma. Strong writing, slower than the mixture-of-experts models."
     ),
     LocalLLMModel(
         id: "gemma4:26b", displayName: "Gemma 4 26B",
-        downloadBytes: 18_604_148_235, memoryFloorBytes: 36 * gigabyte, minimumOllamaVersion: "0.20.0",
+        downloadBytes: 18_604_148_235, memoryFloorBytes: 36 * gigabyte, minimumOllamaVersion: "0.20.0", reasoningEffort: "none",
         summary: "Mixture-of-experts with 4B active. Fast, and a different family to compare Qwen against."
     ),
     LocalLLMModel(
         id: "qwen3.8:27b", displayName: "Qwen3.8 27B",
-        downloadBytes: 17_741_871_939, memoryFloorBytes: 32 * gigabyte, minimumOllamaVersion: "0.32.12",
+        downloadBytes: 17_741_871_939, memoryFloorBytes: 32 * gigabyte, minimumOllamaVersion: "0.32.12", reasoningEffort: "none",
         summary: "The newest Qwen (August 2026), dense. The best text in our test, but 5–14 s per dictation on an M1 Pro — worth it only when you can wait."
     ),
     LocalLLMModel(
         id: "gemma4:12b", displayName: "Gemma 4 12B",
-        downloadBytes: 7_556_507_848, memoryFloorBytes: 16 * gigabyte, minimumOllamaVersion: "0.30.5",
+        downloadBytes: 7_556_507_848, memoryFloorBytes: 16 * gigabyte, minimumOllamaVersion: "0.30.5", reasoningEffort: "none",
         summary: "Best balance in our Ukrainian test: every preset chosen right, fillers gone, identifiers restored, 2–4 s. The pick for 16–32 GB."
     ),
     LocalLLMModel(
         id: "qwen3.5:9b", displayName: "Qwen3.5 9B",
-        downloadBytes: 6_594_474_236, memoryFloorBytes: 16 * gigabyte, minimumOllamaVersion: "0.17.4",
+        downloadBytes: 6_594_474_236, memoryFloorBytes: 16 * gigabyte, minimumOllamaVersion: "0.17.4", reasoningEffort: "none",
         summary: "Handled every test dictation, a step behind Gemma 4 12B (left some fillers in). A little lighter."
     ),
     LocalLLMModel(
         id: "qwen3.5:4b", displayName: "Qwen3.5 4B",
-        downloadBytes: 3_389_983_260, memoryFloorBytes: 8 * gigabyte, minimumOllamaVersion: "0.17.4",
+        downloadBytes: 3_389_983_260, memoryFloorBytes: 8 * gigabyte, minimumOllamaVersion: "0.17.4", reasoningEffort: "none",
         summary: "The best that fits 8 GB, with limits: in our test it turned a plain note into an email and a Ukrainian technical note into English."
     ),
     LocalLLMModel(
         id: "qwen3.5:2b", displayName: "Qwen3.5 2B",
-        downloadBytes: 2_741_192_347, memoryFloorBytes: 8 * gigabyte, minimumOllamaVersion: "0.17.4",
+        downloadBytes: 2_741_192_347, memoryFloorBytes: 8 * gigabyte, minimumOllamaVersion: "0.17.4", reasoningEffort: "none",
         summary: "Not recommended: in our test it switched Ukrainian to Russian, skipped a translation and left fillers in. Only a last resort for a nearly full disk."
     ),
     LocalLLMModel(
         id: "qwen3.5:0.8b", displayName: "Qwen3.5 0.8B",
-        downloadBytes: 1_036_046_107, memoryFloorBytes: 4 * gigabyte, minimumOllamaVersion: "0.17.4",
+        downloadBytes: 1_036_046_107, memoryFloorBytes: 4 * gigabyte, minimumOllamaVersion: "0.17.4", reasoningEffort: "none",
         summary: "Not recommended for Ukrainian. The floor for a Mac that can hold nothing larger."
     ),
 ]
@@ -179,16 +185,6 @@ func recommendedLocalLLMModel(for capabilities: SystemCapabilities) -> LocalLLMM
 func bestQualityLocalLLMModel(for capabilities: SystemCapabilities) -> LocalLLMModel? {
     firstFitting(localLLMPicks(for: MacTier(capabilities)).bestQuality, in: localLLMModels,
                  id: \.id, floor: \.memoryFloorBytes, bytes: \.downloadBytes, capabilities: capabilities)
-}
-
-/// How to switch a model's reasoning off, or as far down as it goes.
-///
-/// Every candidate thinks by default, and the user is waiting on the paste. `none` is
-/// honoured by Qwen (2.0 s → 0.22 s for the same clean-up on qwen3:0.6b, Ollama 0.18.1)
-/// and accepted by models with no thinking mode, but gpt-oss only takes low / medium /
-/// high — for it `low` is the floor.
-func ollamaReasoningEffort(for model: String) -> String {
-    model.hasPrefix("gpt-oss") ? "low" : "none"
 }
 
 // MARK: - Service
@@ -322,7 +318,7 @@ enum OllamaService {
 /// Uses Ollama's OpenAI-compatible `/v1/chat/completions`, so the request and response
 /// shapes are exactly the cloud ones, with reasoning switched off (see the payload).
 struct OllamaChatClient: ChatClient {
-    let model: String
+    let model: ChatModelDescriptor
 
     /// Generous: a 14B model on a cold start has to load several gigabytes off disk
     /// before it emits a token, and the user is watching an overlay meanwhile.
@@ -333,27 +329,34 @@ struct OllamaChatClient: ChatClient {
         return URLSession(configuration: config)
     }()
 
-    func complete(system: String, user: String) async throws -> String {
-        var request = URLRequest(url: ollamaBaseURL().appendingPathComponent("v1/chat/completions"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let payload: [String: Any] = [
-            "model": model,
+    /// The request body, built apart from the network so it can be asserted directly.
+    func payload(system: String, user: String) -> [String: Any] {
+        var body: [String: Any] = [
+            "model": model.id,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user],
             ],
             "temperature": 0.3,
             "stream": false,
-            // `reasoning_effort` is the switch this endpoint honours — a `think: false` sent
-            // here is silently ignored. See `ollamaReasoningEffort` for the values.
-            "reasoning_effort": ollamaReasoningEffort(for: model),
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        // `reasoning_effort` is the switch this endpoint honours — a `think: false` sent
+        // here is silently ignored. See `LocalLLMModel.reasoningEffort` for the values.
+        if let effort = model.reasoningEffort {
+            body["reasoning_effort"] = effort
+        }
+        return body
+    }
+
+    func complete(system: String, user: String) async throws -> String {
+        var request = URLRequest(url: ollamaBaseURL().appendingPathComponent("v1/chat/completions"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload(system: system, user: user))
 
         let start = CFAbsoluteTimeGetCurrent()
-        dlog("LLM", "Ollama: sending request, model=\(model), input=\(user.count) chars")
+        dlog("LLM", "Ollama: sending request, model=\(model.id), input=\(user.count) chars")
 
         let data: Data
         let response: URLResponse
@@ -376,10 +379,10 @@ struct OllamaChatClient: ChatClient {
             // its server log). The same words also mean out-of-memory, so the version is
             // what decides — "update Ollama" is only said when it is actually too old.
             if body.contains("unable to load model") || body.contains("unknown model architecture"),
-               let entry = localLLMModel(id: model),
+               let entry = localLLMModel(id: model.id),
                let running = await OllamaService.version(),
                !ollamaVersion(running, isAtLeast: entry.minimumOllamaVersion) {
-                throw OllamaError.needsUpdate(model: model)
+                throw OllamaError.needsUpdate(model: model.id)
             }
             throw LLMError.httpError(http.statusCode, body)
         }
