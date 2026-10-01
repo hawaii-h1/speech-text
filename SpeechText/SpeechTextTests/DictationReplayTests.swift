@@ -138,6 +138,61 @@ final class PasteOnceReplayTests: XCTestCase {
         assertDocument(run.document, "Що там узагалі нового? Це нові задачі?")
     }
 
+    // The stop's commit (#67, 1.10). Nothing is said after the stop, so a partial after a
+    // commit reply is either the server decoding that segment again or the final segment
+    // with its commit still to come — `StreamFinishSettle`.
+
+    /// The 1.10 dictation: the commit, then the same audio re-heard as other words, and
+    /// nothing after. Neither guess is safe, so the upload answers.
+    func testAPartialReHeardAfterTheStopsCommitGoesToTheUpload() async {
+        let run = await DictationReplay.run(in: FakeApp(), [], atStop: [
+            .partial("Пишіть у чат."),
+            .committed("Все так, як ми домовились."),
+            .partial("Всі так раптом домовились, що вони..."),
+        ], fallback: ScriptedSegment(text: "Все так, як ми домовились."))
+
+        assertDocument(run.document, "Все так, як ми домовились.")
+        XCTAssertFalse(run.overlay.contains { $0.text.contains("раптом") }, "a held partial is never drawn")
+    }
+
+    /// An earlier VAD segment's reply lands after the stop, then the final segment's
+    /// partial and its own commit: both segments, once each, without the upload.
+    func testALateVADReplyThenTheFinalCommitPastesBoth() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .partial("Перше речення"),
+        ], atStop: [
+            .committed("Перше речення."),
+            .partial("Друге"),
+            .committed("Друге речення."),
+        ])
+
+        assertDocument(run.document, "Перше речення. Друге речення.")
+    }
+
+    /// The same, with the final commit never arriving: the final words are not dropped —
+    /// the upload has the whole segment.
+    func testALateVADReplyWithNoFinalCommitIsUploadedNotTruncated() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .partial("Перше речення"),
+        ], atStop: [
+            .committed("Перше речення."),
+            .partial("Друге речення"),
+        ], fallback: ScriptedSegment(text: "Перше речення. Друге речення."))
+
+        assertDocument(run.document, "Перше речення. Друге речення.")
+    }
+
+    /// No commit answered the stop at all: the partial is all there is, and it is pasted.
+    func testAPartialWithNoCommitAfterTheStopIsKept() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .committed("Перше речення."),
+        ], atStop: [
+            .partial("Друге речення"),
+        ])
+
+        assertDocument(run.document, "Перше речення. Друге речення")
+    }
+
     /// Hesitations are cleaned before they become spans — off the overlay as well as out
     /// of the document.
     func testHesitationsNeverReachTheDocument() async {

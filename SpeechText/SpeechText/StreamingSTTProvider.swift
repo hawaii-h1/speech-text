@@ -115,6 +115,12 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
     /// Counts down `STTTuning.streamCommitGraceSeconds` after a `committed_transcript`
     /// seen while awaiting the commit; cancelled by a partial that shows more is coming.
     private var commitGrace: Task<Void, Never>?
+    /// What the messages after the stop's commit have settled — see `StreamFinishSettle`.
+    /// nil until `finish()` sends that commit.
+    private var settle: StreamFinishSettle?
+    /// `STTTuning.streamCommitAfterPartialSeconds`, armed by the first partial `settle`
+    /// holds and never extended by the ones after it.
+    private var holdDeadline: Task<Void, Never>?
     /// The text of the most recent `committed_transcript`, kept so the partial that
     /// echoes it can be recognised. Touched only from `handle`, which runs serially on
     /// the receive loop, so it needs no lock. Cleared by the first partial that says
@@ -289,7 +295,7 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
                 try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamFinishTimeoutSeconds * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 dlog("ElevenLabs", "realtime: no commit reply within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have")
-                self?.resumeFinish()
+                self?.settleFinish()
             }
             // The group waits for both children on exit; the timeout resumes the
             // continuation, and the continuation's arrival cancels the timeout.
@@ -322,6 +328,7 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         let chunk = pendingAudio
         pendingAudio = Data()
         awaitingCommit = true
+        settle = StreamFinishSettle()
         return (held, chunk, task)
     }
 
@@ -409,29 +416,31 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
             // Scribe sometimes repeats a segment it has just committed as one more
             // partial (observed ~60 ms after the commit). Taken at face value it reads
             // as a fresh segment holding the same words: the caller joins it onto the
-            // committed text — pasting the dictation twice — and `partialArrivedDuringGrace`
-            // makes `finish()` wait out its whole timeout for a segment that will never
-            // be committed. It is an echo of a closed segment, so drop it.
+            // committed text — pasting the dictation twice. It is an echo of a closed
+            // segment, so drop it. An echo that is re-heard rather than repeated gets
+            // past this test; after the stop, `holdAfterCommitReply` catches it.
             guard !Self.isEchoOfCommitted(partial: text, lastCommitted: lastCommittedText) else {
                 dlog("ElevenLabs", "realtime: ignoring partial echoing the committed segment")
                 return
             }
             if !text.isEmpty { lastCommittedText = "" }
+            if holdAfterCommitReply(text) { return }
             continuation.yield(.partial(text))
-            if !text.isEmpty { partialArrivedDuringGrace() }
         case "committed_transcript":
             let text = json["text"] as? String ?? ""
             dlog("ElevenLabs", "realtime: committed \(text.count) chars")
             lastCommittedText = text
+            noteCommitReply()
             continuation.yield(.committed(text))
             commitReplyArrived()
         case "committed_transcript_with_timestamps", "committed_transcript_entities":
             break
         case "commit_throttled":
             // Our commit was ignored (too little audio since the last one). Nothing
-            // further is coming for it, so stop waiting; the stream itself is fine.
+            // further is coming for it, so stop waiting; the stream itself is fine —
+            // unless a partial is held, whose words now have no commit to carry them.
             dlog("ElevenLabs", "realtime: \(json["error"] as? String ?? "commit throttled")")
-            resumeFinish()
+            settleFinish()
         case "auth_error", "quota_exceeded", "rate_limited", "session_time_limit_exceeded",
              "error", "invalid_request":
             // The documented error variants. Only these end the stream: failing on
@@ -479,17 +488,56 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         lock.unlock()
     }
 
-    /// The server is still transcribing after that commit reply: it was not ours. Keep
-    /// waiting for the next one (the `finish()` timeout still bounds the whole wait).
-    private func partialArrivedDuringGrace() {
+    /// A partial after the stop's commit has been answered. It is held rather than
+    /// passed on (`StreamFinishSettle`): if another commit follows, that commit carries
+    /// the words; if none does, it was the server decoding the committed segment again,
+    /// and the deadline settles it. The grace is cancelled — the server is still talking.
+    private func holdAfterCommitReply(_ text: String) -> Bool {
         lock.lock()
-        let grace = commitGrace
-        commitGrace = nil
-        lock.unlock()
-        if let grace {
-            dlog("ElevenLabs", "realtime: partial after a commit reply — waiting for the next commit")
-            grace.cancel()
+        guard !isClosed, var state = settle, state.holds(partial: text) else {
+            lock.unlock()
+            return false
         }
+        settle = state
+        commitGrace?.cancel()
+        commitGrace = nil
+        if holdDeadline == nil {
+            holdDeadline = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamCommitAfterPartialSeconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.settleFinish()
+            }
+        }
+        lock.unlock()
+        dlog("ElevenLabs", "realtime: holding a partial after the commit reply (\(text.count) chars)")
+        return true
+    }
+
+    /// A `committed_transcript` after the stop's commit: whatever partial was held, this
+    /// commit carries it.
+    private func noteCommitReply() {
+        lock.lock()
+        settle?.committed()
+        holdDeadline?.cancel()
+        holdDeadline = nil
+        lock.unlock()
+    }
+
+    /// The wait is over — the hold's deadline, the finish timeout or a throttled commit.
+    /// A partial still held is the one case nothing settles: the server re-decoding the
+    /// segment it committed, or the final segment's words with their commit late or never
+    /// coming. Neither guess is safe — one pastes the dictation twice, the other drops its
+    /// last words — so the stream fails and the stop uploads the segment.
+    private func settleFinish() {
+        lock.lock()
+        let unresolved = settle?.isUnresolved ?? false
+        lock.unlock()
+        guard unresolved else {
+            resumeFinish()
+            return
+        }
+        dlog("ElevenLabs", "realtime: no commit followed the held partial — uploading the segment instead")
+        fail(ElevenLabsError.realtime("unresolved_tail", "a partial followed the stop's commit and no commit carried it"))
     }
 
     private func installFinishWait(_ cont: CheckedContinuation<Void, Never>) {
@@ -508,6 +556,8 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         if awaitingCommit { commitArrived = true }
         commitGrace?.cancel()
         commitGrace = nil
+        holdDeadline?.cancel()
+        holdDeadline = nil
         let cont = finishContinuation
         finishContinuation = nil
         lock.unlock()
@@ -530,6 +580,47 @@ final class ElevenLabsRealtimeProvider: StreamingSTTProvider, @unchecked Sendabl
         task?.cancel(with: .normalClosure, reason: nil)
         continuation.finish()
     }
+}
+
+// MARK: - Settling the stop's commit
+
+/// What Scribe's messages after the stop's commit add up to.
+///
+/// Nothing on the wire ties a transcript to the commit it answers — a
+/// `committed_transcript` is only its text — and Scribe follows a commit, often within
+/// 50 ms, with one more partial decoding the same audio again. Sometimes that is the
+/// committed text word for word (`isEchoOfCommitted`), sometimes it is re-heard ("Все
+/// так, як ми домовились." came back as "Всі так раптом домовились, що вони...", 1.10;
+/// #67 before it), and joined on at the stop it pasted the dictation twice.
+///
+/// Nothing is said after the stop, so a partial after a commit that answered it has
+/// two possible meanings. The commit was an earlier VAD segment's, landing late, and
+/// the partial is the final segment, whose own commit — ours — is still coming and will
+/// carry its words; or the commit was ours, and the partial is the echo. So the partial
+/// is held, never shown: a later commit drops it, and one still held when the wait ends
+/// is `isUnresolved` — the provider then fails the stream and the segment is uploaded,
+/// because guessing either way loses: an echo kept doubles the text, a tail dropped
+/// truncates it. Pure, so the replay harness settles a scripted stop the same way.
+struct StreamFinishSettle {
+    private(set) var replied = false
+    private(set) var held: String?
+
+    /// Whether `text` is held back rather than passed on: a partial with words in it,
+    /// after a commit reply. Before one it is the final segment taking shape.
+    mutating func holds(partial text: String) -> Bool {
+        guard replied, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        held = text
+        return true
+    }
+
+    /// A `committed_transcript` arrived. It carries whatever was held.
+    mutating func committed() {
+        replied = true
+        held = nil
+    }
+
+    /// The wait ended with a partial that no commit carried.
+    var isUnresolved: Bool { held != nil }
 }
 
 // MARK: - OpenAI GPT Live Transcribe

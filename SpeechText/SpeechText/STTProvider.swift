@@ -88,8 +88,16 @@ enum STTTuning {
     /// transcript lands first and the final one — preceded by its `partial_transcript`s —
     /// is still on its way; closing on the first would drop the last phrase without any
     /// failure to trigger the batch fallback. A partial arriving inside this window
-    /// re-arms the wait. Measured replies for a padded commit are well under this.
+    /// is held, and the wait moves to `streamCommitAfterPartialSeconds`. Measured replies for a padded commit are well under this.
     static let streamCommitGraceSeconds: Double = 0.2
+
+    /// How long `finish()` goes on waiting once a partial follows that commit reply
+    /// (`StreamFinishSettle`). A commit of ours queued behind an earlier segment's lands
+    /// about as quickly as the first reply did (0.2–0.3 s after the stop in the 1.10
+    /// traces); with none by then, the held partial is unresolved and the segment is
+    /// uploaded. Armed once, by the first held partial: an echo that keeps growing used
+    /// to hold the paste for the whole `streamFinishTimeoutSeconds`.
+    static let streamCommitAfterPartialSeconds: Double = 1.0
 
     /// A segment whose loudest sample never reached this fraction of full scale
     /// (about −44 dBFS) is not uploaded. Whisper does not answer silence with nothing:

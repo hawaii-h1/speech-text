@@ -115,8 +115,25 @@ final class ScriptedStreamingProvider: StreamingSTTProvider {
 
     func connect(languages: [String]) {}
     func send(pcm16: Data) {}
+    /// The server's answer to the stop, settled as `ElevenLabsRealtimeProvider` settles
+    /// it: a partial after a commit reply is held, and one no commit carried fails the
+    /// stream, so the stop takes the upload.
     func finish() async {
-        eventsAtFinish.forEach { continuation.yield($0) }
+        var settle = StreamFinishSettle()
+        for event in eventsAtFinish {
+            switch event {
+            case .partial(let text) where settle.holds(partial: text):
+                continue
+            case .committed:
+                settle.committed()
+            default:
+                break
+            }
+            continuation.yield(event)
+        }
+        if settle.isUnresolved {
+            continuation.yield(.failed(StreamBroke()))
+        }
         continuation.finish()
     }
     func cancel() { continuation.finish() }

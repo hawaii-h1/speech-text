@@ -882,12 +882,46 @@ final class TranscriptMergeTests: XCTestCase {
         XCTAssertEqual(mergedTranscript(fnCommitted, fnPartial), fnCommitted)
     }
 
+    /// A long head that a new sentence merely opens like is still two things said.
+    func testAnOpeningAloneDoesNotRestateALongHead() {
+        let head = "Я думаю, що це добре, але потім треба буде переписати весь модуль"
+        let tail = "Я думаю, що це погано"
+        XCTAssertEqual(mergedTranscript(head, tail), head + " " + tail)
+    }
+
     /// In-order words are easy to find: a next sentence reusing a few of them is still
     /// a next sentence.
     func testANextSentenceSharingSomeWordsInOrderIsAppended() {
         let head = "Я думаю, що це добре"
         let tail = "Я не знаю, що ти думаєш про це"
         XCTAssertEqual(mergedTranscript(head, tail), head + " " + tail)
+    }
+}
+
+// MARK: - Settling the stop's commit (StreamingSTTProvider.swift)
+
+final class StreamFinishSettleTests: XCTestCase {
+
+    func testAPartialBeforeAnyCommitReplyIsPassedOn() {
+        var settle = StreamFinishSettle()
+        XCTAssertFalse(settle.holds(partial: "Друге речення"))
+        XCTAssertFalse(settle.isUnresolved)
+    }
+
+    func testAPartialAfterACommitReplyIsHeldAndUnresolvedUntilACommitCarriesIt() {
+        var settle = StreamFinishSettle()
+        settle.committed()
+        XCTAssertTrue(settle.holds(partial: "Всі так раптом домовились, що вони..."))
+        XCTAssertTrue(settle.isUnresolved)
+        settle.committed()
+        XCTAssertFalse(settle.isUnresolved)
+    }
+
+    func testAnEmptyPartialAfterACommitReplyIsNotHeld() {
+        var settle = StreamFinishSettle()
+        settle.committed()
+        XCTAssertFalse(settle.holds(partial: "  "))
+        XCTAssertFalse(settle.isUnresolved)
     }
 }
 
