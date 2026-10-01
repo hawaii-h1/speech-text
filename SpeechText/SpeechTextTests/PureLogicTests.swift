@@ -1854,7 +1854,7 @@ final class STTModelCatalogTests: XCTestCase {
 
     func testEveryRealtimeModelFallsBackToAnUploadModelOfItsOwnVendor() {
         let realtime = sttModelCatalog.filter(\.isRealtime)
-        XCTAssertEqual(Set(realtime.map(\.id)), [elevenLabsRealtimeModel, openAIRealtimeSTTModel])
+        XCTAssertFalse(realtime.isEmpty)
         for model in realtime {
             guard case .model(let id) = model.batchUpload else {
                 return XCTFail("\(model.id) names no upload model")
@@ -1915,9 +1915,9 @@ final class STTModelCatalogTests: XCTestCase {
     func testRealtimeShapesMatchTheirProviders() throws {
         for model in sttModelCatalog {
             guard case .realtime(let shape) = model.delivery else { continue }
-            let provider: STTProviderType = model.vendor == .elevenLabs ? .elevenlabs : .openai
+            let provider = try XCTUnwrap(STTProviderType.allCases.first { $0.vendor == model.vendor }, model.id)
             let streaming = try XCTUnwrap(makeStreamingTranscriber(configuration: config(
-                provider, elevenLabsModel: model.id, openAISTTModel: model.id)))
+                provider, groqModel: model.id, elevenLabsModel: model.id, openAISTTModel: model.id)), model.id)
             XCTAssertEqual(streaming.sampleRate, shape.sampleRate, model.id)
         }
     }

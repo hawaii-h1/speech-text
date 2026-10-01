@@ -145,9 +145,9 @@ Read CLAUDE.md's streaming sections first. The rules:
 
 ## 8. UI, tests, docs
 
-- UI: model pickers on the Speech / AI Rewrite pages. In setup, the branches with
-  `default:` (Onboarding.swift) must not save a new vendor as Groq. Whether it gets a
-  setup card is the maintainer's call.
+- UI: model pickers on the Speech / AI Rewrite pages. In setup, the compiler points to
+  the mappings between a service and what it saves (Onboarding.swift). Whether the vendor
+  gets a setup card is the maintainer's call.
 - Tests: new files go in **both** targets in `project.pbxproj`. Test request builders and
   parsers as pure functions; realtime vendors get a `DictationReplay` script with a drop.
 - Docs: README (engine table and **privacy list**), SECURITY.md, CLAUDE.md (component
@@ -190,13 +190,13 @@ stt      | SpeechText/SpeechText/Settings.swift                  | let groqModel
 stt      | SpeechText/SpeechText/Settings.swift                  | func normalizeStoredProviders                 | manual      | a normalizeStoredModel line
 stt      | SpeechText/SpeechText/MenuBarView.swift               | private var speechPage                        | compiler    | model picker; a SettingsNote for a realtime model
 stt      | SpeechText/SpeechText/MenuBarView.swift               | struct SpokenLanguagesField                   | review      | the caption, only if the engine takes a language set
-stt      | SpeechText/SpeechText/Onboarding.swift                | Setup run again: open on what is set up now   | manual      | map the stored engine to its service (default: break hides a new one)
+stt      | SpeechText/SpeechText/Onboarding.swift                | Setup run again: open on what is set up now   | compiler    | the setup service the stored engine opens on, or none
 stt      | SpeechText/SpeechText/Onboarding.swift                | func continueFromSpeech                       | manual      | a vendor with no card must not fall into case .groq, .anthropic; a card that promises live words saves the realtime model
 stt      | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testPickersKeepTheirOrderAndNames        | manual      | the new picker's ids and names
+stt      | SpeechText/SpeechText/HomeView.swift                  | private var speechEngine                      | compiler    | the engine's line on Home, with its stored model
+stt      | SpeechText/SpeechText/HomeSummary.swift               | static func speech(provider: String)          | compiler    | its price a minute, or nil written out (#129)
 realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | protocol StreamingTranscriber                 | manual:file | the transcriber class
 realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
-realtime | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testRealtimeShapesMatchTheirProviders    | manual      | its provider ternary covers two vendors only
-realtime | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testEveryRealtimeModelFallsBackToAnUploadModelOfItsOwnVendor | manual | the realtime model IDs, listed by hand
 realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | manual      | the vendor's own "no session" error, or its stream is never reconnected
 llm      | SpeechText/SpeechText/LLMProvider.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
 llm      | SpeechText/SpeechText/LLMProvider.swift               | let openAIChatModels                          | manual:file | <vendor>ChatModels next to the others, and default<Vendor>Model
@@ -206,14 +206,19 @@ llm      | SpeechText/SpeechText/Settings.swift                  | enum Settings
 llm      | SpeechText/SpeechText/Settings.swift                  | func normalizeStoredProviders                 | manual      | a normalizeStoredModel line
 llm      | SpeechText/SpeechText/MenuBarView.swift               | private var aiPage                            | compiler    | model picker
 llm      | SpeechText/SpeechText/MenuBarView.swift               | private var hasLLMKey                         | compiler    | the key (or model) that makes it configured
-llm      | SpeechText/SpeechText/Onboarding.swift                | func continueFromAI                           | manual      | default: .groq hides a new service
 llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class LLMRequestPayloadTests            | manual      | each model family's body, and what it must not carry
+llm      | SpeechText/SpeechText/HomeSummary.swift               | static func chat(provider: String, model: String) | review      | its models' token prices, or they show as not priced (#129)
+llm      | SpeechText/SpeechText/UsageView.swift                 | static func chatModelName                     | review      | its models' names on Usage
 key      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | <vendor>APIKey
 key      | SpeechText/SpeechText/APIKeyStore.swift               | static let keys                               | manual      | the key constant
 key      | SpeechText/SpeechText/LLMProvider.swift               | static func apiKey(for type: LLMProviderType) | compiler    | only if the vendor serves AI Rewrite
 key      | SpeechText/SpeechText/SetupServices.swift             | enum SetupService                             | compiler    | key page, create note, looksLikeKey, verificationRequest
 key      | SpeechText/SpeechText/MenuBarView.swift               | private var apiKeys: [APIKey]                 | manual      | an APIKey with its roles and active:
 key      | SpeechText/SpeechTextTests/OnboardingTests.swift      | func testKeyShapesTellTheServicesApart        | manual      | its shape, and no overlap with the others
+key      | SpeechText/SpeechText/Onboarding.swift                | func continueFromAI                           | compiler    | the AI Rewrite provider the service saves
+key      | SpeechText/SpeechText/Onboarding.swift                | var groqReadyFromSpeech                       | review      | only Groq's speech key is offered again on the AI step
+key      | SpeechText/SpeechText/SetupServices.swift             | var linkTitle                                 | review      | "free key" only for a free plan
+key      | SpeechText/SpeechText/OnboardingScreens.swift         | private var onlineDetails                     | review      | a setup card on the Speech and AI steps, if the maintainer wants one
 key      | SpeechText/SpeechText/Onboarding.swift                | func continueFromSpeech                       | manual      | a service with no speech engine belongs in the branch that saves none
 key      | docs/development.md                                   | ## API keys                                   | manual      | the list and count of keys
 key      | docs/manual-testing.md                                | Відкритого тексту не лишилось                 | manual      | the key in the loop that checks no plain-text copy is left

@@ -110,11 +110,12 @@ enum UsagePrices {
 
     /// Dollars per minute of speech, by `STTProviderType` raw value; nil when not priced.
     static func speech(provider: String) -> Double? {
-        switch provider {
-        case STTProviderType.apple.rawValue, STTProviderType.local.rawValue: 0
-        case STTProviderType.groq.rawValue: 0.04 / 60
-        case STTProviderType.elevenlabs.rawValue: 0.40 / 60
-        default: nil
+        switch STTProviderType(rawValue: provider) {
+        case .apple?, .local?: 0
+        case .groq?: 0.04 / 60
+        case .elevenlabs?: 0.40 / 60
+        case .openai?: nil // not priced yet (#129)
+        case nil: nil
         }
     }
 

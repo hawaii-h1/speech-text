@@ -805,10 +805,14 @@ struct HomeEngines: View {
         switch provider {
         case .apple: return "Apple · On-device"
         case .local: return "On this Mac · \(localSTTModel(id: localSTTModelID)?.displayName ?? localSTTModelID)"
-        case .groq, .elevenlabs, .openai:
-            let id = provider == .groq ? groqModel : provider == .elevenlabs ? elevenLabsModel : openAISTTModel
-            return "\(provider.vendor.displayName) · \(Self.plainName(sttModel(vendor: provider.vendor, id: id).displayName))"
+        case .groq: return cloudEngine(provider, model: groqModel)
+        case .elevenlabs: return cloudEngine(provider, model: elevenLabsModel)
+        case .openai: return cloudEngine(provider, model: openAISTTModel)
         }
+    }
+
+    private func cloudEngine(_ provider: STTProviderType, model id: String) -> String {
+        "\(provider.vendor.displayName) · \(Self.plainName(sttModel(vendor: provider.vendor, id: id).displayName))"
     }
 
     private var languages: String {

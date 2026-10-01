@@ -165,7 +165,7 @@ final class OnboardingModel {
             if let stored = defaults.string(forKey: SettingsKeys.localSTTModel), localSTTModel(id: stored) != nil {
                 speechModelID = stored
             }
-        default: break
+        case .apple?, nil: break
         }
 
         for service in SetupService.allCases {
@@ -344,9 +344,12 @@ final class OnboardingModel {
         case .online:
             saveKey(aiService)
             let provider: LLMProviderType = switch aiService {
+            case .groq: .groq
             case .anthropic: .anthropic
             case .openAI: .openai
-            default: .groq
+            // ElevenLabs serves no chat and has no card on this step; it can only be
+            // reached by a stored value that should not have selected it.
+            case .elevenLabs: .groq
             }
             defaults.set(provider.rawValue, forKey: SettingsKeys.llmProvider)
         case .local:

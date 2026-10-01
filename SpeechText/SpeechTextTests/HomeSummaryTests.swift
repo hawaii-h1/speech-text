@@ -77,6 +77,19 @@ final class HomeSummaryTests: XCTestCase {
         XCTAssertEqual(week.unpricedModels, ["openai", "gpt-5.6-luna"])
     }
 
+    /// Every engine has a price or an explicit "not priced", keyed by the raw value History
+    /// stores; a string that names no engine is not priced.
+    func testEverySpeechEngineIsPricedOrSaysItIsNot() {
+        let expected: [String: Double?] = [
+            "apple": 0, "local": 0, "groq": 0.04 / 60, "elevenlabs": 0.40 / 60, "openai": nil,
+        ]
+        XCTAssertEqual(Set(STTProviderType.allCases.map(\.rawValue)), Set(expected.keys))
+        for (provider, price) in expected {
+            XCTAssertEqual(UsagePrices.speech(provider: provider), price, provider)
+        }
+        XCTAssertNil(UsagePrices.speech(provider: "not-an-engine"))
+    }
+
     func testAnOllamaRewriteCostsNothing() {
         let week = HomeWeek(records: [record(provider: "apple", refinement: refinement(model: "gemma4:12b", provider: "ollama"))],
                             now: now, calendar: calendar)

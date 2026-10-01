@@ -25,7 +25,12 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
     /// Local providers run on this Mac and have no key; `LLMConfiguration.isConfigured`
     /// then means "a model is chosen", and a daemon that is not running surfaces as the
     /// request's own error, through the same raw-transcript fallback as any other failure.
-    var needsAPIKey: Bool { self != .ollama }
+    var needsAPIKey: Bool {
+        switch self {
+        case .groq, .anthropic, .openai: true
+        case .ollama: false
+        }
+    }
 }
 
 // MARK: - Model Catalogs
