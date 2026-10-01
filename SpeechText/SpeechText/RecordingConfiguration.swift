@@ -46,9 +46,10 @@ struct RecordingConfiguration {
     /// How the recogniser's em dashes are drawn — see `DashStyle`. Independent of
     /// `removesDisfluencies`: a user who wants every "е-е-е" kept may still not want "—".
     var dashStyle: DashStyle = .default
-    /// The user's vocabulary in the order it is sent (`CustomVocabulary.ranked`), or
-    /// empty when the switch is off. Each model takes what its limits allow
-    /// (`vocabulary(for:)`). Defaulted so a configuration built by hand sends nothing.
+    /// The Dictionary's words in the order they are sent to the speech engine
+    /// (`CustomVocabulary.ranked`), or empty when the page's switch is off. Each model
+    /// takes what its limits allow (`vocabulary(for:)`), and Groq's Whisper a prompt
+    /// (`whisperPrompt`). Defaulted so a configuration built by hand sends nothing.
     var vocabulary: [String] = []
 
     /// The terms the selected model is sent — the stream, or Apple's recogniser.
@@ -66,18 +67,15 @@ struct RecordingConfiguration {
         dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
     }
 
-    /// The user's Dictionary, read once at the start like everything else here — see
-    /// `Vocabulary`. Empty for a value built by hand (the tests). Apart from `vocabulary`,
-    /// the Speech page's term list: the Dictionary also corrects the final text.
-    var dictionary: [VocabularyEntry] = []
+    /// Groq Whisper's `prompt`: the ranked words as one line, within its limit — on
+    /// trial (#74), and nil when the switch is off or the Dictionary is empty.
+    var whisperPrompt: String? { Vocabulary.whisperPrompt(vocabulary) }
 
-    /// What Apple's recogniser is told to expect: the vocabulary first, then the
-    /// Dictionary's words it does not already hold, fitted to Apple's limit together.
-    var appleContextualStrings: [String] {
-        let terms = vocabulary.map { $0.lowercased() }
-        let words = Vocabulary.hints(dictionary).filter { !terms.contains($0.lowercased()) }
-        return CustomVocabulary.selected(vocabulary + words, limits: model.vocabulary.limits)
-    }
+    /// The user's Dictionary, read once at the start like everything else here — see
+    /// `Vocabulary`. Empty for a value built by hand (the tests). Its words reach the
+    /// engine through `vocabulary`; this is what corrects the final text, whatever the
+    /// switch says.
+    var dictionary: [VocabularyEntry] = []
 
     /// A segment's text once it is final: `cleaned`, then the Dictionary's wrong
     /// spellings replaced. Not applied to the live text while the user speaks, as
@@ -211,13 +209,16 @@ struct RecordingConfiguration {
             dictionary: Vocabulary.load()
         )
         if CustomVocabulary.isSent(defaults) {
-            let terms = CustomVocabulary.stored(defaults)
-            // History is searched only when a model this session may use cannot take
-            // every term — this runs on every start, before the socket opens.
+            let entries = configuration.dictionary
+            // History is searched only when something this session may send cannot take
+            // every word — this runs on every start, before the socket opens.
             let capacities = [configuration.model, configuration.batchDescriptor]
                 .compactMap { $0.vocabulary.limits?.maxTerms }
-            let rankByUse = capacities.contains { $0 < terms.count }
-            configuration.vocabulary = CustomVocabulary.ranked(terms, now: Date(), rankByUse: rankByUse,
+            // Groq's prompt holds as many words as fit in `whisperPromptLimit` characters.
+            let promptOverflows = configuration.batchDescriptor.vendor == .groq
+                && entries.map(\.trimmedTerm).joined(separator: ", ").count + 1 > Vocabulary.whisperPromptLimit
+            let rankByUse = promptOverflows || capacities.contains { $0 < entries.count }
+            configuration.vocabulary = CustomVocabulary.ranked(entries, now: Date(), rankByUse: rankByUse,
                                                                historyTexts: CustomVocabulary.historyTexts)
         }
         return configuration

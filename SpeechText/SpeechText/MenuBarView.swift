@@ -405,21 +405,19 @@ struct SettingsView: View {
             SpokenLanguagesField(stt: stt)
         }
 
-        SettingsGroup(title: "Vocabulary") {
-            VocabularyField(model: selectedSpeechModel)
+        // The words the engine is told live on the main window's Dictionary page, with
+        // the switch that sends them; Settings only points there.
+        SettingsGroup(title: "Dictionary") {
+            SettingsRow(title: "Names and terms",
+                        detail: "Words you want spelled your way — sent to the speech engine where it takes them, and put right in every dictation.") {
+                Button("Open Dictionary", action: openDictionary)
+                    .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
+            }
         }
     }
 
-    /// The speech model the current choices select — what the vocabulary is sent to.
-    private var selectedSpeechModel: STTModelDescriptor {
-        let id = switch stt {
-        case .apple: appleSpeechModelID
-        case .groq: groqModel
-        case .elevenlabs: elevenLabsModel
-        case .openai: openAISTTModel
-        case .local: localSTTModelID
-        }
-        return sttModel(vendor: stt.vendor, id: id)
+    private func openDictionary() {
+        NotificationCenter.default.post(name: .openMainWindowPage, object: MainPage.dictionary.rawValue)
     }
 
     // MARK: - Formatting
@@ -707,186 +705,6 @@ struct SettingsView: View {
 /// several cannot be passed to any provider (no API takes a set), so it only narrows the
 /// guess Apple has to make. A control whose effect changes with the count — and with the
 /// engine — has to say so, or it reads as a setting that does nothing.
-/// Words and names the speech engine should expect, and the one switch that sends them
-/// to every engine that takes a term list (`STTModelDescriptor.vocabulary`).
-private struct VocabularyField: View {
-    /// Read and written only here: `@AppStorage` does not store a default, and a stored
-    /// value is evidence of an earlier install to `OnboardingGate`.
-    @AppStorage(SettingsKeys.customVocabulary) private var stored = Data()
-    @AppStorage(SettingsKeys.sendVocabularyToEngine) private var sends = true
-    let model: STTModelDescriptor
-
-    @State private var draft = ""
-    @State private var problem: CustomVocabulary.EntryProblem?
-    @FocusState private var focused: Bool
-    @Environment(\.setupTint) private var tint
-
-    private var terms: [VocabularyTerm] { CustomVocabulary.decode(stored) }
-
-    var body: some View {
-        SettingsRow(title: "Send vocabulary to the speech engine", detail: caption) {
-            SettingsSwitch(isOn: $sends)
-        }
-        SettingsDivider()
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                let shape = RoundedRectangle(cornerRadius: 9)
-                TextField("", text: $draft, prompt: Text("Add a word, a name or a short phrase").foregroundStyle(SetupColor.label3))
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
-                    .focused($focused)
-                    .onSubmit(add)
-                    .onChange(of: draft) { problem = nil }
-                    .accessibilityLabel("New vocabulary term")
-                    .padding(.horizontal, 10)
-                    .frame(height: 30)
-                    .background(shape.fill(SetupColor.control))
-                    .overlay(shape.strokeBorder(focused ? tint.accent : SetupColor.panelBorder, lineWidth: focused ? 1.5 : 1))
-                Button("Add", action: add)
-                    .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
-                    .disabled(CustomVocabulary.normalizedEntry(draft).isEmpty)
-            }
-            if let problem {
-                SettingsNote(message(for: problem), tone: SetupColor.warn)
-            }
-            if !terms.isEmpty {
-                VocabularyChips(terms: terms.sorted { $0.added > $1.added }, remove: remove)
-            }
-        }
-        .padding(.vertical, 12)
-    }
-
-    private func add() {
-        let current = terms
-        if let found = CustomVocabulary.entryProblem(draft, existing: current) {
-            problem = found == .empty ? nil : found
-            return
-        }
-        CustomVocabulary.save(current + [VocabularyTerm(text: CustomVocabulary.normalizedEntry(draft))])
-        draft = ""
-    }
-
-    private func remove(_ term: VocabularyTerm) {
-        CustomVocabulary.save(terms.filter { $0.id != term.id })
-    }
-
-    private func message(for problem: CustomVocabulary.EntryProblem) -> String {
-        switch problem {
-        case .empty: ""
-        case .tooLong: "Keep a term to \(CustomVocabulary.maxEntryCharacters) characters — engines refuse longer ones."
-        case .tooManyWords: "Keep a term to \(CustomVocabulary.maxEntryWords) words — engines refuse longer phrases."
-        case .forbiddenCharacter(let character): "“\(character)” can't be sent to a speech engine — leave it out."
-        case .duplicate: "That term is already in your vocabulary."
-        }
-    }
-
-    /// What happens to the list with the current choices. The count comes from
-    /// `CustomVocabulary.selected`, the same function that fits the list to a request,
-    /// so the page cannot promise what is not sent.
-    private var caption: String {
-        let all = terms
-        guard !all.isEmpty else {
-            return "Names, products and jargon you want spelled right. Sent with each dictation to the engines that take a word list — GPT Transcribe, GPT Live Transcribe, Scribe and Apple on-device."
-        }
-        guard sends else { return "Not sent — your vocabulary is kept here for when you turn this back on." }
-        guard let limits = model.vocabulary.limits else {
-            return "\(model.displayName) takes no word list, so nothing is sent. GPT Transcribe, GPT Live Transcribe, Scribe and Apple on-device do."
-        }
-        let sent = CustomVocabulary.selected(all.map(\.text), limits: limits).count
-        var text = sent == all.count
-            ? "All \(all.count) sent to \(model.displayName)."
-            : "\(sent) of \(all.count) sent to \(model.displayName) — the ones you use most in History, and anything added this week, go first."
-        if model.vendor == .elevenLabs {
-            text += " ElevenLabs charges 20 % more for a transcription that carries a vocabulary."
-        }
-        return text
-    }
-}
-
-/// The terms as removable chips, wrapped to the page's width, newest first.
-private struct VocabularyChips: View {
-    let terms: [VocabularyTerm]
-    let remove: (VocabularyTerm) -> Void
-
-    var body: some View {
-        WrappingLayout(spacing: 6) {
-            ForEach(terms) { term in
-                HStack(spacing: 5) {
-                    Text(term.text)
-                        .font(.system(size: 12))
-                        .foregroundStyle(SetupColor.label)
-                        .lineLimit(1)
-                    Button {
-                        remove(term)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(SetupColor.label2)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove \(term.text)")
-                }
-                .padding(.leading, 9)
-                .padding(.trailing, 7)
-                .frame(height: 24)
-                .background(Capsule().fill(SetupColor.control))
-                .overlay(Capsule().strokeBorder(SetupColor.panelBorder, lineWidth: 1))
-            }
-        }
-    }
-}
-
-/// Lays its children out left to right, starting a new line when the next one would
-/// not fit.
-private struct WrappingLayout: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        let rows = arrange(subviews, width: width)
-        let height = rows.last.map { $0.y + $0.height } ?? 0
-        let used = rows.map(\.width).max() ?? 0
-        return CGSize(width: proposal.width ?? used, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for row in arrange(subviews, width: bounds.width) {
-            var x = bounds.minX
-            for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: bounds.minY + row.y), proposal: ProposedViewSize(size))
-                x += size.width + spacing
-            }
-        }
-    }
-
-    private struct Row {
-        var indices: [Int] = []
-        var y: CGFloat = 0
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-
-    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
-        var rows: [Row] = []
-        var row = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            let needed = row.indices.isEmpty ? size.width : row.width + spacing + size.width
-            if !row.indices.isEmpty, needed > width {
-                let next = row.y + row.height + spacing
-                rows.append(row)
-                row = Row(y: next)
-            }
-            row.width = row.indices.isEmpty ? size.width : row.width + spacing + size.width
-            row.height = max(row.height, size.height)
-            row.indices.append(index)
-        }
-        if !row.indices.isEmpty { rows.append(row) }
-        return rows
-    }
-}
-
 private struct SpokenLanguagesField: View {
     @AppStorage(SettingsKeys.spokenLanguages) private var stored = ""
     @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel

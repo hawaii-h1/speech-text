@@ -3,16 +3,15 @@
 
 import Foundation
 
-// MARK: - Custom vocabulary
+// MARK: - Terms to the engine
 
-/// One word or name the user wants a speech model to expect — a product, a colleague, a
-/// piece of jargon. Stored as typed: the case is part of the term ("iOS", "SpeechText").
+/// A term from the Settings › Speech › Vocabulary list #121 shipped, before the
+/// Dictionary (`Vocabulary`) became the one store. Decoded only by
+/// `CustomVocabulary.migrateLegacyStoreIfNeeded`, which moves the list into the
+/// Dictionary once.
 struct VocabularyTerm: Codable, Hashable, Identifiable {
     var id: UUID
     var text: String
-    /// When the term was added. A term added in the last `CustomVocabulary.recentDays`
-    /// is sent ahead of the rest: it is new because the engine keeps getting it wrong,
-    /// and History cannot have seen it spelled right yet.
     var added: Date
 
     init(id: UUID = UUID(), text: String, added: Date = Date()) {
@@ -42,119 +41,93 @@ struct TermListLimits: Hashable {
     }
 }
 
-/// The user's vocabulary: what may be stored, and which of it a given model is sent.
-/// Pure logic, in both targets; the store's only reader of History is `historyTexts`,
-/// which the app points at `TranscriptionHistory` at launch.
+/// Which of the Dictionary's words a speech model is sent, and in what order. The words
+/// are `Vocabulary`'s; this decides only what reaches an engine through a parameter that
+/// is a term list (`STTModelDescriptor.vocabulary`). Pure logic, in both targets; its
+/// only reader of History is `historyTexts`, which the app points at
+/// `TranscriptionHistory` at launch.
 enum CustomVocabulary {
-    /// Terms added this recently go first when a model cannot take them all.
+    /// Words added this recently go first when a model cannot take them all.
     static let recentDays: Double = 7
 
-    /// The longest term the page accepts: Scribe's upload takes under 50 characters,
-    /// and every other engine here as many or more. Scribe's realtime socket takes only
-    /// 20; a longer term simply is not sent there.
+    /// The longest term sent to an engine with no limit of its own: Scribe's upload takes
+    /// under 50 characters, and no engine here is sent longer.
     static let maxEntryCharacters = 49
-    /// Scribe's limit, the only vendor that states one.
-    static let maxEntryWords = 5
-    /// Every character any engine refuses a whole request for: OpenAI's `<` `>`, and
-    /// Scribe's `<` `>` `{` `}` `[` `]` `\`. Line breaks are refused by construction —
-    /// `normalizedEntry` folds all whitespace into single spaces.
-    static let forbiddenEntryCharacters: Set<Character> = ["<", ">", "{", "}", "[", "]", "\\"]
 
     /// Replaced at launch by the texts of the History records, newest first. Empty
     /// until then, which is the test bundle's state: nothing is ranked by use there.
     nonisolated(unsafe) static var historyTexts: () -> [String] = { [] }
 
-    // MARK: Entry
-
-    /// The term as it would be stored: trimmed, with every run of whitespace — a line
-    /// break included — as one space.
-    static func normalizedEntry(_ text: String) -> String {
-        text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-    }
-
-    enum EntryProblem: Equatable {
-        case empty
-        case tooLong
-        case tooManyWords
-        case forbiddenCharacter(Character)
-        case duplicate
-    }
-
-    /// Why `text` cannot be added to `existing`, or nil when it can. Checked against the
-    /// strictest engine, so a stored term is one at least one engine can take whole.
-    static func entryProblem(_ text: String, existing: [VocabularyTerm]) -> EntryProblem? {
-        let term = normalizedEntry(text)
-        if term.isEmpty { return .empty }
-        if let bad = term.first(where: { forbiddenEntryCharacters.contains($0) }) {
-            return .forbiddenCharacter(bad)
-        }
-        if term.count > maxEntryCharacters { return .tooLong }
-        if wordCount(term) > maxEntryWords { return .tooManyWords }
-        if existing.contains(where: { $0.text.caseInsensitiveCompare(term) == .orderedSame }) {
-            return .duplicate
-        }
-        return nil
+    /// Whether the Dictionary's words are sent to the speech engine — the one switch, on
+    /// the Dictionary page. On unless the user turned it off.
+    static func isSent(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: SettingsKeys.sendVocabularyToEngine) as? Bool ?? true
     }
 
     static func wordCount(_ term: String) -> Int {
         term.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    // MARK: Storage
+    // MARK: The list #121 shipped
 
-    static func decode(_ data: Data?) -> [VocabularyTerm] {
-        guard let data, let terms = try? JSONDecoder().decode([VocabularyTerm].self, from: data) else {
-            return []
+    /// `entries` with every legacy term it does not already hold (ignoring case) added as
+    /// a word of its own, with the date it was added.
+    static func migrateLegacyTerms(_ legacy: [VocabularyTerm], into entries: [VocabularyEntry]) -> [VocabularyEntry] {
+        var known = Set(entries.map { $0.trimmedTerm.lowercased() })
+        var merged = entries
+        for term in legacy {
+            let text = term.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, known.insert(text.lowercased()).inserted else { continue }
+            merged.append(VocabularyEntry(id: term.id, term: text, added: term.added))
         }
-        return terms
+        return merged
     }
 
-    static func encode(_ terms: [VocabularyTerm]) -> Data? {
-        try? JSONEncoder().encode(terms)
-    }
-
-    /// The stored vocabulary. Never written except by the Settings page: a stored value
-    /// is evidence of an earlier install to `OnboardingGate`.
-    static func stored(_ defaults: UserDefaults = .standard) -> [VocabularyTerm] {
-        decode(defaults.data(forKey: SettingsKeys.customVocabulary))
-    }
-
-    static func save(_ terms: [VocabularyTerm], _ defaults: UserDefaults = .standard) {
-        guard let data = encode(terms) else { return }
-        defaults.set(data, forKey: SettingsKeys.customVocabulary)
-    }
-
-    /// Whether the switch is on. On unless the user turned it off: the vocabulary starts
-    /// empty, so the default sends nothing until there is something to send.
-    static func isSent(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: SettingsKeys.sendVocabularyToEngine) as? Bool ?? true
+    /// Moves a stored `customVocabulary` into the Dictionary once, then deletes it. Writes
+    /// nothing when there is nothing stored: a stored setting is evidence of an earlier
+    /// install to `OnboardingGate` (this runs after it has decided, but a new install has
+    /// no reason to gain a key).
+    static func migrateLegacyStoreIfNeeded(_ defaults: UserDefaults = .standard) {
+        guard let data = defaults.data(forKey: SettingsKeys.customVocabulary) else { return }
+        let legacy = (try? JSONDecoder().decode([VocabularyTerm].self, from: data)) ?? []
+        if !legacy.isEmpty {
+            let entries = Vocabulary.decode(defaults.data(forKey: SettingsKeys.vocabulary))
+            defaults.set(Vocabulary.encode(migrateLegacyTerms(legacy, into: entries)),
+                         forKey: SettingsKeys.vocabulary)
+        }
+        defaults.removeObject(forKey: SettingsKeys.customVocabulary)
+        dlog("Settings", "moved \(legacy.count) Speech vocabulary term(s) into the Dictionary")
     }
 
     // MARK: Selection
 
-    /// The terms in the order they are sent: those added in the last `recentDays`
-    /// newest first, then the rest by how many History records use them (whole words,
-    /// ignoring case), ties going to the newer term. `historyTexts` is only read when
-    /// `rankByUse` — the ranking matters only when some model cannot take them all.
-    static func ranked(_ terms: [VocabularyTerm], now: Date, rankByUse: Bool,
+    /// The Dictionary's words in the order they are sent: those added in the last
+    /// `recentDays` newest first, then the rest by how many History records use them
+    /// (whole words, ignoring case), ties going to the newer word. A blank word, and a
+    /// second spelling of one already listed (ignoring case), are left out. `historyTexts`
+    /// is read only when `rankByUse` — the order matters only when some engine cannot
+    /// take them all.
+    static func ranked(_ entries: [VocabularyEntry], now: Date, rankByUse: Bool,
                        historyTexts: () -> [String]) -> [String] {
+        var seen = Set<String>()
+        let terms = entries.filter { !$0.trimmedTerm.isEmpty && seen.insert($0.trimmedTerm.lowercased()).inserted }
         let cutoff = now.addingTimeInterval(-recentDays * 86_400)
         let recent = terms.filter { $0.added > cutoff }.sorted { $0.added > $1.added }
         var older = terms.filter { $0.added <= cutoff }.sorted { $0.added > $1.added }
         if rankByUse, older.count > 1 {
             let texts = historyTexts().map { " " + words($0) + " " }
-            let uses = Dictionary(older.map { term -> (UUID, Int) in
-                let needle = " " + words(term.text) + " "
-                guard needle.count > 2 else { return (term.id, 0) }
-                return (term.id, texts.reduce(0) { $0 + occurrences(of: needle, in: $1) })
+            let uses = Dictionary(older.map { entry -> (UUID, Int) in
+                let needle = " " + words(entry.trimmedTerm) + " "
+                guard needle.count > 2 else { return (entry.id, 0) }
+                return (entry.id, texts.reduce(0) { $0 + occurrences(of: needle, in: $1) })
             }, uniquingKeysWith: { first, _ in first })
-            // Stable on the date order above, so ties keep the newer term first.
+            // Stable on the date order above, so ties keep the newer word first.
             older = older.enumerated().sorted { lhs, rhs in
                 let (a, b) = (uses[lhs.element.id] ?? 0, uses[rhs.element.id] ?? 0)
                 return a != b ? a > b : lhs.offset < rhs.offset
             }.map(\.element)
         }
-        return (recent + older).map(\.text)
+        return (recent + older).map(\.trimmedTerm)
     }
 
     /// What a model with `limits` is sent from the `ranked` list: every term it accepts,

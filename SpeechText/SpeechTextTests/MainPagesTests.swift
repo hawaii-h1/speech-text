@@ -56,10 +56,11 @@ final class MainPagesTests: XCTestCase {
     func testTheEngineIsToldTheWordsWithinItsLimits() {
         let entries = [VocabularyEntry(term: " SpeechText "), VocabularyEntry(term: "speechtext"), VocabularyEntry(term: "")]
         XCTAssertEqual(Vocabulary.hints(entries), ["SpeechText"])
-        XCTAssertEqual(Vocabulary.whisperPrompt(entries), "SpeechText.")
+        XCTAssertEqual(Vocabulary.whisperPrompt(["SpeechText"]), "SpeechText.")
         XCTAssertNil(Vocabulary.whisperPrompt([]))
-        let many = (0..<200).map { VocabularyEntry(term: "Term\($0)") }
+        let many = (0..<200).map { "Term\($0)" }
         let prompt = Vocabulary.whisperPrompt(many)!
+        XCTAssertEqual(prompt, Vocabulary.whisperPromptTerms(many).joined(separator: ", ") + ".")
         XCTAssertLessThanOrEqual(prompt.count, Vocabulary.whisperPromptLimit)
         XCTAssertTrue(prompt.hasSuffix("."), "a word past the limit is left out whole")
     }
@@ -84,18 +85,52 @@ final class MainPagesTests: XCTestCase {
         XCTAssertEqual(configuration.cleaned("open speech text"), "open speech text")
     }
 
-    func testAppleIsToldTheVocabularyThenTheDictionaryWithinItsLimit() {
-        var configuration = RecordingConfiguration(provider: .apple, locale: "uk", localeIsAutomatic: false,
-                                                   groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
-                                                   elevenLabsAPIKey: "", elevenLabsModel: "scribe_v2")
-        configuration.vocabulary = ["kubectl", "SpeechText"]
-        configuration.dictionary = [VocabularyEntry(term: "speechtext"), VocabularyEntry(term: "Olena")]
-        XCTAssertEqual(configuration.appleContextualStrings, ["kubectl", "SpeechText", "Olena"],
-                       "a Dictionary word the vocabulary already holds is not sent twice")
+    /// One store: the Dictionary's ranked words are what every engine is told, each
+    /// within its own limit, and the switch being off sends none of them anywhere.
+    func testEveryEngineIsToldTheDictionaryWithinItsLimit() {
+        var apple = RecordingConfiguration(provider: .apple, locale: "uk", localeIsAutomatic: false,
+                                           groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
+                                           elevenLabsAPIKey: "", elevenLabsModel: "scribe_v2")
+        apple.vocabulary = (1...120).map { "term\($0)" }
+        XCTAssertEqual(apple.liveVocabulary.count, 100)
+        XCTAssertEqual(apple.liveVocabulary.first, "term1", "the ranked order is kept")
+        XCTAssertNotNil(apple.whisperPrompt, "Apple's uploads go to Groq, which is given the prompt")
 
-        configuration.vocabulary = (1...100).map { "term\($0)" }
-        XCTAssertEqual(configuration.appleContextualStrings.count, 100)
-        XCTAssertFalse(configuration.appleContextualStrings.contains("Olena"), "the vocabulary goes first")
+        var groq = RecordingConfiguration(provider: .groq, locale: "uk", localeIsAutomatic: false,
+                                          groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
+                                          elevenLabsAPIKey: "", elevenLabsModel: "scribe_v2")
+        groq.vocabulary = ["SpeechText", "Olena"]
+        XCTAssertEqual(groq.whisperPrompt, "SpeechText, Olena.")
+        XCTAssertEqual(groq.liveVocabulary, [], "Groq takes no term list")
+
+        groq.vocabulary = []
+        groq.dictionary = [VocabularyEntry(term: "SpeechText", misheard: ["speech text"])]
+        XCTAssertNil(groq.whisperPrompt, "switch off: nothing is sent")
+        XCTAssertEqual(groq.finished("open speech text"), "open SpeechText", "…but the text is still put right")
+    }
+
+    /// Launch writes are where `OnboardingGate` broke before: a new install must gain no
+    /// key, and the old one must go.
+    func testTheSettingsListMovesInAtLaunchOnlyWhenItExists() throws {
+        let name = "MainPagesTests.migration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        CustomVocabulary.migrateLegacyStoreIfNeeded(defaults)
+        XCTAssertTrue(defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("vocabulary") || $0 == SettingsKeys.customVocabulary }.isEmpty,
+                      "nothing stored, nothing written")
+
+        defaults.set(try JSONEncoder().encode([VocabularyTerm]()), forKey: SettingsKeys.customVocabulary)
+        CustomVocabulary.migrateLegacyStoreIfNeeded(defaults)
+        XCTAssertNil(defaults.data(forKey: SettingsKeys.customVocabulary))
+        XCTAssertNil(defaults.data(forKey: SettingsKeys.vocabulary), "an empty list adds no Dictionary")
+
+        defaults.set(Vocabulary.encode([VocabularyEntry(term: "SpeechText")]), forKey: SettingsKeys.vocabulary)
+        defaults.set(try JSONEncoder().encode([VocabularyTerm(text: "kubectl"), VocabularyTerm(text: "speechtext")]),
+                     forKey: SettingsKeys.customVocabulary)
+        CustomVocabulary.migrateLegacyStoreIfNeeded(defaults)
+        XCTAssertNil(defaults.data(forKey: SettingsKeys.customVocabulary))
+        XCTAssertEqual(Vocabulary.decode(defaults.data(forKey: SettingsKeys.vocabulary)).map(\.term), ["SpeechText", "kubectl"])
     }
 
     func testSuggestionsAreNamesAndTermsUsedMoreThanOnce() {

@@ -1970,33 +1970,28 @@ final class HallucinationFilterTests: XCTestCase {
 
 final class CustomVocabularyTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 2_000_000_000)
-    private func term(_ text: String, daysAgo: Double) -> VocabularyTerm {
-        VocabularyTerm(text: text, added: now.addingTimeInterval(-daysAgo * 86_400))
+    private func term(_ text: String, daysAgo: Double) -> VocabularyEntry {
+        VocabularyEntry(term: text, added: now.addingTimeInterval(-daysAgo * 86_400))
     }
 
-    // MARK: Entry
+    // MARK: The list #121 shipped
 
-    func testAnEntryIsTrimmedToOneLine() {
-        XCTAssertEqual(CustomVocabulary.normalizedEntry("  Speech\nText  \t app "), "Speech Text app")
+    func testTheSpeechPageListMovesIntoTheDictionaryOnce() {
+        let existing = [VocabularyEntry(term: "SpeechText", misheard: ["speech text"])]
+        let legacy = [VocabularyTerm(text: " speechtext "), VocabularyTerm(text: "kubectl"),
+                      VocabularyTerm(text: "  "), VocabularyTerm(text: "Kubectl")]
+        let merged = CustomVocabulary.migrateLegacyTerms(legacy, into: existing)
+        // A word already there keeps its spellings; a duplicate in any case is not added twice.
+        XCTAssertEqual(merged.map(\.term), ["SpeechText", "kubectl"])
+        XCTAssertEqual(merged[0].misheard, ["speech text"])
+        XCTAssertEqual(merged[1].id, legacy[1].id)
+        XCTAssertEqual(merged[1].added, legacy[1].added)
     }
 
-    func testAnEntryAnyEngineWouldRefuseIsNotStored() {
-        XCTAssertEqual(CustomVocabulary.entryProblem("   ", existing: []), .empty)
-        XCTAssertEqual(CustomVocabulary.entryProblem("<b>", existing: []), .forbiddenCharacter("<"))
-        XCTAssertEqual(CustomVocabulary.entryProblem("a[1]", existing: []), .forbiddenCharacter("["))
-        XCTAssertEqual(CustomVocabulary.entryProblem(String(repeating: "x", count: 50), existing: []), .tooLong)
-        XCTAssertEqual(CustomVocabulary.entryProblem("one two three four five six", existing: []), .tooManyWords)
-        XCTAssertEqual(CustomVocabulary.entryProblem("kubectl", existing: [term("Kubectl", daysAgo: 1)]), .duplicate)
-        XCTAssertNil(CustomVocabulary.entryProblem("C++", existing: []))
-        XCTAssertNil(CustomVocabulary.entryProblem("Гусаков", existing: []))
-        XCTAssertNil(CustomVocabulary.entryProblem(String(repeating: "x", count: 49), existing: []))
-    }
-
-    func testTheStoredListRoundTripsAndGarbageReadsAsEmpty() {
-        let terms = [term("SpeechText", daysAgo: 0), term("Parakeet", daysAgo: 3)]
-        XCTAssertEqual(CustomVocabulary.decode(CustomVocabulary.encode(terms)), terms)
-        XCTAssertEqual(CustomVocabulary.decode(Data("nope".utf8)), [])
-        XCTAssertEqual(CustomVocabulary.decode(nil), [])
+    func testBlankAndRepeatedWordsAreNotSent() {
+        let entries = [term(" SpeechText ", daysAgo: 1), term("speechtext", daysAgo: 2), term("", daysAgo: 3)]
+        XCTAssertEqual(CustomVocabulary.ranked(entries, now: now, rankByUse: false, historyTexts: { [] }),
+                       ["SpeechText"])
     }
 
     // MARK: Ranking

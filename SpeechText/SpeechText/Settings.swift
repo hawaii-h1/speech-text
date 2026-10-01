@@ -30,10 +30,12 @@ enum SettingsKeys {
     static let removeDisfluencies = "removeDisfluencies"
     /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
     static let dashStyle = "dashStyle"
-    /// JSON-encoded `[VocabularyTerm]`: words and names the speech engine should expect.
+    /// The Settings › Speech › Vocabulary list #121 shipped (JSON `[VocabularyTerm]`).
+    /// Read once by `CustomVocabulary.migrateLegacyStoreIfNeeded`, which moves it into
+    /// `vocabulary` and deletes it.
     static let customVocabulary = "customVocabulary"
-    /// Whether `customVocabulary` is sent to the engines that accept a term list. On
-    /// when absent; the vocabulary starts empty, so that sends nothing.
+    /// Whether the Dictionary's words are sent to the speech engine — the switch on the
+    /// Dictionary page. On when absent; the Dictionary starts empty, so that sends nothing.
     static let sendVocabularyToEngine = "sendVocabularyToEngine"
 
     // Hotkey (inline recording)
@@ -110,9 +112,9 @@ enum SettingsKeys {
     /// The Prompts page had its card on how AI Rewrite picks a prompt closed with its ✕.
     /// Machine-local, like Home's.
     static let promptsIntroHidden = "promptsIntroHidden"
-    /// The main window's Dictionary: JSON-encoded `[VocabularyEntry]`. Absent on every
-    /// install that predates it, so nothing in an old preference domain to carry over and
-    /// not in `portable`.
+    /// The main window's Dictionary: JSON-encoded `[VocabularyEntry]`. In `portable`, like
+    /// every setting the user builds up; written only by the page and by the one-time
+    /// move of `customVocabulary`.
     static let vocabulary = "vocabulary"
     /// The user's typing speed in words a minute, which Usage and Home weigh dictation
     /// against; absent means the average, `HomeWeek.typingWordsPerMinute`.
@@ -153,7 +155,7 @@ enum SettingsKeys {
         sttProvider, groqModel, elevenLabsModel,
         openAISTTModel, localSTTModel,
         removeDisfluencies, dashStyle,
-        customVocabulary, sendVocabularyToEngine,
+        vocabulary, sendVocabularyToEngine,
         hotkeyKeyCode, hotkeyModifierFlags,
         recordWindowHotkeyKeyCode, recordWindowHotkeyModifierFlags,
         aiHotkeyKeyCode, aiHotkeyModifierFlags,

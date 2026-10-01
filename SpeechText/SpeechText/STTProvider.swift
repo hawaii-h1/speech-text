@@ -166,7 +166,7 @@ func makeBatchProvider(configuration: RecordingConfiguration) -> BatchSTTProvide
                           keywords: configuration.batchVocabulary)
     case .groq, .apple:
         GroqSTTProvider(apiKey: configuration.groqAPIKey, model: configuration.batchModel,
-                        prompt: Vocabulary.whisperPrompt(configuration.dictionary))
+                        prompt: configuration.whisperPrompt)
     case .local:
         LocalSTT.providerFactory(configuration.localModel)
     }

@@ -10,9 +10,10 @@ import Foundation
 // `Vocabulary` here.)
 //
 // Each word does three things, as far as each step allows:
-// - the speech engine is told it, where its API takes a hint — Apple's recogniser
-//   (`contextualStrings`) and Groq's Whisper (`prompt`). ElevenLabs charges 20% more for
-//   its key terms and OpenAI's newer models do not document a prompt, so those are not;
+// - the speech engine is told it, where its API takes one, unless the page's switch is
+//   off: a term list for Apple (`contextualStrings`), OpenAI (`keywords`) and ElevenLabs
+//   (`keyterms`) — which words, and how many, is `CustomVocabulary`'s — and Groq's
+//   Whisper a `prompt` (`whisperPrompt`), on trial: #74 records what to watch;
 // - the wrong spellings the user lists are replaced in what comes back, whatever the
 //   engine — `corrected`;
 // - AI Rewrite is handed the words and told to keep them as written — `promptBlock`.
@@ -103,16 +104,26 @@ enum Vocabulary {
     static let whisperPromptLimit = 300
 
     /// Whisper's `prompt` is read as the text before the recording, so the words go in as
-    /// a plain list — enough for it to spell them that way when it hears them. Nil when
-    /// there are none; words past the limit are left out whole, never cut.
-    static func whisperPrompt(_ entries: [VocabularyEntry]) -> String? {
-        var prompt = ""
-        for term in hints(entries) {
-            let next = prompt.isEmpty ? term : prompt + ", " + term
-            guard next.count + 1 <= whisperPromptLimit else { break }
-            prompt = next
+    /// a plain list — enough for it to spell them that way when it hears them. `terms` is
+    /// the ranked list (`RecordingConfiguration.vocabulary`), so the words most worth
+    /// sending come first. Nil when there are none; words past the limit are left out
+    /// whole, never cut.
+    static func whisperPrompt(_ terms: [String]) -> String? {
+        let fitting = whisperPromptTerms(terms)
+        return fitting.isEmpty ? nil : fitting.joined(separator: ", ") + "."
+    }
+
+    /// The words `whisperPrompt` holds — the Dictionary page counts them.
+    static func whisperPromptTerms(_ terms: [String]) -> [String] {
+        var fitting: [String] = []
+        var length = 0
+        for term in terms where !term.isEmpty {
+            let next = fitting.isEmpty ? term.count : length + 2 + term.count
+            guard next + 1 <= whisperPromptLimit else { break }
+            fitting.append(term)
+            length = next
         }
-        return prompt.isEmpty ? nil : prompt + "."
+        return fitting
     }
 
     // MARK: Telling AI Rewrite

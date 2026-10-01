@@ -16,7 +16,7 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
     switch configuration.provider {
     case .apple:
         return AppleRecognitionSession(recognizer: recognizer, locale: configuration.locale,
-                                       contextualStrings: configuration.appleContextualStrings)
+                                       contextualStrings: configuration.liveVocabulary)
     case .groq, .elevenlabs, .openai, .local:
         let batch = BatchRecognitionSession(provider: makeBatchProvider(configuration: configuration),
                                             writer: writer, language: configuration.cloudLanguage)

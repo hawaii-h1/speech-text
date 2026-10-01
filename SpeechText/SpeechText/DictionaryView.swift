@@ -34,7 +34,7 @@ struct DictionaryView: View {
                     MainPageTitle(.dictionary)
                     adder(suggestions: Vocabulary.suggestions(from: texts, excluding: entries))
                     words(texts: texts)
-                    DictionaryEffects()
+                    DictionaryEffects(entries: entries)
                     HStack(spacing: 6) {
                         Image(systemName: "lock")
                         Text("Words are kept on this Mac. One reaches the speech engine or AI Rewrite only with a dictation — never on its own.")
@@ -408,9 +408,18 @@ private struct DictionaryWordEditor: View {
 
 /// The three things a word does, each said for the engine and AI provider in use — so the
 /// page never promises a hint an engine is not given. Home's hairline table; a step that
-/// does nothing with the engine in use is greyed.
+/// does nothing with the engine in use is greyed. The first row carries the one switch
+/// that sends the words to the speech engine, and says how many the selected model takes
+/// — counted by the same functions that build the request.
 private struct DictionaryEffects: View {
+    let entries: [VocabularyEntry]
+
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
+    @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
+    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
+    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
+    @AppStorage(SettingsKeys.localSTTModel) private var localSTTModel = defaultLocalSTTModel
+    @AppStorage(SettingsKeys.sendVocabularyToEngine) private var sends = true
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
@@ -418,7 +427,12 @@ private struct DictionaryEffects: View {
         VStack(alignment: .leading, spacing: 12) {
             MainSectionHeader("What a word does")
             MainTable {
-                row(symbol: "waveform", title: engine.title, detail: engine.detail, on: engine.on)
+                row(symbol: "waveform", title: engine.title, detail: engine.detail, on: sends && engine.on) {
+                    Toggle("Tell the speech engine", isOn: $sends)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .help("Send your words to the speech engine with every dictation")
+                }
                 MainRule()
                 row(symbol: "arrow.left.arrow.right", title: "Wrong spellings are replaced",
                     detail: "In what every engine writes, before it's pasted or rewritten — and in History.", on: true)
@@ -436,22 +450,63 @@ private struct DictionaryEffects: View {
         return LLMConfiguration.isConfigured
     }
 
+    private var provider: STTProviderType { STTProviderType(rawValue: sttProvider) ?? .apple }
+
+    /// The speech model the current choices select.
+    private var model: STTModelDescriptor {
+        let id = switch provider {
+        case .apple: appleSpeechModelID
+        case .groq: groqModel
+        case .elevenlabs: elevenLabsModel
+        case .openai: openAISTTModel
+        case .local: localSTTModel
+        }
+        return sttModel(vendor: provider.vendor, id: id)
+    }
+
     private var engine: (title: String, detail: String, on: Bool) {
-        switch STTProviderType(rawValue: sttProvider) ?? .apple {
-        case .apple:
-            ("Apple's recogniser listens for them", "Your words are given to the on-device recogniser with every dictation.", true)
+        let terms = CustomVocabulary.ranked(entries, now: Date(), rankByUse: false, historyTexts: { [] })
+        let vendor = model.vendor.displayName
+        guard sends else {
+            return ("The speech engine isn't told them",
+                    "Turned off. Wrong spellings are still replaced, and AI Rewrite still keeps them as written.", false)
+        }
+        if let limits = model.vocabulary.limits {
+            let title = provider == .apple ? "Apple's recogniser listens for them" : "\(vendor) is given them"
+            var detail = Self.count(sent: CustomVocabulary.selected(terms, limits: limits).count,
+                                    of: terms.count, model: model.displayName)
+            if model.vendor == .elevenLabs {
+                detail += " ElevenLabs charges 20% more for a transcription that carries them."
+            }
+            return (title, detail, true)
+        }
+        switch provider {
         case .groq:
-            ("Groq's Whisper is given them", "As a hint with every upload, so it spells them your way when it hears them.", true)
-        case .elevenlabs:
-            ("ElevenLabs isn't given them", "Scribe charges 20% more for a list of terms, so they're not sent — the replacements still put them right.", false)
-        case .openai:
-            ("OpenAI isn't given them", "Its transcription models take no list of words — the replacements still put them right.", false)
+            return ("Groq's Whisper is given them as a hint",
+                    Self.count(sent: Vocabulary.whisperPromptTerms(terms).count, of: terms.count, model: model.displayName)
+, true)
         case .local:
-            ("The model on this Mac isn't given them", "Local models take no list of words — the replacements still put them right.", false)
+            return ("The model on this Mac isn't given them",
+                    "Local models take no list of words — the replacements still put them right.", false)
+        default:
+            return ("\(model.displayName) isn't given them",
+                    "It takes no list of words — the replacements still put them right. GPT Transcribe and GPT Live Transcribe do.", false)
         }
     }
 
+    /// "All 12 go to GPT Transcribe…" or "50 of 73 …", with what decides which.
+    private static func count(sent: Int, of total: Int, model: String) -> String {
+        if total == 0 { return "Your words go to \(model) with every dictation." }
+        if sent == total { return "All \(total) go to \(model) with every dictation." }
+        return "\(sent) of \(total) go to \(model) — it takes no more. The ones you use most, and anything added this week, go first."
+    }
+
     private func row(symbol: String, title: String, detail: String, on: Bool, ai: Bool = false) -> some View {
+        row(symbol: symbol, title: title, detail: detail, on: on, ai: ai) { EmptyView() }
+    }
+
+    private func row<Control: View>(symbol: String, title: String, detail: String, on: Bool, ai: Bool = false,
+                                    @ViewBuilder control: () -> Control) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .medium))
@@ -467,6 +522,7 @@ private struct DictionaryEffects: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+            control()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)

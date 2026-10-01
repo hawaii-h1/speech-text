@@ -126,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openAPIKeyStore()
         let setupGate = decideSetupGate()
         migrateSelectedLanguageIfNeeded()
+        CustomVocabulary.migrateLegacyStoreIfNeeded()
         normalizeStoredProviders()
 
         // Build the menu
