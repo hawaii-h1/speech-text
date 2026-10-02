@@ -169,25 +169,52 @@ func makeBatchTranscriber(configuration: RecordingConfiguration) -> BatchTranscr
     case .elevenlabs:
         ElevenLabsTranscriber(apiKey: configuration.apiKey(for: .elevenLabs), model: configuration.batchModel,
                               keyterms: configuration.batchVocabulary)
-    case .openai:
-        OpenAITranscriber(apiKey: configuration.apiKey(for: .openAI), model: configuration.batchModel,
-                          keywords: configuration.batchVocabulary)
-    case .groq, .apple:
-        GroqTranscriber(apiKey: configuration.apiKey(for: .groq), model: configuration.batchModel,
-                        prompt: configuration.whisperPrompt)
+    case .groq, .openai, .apple:
+        // Apple's uploads go to Groq (`batchProvider`).
+        OpenAICompatibleTranscriber(provider: configuration.batchProvider.vendor,
+                                    apiKey: configuration.apiKey(for: configuration.batchProvider.vendor),
+                                    model: configuration.batchModel,
+                                    prompt: configuration.whisperPrompt, keywords: configuration.batchVocabulary)
     case .local:
         LocalSTT.transcriberFactory(configuration.modelID(for: .local))
     }
 }
 
-// MARK: - Groq Implementation
+// MARK: - OpenAI-compatible uploads (Groq, OpenAI)
 
-struct GroqTranscriber: BatchTranscriber {
+/// How a provider serves OpenAI's transcription upload: `POST` a multipart form with
+/// `file`, `model` and `language`, authorised with a Bearer key. Groq's endpoint is
+/// literally `api.groq.com/openai/v1/...`; what differs between the two is data, held in
+/// each provider's `ProviderDescriptor.speechUpload`.
+struct OpenAICompatibleUpload {
+    /// How the user's vocabulary goes out.
+    enum VocabularyField {
+        /// Whisper's free-text `prompt` (`RecordingConfiguration.whisperPrompt`).
+        case prompt
+        /// A `keywords[]` field per term, as OpenAI's guide writes it.
+        case keywords
+    }
+
+    let url: URL
+    /// Fields sent right after `model`, the same on every request.
+    var fixedFields: [(name: String, value: String)] = []
+    let vocabulary: VocabularyField
+    /// Log the language the reply says it detected (OpenAI's `languages`).
+    var logsDetectedLanguage = false
+}
+
+/// The upload transcriber for every provider with an `OpenAICompatibleUpload`. The error
+/// text names the provider, so a rejected OpenAI key never reads as Groq's.
+struct OpenAICompatibleTranscriber: BatchTranscriber {
+    let provider: Provider
+    let upload: OpenAICompatibleUpload
     let apiKey: String
     let model: String
-    /// Whisper's `prompt`: the Dictionary's words, so it spells them that way when it
-    /// hears them (`Vocabulary.whisperPrompt`). Nil sends none.
-    var prompt: String?
+    /// Whisper's prompt — sent only where the upload takes a prompt. Nil sends none.
+    let prompt: String?
+    /// The user's vocabulary, already fitted to this model (`RecordingConfiguration
+    /// .batchVocabulary`) — sent only where the upload takes keywords. Empty sends none.
+    let keywords: [String]
 
     /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
     private static let session: URLSession = {
@@ -197,74 +224,137 @@ struct GroqTranscriber: BatchTranscriber {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = Provider.groq.defaultSpeechModel, prompt: String? = nil) {
+    /// `provider` must have a `speechUpload`; `ProviderDescriptorTests` checks every
+    /// engine that `makeBatchTranscriber` sends here has one.
+    init(provider: Provider, apiKey: String, model: String? = nil, prompt: String? = nil, keywords: [String] = []) {
+        guard let upload = provider.descriptor.speechUpload else {
+            preconditionFailure("\(provider) has no OpenAI-compatible upload")
+        }
+        self.provider = provider
+        self.upload = upload
         self.apiKey = apiKey
-        self.model = model
+        self.model = model ?? provider.defaultSpeechModel
         self.prompt = prompt
+        self.keywords = keywords
     }
 
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {
-        let url = URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!
+        let log = provider.displayName
         let boundary = UUID().uuidString
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: upload.url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let audioData = try Data(contentsOf: audioFileURL)
         let part = multipartAudioPart(for: audioFileURL)
-        dlog("Groq", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")")
+        // The count only: terms are often people's names, and the log is public.
+        let terms = upload.vocabulary == .keywords ? ", keywords=\(keywords.count)" : ""
+        dlog(log, "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")\(terms)")
 
+        request.httpBody = Self.multipartBody(boundary: boundary, audio: audioData, part: part, upload: upload,
+                                              model: model, language: language, prompt: prompt, keywords: keywords)
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        dlog(log, "transcribe: sending request…")
+        let (data, response) = try await Self.session.data(for: request)
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        dlog(log, "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
+
+        let provider = provider
+        try validatedHTTPResponse(response, data: data, log: log, label: "transcribe",
+                                  bodyLimit: 200,
+                                  nonHTTPMessage: "transcribe: invalid response (not HTTP)",
+                                  invalidResponse: TranscriptionError.invalidResponse(provider),
+                                  httpError: { TranscriptionError.httpError(provider, $0, $1) })
+
+        let decoded = try JSONDecoder().decode(TranscriptionResponse.self, from: data)
+        if upload.logsDetectedLanguage {
+            // The detected language is logged, never decoded into a typed field: the batch
+            // reply spells it `[{"code":"uk"}]` and the realtime session `["uk"]`, and a
+            // transcript must not be lost to a vendor changing the shape of a field the app
+            // only prints. It is worth printing — this project shipped a data-loss bug from
+            // forcing the keyboard layout's language on a cloud model, and on Auto this line
+            // is the record of what the model decided instead.
+            dlog(log, "transcribe: success, text=\(decoded.text.count) chars, detected=\(Self.detectedLanguages(in: data) ?? "?")")
+        } else {
+            dlog(log, "transcribe: success, text=\(decoded.text.count) chars")
+        }
+        return decoded.text
+    }
+
+    /// The `languages` field as a log line, whatever shape it arrived in.
+    private static func detectedLanguages(in data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = json["languages"] else { return nil }
+        if let codes = raw as? [String] { return codes.joined(separator: ",") }
+        if let objects = raw as? [[String: Any]] {
+            return objects.compactMap { $0["code"] as? String }.joined(separator: ",")
+        }
+        return String(describing: raw)
+    }
+}
+
+extension OpenAICompatibleTranscriber {
+    /// The upload's form, apart so its fields can be tested without a request.
+    static func multipartBody(boundary: String, audio: Data, part: (filename: String, mimeType: String),
+                              upload: OpenAICompatibleUpload, model: String, language: String?,
+                              prompt: String?, keywords: [String]) -> Data {
         var body = Data()
 
         body.appendMultipartFile(boundary: boundary, name: "file",
                                  filename: part.filename, mimeType: part.mimeType,
-                                 data: audioData)
+                                 data: audio)
         body.appendMultipartField(boundary: boundary, name: "model", value: model)
-        body.appendMultipartField(boundary: boundary, name: "response_format", value: "json")
+        for field in upload.fixedFields {
+            body.appendMultipartField(boundary: boundary, name: field.name, value: field.value)
+        }
 
         if let language {
+            // `language` (singular) is what Whisper documents; OpenAI's gpt-transcribe
+            // documents `languages` but accepts this one too and normalises it — verified
+            // against the live endpoint, which answered `"languages":[{"code":"uk"}]` to it.
             let iso639 = String(language.prefix(2))
             body.appendMultipartField(boundary: boundary, name: "language", value: iso639)
         }
-        if let prompt {
-            body.appendMultipartField(boundary: boundary, name: "prompt", value: prompt)
+
+        switch upload.vocabulary {
+        case .prompt:
+            if let prompt {
+                body.appendMultipartField(boundary: boundary, name: "prompt", value: prompt)
+            }
+        case .keywords:
+            for term in keywords {
+                body.appendMultipartField(boundary: boundary, name: "keywords[]", value: term)
+            }
         }
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
-
-        let startTime = CFAbsoluteTimeGetCurrent()
-        dlog("Groq", "transcribe: sending request…")
-        let (data, response) = try await Self.session.data(for: request)
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-        dlog("Groq", "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
-
-        try validatedHTTPResponse(response, data: data, log: "Groq", label: "transcribe",
-                                  bodyLimit: 200,
-                                  nonHTTPMessage: "transcribe: invalid response (not HTTP)",
-                                  invalidResponse: GroqError.invalidResponse,
-                                  httpError: GroqError.httpError)
-
-        let decoded = try JSONDecoder().decode(GroqTranscriptionResponse.self, from: data)
-        dlog("Groq", "transcribe: success, text=\(decoded.text.count) chars")
-        return decoded.text
+        return body
     }
 }
 
-private struct GroqTranscriptionResponse: Decodable {
+/// The text every upload endpoint here answers with.
+private struct TranscriptionResponse: Decodable {
     let text: String
 }
 
-enum GroqError: LocalizedError {
-    case invalidResponse
-    case httpError(Int, String)
+/// A transcription that failed, in any provider's words: an upload's reply the app could
+/// not use, an HTTP error (`providerErrorMessage`), or a realtime socket's error event.
+enum TranscriptionError: LocalizedError {
+    case invalidResponse(Provider)
+    case httpError(Provider, Int, String)
+    /// The realtime socket reported an error, or sent something unusable. The code is
+    /// what `StreamReconnectPolicy` reads (`no_session` is a drop worth reopening).
+    case realtime(Provider, String, String)
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse: "Invalid response from Groq API"
-        case .httpError(let code, let body): providerErrorMessage(vendor: "Groq", status: code, body: body)
+        case .invalidResponse(let provider): "Invalid response from \(provider.displayName) API"
+        case .httpError(let provider, let code, let body):
+            providerErrorMessage(vendor: provider.displayName, status: code, body: body)
+        case .realtime(let provider, let code, let detail): "\(provider.displayName) realtime \(code): \(detail)"
         }
     }
 }
@@ -318,10 +408,10 @@ struct ElevenLabsTranscriber: BatchTranscriber {
         try validatedHTTPResponse(response, data: data, log: "ElevenLabs", label: "transcribe",
                                   bodyLimit: 200,
                                   nonHTTPMessage: "transcribe: invalid response (not HTTP)",
-                                  invalidResponse: ElevenLabsError.invalidResponse,
-                                  httpError: ElevenLabsError.httpError)
+                                  invalidResponse: TranscriptionError.invalidResponse(.elevenLabs),
+                                  httpError: { TranscriptionError.httpError(.elevenLabs, $0, $1) })
 
-        let decoded = try JSONDecoder().decode(ElevenLabsTranscriptionResponse.self, from: data)
+        let decoded = try JSONDecoder().decode(TranscriptionResponse.self, from: data)
         dlog("ElevenLabs", "transcribe: success, text=\(decoded.text.count) chars")
         return decoded.text
     }
@@ -357,157 +447,6 @@ extension ElevenLabsTranscriber {
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         return body
-    }
-}
-
-private struct ElevenLabsTranscriptionResponse: Decodable {
-    let text: String
-}
-
-enum ElevenLabsError: LocalizedError {
-    case invalidResponse
-    case httpError(Int, String)
-    /// A `message_type` other than a transcript arrived on the realtime socket.
-    case realtime(String, String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidResponse: "Invalid response from ElevenLabs API"
-        case .httpError(let code, let body): providerErrorMessage(vendor: "ElevenLabs", status: code, body: body)
-        case .realtime(let type, let detail): "ElevenLabs realtime \(type): \(detail)"
-        }
-    }
-}
-
-// MARK: - OpenAI Implementation
-
-/// `POST /v1/audio/transcriptions` — the same multipart shape and Bearer auth as Groq,
-/// whose endpoint is literally `api.groq.com/openai/v1/...`, but a separate type: the
-/// reply carries a `languages` field Groq's does not, and `GroqError`'s text is shown
-/// to the user ("Groq API error HTTP 401" under an OpenAI key would be a puzzle).
-///
-/// Uploads stay FLAC. OpenAI's documented format list (mp3, mp4, mpeg, mpga, m4a, wav,
-/// webm) omits it, but the endpoint accepts it — verified with a real request on
-/// 2026-09-21 against `gpt-transcribe` and `whisper-1`. Do not "fix" this to WAV on the
-/// strength of the docs: WAV is twice the bytes against a 25 MB ceiling.
-struct OpenAITranscriber: BatchTranscriber {
-    let apiKey: String
-    let model: String
-    /// The user's vocabulary, already fitted to this model (`RecordingConfiguration
-    /// .batchVocabulary`). Empty sends no field at all.
-    let keywords: [String]
-
-    /// Custom URLSession — see `STTTuning.batchRequestTimeoutSeconds` for why.
-    private static let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = STTTuning.batchRequestTimeoutSeconds
-        config.timeoutIntervalForResource = STTTuning.batchResourceTimeoutSeconds
-        return URLSession(configuration: config)
-    }()
-
-    init(apiKey: String, model: String = Provider.openAI.defaultSpeechModel, keywords: [String] = []) {
-        self.apiKey = apiKey
-        self.model = model
-        self.keywords = keywords
-    }
-
-    func transcribe(audioFileURL: URL, language: String?) async throws -> String {
-        let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
-        let boundary = UUID().uuidString
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        let audioData = try Data(contentsOf: audioFileURL)
-        let part = multipartAudioPart(for: audioFileURL)
-        // The count only: terms are often people's names, and the log is public.
-        dlog("OpenAI", "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil"), keywords=\(keywords.count)")
-
-        request.httpBody = Self.multipartBody(boundary: boundary, audio: audioData, part: part,
-                                              model: model, language: language, keywords: keywords)
-
-        let startTime = CFAbsoluteTimeGetCurrent()
-        dlog("OpenAI", "transcribe: sending request…")
-        let (data, response) = try await Self.session.data(for: request)
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-        dlog("OpenAI", "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
-
-        try validatedHTTPResponse(response, data: data, log: "OpenAI", label: "transcribe",
-                                  bodyLimit: 200,
-                                  nonHTTPMessage: "transcribe: invalid response (not HTTP)",
-                                  invalidResponse: OpenAISTTError.invalidResponse,
-                                  httpError: OpenAISTTError.httpError)
-
-        let decoded = try JSONDecoder().decode(OpenAITranscriptionResponse.self, from: data)
-        // The detected language is logged, never decoded into a typed field: the batch
-        // reply spells it `[{"code":"uk"}]` and the realtime session `["uk"]`, and a
-        // transcript must not be lost to a vendor changing the shape of a field the app
-        // only prints. It is worth printing — this project shipped a data-loss bug from
-        // forcing the keyboard layout's language on a cloud model, and on Auto this line
-        // is the record of what the model decided instead.
-        dlog("OpenAI", "transcribe: success, text=\(decoded.text.count) chars, detected=\(Self.detectedLanguages(in: data) ?? "?")")
-        return decoded.text
-    }
-
-    /// The `languages` field as a log line, whatever shape it arrived in.
-    private static func detectedLanguages(in data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = json["languages"] else { return nil }
-        if let codes = raw as? [String] { return codes.joined(separator: ",") }
-        if let objects = raw as? [[String: Any]] {
-            return objects.compactMap { $0["code"] as? String }.joined(separator: ",")
-        }
-        return String(describing: raw)
-    }
-}
-
-extension OpenAITranscriber {
-    /// The upload's form, apart so its fields can be tested without a request.
-    static func multipartBody(boundary: String, audio: Data, part: (filename: String, mimeType: String),
-                              model: String, language: String?, keywords: [String]) -> Data {
-        var body = Data()
-
-        body.appendMultipartFile(boundary: boundary, name: "file",
-                                 filename: part.filename, mimeType: part.mimeType,
-                                 data: audio)
-        body.appendMultipartField(boundary: boundary, name: "model", value: model)
-
-        if let language {
-            // `language` (singular) is what whisper-1 documents; gpt-transcribe documents
-            // `languages` but accepts this one too and normalises it — verified against
-            // the live endpoint, which answered `"languages":[{"code":"uk"}]` to it.
-            let iso639 = String(language.prefix(2))
-            body.appendMultipartField(boundary: boundary, name: "language", value: iso639)
-        }
-
-        // `keywords[]`, one field per term, as the vendor's guide writes it.
-        for term in keywords {
-            body.appendMultipartField(boundary: boundary, name: "keywords[]", value: term)
-        }
-
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        return body
-    }
-}
-
-private struct OpenAITranscriptionResponse: Decodable {
-    let text: String
-}
-
-enum OpenAISTTError: LocalizedError {
-    case invalidResponse
-    case httpError(Int, String)
-    /// The realtime socket reported an error, or sent something unusable.
-    case realtime(String, String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidResponse: "Invalid response from OpenAI API"
-        case .httpError(let code, let body): providerErrorMessage(vendor: "OpenAI", status: code, body: body)
-        case .realtime(let code, let detail): "OpenAI realtime \(code): \(detail)"
-        }
     }
 }
 

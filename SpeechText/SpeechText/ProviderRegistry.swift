@@ -38,7 +38,7 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
         case .apple:
             ProviderDescriptor(displayName: "Apple", roles: [.speech], apiKey: nil,
                                speechModel: ModelSetting(settingsKey: nil, defaultID: appleSpeechModelID),
-                               chatModel: nil)
+                               chatModel: nil, speechUpload: nil)
         case .groq:
             ProviderDescriptor(displayName: "Groq", roles: [.speech, .chat], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.groqAPIKey,
@@ -48,7 +48,10 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 verification: KeyVerification(url: URL(string: "https://api.groq.com/openai/v1/models")!,
                                               header: .bearer)),
                 speechModel: ModelSetting(settingsKey: SettingsKeys.groqModel, defaultID: "whisper-large-v3-turbo"),
-                chatModel: ModelSetting(settingsKey: SettingsKeys.groqLLMModel, defaultID: "openai/gpt-oss-120b"))
+                chatModel: ModelSetting(settingsKey: SettingsKeys.groqLLMModel, defaultID: "openai/gpt-oss-120b"),
+                speechUpload: OpenAICompatibleUpload(
+                    url: URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!,
+                    fixedFields: [(name: "response_format", value: "json")], vocabulary: .prompt))
         case .elevenLabs:
             ProviderDescriptor(displayName: "ElevenLabs", roles: [.speech], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.elevenLabsAPIKey,
@@ -58,7 +61,8 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 verification: KeyVerification(url: URL(string: "https://api.elevenlabs.io/v1/models")!,
                                               header: .named("xi-api-key"))),
                 speechModel: ModelSetting(settingsKey: SettingsKeys.elevenLabsModel, defaultID: "scribe_v2"),
-                chatModel: nil)
+                // Its own form (`ElevenLabsTranscriber`): `model_id`, `language_code`, `keyterms`.
+                chatModel: nil, speechUpload: nil)
         case .anthropic:
             ProviderDescriptor(displayName: "Anthropic", roles: [.chat], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.anthropicAPIKey,
@@ -70,7 +74,8 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                                               header: .named("x-api-key"),
                                               extraHeaders: ["anthropic-version": "2023-06-01"])),
                 speechModel: nil,
-                chatModel: ModelSetting(settingsKey: SettingsKeys.anthropicModel, defaultID: "claude-sonnet-5"))
+                chatModel: ModelSetting(settingsKey: SettingsKeys.anthropicModel, defaultID: "claude-sonnet-5"),
+                speechUpload: nil)
         case .openAI:
             ProviderDescriptor(displayName: "OpenAI", roles: [.speech, .chat], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.openAIAPIKey,
@@ -81,7 +86,14 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 verification: KeyVerification(url: URL(string: "https://api.openai.com/v1/models")!,
                                               header: .bearer)),
                 speechModel: ModelSetting(settingsKey: SettingsKeys.openAISTTModel, defaultID: "gpt-transcribe"),
-                chatModel: ModelSetting(settingsKey: SettingsKeys.openAIModel, defaultID: "gpt-5.6-luna"))
+                chatModel: ModelSetting(settingsKey: SettingsKeys.openAIModel, defaultID: "gpt-5.6-luna"),
+                // Uploads stay FLAC. OpenAI's documented format list omits it, but the
+                // endpoint accepts it — verified with a real request on 2026-09-21 against
+                // `gpt-transcribe` and `whisper-1`. Do not "fix" this to WAV on the strength
+                // of the docs: WAV is twice the bytes against a 25 MB ceiling.
+                speechUpload: OpenAICompatibleUpload(
+                    url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!,
+                    vocabulary: .keywords, logsDetectedLanguage: true))
         case .local:
             // The default is Parakeet, not the head of the catalogue: it is what every
             // Apple Silicon Mac is recommended. Moving it is not free. Anyone who *chose*
@@ -92,12 +104,13 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
             ProviderDescriptor(displayName: "Local", roles: [.speech], apiKey: nil,
                                speechModel: ModelSetting(settingsKey: SettingsKeys.localSTTModel,
                                                          defaultID: parakeetV3ModelID),
-                               chatModel: nil)
+                               chatModel: nil, speechUpload: nil)
         case .ollama:
             // Any model the daemon has, so a stored tag is never checked against a list.
             ProviderDescriptor(displayName: "Ollama", roles: [.chat], apiKey: nil, speechModel: nil,
                                chatModel: ModelSetting(settingsKey: SettingsKeys.ollamaModel, defaultID: "",
-                                                       normalized: false))
+                                                       normalized: false),
+                               speechUpload: nil)
         }
     }
 
@@ -127,6 +140,9 @@ struct ProviderDescriptor {
     let speechModel: ModelSetting?
     /// The chat model the user picks, or nil when it serves no AI Rewrite.
     let chatModel: ModelSetting?
+    /// How it takes an audio file in OpenAI's transcription shape, or nil when it does not
+    /// (`OpenAICompatibleTranscriber`).
+    let speechUpload: OpenAICompatibleUpload?
 }
 
 /// Where the user's pick of one of a provider's models is stored, and what is used

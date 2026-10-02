@@ -478,7 +478,7 @@ final class ProviderErrorMessageTests: XCTestCase {
         let body = """
         {"error":{"message":"Audio file might be corrupted or unsupported","type":"invalid_request_error","param":"file","code":"invalid_value"}}
         """
-        XCTAssertEqual(OpenAISTTError.httpError(400, body).errorDescription,
+        XCTAssertEqual(TranscriptionError.httpError(.openAI, 400, body).errorDescription,
                        "OpenAI couldn't transcribe the recording: Audio file might be corrupted or unsupported. (HTTP 400)")
     }
 
@@ -492,7 +492,7 @@ final class ProviderErrorMessageTests: XCTestCase {
     }
 
     func testABodyThatSaysNothingFallsBackToTheStatus() {
-        XCTAssertEqual(GroqError.httpError(502, "<html>Bad Gateway</html>").errorDescription,
+        XCTAssertEqual(TranscriptionError.httpError(.groq, 502, "<html>Bad Gateway</html>").errorDescription,
                        "Groq couldn't transcribe the recording: the service is having problems. (HTTP 502)")
         XCTAssertEqual(providerErrorMessage(vendor: "Groq", status: 429, body: ""),
                        "Groq couldn't transcribe the recording: too many requests — try again in a moment. (HTTP 429)")

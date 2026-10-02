@@ -2288,9 +2288,9 @@ final class VocabularyWireTests: XCTestCase {
     }
 
     func testOpenAIUploadSendsKeywordsAsAnArray() {
-        let body = OpenAITranscriber.multipartBody(boundary: "B", audio: Data([1]), part: part,
-                                                   model: "gpt-transcribe", language: "uk",
-                                                   keywords: ["SpeechText", "R&D"])
+        let body = OpenAICompatibleTranscriber.multipartBody(boundary: "B", audio: Data([1]), part: part, upload: Provider.openAI.descriptor.speechUpload!,
+                                                            model: "gpt-transcribe", language: "uk",
+                                                            prompt: "unsent", keywords: ["SpeechText", "R&D"])
         XCTAssertEqual(fields(body, named: "keywords[]"), ["SpeechText", "R&D"])
         XCTAssertEqual(fields(body, named: "language"), ["uk"])
     }
@@ -2299,8 +2299,9 @@ final class VocabularyWireTests: XCTestCase {
     func testNoVocabularyMeansNoFieldAtAll() {
         let scribe = String(decoding: ElevenLabsTranscriber.multipartBody(
             boundary: "B", audio: Data([1]), part: part, model: "scribe_v2", language: nil, keyterms: []), as: UTF8.self)
-        let openAI = String(decoding: OpenAITranscriber.multipartBody(
-            boundary: "B", audio: Data([1]), part: part, model: "gpt-transcribe", language: nil, keywords: []), as: UTF8.self)
+        let openAI = String(decoding: OpenAICompatibleTranscriber.multipartBody(
+            boundary: "B", audio: Data([1]), part: part, upload: Provider.openAI.descriptor.speechUpload!,
+            model: "gpt-transcribe", language: nil, prompt: nil, keywords: []), as: UTF8.self)
         XCTAssertFalse(scribe.contains("keyterms"))
         XCTAssertFalse(openAI.contains("keywords"))
         XCTAssertFalse(ElevenLabsRealtimeTranscriber.realtimeURL(model: elevenLabsRealtimeModel, languages: [], keyterms: [])
@@ -2515,5 +2516,99 @@ final class StoredProviderNameTests: XCTestCase {
     func testTheEngineAndProviderPicksKeepTheirStoredNames() {
         XCTAssertEqual(STTProviderType.allCases.map(\.rawValue), ["apple", "groq", "elevenlabs", "openai", "local"])
         XCTAssertEqual(LLMProviderType.allCases.map(\.rawValue), ["groq", "anthropic", "openai", "ollama"])
+    }
+}
+
+// MARK: - Upload bodies and transcription errors (STTProvider.swift)
+
+/// Every upload's whole form, written out, and every transcription error's words: what
+/// each vendor is sent and what the user reads, pinned before the transcribers share code.
+final class UploadBodyTests: XCTestCase {
+
+    private let audio = Data("AUDIO".utf8)
+    private let part = (filename: "recording.flac", mimeType: "audio/flac")
+    private let groq = Provider.groq.descriptor.speechUpload!
+    private let openAI = Provider.openAI.descriptor.speechUpload!
+
+    private func file() -> String {
+        "--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"recording.flac\"\r\nContent-Type: audio/flac\r\n\r\nAUDIO\r\n"
+    }
+
+    private func field(_ name: String, _ value: String) -> String {
+        "--B\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n"
+    }
+
+    private let end = "--B--\r\n"
+
+    private func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self) }
+
+    func testGroqsForm() {
+        XCTAssertEqual(text(OpenAICompatibleTranscriber.multipartBody(boundary: "B", audio: audio, part: part, upload: groq,
+                                                          model: "whisper-large-v3-turbo", language: "uk-UA",
+                                                          prompt: "SpeechText, C++", keywords: ["unsent"])),
+                       file() + field("model", "whisper-large-v3-turbo") + field("response_format", "json")
+                           + field("language", "uk") + field("prompt", "SpeechText, C++") + end)
+        XCTAssertEqual(text(OpenAICompatibleTranscriber.multipartBody(boundary: "B", audio: audio, part: part, upload: groq,
+                                                          model: "whisper-large-v3", language: nil,
+                                                          prompt: nil, keywords: ["unsent"])),
+                       file() + field("model", "whisper-large-v3") + field("response_format", "json") + end)
+    }
+
+    func testOpenAIsForm() {
+        XCTAssertEqual(text(OpenAICompatibleTranscriber.multipartBody(boundary: "B", audio: audio, part: part, upload: openAI,
+                                                            model: "gpt-transcribe", language: "uk-UA",
+                                                            prompt: "unsent", keywords: ["SpeechText", "R&D"])),
+                       file() + field("model", "gpt-transcribe") + field("language", "uk")
+                           + field("keywords[]", "SpeechText") + field("keywords[]", "R&D") + end)
+        XCTAssertEqual(text(OpenAICompatibleTranscriber.multipartBody(boundary: "B", audio: audio, part: part, upload: openAI,
+                                                            model: "gpt-4o-mini-transcribe", language: nil,
+                                                            prompt: "unsent", keywords: [])),
+                       file() + field("model", "gpt-4o-mini-transcribe") + end)
+    }
+
+    func testElevenLabsForm() {
+        XCTAssertEqual(text(ElevenLabsTranscriber.multipartBody(boundary: "B", audio: audio, part: part,
+                                                                model: "scribe_v2", language: "uk-UA",
+                                                                keyterms: ["SpeechText", "C++"])),
+                       file() + field("model_id", "scribe_v2") + field("tag_audio_events", "false")
+                           + field("no_verbatim", "true") + field("language_code", "uk")
+                           + field("keyterms", "SpeechText") + field("keyterms", "C++") + end)
+    }
+
+    func testTheErrorsSayWhatTheySaid() {
+        XCTAssertEqual(TranscriptionError.invalidResponse(.groq).errorDescription, "Invalid response from Groq API")
+        XCTAssertEqual(TranscriptionError.invalidResponse(.elevenLabs).errorDescription, "Invalid response from ElevenLabs API")
+        XCTAssertEqual(TranscriptionError.invalidResponse(.openAI).errorDescription, "Invalid response from OpenAI API")
+        XCTAssertEqual(TranscriptionError.httpError(.groq, 401, "").errorDescription,
+                       "Groq couldn't transcribe the recording: the API key was rejected. (HTTP 401)")
+        XCTAssertEqual(TranscriptionError.httpError(.elevenLabs, 429, "").errorDescription,
+                       "ElevenLabs couldn't transcribe the recording: too many requests — try again in a moment. (HTTP 429)")
+        XCTAssertEqual(TranscriptionError.httpError(.openAI, 500, "").errorDescription,
+                       "OpenAI couldn't transcribe the recording: the service is having problems. (HTTP 500)")
+        XCTAssertEqual(TranscriptionError.realtime(.elevenLabs, "no_session", "x").errorDescription, "ElevenLabs realtime no_session: x")
+        XCTAssertEqual(TranscriptionError.realtime(.openAI, "transcription_failed", "y").errorDescription,
+                       "OpenAI realtime transcription_failed: y")
+    }
+}
+
+final class ProviderDescriptorTests: XCTestCase {
+
+    /// Each engine's uploads go to the transcriber its provider describes: one that
+    /// `makeBatchTranscriber` sends to the OpenAI-compatible transcriber has a
+    /// `speechUpload` (its init would stop otherwise), and Apple's go to Groq's.
+    func testEveryEngineUploadsThroughTheTranscriberItsProviderDescribes() {
+        for engine in STTProviderType.allCases {
+            let configuration = RecordingConfiguration(provider: engine, locale: "uk-UA", localeIsAutomatic: true)
+            switch engine {
+            case .groq, .openai, .apple:
+                let transcriber = makeBatchTranscriber(configuration: configuration) as? OpenAICompatibleTranscriber
+                XCTAssertEqual(transcriber?.provider, engine == .apple ? .groq : engine.vendor, engine.rawValue)
+            case .elevenlabs:
+                XCTAssertTrue(makeBatchTranscriber(configuration: configuration) is ElevenLabsTranscriber)
+                XCTAssertNil(engine.vendor.descriptor.speechUpload)
+            case .local:
+                XCTAssertNil(engine.vendor.descriptor.speechUpload)
+            }
+        }
     }
 }

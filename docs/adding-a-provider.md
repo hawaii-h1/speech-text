@@ -15,7 +15,8 @@ Two rules before any code:
 
 | The vendor offers | What you write |
 |---|---|
-| An endpoint that takes an audio file | a `BatchTranscriber` struct (~80 lines) |
+| OpenAI's `/audio/transcriptions` shape (Bearer key, `file` / `model` / `language`) | the descriptor's `speechUpload: OpenAICompatibleUpload(url:…)`, no code |
+| Its own upload endpoint | a `BatchTranscriber` struct (~80 lines), like `ElevenLabsTranscriber` |
 | A WebSocket with live text | a `StreamingTranscriber` (~500 lines) **plus** an upload model from the same vendor |
 | OpenAI-compatible `/chat/completions` | a case returning `OpenAICompatibleChatClient(baseURL:dialect:)` |
 | Its own chat API | a `ChatClient` struct, like `AnthropicChatClient` |
@@ -41,6 +42,8 @@ are one provider, one key, two catalogue entries. All capability values:
 | | `.selectedModel(of:)` | borrows another vendor's pick (Apple → Groq) |
 | `Requirement` | `.none` / `.apiKey(key)` / `.installedModel` | what must exist before it runs |
 | `Vocabulary` | `.none` / `.termList(TermListLimits)` | takes the user's term list, and its limits |
+| `VocabularyField` (OpenAI-compatible upload) | `.prompt` | the words as Whisper's free-text `prompt` (Groq) |
+| | `.keywords` | a `keywords[]` field per term (OpenAI) |
 | `Dialect` (chat) | `.classic` | `max_tokens` + `temperature` (Groq) |
 | | `.reasoning` | `max_completion_tokens` + measured `reasoning_effort` (OpenAI) |
 | `ReasoningOutput` (chat) | `.unchanged` | nothing sent |
@@ -97,12 +100,19 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
 
 1. Add the `Provider` case with its `ProviderDescriptor` (section 7) and the
    `STTProviderType` case, build, and fill every `switch` the compiler reports.
-2. Write the transcriber in `STTProvider.swift`, copying `GroqTranscriber`:
+2. OpenAI-compatible: fill the descriptor's `speechUpload` (`OpenAICompatibleUpload`: the
+   URL, any fixed fields such as Groq's `response_format=json`, and whether the
+   vocabulary goes as a `prompt` or as `keywords[]`), add the engine to
+   `makeBatchTranscriber`'s `OpenAICompatibleTranscriber` case, and pin its form in
+   `UploadBodyTests`. Otherwise write the transcriber in `STTProvider.swift`, copying
+   `ElevenLabsTranscriber`:
    - own `URLSession` with the `STTTuning` batch timeouts;
+   - the form built by a pure `multipartBody`, pinned in `UploadBodyTests`;
    - `multipartAudioPart(for:)` for filename and MIME type (FLAC or WAV);
    - `language == nil` means "let the model detect": send nothing, or the vendor's
      detect switch if it otherwise assumes English. Never send a guess;
-   - `validatedHTTPResponse` + an error enum using `providerErrorMessage`;
+   - `validatedHTTPResponse` throwing `TranscriptionError` with the `Provider`, so the
+     message names it (`providerErrorMessage`);
    - let `URLError` through unwrapped (offline detection reads it);
    - a term-list parameter: take `keyterms` in `init` from `configuration.batchVocabulary`
      (realtime: `liveVocabulary`), and set the entry's `vocabulary` limits;
@@ -126,7 +136,8 @@ Read CLAUDE.md's streaming sections first. The rules:
 - Hold audio until the session is ready (bounded buffer); if it fills, emit `.failed`,
   never drop audio.
 - Keep the lock order: `sendLock` before `lock`, and never hold `lock` across `task.send`.
-- Add the vendor's "no session" error to `StreamReconnectPolicy.isReconnectable`.
+- Report a server that never started a session as `TranscriptionError.realtime(provider,
+  "no_session", …)`: that is the code `StreamReconnectPolicy.isReconnectable` reopens.
 - If the vendor uses one model name on both endpoints, coin a realtime ID
   (`<model>-realtime`) and map it back in the transcriber.
 - Start from the closer existing transcriber: ElevenLabs (cumulative, server VAD) or OpenAI
@@ -188,7 +199,7 @@ Kinds: `stt`, `realtime`, `llm`, `key` (a new API key), `docs`. Check: `compiler
 ```touchpoints
 # kind   | file                                                  | anchor (must exist in the file)               | check       | what to do
 stt      | SpeechText/SpeechText/STTProvider.swift               | enum STTProviderType                          | compiler    | case, displayName, subtitle (key? live text? what it is good at)
-stt      | SpeechText/SpeechText/STTProvider.swift               | protocol BatchTranscriber                     | manual:file | the transcriber struct and its error enum
+stt      | SpeechText/SpeechText/STTProvider.swift               | protocol BatchTranscriber                     | manual:file | an own-API transcriber struct, if it is not OpenAI-compatible
 stt      | SpeechText/SpeechText/STTProvider.swift               | func makeBatchTranscriber                     | compiler    | a case returning the transcriber with configuration.batchModel
 stt      | SpeechText/SpeechText/STTProvider.swift               | private func providerErrorReason              | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | var vendor: Provider                          | compiler    | STTProviderType.vendor: the engine's provider
@@ -205,7 +216,7 @@ stt      | SpeechText/SpeechText/HomeView.swift                  | private var s
 stt      | SpeechText/SpeechText/HomeSummary.swift               | static func speech(provider: String)          | compiler    | its price a minute, or nil written out (#129)
 realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | protocol StreamingTranscriber                 | manual:file | the transcriber class
 realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
-realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | manual      | the vendor's own "no session" error, or its stream is never reconnected
+realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | review      | its "no session" failure must be TranscriptionError.realtime(_, "no_session", _)
 llm      | SpeechText/SpeechText/LLMProvider.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
 llm      | SpeechText/SpeechText/LLMProvider.swift               | let chatModelCatalog                          | manual      | the vendor's models with their switches; a <vendor>ChatModels picker list below it
 llm      | SpeechText/SpeechText/LLMProvider.swift               | static func makeChatClient                    | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct

@@ -205,16 +205,16 @@ final class StreamReconnectPolicyTests: XCTestCase {
 
     /// Held audio filled up with no session to send it to: the server never answered.
     func testNoSessionIsReopened() {
-        XCTAssertTrue(StreamReconnectPolicy.isReconnectable(ElevenLabsError.realtime("no_session", "…")))
-        XCTAssertTrue(StreamReconnectPolicy.isReconnectable(OpenAISTTError.realtime("no_session", "…")))
+        XCTAssertTrue(StreamReconnectPolicy.isReconnectable(TranscriptionError.realtime(.elevenLabs, "no_session", "…")))
+        XCTAssertTrue(StreamReconnectPolicy.isReconnectable(TranscriptionError.realtime(.openAI, "no_session", "…")))
     }
 
     /// A refusal would only be heard again from a new socket.
     func testARefusalIsNotReopened() {
-        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(ElevenLabsError.realtime("auth_error", "…")))
-        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(ElevenLabsError.realtime("quota_exceeded", "…")))
-        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(OpenAISTTError.realtime("invalid_api_key", "…")))
-        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(OpenAISTTError.realtime("transcription_failed", "…")))
+        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(TranscriptionError.realtime(.elevenLabs, "auth_error", "…")))
+        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(TranscriptionError.realtime(.elevenLabs, "quota_exceeded", "…")))
+        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(TranscriptionError.realtime(.openAI, "invalid_api_key", "…")))
+        XCTAssertFalse(StreamReconnectPolicy.isReconnectable(TranscriptionError.realtime(.openAI, "transcription_failed", "…")))
         XCTAssertFalse(StreamReconnectPolicy.isReconnectable(URLError(.userAuthenticationRequired)))
     }
 

@@ -100,8 +100,7 @@ struct StreamReconnectPolicy {
         }
         // Held audio filled up with no session to send it to: the server never answered.
         switch error {
-        case ElevenLabsError.realtime(let type, _): return type == "no_session"
-        case OpenAISTTError.realtime(let code, _): return code == "no_session"
+        case TranscriptionError.realtime(_, let code, _): return code == "no_session"
         default: return false
         }
     }

@@ -223,7 +223,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             // its opening seconds a success, fail so the stop takes the batch upload.
             guard preSessionBytes + chunk.count <= maxPreSessionBytes else {
                 lock.unlock()
-                fail(ElevenLabsError.realtime("no_session",
+                fail(TranscriptionError.realtime(.elevenLabs, "no_session",
                     "no session_started within \(STTTuning.streamPreSessionBufferSeconds)s of audio"))
                 return
             }
@@ -449,7 +449,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             // recording pays for the streamed minutes *and* a batch re-upload.
             let detail = json["error"] as? String ?? raw
             dlog("ElevenLabs", "realtime: \(type): \(detail.prefix(200))")
-            fail(ElevenLabsError.realtime(type, detail))
+            fail(TranscriptionError.realtime(.elevenLabs, type, detail))
         default:
             // Unknown but well-formed — the server's vocabulary is open (three purely
             // informational types are already special-cased above). A socket that
@@ -537,7 +537,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             return
         }
         dlog("ElevenLabs", "realtime: no commit followed the held partial — uploading the segment instead")
-        fail(ElevenLabsError.realtime("unresolved_tail", "a partial followed the stop's commit and no commit carried it"))
+        fail(TranscriptionError.realtime(.elevenLabs, "unresolved_tail", "a partial followed the stop's commit and no commit carried it"))
     }
 
     private func installFinishWait(_ cont: CheckedContinuation<Void, Never>) {
@@ -761,7 +761,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
             // file rather than report a transcript missing its opening seconds.
             guard preSessionBytes + chunk.count <= maxPreSessionBytes else {
                 lock.unlock()
-                fail(OpenAISTTError.realtime("no_session",
+                fail(TranscriptionError.realtime(.openAI, "no_session",
                     "no session.updated within \(STTTuning.streamPreSessionBufferSeconds)s of audio"))
                 return
             }
@@ -896,7 +896,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         if closed { return false }
         guard ready else {
             dlog("OpenAI", "realtime: stopped before session.updated, none within \(STTTuning.streamSessionReadyTimeoutSeconds)s")
-            fail(OpenAISTTError.realtime("no_session", "session.updated did not arrive before the stop"))
+            fail(TranscriptionError.realtime(.openAI, "no_session", "session.updated did not arrive before the stop"))
             return false
         }
         return true
@@ -1072,7 +1072,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         case "conversation.item.input_audio_transcription.failed":
             let detail = Self.errorDetail(in: json) ?? raw
             dlog("OpenAI", "realtime: transcription failed: \(detail.prefix(200))")
-            fail(OpenAISTTError.realtime("transcription_failed", detail))
+            fail(TranscriptionError.realtime(.openAI, "transcription_failed", detail))
         case "error":
             let error = json["error"] as? [String: Any] ?? [:]
             let code = error["code"] as? String ?? "error"
@@ -1087,7 +1087,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
                 return
             }
             dlog("OpenAI", "realtime: error \(code): \(detail.prefix(200))")
-            fail(OpenAISTTError.realtime(code, detail))
+            fail(TranscriptionError.realtime(.openAI, code, detail))
         default:
             // The realtime vocabulary is large and mostly about conversations rather
             // than transcription (`input_audio_buffer.speech_started`,

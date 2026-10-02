@@ -188,7 +188,7 @@ enum LLMError: LocalizedError {
 }
 
 /// Shared session — URLSession.shared enforces its own 60s timeout regardless of
-/// URLRequest.timeoutInterval, so we build our own like GroqTranscriber does.
+/// URLRequest.timeoutInterval, so we build our own, as the transcribers do.
 private let llmSession: URLSession = {
     let config = URLSessionConfiguration.default
     config.timeoutIntervalForRequest = 90
