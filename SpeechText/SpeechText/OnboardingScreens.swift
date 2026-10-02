@@ -680,7 +680,7 @@ private struct AIScreen: View {
                                     facts: "Private and free. Needs the free Ollama app and a 3–80 GB download.",
                                     isSelected: model.aiPath == .local) { model.chooseAIPath(.local) }
                     SetupChoiceCard(glyph: .cloud, name: "Online service",
-                                    badge: model.groqReadyFromSpeech ? "Ready" : nil,
+                                    badge: Provider.allCases.contains(where: model.keyReadyFromSpeech) ? "Ready" : nil,
                                     facts: "Fast on any Mac. Needs an account — Groq has a free plan.",
                                     isSelected: model.aiPath == .online) { model.chooseAIPath(.online) }
                 }
@@ -890,10 +890,10 @@ private struct AIScreen: View {
                          isSelected: model.aiService == .anthropic, compact: true) { model.aiService = .anthropic }
                 SetupRow(title: "ChatGPT", subtitle: "OpenAI · Paid",
                          isSelected: model.aiService == .openAI, compact: true) { model.aiService = .openAI }
-                // Groq's key from the Speech step is reused as it is.
+                // A key from the Speech step (Groq's, OpenAI's) is reused as it is.
                 SetupKeyBlock(model: model, service: model.aiService,
-                              collapsedText: model.aiService == .groq && model.groqReadyFromSpeech
-                                  ? "AI polish is ready — it uses your Groq key." : nil,
+                              collapsedText: model.keyReadyFromSpeech(model.aiService)
+                                  ? "AI polish is ready — it uses your \(model.aiService.displayName) key." : nil,
                               compact: true)
                     .padding(.horizontal, 10)
                     .padding(.top, 8)

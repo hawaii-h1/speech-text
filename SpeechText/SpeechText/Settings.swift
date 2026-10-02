@@ -234,7 +234,7 @@ let defaultOpenAISTTModel = "gpt-transcribe"
 
 let openAISTTModels = pickerModels(of: .openAI)
 
-private func pickerModels(of vendor: STTVendor) -> [(id: String, name: String)] {
+private func pickerModels(of vendor: Provider) -> [(id: String, name: String)] {
     sttModels(of: vendor).map { (id: $0.id, name: $0.displayName) }
 }
 

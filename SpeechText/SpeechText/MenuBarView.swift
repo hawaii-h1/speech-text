@@ -534,7 +534,7 @@ struct SettingsView: View {
     }
 
     private struct APIKey {
-        let service: SetupService
+        let service: Provider
         let value: Binding<String>
         /// Everything the key can be used for.
         let roles: [SettingsKeyRole]

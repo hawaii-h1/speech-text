@@ -113,20 +113,20 @@ final class OnboardingModel {
     // ② Speech
     var speechPath = SpeechPath.local
     var speechModelID: String
-    var speechService = SetupService.groq
+    var speechService = Provider.groq
     /// A model picked while another was still downloading, waiting for "Switch".
     var pendingSpeechSwitch: String?
 
     // ③ AI
     var aiPath = AIPath.none
-    var aiService = SetupService.groq
+    var aiService = Provider.groq
     var aiModelID: String
     private(set) var isCheckingOllama = false
 
     // Keys
-    private(set) var keys: [SetupService: KeyEntry] = [:]
-    private var awaitingKey: SetupService?
-    private var checks: [SetupService: Task<Void, Never>] = [:]
+    private(set) var keys: [Provider: KeyEntry] = [:]
+    private var awaitingKey: Provider?
+    private var checks: [Provider: Task<Void, Never>] = [:]
 
     // ④ Permissions
     private(set) var micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -168,8 +168,9 @@ final class OnboardingModel {
         case .apple?, nil: break
         }
 
-        for service in SetupService.allCases {
-            let stored = APIKeyStore.shared.value(for: service.settingsKey).trimmingCharacters(in: .whitespacesAndNewlines)
+        for service in Provider.allCases {
+            guard let apiKey = service.descriptor.apiKey else { continue }
+            let stored = APIKeyStore.shared.value(for: apiKey.settingsKey).trimmingCharacters(in: .whitespacesAndNewlines)
             keys[service] = KeyEntry(value: stored, status: stored.isEmpty ? .empty : .valid)
         }
 
@@ -280,9 +281,10 @@ final class OnboardingModel {
             case .openAI:
                 defaults.set(STTProviderType.openai.rawValue, forKey: SettingsKeys.sttProvider)
                 defaults.set(openAIRealtimeSTTModel, forKey: SettingsKeys.openAISTTModel)
-            case .groq, .anthropic:
-                // Anthropic has no speech service and no card on this step; it can only
-                // be reached by a stored value that should not have selected it.
+            case .groq, .anthropic, .apple, .local, .ollama:
+                // Only Groq has a card here among these; the others serve no cloud speech
+                // with a key, and can only be reached by a stored value that should not
+                // have selected them.
                 defaults.set(STTProviderType.groq.rawValue, forKey: SettingsKeys.sttProvider)
             }
         }
@@ -292,10 +294,12 @@ final class OnboardingModel {
 
     // MARK: ③ AI
 
-    /// Groq was connected on the Speech step, so AI polish is one click away.
-    var groqReadyFromSpeech: Bool {
-        UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) == STTProviderType.groq.rawValue
-            && key(.groq).status.isUsable
+    /// The service's key was connected on the Speech step, so AI polish is one click
+    /// away: a provider that serves both steps has one key for both.
+    func keyReadyFromSpeech(_ service: Provider) -> Bool {
+        let engine = STTProviderType(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "")
+        return engine?.vendor == service && service.descriptor.roles.contains(.chat)
+            && key(service).status.isUsable
     }
 
     var recommendedAIModel: LocalLLMModel? { recommendedLocalLLMModel(for: capabilities) }
@@ -347,9 +351,9 @@ final class OnboardingModel {
             case .groq: .groq
             case .anthropic: .anthropic
             case .openAI: .openai
-            // ElevenLabs serves no chat and has no card on this step; it can only be
-            // reached by a stored value that should not have selected it.
-            case .elevenLabs: .groq
+            // These serve no cloud chat with a key and have no card on this step; they
+            // can only be reached by a stored value that should not have selected them.
+            case .elevenLabs, .apple, .local, .ollama: .groq
             }
             defaults.set(provider.rawValue, forKey: SettingsKeys.llmProvider)
         case .local:
@@ -373,17 +377,18 @@ final class OnboardingModel {
 
     // MARK: Keys
 
-    func key(_ service: SetupService) -> KeyEntry { keys[service] ?? KeyEntry() }
+    func key(_ service: Provider) -> KeyEntry { keys[service] ?? KeyEntry() }
 
     /// Opens the vendor's key page and waits for the key to come back on the clipboard.
-    func getKey(_ service: SetupService) {
-        NSWorkspace.shared.open(service.keysPage)
+    func getKey(_ service: Provider) {
+        guard let page = service.descriptor.apiKey?.keysPage else { return }
+        NSWorkspace.shared.open(page)
         awaitingKey = service
         if !key(service).status.isLocked { keys[service]?.status = .waiting }
     }
 
     /// The Paste button.
-    func pasteKey(_ service: SetupService) -> Bool {
+    func pasteKey(_ service: Provider) -> Bool {
         let text = (NSPasteboard.general.string(forType: .string) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
         setKey(service, text)
@@ -391,7 +396,7 @@ final class OnboardingModel {
     }
 
     /// Typing in the field: checked half a second after the last change.
-    func typeKey(_ service: SetupService, _ value: String) {
+    func typeKey(_ service: Provider, _ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         keys[service]?.value = trimmed
         if trimmed.isEmpty {
@@ -402,19 +407,19 @@ final class OnboardingModel {
         verify(service, after: 0.5)
     }
 
-    func changeKey(_ service: SetupService) {
+    func changeKey(_ service: Provider) {
         checks[service]?.cancel()
         keys[service] = KeyEntry()
     }
 
-    func setKey(_ service: SetupService, _ value: String, found: Bool = false) {
+    func setKey(_ service: Provider, _ value: String, found: Bool = false) {
         awaitingKey = nil
         keys[service] = KeyEntry(value: value.trimmingCharacters(in: .whitespacesAndNewlines),
                                  status: found ? .found : .checking)
         verify(service, after: found ? 0.7 : 0)
     }
 
-    func verify(_ service: SetupService, after delay: TimeInterval = 0) {
+    func verify(_ service: Provider, after delay: TimeInterval = 0) {
         checks[service]?.cancel()
         let value = key(service).value
         guard !value.isEmpty else { keys[service]?.status = .empty; return }
@@ -430,22 +435,24 @@ final class OnboardingModel {
             case .invalid: .invalid
             case .unreachable: .offline
             }
-            dlog("Setup", "\(service.name) key: \(verdict)")
+            dlog("Setup", "\(service.displayName) key: \(verdict)")
         }
     }
 
-    private static func check(_ service: SetupService, _ key: String) async -> KeyVerdict {
+    private static func check(_ service: Provider, _ key: String) async -> KeyVerdict {
+        guard let request = service.verificationRequest(key: key) else { return .unreachable }
         do {
-            let (data, response) = try await URLSession.shared.data(for: service.verificationRequest(key: key))
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return .unreachable }
-            return SetupService.verdict(statusCode: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
+            return Provider.verdict(statusCode: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
         } catch {
             return .unreachable
         }
     }
 
-    private func saveKey(_ service: SetupService) {
-        APIKeyStore.shared.set(key(service).value, for: service.settingsKey)
+    private func saveKey(_ service: Provider) {
+        guard let apiKey = service.descriptor.apiKey else { return }
+        APIKeyStore.shared.set(key(service).value, for: apiKey.settingsKey)
     }
 
     /// Back from the browser: the clipboard is read once for a key of the awaited shape.

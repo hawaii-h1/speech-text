@@ -372,7 +372,7 @@ struct SettingsKeyRoleTag: View {
 /// An API key: which account it belongs to, where to get one, and the field — drawn like
 /// the setup window's key field, with the value hidden.
 struct SettingsKeyField: View {
-    let service: SetupService
+    let service: Provider
     @Binding var value: String
     /// Everything the key can be used for, in pipeline order.
     var roles: [SettingsKeyRole] = []
@@ -388,7 +388,7 @@ struct SettingsKeyField: View {
         let shape = RoundedRectangle(cornerRadius: 9)
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
-                Text(service.account)
+                Text(service.displayName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(inUse ? SetupColor.label : SetupColor.label2)
                 ForEach(roles, id: \.self) { role in
@@ -398,7 +398,9 @@ struct SettingsKeyField: View {
                     SettingsStatus(text: hasValue ? "Added" : "Needed", ok: hasValue)
                 }
                 Spacer(minLength: 0)
-                Button(service.linkTitle) { NSWorkspace.shared.open(service.keysPage) }
+                Button(service.linkTitle) {
+                    if let page = service.descriptor.apiKey?.keysPage { NSWorkspace.shared.open(page) }
+                }
                     .buttonStyle(SetupInlineLinkStyle())
                     .pointingHandCursor()
             }
@@ -406,7 +408,7 @@ struct SettingsKeyField: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, design: .monospaced))
                 .focused($focused)
-                .accessibilityLabel("\(service.account) key")
+                .accessibilityLabel("\(service.displayName) key")
                 .padding(.horizontal, 10)
                 .frame(height: 30)
                 .background(shape.fill(SetupColor.control))

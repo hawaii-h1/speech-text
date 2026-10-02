@@ -2020,8 +2020,12 @@ final class STTModelCatalogTests: XCTestCase {
                 XCTAssertEqual(model.requirement, .none, model.id)
             }
         }
-        // One vendor, one key.
-        for vendor in STTVendor.allCases {
+        // One vendor, one key — its own.
+        for vendor in Provider.allCases {
+            for model in sttModels(of: vendor) {
+                guard case .apiKey(let key) = model.requirement else { continue }
+                XCTAssertEqual(key, vendor.descriptor.apiKey?.settingsKey, model.id)
+            }
             XCTAssertLessThanOrEqual(Set(sttModels(of: vendor).map(\.requirement)).count, 1, vendor.rawValue)
         }
     }
@@ -2035,7 +2039,7 @@ final class STTModelCatalogTests: XCTestCase {
     }
 
     func testEveryModelBelongsToOneVendorAndIsListedOnce() {
-        for vendor in STTVendor.allCases {
+        for vendor in Provider.allCases where vendor.descriptor.roles.contains(.speech) {
             let ids = sttModels(of: vendor).map(\.id)
             XCTAssertFalse(ids.isEmpty, vendor.rawValue)
             XCTAssertEqual(ids.count, Set(ids).count, vendor.rawValue)
@@ -2427,5 +2431,44 @@ final class TextReplacementTests: XCTestCase {
             "Open Speech Text — now", dictionary: [VocabularyEntry(term: "SpeechText", misheard: ["speech text"])],
             replacements: [TextReplacementPair(replace: "now", with: "today")], dashStyle: .hyphen)
         XCTAssertEqual(reply, "Open SpeechText - today")
+    }
+}
+
+// MARK: - Names that are stored (ProviderRegistry.swift)
+
+/// Literal values that live outside the code — in UserDefaults, the keychain and History —
+/// so a list derived from the provider registry must keep producing exactly these.
+final class StoredProviderNameTests: XCTestCase {
+
+    /// `APIKeyStore.open` moves and deletes exactly these names, which are also the
+    /// keychain accounts; a key that left the list would be stranded in a plist.
+    func testTheAPIKeysKeepTheirStoredNames() {
+        XCTAssertEqual(APIKeyStore.keys, ["groqAPIKey", "elevenLabsAPIKey", "anthropicAPIKey", "openAIAPIKey"])
+    }
+
+    /// Each provider serves exactly the steps a pick maps to it for.
+    func testEveryProvidersRolesAreTheOnesItsPicksGiveIt() {
+        for provider in Provider.allCases {
+            let roles = provider.descriptor.roles
+            XCTAssertEqual(roles.contains(.speech), STTProviderType.allCases.contains { $0.vendor == provider }, provider.rawValue)
+            XCTAssertEqual(roles.contains(.chat), LLMProviderType.allCases.contains { $0.vendor == provider }, provider.rawValue)
+        }
+    }
+
+    func testTheRetryNoticeNamesTheKey() {
+        XCTAssertEqual(Provider.groq.apiKeyPhrase, "a Groq API key")
+        XCTAssertEqual(Provider.openAI.apiKeyPhrase, "an OpenAI API key")
+        XCTAssertEqual(Provider.elevenLabs.apiKeyPhrase, "an ElevenLabs API key")
+    }
+
+    func testOnlyAFreePlanIsOfferedAsAFreeKey() {
+        XCTAssertEqual(Provider.groq.linkTitle, "Get your free key ↗")
+        XCTAssertEqual(Provider.openAI.linkTitle, "Get your key ↗")
+    }
+
+    /// `sttProvider` / `llmProvider` store these, and History records them as `provider`.
+    func testTheEngineAndProviderPicksKeepTheirStoredNames() {
+        XCTAssertEqual(STTProviderType.allCases.map(\.rawValue), ["apple", "groq", "elevenlabs", "openai", "local"])
+        XCTAssertEqual(LLMProviderType.allCases.map(\.rawValue), ["groq", "anthropic", "openai", "ollama"])
     }
 }

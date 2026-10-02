@@ -95,8 +95,8 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
 
 ## 4. Upload speech engine
 
-1. Add the case to `STTProviderType` and `STTVendor`, build, and fill every `switch` the
-   compiler reports.
+1. Add the `Provider` case with its `ProviderDescriptor` (section 7) and the
+   `STTProviderType` case, build, and fill every `switch` the compiler reports.
 2. Write the transcriber in `STTProvider.swift`, copying `GroqTranscriber`:
    - own `URLSession` with the `STTTuning` batch timeouts;
    - `multipartAudioPart(for:)` for filename and MIME type (FLAC or WAV);
@@ -145,8 +145,12 @@ Read CLAUDE.md's streaming sections first. The rules:
 
 ## 7. The key
 
-- `SettingsKeys.<vendor>APIKey` in `APIKeyStore.keys`. **Never** in `portable`.
-- A `SetupService` case: key page, create note, `looksLikeKey`, `verificationRequest`.
+- A `Provider` case and its `ProviderDescriptor` (ProviderRegistry.swift): the name, the
+  roles it serves, and an `APIKeyDescriptor` — its `SettingsKeys.<vendor>APIKey` (**never**
+  in `portable`), key page, create button and note, prefix, a sample key, and the
+  verification request. `APIKeyStore.keys`, the key check, the clipboard pick-up and the
+  AI step's reuse of a speech key all follow from it; `ProviderKeyTests` checks the
+  prefix against every other provider's.
 - A row in Settings › API Keys (`apiKeys`, with roles).
 - A vendor with speech and chat has **one** key.
 
@@ -186,7 +190,7 @@ stt      | SpeechText/SpeechText/STTProvider.swift               | enum STTProvi
 stt      | SpeechText/SpeechText/STTProvider.swift               | protocol BatchTranscriber                     | manual:file | the transcriber struct and its error enum
 stt      | SpeechText/SpeechText/STTProvider.swift               | func makeBatchTranscriber                     | compiler    | a case returning the transcriber with configuration.batchModel
 stt      | SpeechText/SpeechText/STTProvider.swift               | private func providerErrorReason              | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
-stt      | SpeechText/SpeechText/STTModelCatalog.swift           | enum STTVendor                                | compiler    | case, displayName, apiKeyPhrase; and STTProviderType.vendor below it
+stt      | SpeechText/SpeechText/STTModelCatalog.swift           | var vendor: Provider                          | compiler    | STTProviderType.vendor: the engine's provider
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | let sttModelCatalog                           | manual      | one descriptor per model, with a dated comment on why it is offered
 stt      | SpeechText/SpeechText/RecordingConfiguration.swift    | struct RecordingConfiguration                 | manual      | key and model as defaulted vars; read both in current()
 stt      | SpeechText/SpeechText/RecordingConfiguration.swift    | private func modelID(for vendor               | compiler    | the vendor's model field
@@ -216,19 +220,13 @@ llm      | SpeechText/SpeechText/MenuBarView.swift               | private var h
 llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class ChatRequestBodyTests              | manual      | each model's whole request body, written out
 llm      | SpeechText/SpeechText/HomeSummary.swift               | static func chat(provider: String, model: String) | review      | its models' token prices, or they show as not priced (#129)
 key      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | <vendor>APIKey
-key      | SpeechText/SpeechText/APIKeyStore.swift               | static let keys                               | manual      | the key constant
-key      | SpeechText/SpeechText/LLMProvider.swift               | static func apiKey(for type: LLMProviderType) | compiler    | only if the vendor serves AI Rewrite
-key      | SpeechText/SpeechText/SetupServices.swift             | enum SetupService                             | compiler    | key page, create note, looksLikeKey, verificationRequest
+key      | SpeechText/SpeechText/ProviderRegistry.swift          | var descriptor: ProviderDescriptor            | compiler    | the Provider case and its ProviderDescriptor: name, roles, and the APIKeyDescriptor (key page, create note, prefix, sample, verification)
 key      | SpeechText/SpeechText/MenuBarView.swift               | private var apiKeys: [APIKey]                 | manual      | an APIKey with its roles and active:
-key      | SpeechText/SpeechTextTests/OnboardingTests.swift      | func testKeyShapesTellTheServicesApart        | manual      | its shape, and no overlap with the others
 key      | SpeechText/SpeechText/Onboarding.swift                | func continueFromAI                           | compiler    | the AI Rewrite provider the service saves
-key      | SpeechText/SpeechText/Onboarding.swift                | var groqReadyFromSpeech                       | review      | only Groq's speech key is offered again on the AI step
-key      | SpeechText/SpeechText/SetupServices.swift             | var linkTitle                                 | review      | "free key" only for a free plan
 key      | SpeechText/SpeechText/OnboardingScreens.swift         | private var onlineDetails                     | review      | a setup card on the Speech and AI steps, if the maintainer wants one
 key      | SpeechText/SpeechText/Onboarding.swift                | func continueFromSpeech                       | manual      | a service with no speech engine belongs in the branch that saves none
-key      | docs/development.md                                   | ## API keys                                   | manual      | the list and count of keys
+key      | docs/development.md                                   | ## API keys                                   | manual      | the list of keys
 key      | docs/manual-testing.md                                | Відкритого тексту не лишилось                 | manual      | the key in the loop that checks no plain-text copy is left
-key      | CLAUDE.md                                             | `APIKeyStore.shared`: the four API keys       | review      | the count of keys (and the same words in APIKeyStore.swift)
 docs     | README.md                                             | ## Privacy: where your audio goes             | manual      | the privacy list (and the engine table or AI sentence above it)
 docs     | SECURITY.md                                           | The privacy practices of                      | manual:file | add the vendor
 docs     | CLAUDE.md                                             | ## Settings Keys Reference                    | manual      | the new keys, and the provider file's Architecture bullet

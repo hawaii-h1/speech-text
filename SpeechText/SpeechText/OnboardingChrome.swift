@@ -648,10 +648,10 @@ struct SetupSpinner: View {
 
 /// Connecting an online account: where to get a key, and a field that picks it up.
 /// Shared by the Speech and AI steps; `collapsedText` replaces it with one line when the
-/// key is already in hand (Groq, connected on the Speech step).
+/// key is already in hand (Groq's or OpenAI's, connected on the Speech step).
 struct SetupKeyBlock: View {
     @Bindable var model: OnboardingModel
-    let service: SetupService
+    let service: Provider
     var collapsedText: String?
     var compact = false
     @State private var draft = ""
@@ -664,7 +664,7 @@ struct SetupKeyBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(SetupColor.separator).frame(height: 1).padding(.bottom, compact ? 10 : 12)
-            Text("Connect your \(service.account) account")
+            Text("Connect your \(service.displayName) account")
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(SetupColor.label)
                 .padding(.bottom, 2)
             if let collapsedText {
@@ -678,9 +678,9 @@ struct SetupKeyBlock: View {
                         Button(service.linkTitle) { model.getKey(service) }
                             .buttonStyle(SetupLinkButtonStyle())
                             .pointingHandCursor()
-                        Text("sign in, then click **\(service.createButton)**.")
+                        Text("sign in, then click **\(service.descriptor.apiKey?.createButton ?? "")**.")
                     }
-                    howStep(2) { Text(LocalizedStringKey(service.createNote)) }
+                    howStep(2) { Text(LocalizedStringKey(service.descriptor.apiKey?.createNote ?? "")) }
                     howStep(3) { Text("Come back here — we'll pick it up automatically.") }
                 }
                 .font(.system(size: 12))
@@ -737,7 +737,7 @@ struct SetupKeyBlock: View {
                     .onChange(of: draft) { _, new in
                         if new.trimmingCharacters(in: .whitespacesAndNewlines) != entry.value { model.typeKey(service, new) }
                     }
-                    .accessibilityLabel("\(service.account) key")
+                    .accessibilityLabel("\(service.displayName) key")
             }
         }
         .padding(.horizontal, 10)

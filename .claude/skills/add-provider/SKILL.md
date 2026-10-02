@@ -1,6 +1,6 @@
 ---
 name: add-provider
-description: Add or change a speech engine or AI Rewrite (LLM) provider in SpeechText — a new cloud vendor, a realtime WebSocket, an OpenAI-compatible chat endpoint, a new or retired model, or a change to provider capabilities (STTModelDescriptor, Dialect). Use whenever the task touches STTProviderType, STTVendor, sttModelCatalog, LLMProviderType, SetupService or an API key, even for "support Deepgram", "add Mistral", "OpenAI has a new transcribe model".
+description: Add or change a speech engine or AI Rewrite (LLM) provider in SpeechText — a new cloud vendor, a realtime WebSocket, an OpenAI-compatible chat endpoint, a new or retired model, or a change to provider capabilities (STTModelDescriptor, Dialect). Use whenever the task touches STTProviderType, Provider, sttModelCatalog, LLMProviderType, ProviderDescriptor or an API key, even for "support Deepgram", "add Mistral", "OpenAI has a new transcribe model".
 ---
 
 # Add or change a provider

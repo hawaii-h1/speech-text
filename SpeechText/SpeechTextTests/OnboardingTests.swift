@@ -28,47 +28,64 @@ final class OnboardingGateTests: XCTestCase {
     }
 }
 
-final class SetupServiceTests: XCTestCase {
+final class ProviderKeyTests: XCTestCase {
     private let long = String(repeating: "a1B2", count: 8)
 
+    /// Each provider's sample key is taken for its own and for no other's — every pair, so
+    /// a new provider whose prefix overlaps another's fails here.
+    func testEveryKeyShapeIsTakenForItsOwnProviderOnly() {
+        let keyed = Provider.allCases.filter { $0.descriptor.apiKey != nil }
+        XCTAssertFalse(keyed.isEmpty)
+        for owner in keyed {
+            let sample = owner.descriptor.apiKey!.sample
+            for provider in keyed {
+                XCTAssertEqual(provider.looksLikeKey(sample), provider == owner, "\(owner) sample, \(provider)")
+            }
+        }
+    }
+
     func testKeyShapesTellTheServicesApart() {
-        XCTAssertTrue(SetupService.groq.looksLikeKey("gsk_\(long)"))
-        XCTAssertTrue(SetupService.elevenLabs.looksLikeKey("  sk_\(long)\n"))
-        XCTAssertTrue(SetupService.anthropic.looksLikeKey("sk-ant-api03-\(long)"))
-        XCTAssertTrue(SetupService.openAI.looksLikeKey("sk-proj-\(long)"))
+        XCTAssertTrue(Provider.groq.looksLikeKey("gsk_\(long)"))
+        XCTAssertTrue(Provider.elevenLabs.looksLikeKey("  sk_\(long)\n"))
+        XCTAssertTrue(Provider.anthropic.looksLikeKey("sk-ant-api03-\(long)"))
+        XCTAssertTrue(Provider.openAI.looksLikeKey("sk-proj-\(long)"))
         // An Anthropic key is not an OpenAI one, though both begin "sk-".
-        XCTAssertFalse(SetupService.openAI.looksLikeKey("sk-ant-api03-\(long)"))
-        XCTAssertFalse(SetupService.elevenLabs.looksLikeKey("gsk_\(long)"))
+        XCTAssertFalse(Provider.openAI.looksLikeKey("sk-ant-api03-\(long)"))
+        XCTAssertFalse(Provider.elevenLabs.looksLikeKey("gsk_\(long)"))
     }
 
     /// Whatever else is on the clipboard is never taken for a key.
     func testClipboardTextThatIsNotAKeyIsIgnored() {
-        XCTAssertFalse(SetupService.groq.looksLikeKey("gsk_short"))
-        XCTAssertFalse(SetupService.groq.looksLikeKey("gsk_\(long) and some words"))
-        XCTAssertFalse(SetupService.groq.looksLikeKey("Meeting notes for Tuesday"))
+        XCTAssertFalse(Provider.groq.looksLikeKey("gsk_short"))
+        XCTAssertFalse(Provider.groq.looksLikeKey("gsk_\(long) and some words"))
+        XCTAssertFalse(Provider.groq.looksLikeKey("Meeting notes for Tuesday"))
     }
 
     func testVerdicts() {
-        XCTAssertEqual(SetupService.verdict(statusCode: 200, body: "{}"), .valid)
-        XCTAssertEqual(SetupService.verdict(statusCode: 429, body: "slow down"), .valid)
-        XCTAssertEqual(SetupService.verdict(statusCode: 401, body: #"{"error":"invalid_api_key"}"#), .invalid)
-        XCTAssertEqual(SetupService.verdict(statusCode: 500, body: ""), .unreachable)
+        XCTAssertEqual(Provider.verdict(statusCode: 200, body: "{}"), .valid)
+        XCTAssertEqual(Provider.verdict(statusCode: 429, body: "slow down"), .valid)
+        XCTAssertEqual(Provider.verdict(statusCode: 401, body: #"{"error":"invalid_api_key"}"#), .invalid)
+        XCTAssertEqual(Provider.verdict(statusCode: 500, body: ""), .unreachable)
     }
 
     /// A key scoped to Speech to Text only is refused the model list, and still works.
     func testAScopedKeyIsValid() {
         let body = #"{"detail":{"status":"missing_permissions","message":"The API key you used is missing the permission models_read"}}"#
-        XCTAssertEqual(SetupService.verdict(statusCode: 401, body: body), .valid)
-        XCTAssertEqual(SetupService.verdict(statusCode: 403, body: "You have insufficient permissions for this operation."), .valid)
+        XCTAssertEqual(Provider.verdict(statusCode: 401, body: body), .valid)
+        XCTAssertEqual(Provider.verdict(statusCode: 403, body: "You have insufficient permissions for this operation."), .valid)
     }
 
     func testVerificationRequestsAuthenticate() {
-        let groq = SetupService.groq.verificationRequest(key: " gsk_x ")
-        XCTAssertEqual(groq.value(forHTTPHeaderField: "Authorization"), "Bearer gsk_x")
-        let anthropic = SetupService.anthropic.verificationRequest(key: "k")
-        XCTAssertEqual(anthropic.value(forHTTPHeaderField: "x-api-key"), "k")
-        XCTAssertNotNil(anthropic.value(forHTTPHeaderField: "anthropic-version"))
-        XCTAssertEqual(SetupService.elevenLabs.verificationRequest(key: "k").value(forHTTPHeaderField: "xi-api-key"), "k")
+        let groq = Provider.groq.verificationRequest(key: " gsk_x ")
+        XCTAssertEqual(groq?.value(forHTTPHeaderField: "Authorization"), "Bearer gsk_x")
+        XCTAssertEqual(groq?.url?.absoluteString, "https://api.groq.com/openai/v1/models")
+        let anthropic = Provider.anthropic.verificationRequest(key: "k")
+        XCTAssertEqual(anthropic?.value(forHTTPHeaderField: "x-api-key"), "k")
+        XCTAssertEqual(anthropic?.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+        XCTAssertEqual(Provider.elevenLabs.verificationRequest(key: "k")?.value(forHTTPHeaderField: "xi-api-key"), "k")
+        XCTAssertEqual(Provider.openAI.verificationRequest(key: "k")?.value(forHTTPHeaderField: "Authorization"), "Bearer k")
+        XCTAssertEqual(Provider.groq.verificationRequest(key: "k")?.httpMethod, "GET")
+        XCTAssertNil(Provider.ollama.verificationRequest(key: "k"))
     }
 }
 

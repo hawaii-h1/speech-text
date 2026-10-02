@@ -55,7 +55,7 @@ Tests never touch `UserDefaults` or the keychain: your real settings live in tha
 
 ## API keys
 
-The four API keys (Groq, ElevenLabs, OpenAI, Anthropic) are billing credentials, so they are not ordinary settings. `APIKeyStore` holds them in memory, and where they live on disk depends on how the build was signed:
+The API keys — one per provider that has one in `ProviderDescriptor`: Groq, ElevenLabs, OpenAI, Anthropic — are billing credentials, so they are not ordinary settings. `APIKeyStore` holds them in memory, and where they live on disk depends on how the build was signed:
 
 - **Signed with the Developer ID provisioning profile** (releases, and `scripts/rebuild.sh` when the profile is in `~/.config/speech-text/`): the *data-protection keychain*, in the access group `TEAMID.app.speech-text.SpeechText`. Only code signed by this team with a profile that authorises the group can name it, so another process running as the user cannot read an item, with or without a prompt — unlike a plist, which any of them reads silently, and unlike the file-based login keychain, which asks the user and is one click away from saying yes. Items are `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`: tied to this Mac, never restored onto another. The group is fixed at `TEAMID.app.speech-text.SpeechText` rather than derived from the bundle identifier, so a future rename still finds the keys.
 - **Without it** (Xcode ⌘R, a contributor's clone, a self-signed `SpeechText Dev` build): that keychain answers `errSecMissingEntitlement`, so the keys stay in UserDefaults, as they always did. A plist is not a store for secrets — mode `0600`, but readable by anything running as you and copied by every backup — which is why nothing distributed is built this way.

@@ -176,23 +176,24 @@ struct RecordingConfiguration {
 
     /// The stored model ID for a vendor. One accessor per flat field until the
     /// credentials become a map (#55, step 3).
-    private func modelID(for vendor: STTVendor) -> String {
+    private func modelID(for vendor: Provider) -> String {
         switch vendor {
         case .apple: appleSpeechModelID
         case .groq: groqModel
         case .elevenLabs: elevenLabsModel
         case .openAI: openAISTTModel
         case .local: localModel
+        case .anthropic, .ollama: ""
         }
     }
 
     /// The stored API key for a vendor; empty for those that need none.
-    private func apiKey(for vendor: STTVendor) -> String {
+    private func apiKey(for vendor: Provider) -> String {
         switch vendor {
         case .groq: groqAPIKey
         case .elevenLabs: elevenLabsAPIKey
         case .openAI: openAIAPIKey
-        case .apple, .local: ""
+        case .apple, .local, .anthropic, .ollama: ""
         }
     }
 

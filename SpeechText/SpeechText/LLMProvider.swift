@@ -22,15 +22,20 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The provider that serves the pick.
+    var vendor: Provider {
+        switch self {
+        case .groq: .groq
+        case .anthropic: .anthropic
+        case .openai: .openAI
+        case .ollama: .ollama
+        }
+    }
+
     /// Local providers run on this Mac and have no key; `LLMConfiguration.isConfigured`
     /// then means "a model is chosen", and a daemon that is not running surfaces as the
     /// request's own error, through the same raw-transcript fallback as any other failure.
-    var needsAPIKey: Bool {
-        switch self {
-        case .groq, .anthropic, .openai: true
-        case .ollama: false
-        }
-    }
+    var needsAPIKey: Bool { vendor.descriptor.apiKey != nil }
 }
 
 // MARK: - Model catalogue
@@ -370,13 +375,7 @@ enum LLMConfiguration {
     }
 
     static func apiKey(for type: LLMProviderType) -> String {
-        let keys = APIKeyStore.shared
-        switch type {
-        case .groq: return keys.value(for: SettingsKeys.groqAPIKey)
-        case .anthropic: return keys.value(for: SettingsKeys.anthropicAPIKey)
-        case .openai: return keys.value(for: SettingsKeys.openAIAPIKey)
-        case .ollama: return ""
-        }
+        type.vendor.descriptor.apiKey.map { APIKeyStore.shared.value(for: $0.settingsKey) } ?? ""
     }
 
     static func model(for type: LLMProviderType) -> String {

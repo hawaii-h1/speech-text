@@ -3,41 +3,9 @@
 
 import Foundation
 
-/// Who serves a speech model — the company behind a cloud endpoint, Apple's own
-/// recogniser, or the user's Mac.
-///
-/// One-to-one with `STTProviderType` today, and still a separate type on purpose:
-/// `STTProviderType` is the user's pick in a picker, `STTVendor` is where a model comes
-/// from and whose key it needs. The two part ways once the chat side joins (#55), where
-/// Groq and OpenAI serve both tiers.
-enum STTVendor: String, CaseIterable, Hashable {
-    case apple
-    case groq
-    case elevenLabs
-    case openAI
-    case local
-
-    var displayName: String {
-        switch self {
-        case .apple: "Apple"
-        case .groq: "Groq"
-        case .elevenLabs: "ElevenLabs"
-        case .openAI: "OpenAI"
-        case .local: "Local"
-        }
-    }
-
-    /// The phrase the retry notice uses — "a Groq API key", "an OpenAI API key".
-    var apiKeyPhrase: String {
-        switch self {
-        case .elevenLabs, .openAI: "an \(displayName) API key"
-        case .apple, .groq, .local: "a \(displayName) API key"
-        }
-    }
-}
-
 extension STTProviderType {
-    var vendor: STTVendor {
+    /// The provider that serves the engine.
+    var vendor: Provider {
         switch self {
         case .apple: .apple
         case .groq: .groq
@@ -63,7 +31,7 @@ struct STTModelDescriptor: Identifiable, Hashable {
     /// a model is always looked up by vendor *and* ID (`sttModel(vendor:id:)`), because a
     /// realtime ID stored for one engine must not make another engine stream.
     let id: String
-    let vendor: STTVendor
+    let vendor: Provider
     let displayName: String
     let delivery: Delivery
     let language: LanguageSupport
@@ -128,7 +96,7 @@ struct STTModelDescriptor: Identifiable, Hashable {
         case model(String)
         /// No upload of its own: whatever model the user picked for that vendor. Apple's
         /// recogniser has no batch API, so its uploads go to the stored Groq model.
-        case selectedModel(of: STTVendor)
+        case selectedModel(of: Provider)
     }
 
     enum Requirement: Hashable {
@@ -270,7 +238,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
 }()
 
 /// A vendor's models in picker order.
-func sttModels(of vendor: STTVendor) -> [STTModelDescriptor] {
+func sttModels(of vendor: Provider) -> [STTModelDescriptor] {
     sttModelCatalog.filter { $0.vendor == vendor }
 }
 
@@ -279,11 +247,13 @@ func sttModels(of vendor: STTVendor) -> [STTModelDescriptor] {
 /// is taken for its vendor's plain model: it uploads (or runs on the Mac) under its own
 /// ID and needs what the vendor's models need. That is how every such ID behaved before
 /// the catalogue existed: no stream, no mapping, the vendor's key.
-func sttModel(vendor: STTVendor, id: String) -> STTModelDescriptor {
+func sttModel(vendor: Provider, id: String) -> STTModelDescriptor {
     if let listed = sttModelCatalog.first(where: { $0.vendor == vendor && $0.id == id }) {
         return listed
     }
-    let template = sttModels(of: vendor).first { !$0.isRealtime } ?? sttModels(of: vendor)[0]
+    let models = sttModels(of: vendor)
+    precondition(!models.isEmpty, "\(vendor) serves no speech")
+    let template = models.first { !$0.isRealtime } ?? models[0]
     // No vocabulary, whatever the template takes: a parameter the model may not know
     // can fail the whole request.
     return STTModelDescriptor(

@@ -138,6 +138,8 @@
 		F78002000000000000000004 /* OfflineRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000004 /* OfflineRetry.swift */; };
 		E500020000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
 		E500030000000000000001 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
+		F700020000000000000001 /* ProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F700010000000000000001 /* ProviderRegistry.swift */; };
+		F700030000000000000001 /* ProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F700010000000000000001 /* ProviderRegistry.swift */; };
 		F78003000000000000000010 /* NetworkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000010 /* NetworkTests.swift */; };
 		F79003000000000000000003 /* APIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000003 /* APIKeyStoreTests.swift */; };
 		E6000200000000000000001A /* OnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6000100000000000000001A /* OnboardingTests.swift */; };
@@ -235,6 +237,7 @@
 		F78001000000000000000003 /* OfflineRetryQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRetryQueue.swift; sourceTree = "<group>"; };
 		F78001000000000000000004 /* OfflineRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRetry.swift; sourceTree = "<group>"; };
 		E500010000000000000001 /* SetupServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupServices.swift; sourceTree = "<group>"; };
+		F700010000000000000001 /* ProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRegistry.swift; sourceTree = "<group>"; };
 		F78001000000000000000010 /* NetworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkTests.swift; sourceTree = "<group>"; };
 		F79001000000000000000003 /* APIKeyStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStoreTests.swift; sourceTree = "<group>"; };
 		E6000100000000000000001A /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
@@ -340,6 +343,7 @@
 				F7A001000000000000000016 /* MainPageKit.swift */,
 				E400010000000000000001 /* Onboarding.swift */,
 				E500010000000000000001 /* SetupServices.swift */,
+				F700010000000000000001 /* ProviderRegistry.swift */,
 				F78001000000000000000004 /* OfflineRetry.swift */,
 				F78001000000000000000003 /* OfflineRetryQueue.swift */,
 				F78001000000000000000002 /* HistoryRetry.swift */,
@@ -543,6 +547,7 @@
 				E700020000000000000001 /* SettingsWindow.swift in Sources */,
 				E400020000000000000001 /* Onboarding.swift in Sources */,
 				E500020000000000000001 /* SetupServices.swift in Sources */,
+				F700020000000000000001 /* ProviderRegistry.swift in Sources */,
 				F78002000000000000000004 /* OfflineRetry.swift in Sources */,
 				F78002000000000000000003 /* OfflineRetryQueue.swift in Sources */,
 				F78002000000000000000002 /* HistoryRetry.swift in Sources */,
@@ -598,6 +603,7 @@
 				D300009A0000000000000001 /* ShortcutConflicts.swift in Sources */,
 				D300009C0000000000000001 /* SelectionEdit.swift in Sources */,
 				E500030000000000000001 /* SetupServices.swift in Sources */,
+				F700030000000000000001 /* ProviderRegistry.swift in Sources */,
 				F78003000000000000000003 /* OfflineRetryQueue.swift in Sources */,
 				F78003000000000000000001 /* NetworkFailure.swift in Sources */,
 				F74003000000000000000001 /* HallucinationFilter.swift in Sources */,

@@ -14,7 +14,7 @@ protocol SecretStorage: AnyObject {
     func delete(_ account: String) throws
 }
 
-/// The four API keys, held in memory once the launch has opened the store.
+/// Every provider's API key, held in memory once the launch has opened the store.
 ///
 /// A key is read on every shortcut press (`AppState.effectiveKey` asks whether an AI
 /// provider is configured), so readers only ever touch the cache — never the keychain.
@@ -32,11 +32,10 @@ protocol SecretStorage: AnyObject {
 final class APIKeyStore: @unchecked Sendable {
     static let shared = APIKeyStore()
 
-    /// Every key the store holds, by its `SettingsKeys` name.
-    static let keys: [String] = [
-        SettingsKeys.groqAPIKey, SettingsKeys.elevenLabsAPIKey,
-        SettingsKeys.anthropicAPIKey, SettingsKeys.openAIAPIKey,
-    ]
+    /// Every key the store holds, by its `SettingsKeys` name: one per provider that has a
+    /// key (`APIKeyDescriptor`). The launch migration moves exactly these, so the list is
+    /// pinned literally in the tests.
+    static let keys: [String] = Provider.allCases.compactMap { $0.descriptor.apiKey?.settingsKey }
 
     enum Mode: Equatable {
         /// Not opened: every key reads as empty. The test bundle's state.
