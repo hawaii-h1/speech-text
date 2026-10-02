@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **API Keys lists every key.** The ones your current choices need come first, marked *Added* or *Needed*. Each key is tagged with what it can serve, *Speech*, *AI Rewrite* or both, so a key can be entered before you pick the engine that needs it.
 - **Display colours for the techno skin**: green (the original), amber, cyan, white, or any colour of your own. AI mode stays violet whatever you pick.
 - **Hold to talk needs only the letter.** Once a hold recording has started you can let go of the modifier keys and keep holding just the letter, so clicks and ⌘Tab work normally while you speak. A small tip beside the overlay teaches this for your first few recordings, and setup and Settings show it too.
+- **A main window**, opened from the menu's *Open SpeechText* or a click on the Dock icon. *Home* shows the shortcut to learn, your engines, the last 7 days and recent dictations. *History* replaces the History window, with days, search (⌘F), filters for AI Rewrite, edits and failures, and Retry, Copy and Delete on each row. *Usage* shows how much you dictated, the time it saved, what it cost and which engines and models did the work. *Prompts* replaces the presets window and says how often each prompt was used.
 - **Dictionary**, a page of the new main window, for the names and terms you want spelled your way. Add a word, and optionally how it tends to come out wrong: those spellings are replaced in everything you dictate and in what AI Rewrite and Edit write back, and AI Rewrite and Edit are told to keep the word as written. A Replacements table on the same page writes anything your way — "кома" as "," — whole words, in any capitals. The words also go to the speech engine wherever it takes a list of them — OpenAI's GPT Transcribe and GPT Live Transcribe, ElevenLabs Scribe and Apple's recogniser — and to Groq's Whisper as a hint. An engine that takes fewer words than you have gets the ones you use most, and anything added this week first; the page says how many the engine in use gets, and one switch there stops sending them to any engine. ElevenLabs charges 20 % more for a transcription that carries them.
 
 ### Changed
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A live dictation is no longer pasted with its last words twice. A realtime engine can send the end of the recording again after the stop, and that repeat is now ignored instead of appended; waiting for it no longer holds up the paste.
 - **No more invented sign-offs.** A shortcut pressed with nothing said could paste text nobody spoke: "Thank you for watching", "Дякую за перегляд", "Evet.". A short recording whose whole result is one of these known phrases now pastes nothing, and it no longer flashes on the overlay. Such a recording stays in History, where it can be retried. The live engines (ElevenLabs and OpenAI) now also ignore silent recordings and ones too short to be speech, as the upload engines already did.
 
 ### Security
