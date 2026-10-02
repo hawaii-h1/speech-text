@@ -13,7 +13,7 @@ import Carbon.HIToolbox
 // be constructible without UserDefaults: the user's real API keys live in the
 // app.speech-text.SpeechText domain and the tests never read or write it.
 
-// MARK: - Multipart helpers (STTProvider.swift)
+// MARK: - Multipart helpers (Transcribers.swift)
 
 final class MultipartTests: XCTestCase {
 
@@ -251,7 +251,7 @@ final class TextRefinementParseTests: XCTestCase {
     }
 }
 
-// MARK: - The chat request body (LLMProvider.swift)
+// MARK: - The chat request body (ChatClients.swift)
 
 // MARK: - TextRefinementService.isCollapse
 
@@ -373,7 +373,7 @@ final class LLMRequestPayloadTests: XCTestCase {
     }
 }
 
-// MARK: - Chat model catalogue (LLMProvider.swift)
+// MARK: - Chat model catalogue (ChatClients.swift)
 
 final class ChatModelCatalogTests: XCTestCase {
 
@@ -653,7 +653,7 @@ final class FocusContextTests: XCTestCase {
 
 }
 
-// MARK: - Realtime stream echo suppression (StreamingSTTProvider.swift)
+// MARK: - Realtime stream echo suppression (StreamingTranscribers.swift)
 
 final class RealtimeEchoTests: XCTestCase {
 
@@ -1032,7 +1032,7 @@ final class TranscriptMergeTests: XCTestCase {
     }
 }
 
-// MARK: - Settling the stop's commit (StreamingSTTProvider.swift)
+// MARK: - Settling the stop's commit (StreamingTranscribers.swift)
 
 final class StreamFinishSettleTests: XCTestCase {
 
@@ -2519,7 +2519,7 @@ final class StoredProviderNameTests: XCTestCase {
     }
 }
 
-// MARK: - Upload bodies and transcription errors (STTProvider.swift)
+// MARK: - Upload bodies and transcription errors (Transcribers.swift)
 
 /// Every upload's whole form, written out, and every transcription error's words: what
 /// each vendor is sent and what the user reads, pinned before the transcribers share code.

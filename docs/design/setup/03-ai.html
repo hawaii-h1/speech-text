@@ -239,7 +239,7 @@
     const S = () => Setup.state;
     const primary = document.getElementById("primary");
 
-    // localLLMModels (OllamaProvider.swift) for a MacBook Pro M1 Pro 32 GB — the 24–32 GB tier:
+    // localLLMModels (Ollama.swift) for a MacBook Pro M1 Pro 32 GB — the 24–32 GB tier:
     // recommended Gemma 4 12B, best quality Qwen3.8 27B; anything whose memory floor is above 32 GB is heavier.
     const LLM = [
       { id: "gemma4:12b",      name: "Gemma 4 12B",  bytes: 7.6e9,  min: "0.30.5",  pick: "rec",  line: "Clean text in 2–4 seconds." },

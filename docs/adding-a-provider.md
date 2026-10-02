@@ -104,7 +104,7 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
    URL, any fixed fields such as Groq's `response_format=json`, and whether the
    vocabulary goes as a `prompt` or as `keywords[]`), add the engine to
    `makeBatchTranscriber`'s `OpenAICompatibleTranscriber` case, and pin its form in
-   `UploadBodyTests`. Otherwise write the transcriber in `STTProvider.swift`, copying
+   `UploadBodyTests`. Otherwise write the transcriber in `Transcribers.swift`, copying
    `ElevenLabsTranscriber`:
    - own `URLSession` with the `STTTuning` batch timeouts;
    - the form built by a pure `multipartBody`, pinned in `UploadBodyTests`;
@@ -198,10 +198,10 @@ Kinds: `stt`, `realtime`, `llm`, `key` (a new API key), `docs`. Check: `compiler
 
 ```touchpoints
 # kind   | file                                                  | anchor (must exist in the file)               | check       | what to do
-stt      | SpeechText/SpeechText/STTProvider.swift               | enum STTProviderType                          | compiler    | case, displayName, subtitle (key? live text? what it is good at)
-stt      | SpeechText/SpeechText/STTProvider.swift               | protocol BatchTranscriber                     | manual:file | an own-API transcriber struct, if it is not OpenAI-compatible
-stt      | SpeechText/SpeechText/STTProvider.swift               | func makeBatchTranscriber                     | compiler    | a case returning the transcriber with configuration.batchModel
-stt      | SpeechText/SpeechText/STTProvider.swift               | private func providerErrorReason              | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
+stt      | SpeechText/SpeechText/Transcribers.swift              | enum STTProviderType                          | compiler    | case, displayName, subtitle (key? live text? what it is good at)
+stt      | SpeechText/SpeechText/Transcribers.swift              | protocol BatchTranscriber                     | manual:file | an own-API transcriber struct, if it is not OpenAI-compatible
+stt      | SpeechText/SpeechText/Transcribers.swift              | func makeBatchTranscriber                     | compiler    | a case returning the transcriber with configuration.batchModel
+stt      | SpeechText/SpeechText/Transcribers.swift              | private func providerErrorReason              | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | var vendor: Provider                          | compiler    | STTProviderType.vendor: the engine's provider
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | let sttModelCatalog                           | manual      | one descriptor per model, with a dated comment on why it is offered
 stt      | SpeechText/SpeechText/RecognitionSessionFactory.swift | func makeRecognitionSession                   | compiler    | add the case to the cloud list
@@ -211,12 +211,12 @@ stt      | SpeechText/SpeechText/MenuBarView.swift               | struct Spoken
 stt      | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testPickersKeepTheirOrderAndNames        | manual      | the new picker's ids and names
 stt      | SpeechText/SpeechText/HomeView.swift                  | private var speechEngine                      | compiler    | the engine's line on Home, with its stored model
 stt      | SpeechText/SpeechText/HomeSummary.swift               | static func speech(provider: String)          | compiler    | its price a minute, or nil written out (#129)
-realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | protocol StreamingTranscriber                 | manual:file | the transcriber class
-realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
+realtime | SpeechText/SpeechText/StreamingTranscribers.swift     | protocol StreamingTranscriber                 | manual:file | the transcriber class
+realtime | SpeechText/SpeechText/StreamingTranscribers.swift     | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
 realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | review      | its "no session" failure must be TranscriptionError.realtime(_, "no_session", _)
-llm      | SpeechText/SpeechText/LLMProvider.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
-llm      | SpeechText/SpeechText/LLMProvider.swift               | let chatModelCatalog                          | manual      | the vendor's models with their switches
-llm      | SpeechText/SpeechText/LLMProvider.swift               | static func makeChatClient                    | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct
+llm      | SpeechText/SpeechText/ChatClients.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
+llm      | SpeechText/SpeechText/ChatClients.swift               | let chatModelCatalog                          | manual      | the vendor's models with their switches
+llm      | SpeechText/SpeechText/ChatClients.swift               | static func makeChatClient                    | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct
 llm      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the chat model key, named in the descriptor's chatModel
 llm      | SpeechText/SpeechText/MenuBarView.swift               | private var aiPage                            | compiler    | the pick in the cloud case; the picker follows from the descriptor
 llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class ChatRequestBodyTests              | manual      | each model's whole request body, written out

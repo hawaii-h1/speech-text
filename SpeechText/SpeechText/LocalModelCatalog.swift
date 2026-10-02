@@ -228,7 +228,7 @@ enum LocalModelError: LocalizedError {
 
 /// How `makeBatchTranscriber` reaches the local engines without naming either of them.
 ///
-/// The test target compiles `STTProvider.swift`, so that file's switch has to cover
+/// The test target compiles `Transcribers.swift`, so that file's switch has to cover
 /// `.local` — but it must not drag WhisperKit or FluidAudio in, or the standalone test
 /// bundle stops building (see **Tests** in CLAUDE.md). So the app registers a real
 /// factory at launch (`registerLocalSTT()` in `LocalModelStore.swift`, which dispatches

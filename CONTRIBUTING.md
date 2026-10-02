@@ -14,7 +14,7 @@ Issues labelled [`good first issue`](../../labels/good%20first%20issue) and [`he
 
 - Bug fixes, crash fixes, race conditions
 - Accuracy or latency improvements with a measurement behind them
-- New speech or LLM providers that fit the existing `STTProvider` / `LLMProvider` abstractions — open an issue first (a new provider is a new place user data goes), then follow [docs/adding-a-provider.md](docs/adding-a-provider.md)
+- New speech or LLM providers that fit the provider registry (`ProviderDescriptor`, see `docs/adding-a-provider.md`) — open an issue first (a new provider is a new place user data goes), then follow [docs/adding-a-provider.md](docs/adding-a-provider.md)
 - Accessibility and localization work
 - Test coverage for code that currently has none
 - Documentation that fixes something wrong or missing
