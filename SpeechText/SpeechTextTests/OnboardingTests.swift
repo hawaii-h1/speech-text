@@ -150,3 +150,64 @@ final class InstallLocationTests: XCTestCase {
         XCTAssertEqual(MountedDiskImage.parse(hdiutilInfo: Data("not a plist".utf8)), [])
     }
 }
+
+/// Which services setup offers is a curated list; what choosing one saves, and which card a
+/// stored engine reopens on, is read off it — checked here over every engine.
+final class SetupCardsTests: XCTestCase {
+
+    func testEverySpeechCardSavesItsOwnEngineAndOnlyThePromisedModel() {
+        XCTAssertEqual(SetupCards.speech.map(\.service), [.groq, .elevenLabs, .openAI])
+        for card in SetupCards.speech {
+            XCTAssertEqual(card.engine.vendor, card.service, card.title)
+            XCTAssertNotNil(card.service.descriptor.apiKey, card.title)
+            if card.promisesLiveWords {
+                let saved = card.savedModel.map { sttModel(vendor: card.service, id: $0) }
+                XCTAssertEqual(saved?.isRealtime, true, card.title)
+            } else {
+                XCTAssertNil(card.savedModel, card.title)
+            }
+        }
+        XCTAssertEqual(SetupCards.speech(for: .elevenLabs).savedModel, "scribe_v2_realtime")
+        XCTAssertEqual(SetupCards.speech(for: .openAI).savedModel, "gpt-live-transcribe")
+    }
+
+    func testEveryAICardSavesItsOwnPick() {
+        XCTAssertEqual(SetupCards.ai.map(\.service), [.groq, .anthropic, .openAI])
+        for card in SetupCards.ai {
+            XCTAssertEqual(card.pick.vendor, card.service, card.title)
+            XCTAssertNotNil(card.service.descriptor.apiKey, card.title)
+        }
+        XCTAssertEqual(SetupCards.ai.filter(\.recommended).map(\.service), [.groq])
+    }
+
+    /// Setup run again opens on the card of the stored engine; an engine with no card
+    /// opens on none.
+    func testEveryEngineReopensOnItsOwnCardOrNone() {
+        for engine in STTProviderType.allCases {
+            let card = SetupCards.speechCard(reopening: engine)
+            switch engine {
+            case .groq, .elevenlabs, .openai:
+                XCTAssertEqual(card?.engine, engine)
+                XCTAssertEqual(SetupCards.speech(for: card!.service).engine, engine)
+            case .apple, .local:
+                XCTAssertNil(card, engine.rawValue)
+            }
+        }
+    }
+
+    /// A service with no card falls back to the first, Groq, as it always did.
+    func testAServiceWithNoCardFallsBackToTheFirst() {
+        XCTAssertEqual(SetupCards.speech(for: .anthropic).engine, .groq)
+        XCTAssertEqual(SetupCards.ai(for: .elevenLabs).pick, .groq)
+    }
+
+    func testTheAPIKeysPageListsSpeechKeysFirst() {
+        XCTAssertEqual(APIKeyPage.order.filter { $0.descriptor.apiKey != nil }, [.groq, .elevenLabs, .openAI, .anthropic])
+    }
+
+    func testEveryRealtimeModelExplainsItsStreamInSettings() {
+        for model in sttModelCatalog {
+            XCTAssertEqual(model.settingsNote != nil, model.isRealtime, model.id)
+        }
+    }
+}

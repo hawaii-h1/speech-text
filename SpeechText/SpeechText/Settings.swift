@@ -213,27 +213,15 @@ func adoptPreRenameDefaults() {
     }
 }
 
-/// The Settings pickers' view of `sttModelCatalog` (STTModelCatalog.swift), where each
-/// model's capabilities and the notes on why it is offered live.
-let groqModels = pickerModels(of: .groq)
-
 /// Scribe's streaming model. Picking it switches ElevenLabs from a file upload after
 /// the recording to a WebSocket that returns text while the user is still speaking.
 let elevenLabsRealtimeModel = "scribe_v2_realtime"
-
-let elevenLabsModels = pickerModels(of: .elevenLabs)
 
 /// OpenAI's streaming transcription model. Picking it switches the engine from a file
 /// upload after the recording to the realtime WebSocket — see `OpenAIRealtimeTranscriber`.
 /// It exists only there: the upload endpoint rejects it, so `batchModel` maps it to
 /// `gpt-transcribe` for the stream's fallback and for History retries.
 let openAIRealtimeSTTModel = "gpt-live-transcribe"
-
-let openAISTTModels = pickerModels(of: .openAI)
-
-private func pickerModels(of vendor: Provider) -> [(id: String, name: String)] {
-    sttModels(of: vendor).map { (id: $0.id, name: $0.displayName) }
-}
 
 /// One language the user can say they speak. `id` is the ISO-639-1 code the stored
 /// list holds and the cloud providers are sent; `localeIdentifier` is the regional

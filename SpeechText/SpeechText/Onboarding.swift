@@ -157,15 +157,13 @@ final class OnboardingModel {
         aiModelID = recommendedLocalLLMModel(for: caps)?.id ?? "qwen3.5:4b"
 
         // Setup run again: open on what is set up now.
-        switch STTProviderType(rawValue: defaults.string(forKey: SettingsKeys.sttProvider) ?? "") {
-        case .groq?: speechPath = .online; speechService = .groq
-        case .elevenlabs?: speechPath = .online; speechService = .elevenLabs
-        case .openai?: speechPath = .online; speechService = .openAI
-        case .local?:
-            if let stored = defaults.string(forKey: SettingsKeys.localSTTModel), localSTTModel(id: stored) != nil {
-                speechModelID = stored
-            }
-        case .apple?, nil: break
+        let storedEngine = STTProviderType(rawValue: defaults.string(forKey: SettingsKeys.sttProvider) ?? "")
+        if let engine = storedEngine, let card = SetupCards.speechCard(reopening: engine) {
+            speechPath = .online
+            speechService = card.service
+        } else if storedEngine == .local,
+                  let stored = defaults.string(forKey: SettingsKeys.localSTTModel), localSTTModel(id: stored) != nil {
+            speechModelID = stored
         }
 
         for service in Provider.allCases {
@@ -273,19 +271,11 @@ final class OnboardingModel {
             defaults.set(model.id, forKey: SettingsKeys.localSTTModel)
         case .online:
             saveKey(speechService)
-            switch speechService {
-            case .elevenLabs:
-                defaults.set(STTProviderType.elevenlabs.rawValue, forKey: SettingsKeys.sttProvider)
-                // What the card promises: the words while speaking.
-                defaults.set(elevenLabsRealtimeModel, forKey: SettingsKeys.elevenLabsModel)
-            case .openAI:
-                defaults.set(STTProviderType.openai.rawValue, forKey: SettingsKeys.sttProvider)
-                defaults.set(openAIRealtimeSTTModel, forKey: SettingsKeys.openAISTTModel)
-            case .groq, .anthropic, .apple, .local, .ollama:
-                // Only Groq has a card here among these; the others serve no cloud speech
-                // with a key, and can only be reached by a stored value that should not
-                // have selected them.
-                defaults.set(STTProviderType.groq.rawValue, forKey: SettingsKeys.sttProvider)
+            let card = SetupCards.speech(for: speechService)
+            defaults.set(card.engine.rawValue, forKey: SettingsKeys.sttProvider)
+            // What the card promises: the words while speaking.
+            if let model = card.savedModel, let key = card.service.descriptor.speechModel?.settingsKey {
+                defaults.set(model, forKey: key)
             }
         }
         dlog("Setup", "speech: \(speechPath == .local ? "local \(speechModelID)" : speechService.rawValue)")
@@ -347,15 +337,7 @@ final class OnboardingModel {
             return
         case .online:
             saveKey(aiService)
-            let provider: LLMProviderType = switch aiService {
-            case .groq: .groq
-            case .anthropic: .anthropic
-            case .openAI: .openai
-            // These serve no cloud chat with a key and have no card on this step; they
-            // can only be reached by a stored value that should not have selected them.
-            case .elevenLabs, .apple, .local, .ollama: .groq
-            }
-            defaults.set(provider.rawValue, forKey: SettingsKeys.llmProvider)
+            defaults.set(SetupCards.ai(for: aiService).pick.rawValue, forKey: SettingsKeys.llmProvider)
         case .local:
             let id = aiModelID
             if !ollama.isInstalled(id) && ollama.pulls[id] == nil {

@@ -151,15 +151,6 @@ func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
     }
 }
 
-/// The Settings pickers' (id, name) pairs, in catalogue order.
-private func chatPickerModels(of provider: LLMProviderType) -> [(id: String, name: String)] {
-    chatModels(of: provider).map { (id: $0.id, name: $0.displayName) }
-}
-
-let groqChatModels = chatPickerModels(of: .groq)
-let anthropicChatModels = chatPickerModels(of: .anthropic)
-let openAIChatModels = chatPickerModels(of: .openai)
-
 // MARK: - Protocol
 
 protocol ChatClient {

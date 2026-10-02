@@ -18,26 +18,17 @@ struct SettingsView: View {
     }
 
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
-    @AppStorage(SettingsKeys.groqModel) private var groqModel = Provider.groq.defaultSpeechModel
-    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = Provider.elevenLabs.defaultSpeechModel
-    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = Provider.openAI.defaultSpeechModel
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = Provider.local.defaultSpeechModel
     @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
     @AppStorage(SettingsKeys.dashStyle) private var dashStyle = DashStyle.default.rawValue
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = Provider.groq.defaultChatModel
-    @AppStorage(SettingsKeys.anthropicModel) private var anthropicModel = Provider.anthropic.defaultChatModel
-    @AppStorage(SettingsKeys.openAIModel) private var openAIModel = Provider.openAI.defaultChatModel
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
     /// The API keys are not in UserDefaults (see `APIKeyStore`), so they are bound to the
     /// store rather than through `@AppStorage`; the store is observable, so the fields and
     /// the ready/needs-a-key statuses follow every edit.
     private var keys: APIKeyStore { APIKeyStore.shared }
-    private var groqAPIKey: String { keys.value(for: SettingsKeys.groqAPIKey) }
-    private var anthropicAPIKey: String { keys.value(for: SettingsKeys.anthropicAPIKey) }
-    private var openAIAPIKey: String { keys.value(for: SettingsKeys.openAIAPIKey) }
 
     private func keyBinding(_ name: String) -> Binding<String> {
         Binding(get: { APIKeyStore.shared.value(for: name) },
@@ -370,34 +361,13 @@ struct SettingsView: View {
                 .font(.system(size: 13))
                 .padding(.vertical, 12)
             }
-        case .groq:
-            SettingsGroup(title: "Model") {
-                SettingsRow(title: "Speech model") {
-                    modelPicker($groqModel, groqModels)
-                }
-            }
-        case .elevenlabs:
-            SettingsGroup(title: "Model") {
-                SettingsRow(title: "Speech model",
-                            detail: "Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side.") {
-                    modelPicker($elevenLabsModel, elevenLabsModels)
-                }
-                if elevenLabsModel == elevenLabsRealtimeModel {
-                    SettingsDivider()
-                    SettingsNote("Streams audio over a WebSocket, so words appear on the recording overlay as you say them — corrected as the sentence goes on — and are pasted in one go as soon as you stop. A 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan.")
-                        .padding(.vertical, 11)
-                }
-            }
-        case .openai:
-            SettingsGroup(title: "Model") {
-                SettingsRow(title: "Speech model") {
-                    modelPicker($openAISTTModel, openAISTTModels)
-                }
-                if openAISTTModel == openAIRealtimeSTTModel {
-                    SettingsDivider()
-                    SettingsNote("Streams audio over a WebSocket, so words appear on the recording overlay as you say them, and are pasted in one go as soon as you stop. It transcribes the whole recording as one phrase — there is no pause detection — and if the stream drops, the recording is uploaded to GPT Transcribe instead. Realtime is billed per streamed minute — check your plan.")
-                        .padding(.vertical, 11)
-                }
+        case .groq, .elevenlabs, .openai:
+            if let setting = stt.vendor.descriptor.speechModel, let key = setting.settingsKey {
+                // `.id` gives each engine its own picker: one kept across a switch would keep
+                // the previous engine's stored key.
+                SpeechModelGroup(provider: stt.vendor, settingsKey: key, defaultID: setting.defaultID,
+                                 caption: setting.caption)
+                    .id(stt)
             }
         }
 
@@ -457,12 +427,14 @@ struct SettingsView: View {
 
         SettingsGroup(title: "Model") {
             switch llm {
-            case .groq:
-                SettingsRow(title: "Text model") { modelPicker($groqLLMModel, groqChatModels) }
-            case .anthropic:
-                SettingsRow(title: "Text model") { modelPicker($anthropicModel, anthropicChatModels) }
-            case .openai:
-                SettingsRow(title: "Text model") { modelPicker($openAIModel, openAIChatModels) }
+            case .groq, .anthropic, .openai:
+                if let key = llm.vendor.descriptor.chatModel?.settingsKey {
+                    SettingsRow(title: "Text model") {
+                        StoredModelPicker(settingsKey: key, defaultID: llm.vendor.defaultChatModel,
+                                          models: chatModels(of: llm).map { (id: $0.id, name: $0.displayName) })
+                    }
+                    .id(llm)
+                }
             case .ollama:
                 VStack(alignment: .leading, spacing: 8) {
                     OllamaModelsView(selectedModelID: $ollamaModel)
@@ -553,23 +525,20 @@ struct SettingsView: View {
         }
     }
 
+    /// Every provider with a key, speech before AI Rewrite (`APIKeyPage.order`). A key is
+    /// in use for the step whose pick that provider serves — the selected engine, not where
+    /// its uploads go, so Apple's engine does not mark Groq's key.
     private var apiKeys: [APIKey] {
-        func active(speech: Bool, ai: Bool) -> Set<SettingsKeyRole> {
-            var roles: Set<SettingsKeyRole> = []
-            if speech { roles.insert(.speech) }
-            if ai { roles.insert(.aiRewrite) }
-            return roles
+        APIKeyPage.order.compactMap { provider in
+            guard let key = provider.descriptor.apiKey else { return nil }
+            let roles = provider.descriptor.roles
+            var active: Set<SettingsKeyRole> = []
+            if stt.vendor == provider { active.insert(.speech) }
+            if llm.vendor == provider { active.insert(.aiRewrite) }
+            return APIKey(service: provider, value: keyBinding(key.settingsKey),
+                          roles: (roles.contains(.speech) ? [.speech] : []) + (roles.contains(.chat) ? [.aiRewrite] : []),
+                          active: active)
         }
-        return [
-            APIKey(service: .groq, value: keyBinding(SettingsKeys.groqAPIKey), roles: [.speech, .aiRewrite],
-                   active: active(speech: stt == .groq, ai: llm == .groq)),
-            APIKey(service: .elevenLabs, value: keyBinding(SettingsKeys.elevenLabsAPIKey), roles: [.speech],
-                   active: active(speech: stt == .elevenlabs, ai: false)),
-            APIKey(service: .openAI, value: keyBinding(SettingsKeys.openAIAPIKey), roles: [.speech, .aiRewrite],
-                   active: active(speech: stt == .openai, ai: llm == .openai)),
-            APIKey(service: .anthropic, value: keyBinding(SettingsKeys.anthropicAPIKey), roles: [.aiRewrite],
-                   active: active(speech: false, ai: llm == .anthropic)),
-        ]
     }
 
     // MARK: - Shortcuts (on the General page)
@@ -665,27 +634,14 @@ struct SettingsView: View {
 
     // MARK: - Helpers
 
-    private func modelPicker(_ selection: Binding<String>, _ models: [(id: String, name: String)]) -> some View {
-        Picker("Model", selection: selection) {
-            ForEach(models, id: \.id) { model in
-                Text(model.name).tag(model.id)
-            }
-        }
-        .labelsHidden()
-        .fixedSize()
-    }
-
     /// Mirrors `LLMConfiguration.isConfigured`, but off the observed store and
-    /// `@AppStorage`, so the status updates live while the key is being typed.
+    /// `@AppStorage`, so the status updates live while the key is being typed or a model
+    /// is picked.
     private var hasLLMKey: Bool {
-        let key: String
-        switch llm {
-        case .groq: key = groqAPIKey
-        case .anthropic: key = anthropicAPIKey
-        case .openai: key = openAIAPIKey
-        case .ollama: key = ollamaModel
-        }
-        return !key.trimmingCharacters(in: .whitespaces).isEmpty
+        _ = (llmProvider, ollamaModel)
+        let value = llm.vendor.descriptor.apiKey.map { keys.value(for: $0.settingsKey) }
+            ?? LLMConfiguration.model(for: llm)
+        return !value.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// The prompts are a page of the main window now.
@@ -696,6 +652,64 @@ struct SettingsView: View {
 }
 
 
+
+// MARK: - Model pickers
+
+/// A picker bound to one stored model setting, named at run time — the speech and chat
+/// pickers for every provider. `.id` the view by provider where it is reused, so a switch
+/// rebuilds it on the new key.
+struct StoredModelPicker: View {
+    let models: [(id: String, name: String)]
+    @AppStorage private var selection: String
+
+    init(settingsKey: String, defaultID: String, models: [(id: String, name: String)]) {
+        self.models = models
+        _selection = AppStorage(wrappedValue: defaultID, settingsKey)
+    }
+
+    var body: some View {
+        Picker("Model", selection: $selection) {
+            ForEach(models, id: \.id) { model in
+                Text(model.name).tag(model.id)
+            }
+        }
+        .labelsHidden()
+        .fixedSize()
+    }
+}
+
+/// The Speech page's model group for a cloud provider: the picker, the provider's caption,
+/// and the selected model's own note (every realtime model explains its stream).
+struct SpeechModelGroup: View {
+    let provider: Provider
+    let caption: String?
+    @AppStorage private var selection: String
+
+    init(provider: Provider, settingsKey: String, defaultID: String, caption: String?) {
+        self.provider = provider
+        self.caption = caption
+        _selection = AppStorage(wrappedValue: defaultID, settingsKey)
+    }
+
+    var body: some View {
+        SettingsGroup(title: "Model") {
+            SettingsRow(title: "Speech model", detail: caption) {
+                Picker("Model", selection: $selection) {
+                    ForEach(sttModels(of: provider)) { model in
+                        Text(model.displayName).tag(model.id)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            if let note = sttModel(vendor: provider, id: selection).settingsNote {
+                SettingsDivider()
+                SettingsNote(note)
+                    .padding(.vertical, 11)
+            }
+        }
+    }
+}
 
 // MARK: - Spoken languages
 

@@ -612,12 +612,10 @@ private struct SpeechScreen: View {
     private var onlineDetails: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                SetupRow(title: "Groq", subtitle: "Free plan", detail: "The same key also turns on AI text polish.",
-                         isSelected: model.speechService == .groq) { model.speechService = .groq }
-                SetupRow(title: "ElevenLabs", subtitle: "Paid", detail: "Shows your words live as you speak.",
-                         isSelected: model.speechService == .elevenLabs) { model.speechService = .elevenLabs }
-                SetupRow(title: "OpenAI", subtitle: "Paid", detail: "Shows your words live too. The same key also turns on AI text polish.",
-                         isSelected: model.speechService == .openAI) { model.speechService = .openAI }
+                ForEach(SetupCards.speech, id: \.service) { card in
+                    SetupRow(title: card.title, subtitle: card.subtitle, detail: card.detail,
+                             isSelected: model.speechService == card.service) { model.speechService = card.service }
+                }
                 SetupKeyBlock(model: model, service: model.speechService)
                     .padding(.horizontal, 10)
                     .padding(.top, 12)
@@ -884,12 +882,11 @@ private struct AIScreen: View {
     private var onlineDetails: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                SetupRow(title: "Groq", subtitle: "Free plan", badge: SetupBadge(text: "Recommended", kind: .recommended),
-                         isSelected: model.aiService == .groq, compact: true) { model.aiService = .groq }
-                SetupRow(title: "Claude", subtitle: "Anthropic · Paid",
-                         isSelected: model.aiService == .anthropic, compact: true) { model.aiService = .anthropic }
-                SetupRow(title: "ChatGPT", subtitle: "OpenAI · Paid",
-                         isSelected: model.aiService == .openAI, compact: true) { model.aiService = .openAI }
+                ForEach(SetupCards.ai, id: \.service) { card in
+                    SetupRow(title: card.title, subtitle: card.subtitle,
+                             badge: card.recommended ? SetupBadge(text: "Recommended", kind: .recommended) : nil,
+                             isSelected: model.aiService == card.service, compact: true) { model.aiService = card.service }
+                }
                 // A key from the Speech step (Groq's, OpenAI's) is reused as it is.
                 SetupKeyBlock(model: model, service: model.aiService,
                               collapsedText: model.keyReadyFromSpeech(model.aiService)

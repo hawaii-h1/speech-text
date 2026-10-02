@@ -44,6 +44,9 @@ struct STTModelDescriptor: Identifiable, Hashable {
     /// a default so a descriptor built without it — every model that takes none, and an
     /// unlisted ID — sends nothing.
     var vocabulary: Vocabulary = .none
+    /// What Settings says under the speech model picker while this model is selected;
+    /// every realtime model explains its stream. Nil says nothing.
+    var settingsNote: String? = nil
 
     enum Delivery: Hashable {
         /// A file POSTed after the segment ends.
@@ -152,8 +155,8 @@ extension TermListLimits {
 let appleSpeechModelID = "apple-speech"
 
 /// Every speech model the app offers, grouped by vendor, each vendor's in picker order.
-/// The Settings pickers' tuples (`groqModels`, `elevenLabsModels`, `openAISTTModels`) are
-/// derived from it, so a model and its capabilities are written down once.
+/// The Settings pickers read it (`sttModels(of:)`), so a model and its capabilities are
+/// written down once.
 let sttModelCatalog: [STTModelDescriptor] = {
     let groqKey = STTModelDescriptor.Requirement.apiKey(SettingsKeys.groqAPIKey)
     let elevenLabsKey = STTModelDescriptor.Requirement.apiKey(SettingsKeys.elevenLabsAPIKey)
@@ -191,7 +194,8 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: elevenLabsRealtimeModel, vendor: .elevenLabs, displayName: "Scribe v2 Realtime — live text",
             delivery: .realtime(.init(sampleRate: 16_000, transcripts: .cumulative, serverVAD: true)),
             language: .single, batchUpload: .model("scribe_v2"), requirement: elevenLabsKey,
-            vocabulary: .termList(.scribeRealtime)
+            vocabulary: .termList(.scribeRealtime),
+            settingsNote: "Streams audio over a WebSocket, so words appear on the recording overlay as you say them — corrected as the sentence goes on — and are pasted in one go as soon as you stop. A 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan."
         ),
 
         // Checked against `GET /v1/models` on 2026-09-21 rather than against the docs.
@@ -220,7 +224,8 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: openAIRealtimeSTTModel, vendor: .openAI, displayName: "GPT Live Transcribe — live text",
             delivery: .realtime(.init(sampleRate: 24_000, transcripts: .incremental, serverVAD: false)),
             language: .set, batchUpload: .model("gpt-transcribe"), requirement: openAIKey,
-            vocabulary: .termList(.openAIKeywords)
+            vocabulary: .termList(.openAIKeywords),
+            settingsNote: "Streams audio over a WebSocket, so words appear on the recording overlay as you say them, and are pasted in one go as soon as you stop. It transcribes the whole recording as one phrase — there is no pause detection — and if the stream drops, the recording is uploaded to GPT Transcribe instead. Realtime is billed per streamed minute — check your plan."
         ),
     ]
 

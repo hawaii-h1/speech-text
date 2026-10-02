@@ -60,7 +60,8 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 prefix: "sk_", sample: "sk_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
                 verification: KeyVerification(url: URL(string: "https://api.elevenlabs.io/v1/models")!,
                                               header: .named("xi-api-key"))),
-                speechModel: ModelSetting(settingsKey: SettingsKeys.elevenLabsModel, defaultID: "scribe_v2"),
+                speechModel: ModelSetting(settingsKey: SettingsKeys.elevenLabsModel, defaultID: "scribe_v2",
+                                          caption: "Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side."),
                 // Its own form (`ElevenLabsTranscriber`): `model_id`, `language_code`, `keyterms`.
                 chatModel: nil, speechUpload: nil)
         case .anthropic:
@@ -156,6 +157,8 @@ struct ModelSetting {
     /// A stored ID the catalogue no longer lists is reset to the default at launch
     /// (`normalizeStoredProviders`).
     var normalized = true
+    /// What Settings says beside the model picker, whichever model is picked.
+    var caption: String? = nil
 }
 
 struct ProviderRoles: OptionSet, Hashable {
