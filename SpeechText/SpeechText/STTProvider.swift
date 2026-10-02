@@ -167,16 +167,16 @@ func multipartAudioPart(for fileURL: URL) -> (filename: String, mimeType: String
 func makeBatchTranscriber(configuration: RecordingConfiguration) -> BatchTranscriber {
     switch configuration.provider {
     case .elevenlabs:
-        ElevenLabsTranscriber(apiKey: configuration.elevenLabsAPIKey, model: configuration.batchModel,
+        ElevenLabsTranscriber(apiKey: configuration.apiKey(for: .elevenLabs), model: configuration.batchModel,
                               keyterms: configuration.batchVocabulary)
     case .openai:
-        OpenAITranscriber(apiKey: configuration.openAIAPIKey, model: configuration.batchModel,
+        OpenAITranscriber(apiKey: configuration.apiKey(for: .openAI), model: configuration.batchModel,
                           keywords: configuration.batchVocabulary)
     case .groq, .apple:
-        GroqTranscriber(apiKey: configuration.groqAPIKey, model: configuration.batchModel,
+        GroqTranscriber(apiKey: configuration.apiKey(for: .groq), model: configuration.batchModel,
                         prompt: configuration.whisperPrompt)
     case .local:
-        LocalSTT.transcriberFactory(configuration.localModel)
+        LocalSTT.transcriberFactory(configuration.modelID(for: .local))
     }
 }
 
@@ -197,7 +197,7 @@ struct GroqTranscriber: BatchTranscriber {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = "whisper-large-v3-turbo", prompt: String? = nil) {
+    init(apiKey: String, model: String = Provider.groq.defaultSpeechModel, prompt: String? = nil) {
         self.apiKey = apiKey
         self.model = model
         self.prompt = prompt
@@ -286,7 +286,7 @@ struct ElevenLabsTranscriber: BatchTranscriber {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = defaultElevenLabsModel, keyterms: [String] = []) {
+    init(apiKey: String, model: String = Provider.elevenLabs.defaultSpeechModel, keyterms: [String] = []) {
         self.apiKey = apiKey
         self.model = model
         self.keyterms = keyterms
@@ -405,7 +405,7 @@ struct OpenAITranscriber: BatchTranscriber {
         return URLSession(configuration: config)
     }()
 
-    init(apiKey: String, model: String = defaultOpenAISTTModel, keywords: [String] = []) {
+    init(apiKey: String, model: String = Provider.openAI.defaultSpeechModel, keywords: [String] = []) {
         self.apiKey = apiKey
         self.model = model
         self.keywords = keywords

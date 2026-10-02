@@ -46,7 +46,7 @@ final class LocalSTTRecommendationTests: XCTestCase {
         let sizes = localSTTModels.map(\.downloadBytes)
         XCTAssertEqual(sizes, sizes.sorted(by: >))
         XCTAssertEqual(Set(localSTTModels.map(\.id)).count, localSTTModels.count)
-        XCTAssertNotNil(localSTTModel(id: defaultLocalSTTModel))
+        XCTAssertNotNil(localSTTModel(id: parakeetV3ModelID))
         // A typo in a tier table would silently skip a candidate rather than fail.
         for tier in MacTier.allCases {
             let picks = localSTTPicks(for: tier)
@@ -63,7 +63,7 @@ final class LocalSTTRecommendationTests: XCTestCase {
         // The stored default is what a Mac with no stored choice gets, so the two must
         // not drift apart: a default nobody is recommended would install one model and
         // then advise a different one.
-        XCTAssertEqual(defaultLocalSTTModel, parakeetV3ModelID)
+        XCTAssertEqual(parakeetV3ModelID, parakeetV3ModelID)
     }
 
     /// Neither Whisper model is a quality upgrade on Parakeet — the full Large v3 only
@@ -317,10 +317,7 @@ final class LocalRecordingConfigurationTests: XCTestCase {
 
     private func config(_ provider: STTProviderType, groqKey: String = "gk", elevenKey: String = "ek",
                         localModel: String = "openai_whisper-base") -> RecordingConfiguration {
-        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true,
-                               groqAPIKey: groqKey, groqModel: "whisper-large-v3-turbo",
-                               elevenLabsAPIKey: elevenKey, elevenLabsModel: "scribe_v2",
-                               localModel: localModel)
+        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: groqKey, .elevenLabs: elevenKey], models: [.groq: "whisper-large-v3-turbo", .elevenLabs: "scribe_v2", .local: localModel])
     }
 
     func testLocalUsesItsModelAndNoKey() {

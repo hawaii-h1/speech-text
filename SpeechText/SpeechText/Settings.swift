@@ -153,10 +153,12 @@ enum SettingsKeys {
     /// The API keys are missing too, but not left behind: `APIKeyStore.open` walks the
     /// same chain of domains for them, moves them into the keychain and deletes every
     /// plain-text copy — which a copy made here would only multiply.
+    ///
+    /// Each provider's model keys are added from its `ProviderDescriptor`, so a new
+    /// provider's pick survives a rename without a line here.
     static let portable: [String] = [
         selectedLanguage, spokenLanguages,
-        sttProvider, groqModel, elevenLabsModel,
-        openAISTTModel, localSTTModel,
+        sttProvider,
         removeDisfluencies, dashStyle,
         vocabulary, sendVocabularyToEngine, textReplacements,
         hotkeyKeyCode, hotkeyModifierFlags,
@@ -164,12 +166,13 @@ enum SettingsKeys {
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         editHotkeyKeyCode, editHotkeyModifierFlags,
         holdToTalk, escapeCancelsDictation,
-        llmProvider, groqLLMModel, anthropicModel,
-        openAIModel, ollamaModel, ollamaBaseURL,
+        llmProvider, ollamaBaseURL,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
         appSkin, accentColor, technoPhosphor, dockIconMode,
         hotkeyLayoutVersion,
-    ]
+    ] + Provider.allCases.flatMap { provider in
+        [provider.descriptor.speechModel, provider.descriptor.chatModel].compactMap { $0?.settingsKey }
+    }
 }
 
 /// Preference domains this app has run under before, newest first.
@@ -218,19 +221,13 @@ let groqModels = pickerModels(of: .groq)
 /// the recording to a WebSocket that returns text while the user is still speaking.
 let elevenLabsRealtimeModel = "scribe_v2_realtime"
 
-/// The batch model: the default, the stream's fallback and History retries.
-let defaultElevenLabsModel = "scribe_v2"
-
 let elevenLabsModels = pickerModels(of: .elevenLabs)
 
 /// OpenAI's streaming transcription model. Picking it switches the engine from a file
 /// upload after the recording to the realtime WebSocket — see `OpenAIRealtimeTranscriber`.
 /// It exists only there: the upload endpoint rejects it, so `batchModel` maps it to
-/// `defaultOpenAISTTModel` for the stream's fallback and for History retries.
+/// `gpt-transcribe` for the stream's fallback and for History retries.
 let openAIRealtimeSTTModel = "gpt-live-transcribe"
-
-/// The batch model: the default, the stream's fallback and History retries.
-let defaultOpenAISTTModel = "gpt-transcribe"
 
 let openAISTTModels = pickerModels(of: .openAI)
 
@@ -414,16 +411,19 @@ func normalizeStoredProviders() {
 
     // Model catalogues get replaced when a vendor retires a generation; a stored ID
     // that is no longer offered blanks the picker exactly like a stale provider does.
-    normalizeStoredModel(SettingsKeys.groqModel, in: groqModels, fallback: "whisper-large-v3-turbo")
-    normalizeStoredModel(SettingsKeys.elevenLabsModel, in: elevenLabsModels, fallback: defaultElevenLabsModel)
-    normalizeStoredModel(SettingsKeys.openAISTTModel, in: openAISTTModels, fallback: defaultOpenAISTTModel)
-    normalizeStoredModel(SettingsKeys.groqLLMModel, in: groqChatModels, fallback: defaultGroqLLMModel)
-    normalizeStoredModel(SettingsKeys.anthropicModel, in: anthropicChatModels, fallback: defaultAnthropicModel)
-    normalizeStoredModel(SettingsKeys.openAIModel, in: openAIChatModels, fallback: defaultOpenAIModel)
+    // Every provider's model settings come from its descriptor; the local one is
+    // written down first if it was never set (see below).
     preserveInstalledLocalModel()
-    normalizeStoredModel(SettingsKeys.localSTTModel,
-                         in: localSTTModels.map { (id: $0.id, name: $0.displayName) },
-                         fallback: defaultLocalSTTModel)
+    for engine in STTProviderType.allCases {
+        guard let setting = engine.vendor.descriptor.speechModel, setting.normalized,
+              let key = setting.settingsKey else { continue }
+        normalizeStoredModel(key, in: sttModels(of: engine.vendor).map(\.id), fallback: setting.defaultID)
+    }
+    for type in LLMProviderType.allCases {
+        guard let setting = type.vendor.descriptor.chatModel, setting.normalized,
+              let key = setting.settingsKey else { continue }
+        normalizeStoredModel(key, in: chatModels(of: type).map(\.id), fallback: setting.defaultID)
+    }
 }
 
 /// Keeps a local-tier user on the model they actually downloaded when the *default*
@@ -431,7 +431,7 @@ func normalizeStoredProviders() {
 ///
 /// Nothing writes `localSTTModel` until the user picks a model by hand: both
 /// `@AppStorage` and `RecordingConfiguration.current()` fall back to
-/// `defaultLocalSTTModel` on read, and `normalizeStoredModel` deliberately ignores an
+/// `Provider.local.defaultSpeechModel` on read, and `normalizeStoredModel` deliberately ignores an
 /// absent key. So when that default moved from Whisper Turbo to Parakeet, every install
 /// running the local tier on the old default — key never written, Turbo on disk and
 /// working — would have been pointed at a model it had not downloaded, and the next
@@ -455,14 +455,10 @@ private func preserveInstalledLocalModel() {
     defaults.set(keep.id, forKey: SettingsKeys.localSTTModel)
 }
 
-private func normalizeStoredModel(
-    _ key: String,
-    in catalog: [(id: String, name: String)],
-    fallback: String
-) {
+private func normalizeStoredModel(_ key: String, in catalog: [String], fallback: String) {
     let defaults = UserDefaults.standard
     guard let raw = defaults.string(forKey: key),
-          !catalog.contains(where: { $0.id == raw })
+          !catalog.contains(raw)
     else { return }
     dlog("Settings", "\(key)=\"\(raw)\" is no longer offered — resetting to \(fallback)")
     defaults.set(fallback, forKey: key)

@@ -530,10 +530,10 @@ private struct DictionaryEffects: View {
     let entries: [VocabularyEntry]
 
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
-    @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
-    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
-    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
-    @AppStorage(SettingsKeys.localSTTModel) private var localSTTModel = defaultLocalSTTModel
+    @AppStorage(SettingsKeys.groqModel) private var groqModel = Provider.groq.defaultSpeechModel
+    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = Provider.elevenLabs.defaultSpeechModel
+    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = Provider.openAI.defaultSpeechModel
+    @AppStorage(SettingsKeys.localSTTModel) private var localSTTModel = Provider.local.defaultSpeechModel
     @AppStorage(SettingsKeys.sendVocabularyToEngine) private var sends = true
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""

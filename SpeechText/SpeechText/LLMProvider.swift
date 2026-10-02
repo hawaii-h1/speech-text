@@ -70,7 +70,7 @@ struct ChatModelDescriptor: Equatable {
 /// Groq: checked against Groq's model and deprecation pages on 2026-09-16. Both Llama
 /// models, Qwen3 32B and Kimi K2 were shut down for free and developer accounts between
 /// April and August 2026 — the old default among them, so a stored ID for any of those is
-/// normalised to `defaultGroqLLMModel` at launch. The two preview models are labelled as
+/// normalised to `Provider.groq.defaultChatModel` at launch. The two preview models are labelled as
 /// such: Groq may withdraw a preview without notice. Groq's reasoning models take
 /// different switches, and the wrong one is an HTTP 400 rather than something ignored:
 /// gpt-oss rejects `reasoning_format` and has no `none` effort; Qwen defaults to `raw`.
@@ -378,18 +378,10 @@ enum LLMConfiguration {
         type.vendor.descriptor.apiKey.map { APIKeyStore.shared.value(for: $0.settingsKey) } ?? ""
     }
 
+    /// The chat model stored for the pick, else its provider's default.
     static func model(for type: LLMProviderType) -> String {
-        let defaults = UserDefaults.standard
-        switch type {
-        case .groq:
-            return defaults.string(forKey: SettingsKeys.groqLLMModel) ?? defaultGroqLLMModel
-        case .anthropic:
-            return defaults.string(forKey: SettingsKeys.anthropicModel) ?? defaultAnthropicModel
-        case .openai:
-            return defaults.string(forKey: SettingsKeys.openAIModel) ?? defaultOpenAIModel
-        case .ollama:
-            return defaults.string(forKey: SettingsKeys.ollamaModel) ?? ""
-        }
+        let setting = type.vendor.descriptor.chatModel
+        return setting?.settingsKey.flatMap { UserDefaults.standard.string(forKey: $0) } ?? setting?.defaultID ?? ""
     }
 
     /// True when the selected provider can be called: a non-empty API key for the cloud
@@ -431,9 +423,3 @@ enum LLMConfiguration {
         }
     }
 }
-
-/// Defaults are the fast end of each catalogue that still rewrites well: the user is
-/// waiting on the paste. Groq's own replacement for the retired Llama 3.3 70B.
-let defaultGroqLLMModel = "openai/gpt-oss-120b"
-let defaultAnthropicModel = "claude-sonnet-5"
-let defaultOpenAIModel = "gpt-5.6-luna"

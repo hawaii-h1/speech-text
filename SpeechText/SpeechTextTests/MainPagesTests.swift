@@ -77,9 +77,7 @@ final class MainPagesTests: XCTestCase {
     }
 
     func testAFinishedSegmentIsCorrectedAndTheLiveTextIsNot() {
-        var configuration = RecordingConfiguration(provider: .groq, locale: "uk", localeIsAutomatic: false,
-                                                   groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
-                                                   elevenLabsAPIKey: "", elevenLabsModel: "scribe_v2")
+        var configuration = RecordingConfiguration(provider: .groq, locale: "uk", localeIsAutomatic: false, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "whisper-large-v3-turbo", .elevenLabs: "scribe_v2"])
         configuration.dictionary = [VocabularyEntry(term: "SpeechText", misheard: ["speech text"])]
         XCTAssertEqual(configuration.finished("е-е-е open speech text"), "open SpeechText")
         XCTAssertEqual(configuration.cleaned("open speech text"), "open speech text")
@@ -88,17 +86,13 @@ final class MainPagesTests: XCTestCase {
     /// One store: the Dictionary's ranked words are what every engine is told, each
     /// within its own limit, and the switch being off sends none of them anywhere.
     func testEveryEngineIsToldTheDictionaryWithinItsLimit() {
-        var apple = RecordingConfiguration(provider: .apple, locale: "uk", localeIsAutomatic: false,
-                                           groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
-                                           elevenLabsAPIKey: "", elevenLabsModel: "scribe_v2")
+        var apple = RecordingConfiguration(provider: .apple, locale: "uk", localeIsAutomatic: false, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "whisper-large-v3-turbo", .elevenLabs: "scribe_v2"])
         apple.vocabulary = (1...120).map { "term\($0)" }
         XCTAssertEqual(apple.liveVocabulary.count, 100)
         XCTAssertEqual(apple.liveVocabulary.first, "term1", "the ranked order is kept")
         XCTAssertNotNil(apple.whisperPrompt, "Apple's uploads go to Groq, which is given the prompt")
 
-        var groq = RecordingConfiguration(provider: .groq, locale: "uk", localeIsAutomatic: false,
-                                          groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
-                                          elevenLabsAPIKey: "", elevenLabsModel: "scribe_v2")
+        var groq = RecordingConfiguration(provider: .groq, locale: "uk", localeIsAutomatic: false, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "whisper-large-v3-turbo", .elevenLabs: "scribe_v2"])
         groq.vocabulary = ["SpeechText", "Olena"]
         XCTAssertEqual(groq.whisperPrompt, "SpeechText, Olena.")
         XCTAssertEqual(groq.liveVocabulary, [], "Groq takes no term list")

@@ -181,7 +181,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
         // scribe_v2 and scribe_v1_experimental no longer appears in the documentation
         // (checked 2026-09-16) — stored values for either are normalised to scribe_v2.
         STTModelDescriptor(
-            id: defaultElevenLabsModel, vendor: .elevenLabs, displayName: "Scribe v2",
+            id: "scribe_v2", vendor: .elevenLabs, displayName: "Scribe v2",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: elevenLabsKey,
             vocabulary: .termList(.scribeUpload)
         ),
@@ -190,7 +190,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: elevenLabsRealtimeModel, vendor: .elevenLabs, displayName: "Scribe v2 Realtime — live text",
             delivery: .realtime(.init(sampleRate: 16_000, transcripts: .cumulative, serverVAD: true)),
-            language: .single, batchUpload: .model(defaultElevenLabsModel), requirement: elevenLabsKey,
+            language: .single, batchUpload: .model("scribe_v2"), requirement: elevenLabsKey,
             vocabulary: .termList(.scribeRealtime)
         ),
 
@@ -206,7 +206,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
         // floor catches most of this, but a model that invents sentences from room noise
         // should not be offered at all.
         STTModelDescriptor(
-            id: defaultOpenAISTTModel, vendor: .openAI, displayName: "GPT Transcribe",
+            id: "gpt-transcribe", vendor: .openAI, displayName: "GPT Transcribe",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey,
             vocabulary: .termList(.openAIKeywords)
         ),
@@ -219,7 +219,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: openAIRealtimeSTTModel, vendor: .openAI, displayName: "GPT Live Transcribe — live text",
             delivery: .realtime(.init(sampleRate: 24_000, transcripts: .incremental, serverVAD: false)),
-            language: .set, batchUpload: .model(defaultOpenAISTTModel), requirement: openAIKey,
+            language: .set, batchUpload: .model("gpt-transcribe"), requirement: openAIKey,
             vocabulary: .termList(.openAIKeywords)
         ),
     ]

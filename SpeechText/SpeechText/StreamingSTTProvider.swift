@@ -48,12 +48,12 @@ func makeStreamingTranscriber(configuration: RecordingConfiguration) -> Streamin
     guard configuration.streams else { return nil }
     switch configuration.provider {
     case .elevenlabs:
-        return ElevenLabsRealtimeTranscriber(apiKey: configuration.elevenLabsAPIKey,
-                                          model: configuration.elevenLabsModel,
+        return ElevenLabsRealtimeTranscriber(apiKey: configuration.apiKey(for: .elevenLabs),
+                                          model: configuration.model.id,
                                           keyterms: configuration.liveVocabulary)
     case .openai:
-        return OpenAIRealtimeTranscriber(apiKey: configuration.openAIAPIKey,
-                                      model: configuration.openAISTTModel,
+        return OpenAIRealtimeTranscriber(apiKey: configuration.apiKey(for: .openAI),
+                                      model: configuration.model.id,
                                       keywords: configuration.liveVocabulary)
     case .apple, .groq, .local:
         return nil

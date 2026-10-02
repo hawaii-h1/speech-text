@@ -26,18 +26,12 @@ struct RecordingConfiguration {
     /// than the one language they said they were speaking. Only a *single* stated
     /// language is ever forced on an engine that can detect one itself.
     let localeIsAutomatic: Bool
-    let groqAPIKey: String
-    let groqModel: String
-    let elevenLabsAPIKey: String
-    let elevenLabsModel: String
-    /// Shared with the rewrite pass — one OpenAI key, two consumers, as with Groq.
-    /// Defaulted so a configuration built by hand (the tests, written before this tier
-    /// existed) still describes a valid session.
-    var openAIAPIKey: String = ""
-    var openAISTTModel: String = defaultOpenAISTTModel
-    /// `LocalSTTModel.id`. Defaulted so a configuration built without it (the tests,
-    /// written before the local tier existed) still describes a valid session.
-    var localModel: String = defaultLocalSTTModel
+    /// Each provider's API key as `APIKeyStore` held it at the start; a provider with
+    /// none stored is absent. One key per provider, whichever step it serves.
+    var apiKeys: [Provider: String] = [:]
+    /// The speech model stored for each provider; an absent one means its default
+    /// (`ProviderDescriptor.speechModel`).
+    var models: [Provider: String] = [:]
 
     /// Drop hesitation sounds, stretched words and trailing-off dots from what the
     /// recogniser returns — see `cleanedTranscript`. `var` with a default so a value
@@ -174,34 +168,20 @@ struct RecordingConfiguration {
         }
     }
 
-    /// The stored model ID for a vendor. One accessor per flat field until the
-    /// credentials become a map (#55, step 3).
-    private func modelID(for vendor: Provider) -> String {
-        switch vendor {
-        case .apple: appleSpeechModelID
-        case .groq: groqModel
-        case .elevenLabs: elevenLabsModel
-        case .openAI: openAISTTModel
-        case .local: localModel
-        case .anthropic, .ollama: ""
-        }
+    /// The speech model stored for a provider, else its default.
+    func modelID(for vendor: Provider) -> String {
+        models[vendor] ?? vendor.defaultSpeechModel
     }
 
-    /// The stored API key for a vendor; empty for those that need none.
-    private func apiKey(for vendor: Provider) -> String {
-        switch vendor {
-        case .groq: groqAPIKey
-        case .elevenLabs: elevenLabsAPIKey
-        case .openAI: openAIAPIKey
-        case .apple, .local, .anthropic, .ollama: ""
-        }
+    /// The API key stored for a provider; empty for one that needs none or has none.
+    func apiKey(for vendor: Provider) -> String {
+        apiKeys[vendor] ?? ""
     }
 
     /// One read of UserDefaults, and of the API keys `APIKeyStore` holds. `locale` defaults to `resolvedLocale()` (keyboard-layout
     /// aware) but callers that already resolved it pass it through.
     static func current(locale: String = resolvedLocale()) -> RecordingConfiguration {
         let defaults = UserDefaults.standard
-        let keys = APIKeyStore.shared
         let raw = defaults.string(forKey: SettingsKeys.sttProvider) ?? "apple"
         let spoken = storedSpokenLanguages()
         var configuration = RecordingConfiguration(
@@ -209,13 +189,14 @@ struct RecordingConfiguration {
             locale: locale,
             languages: spoken,
             localeIsAutomatic: spoken.count != 1,
-            groqAPIKey: keys.value(for: SettingsKeys.groqAPIKey),
-            groqModel: defaults.string(forKey: SettingsKeys.groqModel) ?? "whisper-large-v3-turbo",
-            elevenLabsAPIKey: keys.value(for: SettingsKeys.elevenLabsAPIKey),
-            elevenLabsModel: defaults.string(forKey: SettingsKeys.elevenLabsModel) ?? defaultElevenLabsModel,
-            openAIAPIKey: keys.value(for: SettingsKeys.openAIAPIKey),
-            openAISTTModel: defaults.string(forKey: SettingsKeys.openAISTTModel) ?? defaultOpenAISTTModel,
-            localModel: defaults.string(forKey: SettingsKeys.localSTTModel) ?? defaultLocalSTTModel,
+            apiKeys: Dictionary(uniqueKeysWithValues: Provider.allCases.compactMap { provider in
+                provider.descriptor.apiKey.map { (provider, APIKeyStore.shared.value(for: $0.settingsKey)) }
+            }),
+            models: Dictionary(uniqueKeysWithValues: Provider.allCases.compactMap { provider in
+                provider.descriptor.speechModel?.settingsKey
+                    .flatMap { defaults.string(forKey: $0) }
+                    .map { (provider, $0) }
+            }),
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
             dashStyle: .current,
             dictionary: Vocabulary.load(),

@@ -61,8 +61,8 @@ final class RecordingConfigurationTests: XCTestCase {
                         localeIsAutomatic: Bool = false) -> RecordingConfiguration {
         RecordingConfiguration(provider: provider, locale: "en-US",
                                localeIsAutomatic: localeIsAutomatic,
-                               groqAPIKey: "gk", groqModel: groqModel,
-                               elevenLabsAPIKey: "ek", elevenLabsModel: elevenLabsModel)
+                               apiKeys: [.groq: "gk", .elevenLabs: "ek"],
+                               models: [.groq: groqModel, .elevenLabs: elevenLabsModel])
     }
 
     func testStreamsOnlyForElevenLabsRealtimeModel() {
@@ -381,9 +381,9 @@ final class ChatModelCatalogTests: XCTestCase {
         for provider in LLMProviderType.allCases {
             XCTAssertFalse(chatModels(of: provider).isEmpty, provider.rawValue)
         }
-        XCTAssertNotNil(listedChatModel(provider: .groq, id: defaultGroqLLMModel))
-        XCTAssertNotNil(listedChatModel(provider: .anthropic, id: defaultAnthropicModel))
-        XCTAssertNotNil(listedChatModel(provider: .openai, id: defaultOpenAIModel))
+        XCTAssertNotNil(listedChatModel(provider: .groq, id: "openai/gpt-oss-120b"))
+        XCTAssertNotNil(listedChatModel(provider: .anthropic, id: "claude-sonnet-5"))
+        XCTAssertNotNil(listedChatModel(provider: .openai, id: "gpt-5.6-luna"))
     }
 
     func testEveryIDIsListedOnce() {
@@ -1422,9 +1422,7 @@ final class TranscriptCleanupTests: XCTestCase {
     }
 
     func testTheSettingCanTurnItOff() {
-        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
-                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
-                                                   elevenLabsModel: "scribe_v2_realtime")
+        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "", .elevenLabs: "scribe_v2_realtime"])
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, ні")
         configuration.removesDisfluencies = false
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
@@ -1492,9 +1490,7 @@ final class DashStyleTests: XCTestCase {
 
     /// Its own setting: turning hesitation cleanup off keeps the dash style.
     func testTheConfigurationAppliesItWithOrWithoutCleanup() {
-        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
-                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
-                                                   elevenLabsModel: "scribe_v2_realtime")
+        var configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "", .elevenLabs: "scribe_v2_realtime"])
         XCTAssertEqual(configuration.cleaned("Книга — цеее, е-е, набір"), "Книга – це, набір")
         configuration.removesDisfluencies = false
         XCTAssertEqual(configuration.cleaned("Книга — е-е"), "Книга – е-е")
@@ -1834,17 +1830,14 @@ final class OpenAISTTTests: XCTestCase {
 
     /// Constructed directly — never via `current()`, which reads the real defaults.
     private func config(provider: STTProviderType = .openai,
-                        openAIModel: String = defaultOpenAISTTModel,
+                        openAIModel: String = "gpt-transcribe",
                         openAIKey: String = "ok") -> RecordingConfiguration {
-        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true,
-                               groqAPIKey: "gk", groqModel: "whisper-large-v3-turbo",
-                               elevenLabsAPIKey: "ek", elevenLabsModel: "scribe_v2",
-                               openAIAPIKey: openAIKey, openAISTTModel: openAIModel)
+        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "gk", .elevenLabs: "ek", .openAI: openAIKey], models: [.groq: "whisper-large-v3-turbo", .elevenLabs: "scribe_v2", .openAI: openAIModel])
     }
 
     func testStreamsOnlyForTheRealtimeModel() {
         XCTAssertTrue(config(openAIModel: openAIRealtimeSTTModel).streams)
-        XCTAssertFalse(config(openAIModel: defaultOpenAISTTModel).streams)
+        XCTAssertFalse(config(openAIModel: "gpt-transcribe").streams)
         // The model string alone must not be enough: the provider has to match too.
         XCTAssertFalse(config(provider: .groq, openAIModel: openAIRealtimeSTTModel).streams)
     }
@@ -1852,7 +1845,7 @@ final class OpenAISTTTests: XCTestCase {
     /// The realtime model exists only behind the WebSocket — the upload endpoint rejects
     /// it — so the stream's fallback and History retries go to the batch model.
     func testBatchModelMapsRealtimeToTheUploadModel() {
-        XCTAssertEqual(config(openAIModel: openAIRealtimeSTTModel).batchModel, defaultOpenAISTTModel)
+        XCTAssertEqual(config(openAIModel: openAIRealtimeSTTModel).batchModel, "gpt-transcribe")
         XCTAssertEqual(config(openAIModel: "gpt-4o-mini-transcribe").batchModel, "gpt-4o-mini-transcribe")
     }
 
@@ -1877,7 +1870,7 @@ final class OpenAISTTTests: XCTestCase {
         let ids = openAISTTModels.map(\.id)
         XCTAssertFalse(ids.contains("whisper-1"))
         XCTAssertFalse(ids.contains("gpt-4o-transcribe-diarize"))
-        XCTAssertTrue(ids.contains(defaultOpenAISTTModel))
+        XCTAssertTrue(ids.contains("gpt-transcribe"))
         XCTAssertTrue(ids.contains(openAIRealtimeSTTModel))
     }
 
@@ -1934,7 +1927,7 @@ final class OpenAISTTTests: XCTestCase {
         let streaming = makeStreamingTranscriber(configuration: config(openAIModel: openAIRealtimeSTTModel))
         XCTAssertTrue(streaming is OpenAIRealtimeTranscriber)
         XCTAssertEqual(streaming?.sampleRate, 24_000)
-        XCTAssertNil(makeStreamingTranscriber(configuration: config(openAIModel: defaultOpenAISTTModel)))
+        XCTAssertNil(makeStreamingTranscriber(configuration: config(openAIModel: "gpt-transcribe")))
     }
 }
 
@@ -1974,14 +1967,10 @@ final class STTModelCatalogTests: XCTestCase {
 
     private func config(_ provider: STTProviderType, groqModel: String = "whisper-large-v3-turbo",
                         groqKey: String = "gk", elevenLabsModel: String = "scribe_v2",
-                        openAISTTModel: String = defaultOpenAISTTModel,
+                        openAISTTModel: String = "gpt-transcribe",
                         localModel: String = parakeetV3ModelID,
                         localeIsAutomatic: Bool = true) -> RecordingConfiguration {
-        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: localeIsAutomatic,
-                               groqAPIKey: groqKey, groqModel: groqModel,
-                               elevenLabsAPIKey: "ek", elevenLabsModel: elevenLabsModel,
-                               openAIAPIKey: "ok", openAISTTModel: openAISTTModel,
-                               localModel: localModel)
+        RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: localeIsAutomatic, apiKeys: [.groq: groqKey, .elevenLabs: "ek", .openAI: "ok"], models: [.groq: groqModel, .elevenLabs: elevenLabsModel, .openAI: openAISTTModel, .local: localModel])
     }
 
     // Invariants
@@ -2064,7 +2053,7 @@ final class STTModelCatalogTests: XCTestCase {
     func testPickersKeepTheirOrderAndNames() {
         XCTAssertEqual(groqModels.map(\.id), ["whisper-large-v3-turbo", "whisper-large-v3"])
         XCTAssertEqual(elevenLabsModels.map(\.name), ["Scribe v2", "Scribe v2 Realtime — live text"])
-        XCTAssertEqual(openAISTTModels.map(\.id), [defaultOpenAISTTModel, "gpt-4o-mini-transcribe", openAIRealtimeSTTModel])
+        XCTAssertEqual(openAISTTModels.map(\.id), ["gpt-transcribe", "gpt-4o-mini-transcribe", openAIRealtimeSTTModel])
         XCTAssertEqual(sttModels(of: .local).map(\.id), localSTTModels.map(\.id))
         for local in localSTTModels {
             XCTAssertEqual(sttModel(vendor: .local, id: local.id).delivery, .onDevice(local.engine))
@@ -2104,13 +2093,9 @@ final class STTModelCatalogTests: XCTestCase {
     }
 
     func testEachVendorsRetryNoticeNamesItsKey() {
-        let elevenLabs = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true,
-                                                groqAPIKey: "gk", groqModel: "", elevenLabsAPIKey: "",
-                                                elevenLabsModel: elevenLabsRealtimeModel)
+        let elevenLabs = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "gk", .elevenLabs: ""], models: [.groq: "", .elevenLabs: elevenLabsRealtimeModel])
         XCTAssertEqual(elevenLabs.batchUnavailableReason(), "Retry needs an ElevenLabs API key — add one in Settings.")
-        let openAI = RecordingConfiguration(provider: .openai, locale: "uk-UA", localeIsAutomatic: true,
-                                            groqAPIKey: "gk", groqModel: "", elevenLabsAPIKey: "ek",
-                                            elevenLabsModel: "", openAIAPIKey: "", openAISTTModel: openAIRealtimeSTTModel)
+        let openAI = RecordingConfiguration(provider: .openai, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "gk", .elevenLabs: "ek", .openAI: ""], models: [.groq: "", .elevenLabs: "", .openAI: openAIRealtimeSTTModel])
         XCTAssertEqual(openAI.batchUnavailableReason(), "Retry needs an OpenAI API key — add one in Settings.")
         XCTAssertEqual(config(.local).batchUnavailableReason(modelInstalled: { _ in false }),
                        "Parakeet v3 isn't installed — download it in Settings.")
@@ -2243,12 +2228,9 @@ final class CustomVocabularyTests: XCTestCase {
 final class VocabularyWireTests: XCTestCase {
     private let vocabulary = ["SpeechText", "C++", "R&D", "a = b", "an overly long realtime term"]
 
-    private func config(_ provider: STTProviderType, elevenLabsModel: String = defaultElevenLabsModel,
-                        openAISTTModel: String = defaultOpenAISTTModel) -> RecordingConfiguration {
-        var configuration = RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true,
-                                                   groqAPIKey: "", groqModel: "whisper-large-v3-turbo",
-                                                   elevenLabsAPIKey: "", elevenLabsModel: elevenLabsModel,
-                                                   openAISTTModel: openAISTTModel)
+    private func config(_ provider: STTProviderType, elevenLabsModel: String = "scribe_v2",
+                        openAISTTModel: String = "gpt-transcribe") -> RecordingConfiguration {
+        var configuration = RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "whisper-large-v3-turbo", .elevenLabs: elevenLabsModel, .openAI: openAISTTModel])
         configuration.vocabulary = vocabulary
         return configuration
     }
@@ -2417,9 +2399,7 @@ final class TextReplacementTests: XCTestCase {
     }
 
     func testAFinishedSegmentGetsBothAndItsDashesLast() {
-        var configuration = RecordingConfiguration(provider: .groq, locale: "uk-UA", localeIsAutomatic: true,
-                                                   groqAPIKey: "", groqModel: "", elevenLabsAPIKey: "",
-                                                   elevenLabsModel: "")
+        var configuration = RecordingConfiguration(provider: .groq, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "", .elevenLabs: ""])
         configuration.dictionary = [VocabularyEntry(term: "SpeechText", misheard: ["спіч текст"])]
         configuration.replacements = [TextReplacementPair(replace: "тире", with: "—")]
         XCTAssertEqual(configuration.finished("е-е-е, спіч текст тире гпт"), "SpeechText – гпт")
@@ -2464,6 +2444,71 @@ final class StoredProviderNameTests: XCTestCase {
     func testOnlyAFreePlanIsOfferedAsAFreeKey() {
         XCTAssertEqual(Provider.groq.linkTitle, "Get your free key ↗")
         XCTAssertEqual(Provider.openAI.linkTitle, "Get your key ↗")
+    }
+
+    /// What a rename carries over (`adoptPreRenameDefaults`). The model keys in it are
+    /// derived from the registry; a key that left the list would be lost at the next
+    /// rename. Order does not matter, membership does.
+    func testThePortableSettingsKeepTheirStoredNames() {
+        XCTAssertEqual(Set(SettingsKeys.portable), [
+            "selectedLanguage", "spokenLanguages",
+            "sttProvider", "groqModel", "elevenLabsModel", "openAISTTModel", "localSTTModel",
+            "removeDisfluencies", "dashStyle",
+            "vocabulary", "sendVocabularyToEngine", "textReplacements",
+            "hotkeyKeyCode", "hotkeyModifierFlags",
+            "recordWindowHotkeyKeyCode", "recordWindowHotkeyModifierFlags",
+            "aiHotkeyKeyCode", "aiHotkeyModifierFlags",
+            "editHotkeyKeyCode", "editHotkeyModifierFlags",
+            "holdToTalk", "escapeCancelsDictation",
+            "llmProvider", "groqLLMModel", "anthropicModel", "openAIModel", "ollamaModel", "ollamaBaseURL",
+            "promptPresets", "defaultPresetID", "aiModeInRecordWindow",
+            "appSkin", "accentColor", "technoPhosphor", "dockIconMode",
+            "hotkeyLayoutVersion",
+        ])
+        XCTAssertEqual(SettingsKeys.portable.count, Set(SettingsKeys.portable).count, "listed twice")
+    }
+
+    /// A default is a pointer into the provider's own catalogue, and every model key is
+    /// stored, carried across a rename, and named once.
+    func testEveryDefaultModelIsOneTheProviderOffers() {
+        for engine in STTProviderType.allCases {
+            let setting = engine.vendor.descriptor.speechModel
+            XCTAssertNotNil(setting, engine.rawValue)
+            XCTAssertTrue(sttModels(of: engine.vendor).map(\.id).contains(engine.vendor.defaultSpeechModel), engine.rawValue)
+        }
+        for type in LLMProviderType.allCases {
+            let setting = type.vendor.descriptor.chatModel
+            XCTAssertNotNil(setting, type.rawValue)
+            guard setting?.normalized == true else { continue }
+            XCTAssertNotNil(listedChatModel(provider: type, id: type.vendor.defaultChatModel), type.rawValue)
+        }
+        let keys = Provider.allCases.flatMap { [$0.descriptor.speechModel?.settingsKey, $0.descriptor.chatModel?.settingsKey] }
+            .compactMap { $0 }
+        XCTAssertEqual(keys.count, Set(keys).count)
+        XCTAssertTrue(Set(keys).isSubset(of: SettingsKeys.portable))
+    }
+
+    /// The defaults today, literally: moving one is a decision, and the catalogue entries
+    /// do not move with it.
+    func testTheDefaultModelsAreTheChosenOnes() {
+        XCTAssertEqual(Provider.groq.defaultSpeechModel, "whisper-large-v3-turbo")
+        XCTAssertEqual(Provider.elevenLabs.defaultSpeechModel, "scribe_v2")
+        XCTAssertEqual(Provider.openAI.defaultSpeechModel, "gpt-transcribe")
+        XCTAssertEqual(Provider.local.defaultSpeechModel, "parakeet-tdt-0.6b-v3")
+        XCTAssertEqual(Provider.groq.defaultChatModel, "openai/gpt-oss-120b")
+        XCTAssertEqual(Provider.anthropic.defaultChatModel, "claude-sonnet-5")
+        XCTAssertEqual(Provider.openAI.defaultChatModel, "gpt-5.6-luna")
+        XCTAssertEqual(Provider.ollama.defaultChatModel, "")
+    }
+
+    /// A configuration with nothing stored runs every provider's default and no key.
+    func testAnAbsentModelIsTheDefaultAndAnAbsentKeyIsEmpty() {
+        let bare = RecordingConfiguration(provider: .openai, locale: "uk-UA", localeIsAutomatic: true)
+        XCTAssertEqual(bare.model.id, "gpt-transcribe")
+        XCTAssertEqual(bare.modelID(for: .elevenLabs), "scribe_v2")
+        XCTAssertEqual(bare.apiKey(for: .openAI), "")
+        let local = RecordingConfiguration(provider: .local, locale: "uk-UA", localeIsAutomatic: true)
+        XCTAssertEqual(local.model.id, "parakeet-tdt-0.6b-v3")
     }
 
     /// `sttProvider` / `llmProvider` store these, and History records them as `provider`.

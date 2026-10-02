@@ -85,11 +85,11 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
   (`reasoningEffort`, `reasoningOutput`, `refusalFallbacks`) and a dated comment, and its
   whole body in `ChatRequestBodyTests`. An Ollama model is a `LocalLLMModel`, with its
   `reasoningEffort`; its descriptor is derived.
-- **Changing a default is a trap.** `defaultOpenAISTTModel` / `defaultElevenLabsModel` are
-  also a catalogue entry's ID and the realtime model's fallback. Moving the constant
-  removes the old model and migrates its users. Instead: give the old entry a literal ID,
-  add the new one, move the constant, and decide whether the fallback moves too. Pin
-  tests to literal IDs.
+- Changing a default: the `defaultID` of the provider's `ModelSetting` in
+  `ProviderDescriptor`, and `testTheDefaultModelsAreTheChosenOnes`. Catalogue entries carry
+  literal IDs, so the old model stays offered and whoever stored it keeps it; a realtime
+  model's fallback (`batchUpload: .model(id)`) is its own decision. The local tier's
+  default reaches installs that never chose: read `preserveInstalledLocalModel` first.
 - Retiring a model: remove it; `normalizeStoredProviders` moves its users to the default.
 - The vendor's name is already everywhere, so `check-provider-guide.sh` cannot help here.
 
@@ -107,10 +107,11 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
    - a term-list parameter: take `keyterms` in `init` from `configuration.batchVocabulary`
      (realtime: `liveVocabulary`), and set the entry's `vocabulary` limits;
    - log sizes, timings and counts, never text, terms or keys; Foundation only, no SDK.
-3. Catalogue entries, a model key in `SettingsKeys` + `portable`, the picker
-   (`pickerModels(of:)`), a `normalizeStoredModel` line.
-4. `RecordingConfiguration`: key and model as `var` with defaults; read in `current()`.
-5. `makeBatchTranscriber` and `makeRecognitionSession`.
+3. Catalogue entries, a model key in `SettingsKeys`, and the descriptor's `speechModel`
+   (`ModelSetting`: that key and the default). `portable`, normalisation and
+   `RecordingConfiguration`'s `apiKeys` / `models` follow from the descriptor. The
+   picker list: `<vendor>Models = pickerModels(of:)`.
+4. `makeBatchTranscriber` and `makeRecognitionSession`.
 
 ## 5. Realtime speech engine
 
@@ -139,8 +140,8 @@ Read CLAUDE.md's streaming sections first. The rules:
 - Own API: a struct like `AnthropicChatClient`; build the request body in a pure
   function so it can be tested.
 - Either way: `LLMProviderType` case, `chatModelCatalog` entries (fastest good model
-  first) and a `<vendor>ChatModels` picker list, and a
-  default, `SettingsKeys` model key + `portable` + `normalizeStoredModel`.
+  first), a `<vendor>ChatModels` picker list, a `SettingsKeys` model key and the
+  descriptor's `chatModel` (`ModelSetting`); `portable` and normalisation follow.
 - Throw on any failure; the app falls back to the raw transcript.
 
 ## 7. The key
@@ -192,13 +193,9 @@ stt      | SpeechText/SpeechText/STTProvider.swift               | func makeBatc
 stt      | SpeechText/SpeechText/STTProvider.swift               | private func providerErrorReason              | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | var vendor: Provider                          | compiler    | STTProviderType.vendor: the engine's provider
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | let sttModelCatalog                           | manual      | one descriptor per model, with a dated comment on why it is offered
-stt      | SpeechText/SpeechText/RecordingConfiguration.swift    | struct RecordingConfiguration                 | manual      | key and model as defaulted vars; read both in current()
-stt      | SpeechText/SpeechText/RecordingConfiguration.swift    | private func modelID(for vendor               | compiler    | the vendor's model field
-stt      | SpeechText/SpeechText/RecordingConfiguration.swift    | private func apiKey(for vendor                | compiler    | the vendor's key field
 stt      | SpeechText/SpeechText/RecognitionSessionFactory.swift | func makeRecognitionSession                   | compiler    | add the case to the cloud list
-stt      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the model key, and in portable (never the API key)
-stt      | SpeechText/SpeechText/Settings.swift                  | let groqModels = pickerModels                 | manual:file | <vendor>Models = pickerModels(of:), default (and realtime) model constants
-stt      | SpeechText/SpeechText/Settings.swift                  | func normalizeStoredProviders                 | manual      | a normalizeStoredModel line
+stt      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the model key, named in the descriptor's speechModel (never the API key)
+stt      | SpeechText/SpeechText/Settings.swift                  | let groqModels = pickerModels                 | manual:file | <vendor>Models = pickerModels(of:), and a realtime model's ID constant
 stt      | SpeechText/SpeechText/MenuBarView.swift               | private var speechPage                        | compiler    | model picker; a SettingsNote for a realtime model
 stt      | SpeechText/SpeechText/MenuBarView.swift               | struct SpokenLanguagesField                   | review      | the caption, only if the engine takes a language set
 stt      | SpeechText/SpeechText/Onboarding.swift                | Setup run again: open on what is set up now   | compiler    | the setup service the stored engine opens on, or none
@@ -210,11 +207,9 @@ realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | protocol Stre
 realtime | SpeechText/SpeechText/StreamingSTTProvider.swift      | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
 realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | manual      | the vendor's own "no session" error, or its stream is never reconnected
 llm      | SpeechText/SpeechText/LLMProvider.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
-llm      | SpeechText/SpeechText/LLMProvider.swift               | let chatModelCatalog                          | manual      | the vendor's models with their switches; a <vendor>ChatModels picker list and default<Vendor>Model below it
+llm      | SpeechText/SpeechText/LLMProvider.swift               | let chatModelCatalog                          | manual      | the vendor's models with their switches; a <vendor>ChatModels picker list below it
 llm      | SpeechText/SpeechText/LLMProvider.swift               | static func makeChatClient                    | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct
-llm      | SpeechText/SpeechText/LLMProvider.swift               | static func model(for type: LLMProviderType)  | compiler    | the stored model key and default
-llm      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the chat model key, and in portable
-llm      | SpeechText/SpeechText/Settings.swift                  | func normalizeStoredProviders                 | manual      | a normalizeStoredModel line
+llm      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the chat model key, named in the descriptor's chatModel
 llm      | SpeechText/SpeechText/MenuBarView.swift               | private var aiPage                            | compiler    | model picker
 llm      | SpeechText/SpeechText/MenuBarView.swift               | private var hasLLMKey                         | compiler    | the key (or model) that makes it configured
 llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class ChatRequestBodyTests              | manual      | each model's whole request body, written out

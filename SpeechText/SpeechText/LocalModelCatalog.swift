@@ -304,16 +304,3 @@ struct UnavailableLocalTranscriber: BatchTranscriber {
         throw LocalModelError.notInstalled(localSTTModel(id: modelID)?.displayName ?? modelID)
     }
 }
-
-/// The stored default before the user picks — also the normalisation fallback. Parakeet,
-/// not the head of the catalogue: it is what every Apple Silicon Mac is recommended.
-///
-/// Moving this value is not free, and the cost is not where it looks. Anyone who *chose*
-/// a Whisper model keeps it: their choice is stored, every Whisper variant is still in
-/// the catalogue, and `normalizeStoredProviders()` only resets a stored ID the catalogue
-/// no longer has. The danger is the install that never chose anything — nothing writes
-/// this key until the user touches the picker, so both `@AppStorage` and
-/// `RecordingConfiguration.current()` read straight through to whatever this says, and a
-/// changed default would point them at a model they have not downloaded. That is what
-/// `preserveInstalledLocalModel()` (Settings.swift) is for; read it before changing this.
-let defaultLocalSTTModel = parakeetV3ModelID

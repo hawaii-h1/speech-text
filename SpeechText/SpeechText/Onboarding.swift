@@ -153,7 +153,7 @@ final class OnboardingModel {
         let saved = defaults.string(forKey: SettingsKeys.onboardingStep).flatMap(OnboardingStep.init) ?? .welcome
         step = saved == .done ? .tryIt : saved
 
-        speechModelID = recommendedLocalSTTModel(for: caps)?.id ?? defaultLocalSTTModel
+        speechModelID = recommendedLocalSTTModel(for: caps)?.id ?? Provider.local.defaultSpeechModel
         aiModelID = recommendedLocalLLMModel(for: caps)?.id ?? "qwen3.5:4b"
 
         // Setup run again: open on what is set up now.

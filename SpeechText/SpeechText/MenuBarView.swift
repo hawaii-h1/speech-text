@@ -18,17 +18,17 @@ struct SettingsView: View {
     }
 
     @AppStorage(SettingsKeys.sttProvider) private var sttProvider = STTProviderType.apple.rawValue
-    @AppStorage(SettingsKeys.groqModel) private var groqModel = "whisper-large-v3-turbo"
-    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = defaultElevenLabsModel
-    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
-    @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = defaultLocalSTTModel
+    @AppStorage(SettingsKeys.groqModel) private var groqModel = Provider.groq.defaultSpeechModel
+    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = Provider.elevenLabs.defaultSpeechModel
+    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = Provider.openAI.defaultSpeechModel
+    @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = Provider.local.defaultSpeechModel
     @AppStorage(SettingsKeys.removeDisfluencies) private var removeDisfluencies = true
     @AppStorage(SettingsKeys.dashStyle) private var dashStyle = DashStyle.default.rawValue
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = defaultGroqLLMModel
-    @AppStorage(SettingsKeys.anthropicModel) private var anthropicModel = defaultAnthropicModel
-    @AppStorage(SettingsKeys.openAIModel) private var openAIModel = defaultOpenAIModel
+    @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = Provider.groq.defaultChatModel
+    @AppStorage(SettingsKeys.anthropicModel) private var anthropicModel = Provider.anthropic.defaultChatModel
+    @AppStorage(SettingsKeys.openAIModel) private var openAIModel = Provider.openAI.defaultChatModel
     @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
 
     /// The API keys are not in UserDefaults (see `APIKeyStore`), so they are bound to the
@@ -707,7 +707,7 @@ struct SettingsView: View {
 /// engine — has to say so, or it reads as a setting that does nothing.
 private struct SpokenLanguagesField: View {
     @AppStorage(SettingsKeys.spokenLanguages) private var stored = ""
-    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = defaultOpenAISTTModel
+    @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = Provider.openAI.defaultSpeechModel
     let stt: STTProviderType
 
     private var selected: [String] { parseSpokenLanguages(stored) }

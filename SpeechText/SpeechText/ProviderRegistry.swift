@@ -22,12 +22,23 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
 
     /// Everything the app knows about the provider, in one place. Every field of
     /// `ProviderDescriptor` is required, so a new case does not build until it is
-    /// described in full; the key list, the key check and the key shapes are derived
-    /// from it. Key pages and dialogs checked against each vendor on 2026-09-19.
+    /// described in full; the key list, the key check, the key shapes, the stored model
+    /// keys and their normalisation are derived from it. Key pages and dialogs checked
+    /// against each vendor on 2026-09-19.
+    ///
+    /// A default model is a pointer into the catalogue, written here and nowhere else.
+    /// The catalogue entries carry literal IDs, so moving a default never removes a
+    /// model, and an install that stored the old one keeps it — except `localSTTModel`,
+    /// which nothing writes until the user picks: see `preserveInstalledLocalModel`.
+    /// Chat defaults are the fast end of each catalogue that still rewrites well — the
+    /// user is waiting on the paste; Groq's is its own replacement for the retired
+    /// Llama 3.3 70B.
     var descriptor: ProviderDescriptor {
         switch self {
         case .apple:
-            ProviderDescriptor(displayName: "Apple", roles: [.speech], apiKey: nil)
+            ProviderDescriptor(displayName: "Apple", roles: [.speech], apiKey: nil,
+                               speechModel: ModelSetting(settingsKey: nil, defaultID: appleSpeechModelID),
+                               chatModel: nil)
         case .groq:
             ProviderDescriptor(displayName: "Groq", roles: [.speech, .chat], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.groqAPIKey,
@@ -35,7 +46,9 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 createButton: "Create API Key", createNote: "Copy the key.",
                 prefix: "gsk_", sample: "gsk_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
                 verification: KeyVerification(url: URL(string: "https://api.groq.com/openai/v1/models")!,
-                                              header: .bearer)))
+                                              header: .bearer)),
+                speechModel: ModelSetting(settingsKey: SettingsKeys.groqModel, defaultID: "whisper-large-v3-turbo"),
+                chatModel: ModelSetting(settingsKey: SettingsKeys.groqLLMModel, defaultID: "openai/gpt-oss-120b"))
         case .elevenLabs:
             ProviderDescriptor(displayName: "ElevenLabs", roles: [.speech], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.elevenLabsAPIKey,
@@ -43,7 +56,9 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 createButton: "Create Key", createNote: "Give it **Speech to Text** access, then copy the key.",
                 prefix: "sk_", sample: "sk_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
                 verification: KeyVerification(url: URL(string: "https://api.elevenlabs.io/v1/models")!,
-                                              header: .named("xi-api-key"))))
+                                              header: .named("xi-api-key"))),
+                speechModel: ModelSetting(settingsKey: SettingsKeys.elevenLabsModel, defaultID: "scribe_v2"),
+                chatModel: nil)
         case .anthropic:
             ProviderDescriptor(displayName: "Anthropic", roles: [.chat], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.anthropicAPIKey,
@@ -53,7 +68,9 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 prefix: "sk-ant-", sample: "sk-ant-api03-a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
                 verification: KeyVerification(url: URL(string: "https://api.anthropic.com/v1/models")!,
                                               header: .named("x-api-key"),
-                                              extraHeaders: ["anthropic-version": "2023-06-01"])))
+                                              extraHeaders: ["anthropic-version": "2023-06-01"])),
+                speechModel: nil,
+                chatModel: ModelSetting(settingsKey: SettingsKeys.anthropicModel, defaultID: "claude-sonnet-5"))
         case .openAI:
             ProviderDescriptor(displayName: "OpenAI", roles: [.speech, .chat], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.openAIAPIKey,
@@ -62,15 +79,34 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 createNote: "Keep permissions on **All**, then copy the key. Needs credit in Billing.",
                 prefix: "sk-", sample: "sk-proj-a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
                 verification: KeyVerification(url: URL(string: "https://api.openai.com/v1/models")!,
-                                              header: .bearer)))
+                                              header: .bearer)),
+                speechModel: ModelSetting(settingsKey: SettingsKeys.openAISTTModel, defaultID: "gpt-transcribe"),
+                chatModel: ModelSetting(settingsKey: SettingsKeys.openAIModel, defaultID: "gpt-5.6-luna"))
         case .local:
-            ProviderDescriptor(displayName: "Local", roles: [.speech], apiKey: nil)
+            // The default is Parakeet, not the head of the catalogue: it is what every
+            // Apple Silicon Mac is recommended. Moving it is not free. Anyone who *chose*
+            // a model keeps it, but nothing writes `localSTTModel` until the user touches
+            // the picker, so an install that never chose reads straight through to this,
+            // and a moved default would point it at a model it has not downloaded. That is
+            // what `preserveInstalledLocalModel()` (Settings.swift) is for; read it first.
+            ProviderDescriptor(displayName: "Local", roles: [.speech], apiKey: nil,
+                               speechModel: ModelSetting(settingsKey: SettingsKeys.localSTTModel,
+                                                         defaultID: parakeetV3ModelID),
+                               chatModel: nil)
         case .ollama:
-            ProviderDescriptor(displayName: "Ollama", roles: [.chat], apiKey: nil)
+            // Any model the daemon has, so a stored tag is never checked against a list.
+            ProviderDescriptor(displayName: "Ollama", roles: [.chat], apiKey: nil, speechModel: nil,
+                               chatModel: ModelSetting(settingsKey: SettingsKeys.ollamaModel, defaultID: "",
+                                                       normalized: false))
         }
     }
 
     var displayName: String { descriptor.displayName }
+
+    /// The speech model used while none is stored; empty for a provider with none.
+    var defaultSpeechModel: String { descriptor.speechModel?.defaultID ?? "" }
+    /// The chat model used while none is stored; empty for a provider with none.
+    var defaultChatModel: String { descriptor.chatModel?.defaultID ?? "" }
 
     /// The phrase the retry notice uses — "a Groq API key", "an OpenAI API key".
     var apiKeyPhrase: String {
@@ -87,6 +123,23 @@ struct ProviderDescriptor {
     let roles: ProviderRoles
     /// Its API key, or nil when it needs none.
     let apiKey: APIKeyDescriptor?
+    /// The speech model the user picks, or nil when it serves no speech.
+    let speechModel: ModelSetting?
+    /// The chat model the user picks, or nil when it serves no AI Rewrite.
+    let chatModel: ModelSetting?
+}
+
+/// Where the user's pick of one of a provider's models is stored, and what is used
+/// while nothing is.
+struct ModelSetting {
+    /// Its `SettingsKeys` name, which is in `portable`; nil when there is nothing to
+    /// pick (Apple's recogniser is one model).
+    let settingsKey: String?
+    /// A catalogue entry's ID — the pointer, never the entry's own constant.
+    let defaultID: String
+    /// A stored ID the catalogue no longer lists is reset to the default at launch
+    /// (`normalizeStoredProviders`).
+    var normalized = true
 }
 
 struct ProviderRoles: OptionSet, Hashable {
