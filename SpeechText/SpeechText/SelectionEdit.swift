@@ -256,10 +256,29 @@ enum SelectionEdit {
 
     /// Whether a ⌘X took the selection that was read, and not something the user selected
     /// since — or, in VS Code with the selection gone, the caret's whole line. Edges aside:
-    /// a Tier A selection is recorded trimmed to its words.
+    /// a Tier A selection is recorded trimmed to its words. Markup and whitespace aside
+    /// too: an editor that renders Markdown (T3 Code's composer) reports the rendered text
+    /// through AX — no backticks, one newline between paragraphs — while its ⌘X copies the
+    /// source, and the two are the same selection.
     static func cutMatches(_ cut: String, selection: String) -> Bool {
-        let trim = { (value: String) in value.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return !trim(cut).isEmpty && trim(cut) == trim(selection)
+        let core = markupInsensitive(cut)
+        return !core.isEmpty && core == markupInsensitive(selection)
+    }
+
+    /// What the edit rewrites once the selection is cut: the cut text, edges trimmed. It is
+    /// what is in the document — Markdown source where AX read the rendering — so the
+    /// rewrite keeps its backticks and paragraphs.
+    static func cutSource(_ cut: String) -> String {
+        cut.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Characters Markdown spends on markup, which a rendering drops.
+    private static let markupCharacters = CharacterSet(charactersIn: "`*_~#>")
+
+    private static func markupInsensitive(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter {
+            !markupCharacters.contains($0) && !CharacterSet.whitespacesAndNewlines.contains($0)
+        }))
     }
 
     /// Whether the rewrite changes anything worth writing back.

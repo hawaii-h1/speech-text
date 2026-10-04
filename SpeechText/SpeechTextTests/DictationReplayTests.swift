@@ -1103,6 +1103,21 @@ final class SelectionEditTests: XCTestCase {
         XCTAssertFalse(SelectionEdit.cutMatches("  ", selection: "  "))
     }
 
+    /// T3 Code's composer renders Markdown: AX reads the rendering, ⌘X copies the source
+    /// (measured 2026-10-03, a 1358-character read against a 1396-character cut).
+    func testACutOfMarkdownSourceMatchesItsRendering() {
+        let read = "У файлі .env додано API_TOKEN.\nДокументація: https://docs.example.com/introduction"
+        let cut = "У файлі `.env` додано `API_TOKEN`.\n\nДокументація: https://docs.example.com/introduction\n"
+        XCTAssertTrue(SelectionEdit.cutMatches(cut, selection: read))
+        XCTAssertTrue(SelectionEdit.cutMatches("**Bold** and _this_", selection: "Bold and this"))
+        // Markup aside, other words are still other words.
+        XCTAssertFalse(SelectionEdit.cutMatches("`.env` додано", selection: "У файлі .env додано"))
+        XCTAssertFalse(SelectionEdit.cutMatches("``", selection: "**"))
+        // The rewrite starts from the source, so its backticks and paragraphs survive.
+        XCTAssertEqual(SelectionEdit.cutSource(cut),
+                       "У файлі `.env` додано `API_TOKEN`.\n\nДокументація: https://docs.example.com/introduction")
+    }
+
     func testChangesAndEdges() {
         XCTAssertFalse(SelectionEdit.changes("Fine text.", to: " Fine text.\n"))
         XCTAssertFalse(SelectionEdit.changes("Anything", to: "  "))

@@ -1519,6 +1519,11 @@ final class AppState {
                                    detail: "What was cut wasn't the text that was read, so it was put back. Nothing was edited.")
                     return
                 }
+                let source = SelectionEdit.cutSource(text)
+                if source != selection.text {
+                    dlog("Edit", "the cut differs from the text read only in markup or spacing — rewriting the cut (\(source.count) chars, read \(selection.text.count))")
+                    self.editSelection = CapturedSelection(text: source, record: selection.record)
+                }
                 dlog("Edit", "selection cut (\(text.count) chars)")
                 self.editRemoval = .removed(original: items, text: text)
             }
