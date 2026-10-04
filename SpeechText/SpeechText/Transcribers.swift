@@ -47,11 +47,14 @@ enum STTProviderType: String, CaseIterable, Identifiable {
 /// measured against the live service is not re-derived by feel in two files. All of
 /// these were verified by probing the ElevenLabs API on 2026-08-29.
 enum STTTuning {
-    /// Seconds of silence after which Scribe Realtime's VAD commits a segment. The
-    /// server default is 1.5 s, sized for conversational turns; a dictation pause is
-    /// shorter, and every tenth of a second here is a tenth the user waits before the
-    /// text can be inserted. Below ~1 s the VAD starts splitting mid-sentence hesitations.
-    static let vadSilenceThresholdSeconds: Double = 1.0
+    /// Seconds of silence after which Scribe Realtime's VAD commits a segment — the
+    /// server's own default. Each segment is transcribed on its own and punctuated as a
+    /// finished sentence, so a pause this long mid-sentence leaves a full stop and a
+    /// capital in the middle of it ("що ми. Зробили"). It was 1.0 s while committed text
+    /// was pasted into the app as it arrived and every tenth of a second was a wait for
+    /// the paste; since nothing reaches the app before the stop (#75), a shorter pause
+    /// only cuts more sentences — at 1.0 s thinking pauses already split them.
+    static let vadSilenceThresholdSeconds: Double = 1.5
 
     /// How long `finish()` waits for the transcript of its final commit before pasting
     /// what it has. Scribe normally answers well inside a second; this only bounds the

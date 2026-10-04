@@ -1382,10 +1382,16 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(cleanedTranscript("перше питанняяя, чи тооо знання"), "перше питання, чи то знання")
     }
 
-    func testTrailingEllipsisEndsTheSentence() {
-        XCTAssertEqual(cleanedTranscript("вона казала... Цей"), "вона казала. Цей")
-        XCTAssertEqual(cleanedTranscript("я попав на… отримав"), "я попав на. Отримав")
-        XCTAssertEqual(cleanedTranscript("справді?... так"), "справді? Так")
+    /// Scribe ends a segment its VAD closed on a short pause with "...", mid-sentence; a
+    /// full stop there cut the sentence in two ("що ми. Зробили"). So the dots go, no
+    /// full stop takes their place and the next word keeps the case it came with.
+    func testTrailingEllipsisIsDroppedWithoutEndingTheSentence() {
+        XCTAssertEqual(cleanedTranscript("які ти... описав в файлі"), "які ти описав в файлі")
+        XCTAssertEqual(cleanedTranscript("я попав на… отримав"), "я попав на отримав")
+        XCTAssertEqual(cleanedTranscript("вона казала... Цей"), "вона казала Цей")
+        XCTAssertEqual(cleanedTranscript("справді?... так"), "справді? так")
+        XCTAssertEqual(cleanedTranscript("що вони...\" далі"), "що вони\" далі")
+        XCTAssertEqual(cleanedTranscript("що вони..."), "що вони")
         XCTAssertEqual(cleanedTranscript("діапазон 1...5 і далі ... ось"), "діапазон 1...5 і далі ось")
     }
 

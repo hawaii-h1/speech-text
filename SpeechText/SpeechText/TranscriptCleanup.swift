@@ -17,8 +17,10 @@ import Foundation
 /// - a word stretched out while thinking is un-stretched: three or more of the same
 ///   lowercase Cyrillic letter collapse to one ("тооо" → "то"). Ukrainian and Russian
 ///   spell no word with a tripled letter, and "знання" keeps its double;
-/// - a trailing-off `...` / `…` at the end of a word becomes a full stop, and the next
-///   word is capitalised; one standing alone between two words is dropped.
+/// - a trailing-off `...` / `…` is dropped, whether it ends a word or stands alone
+///   between two. No full stop takes its place and the next word keeps its case: Scribe
+///   ends a segment its VAD closed on a short pause with one, mid-sentence, and turning
+///   it into a full stop cut the sentence in two ("що ми. Зробили").
 ///
 /// The function is applied to the *cumulative* strings the sessions report, and the
 /// overlay draws committed spans as they arrive. So it must be **monotone**: when one
@@ -58,9 +60,8 @@ func cleanedTranscript(_ text: String) -> String {
             word = capitalizingFirstLetter(word)
             capitalizeNext = false
         }
-        if let ended = TranscriptCleanupRules.replacingTrailingEllipsis(word) {
-            word = ended
-            capitalizeNext = true
+        if let trimmed = TranscriptCleanupRules.droppingTrailingEllipsis(word) {
+            word = trimmed
         }
         append(word, to: &output)
     }
@@ -113,20 +114,18 @@ enum TranscriptCleanupRules {
         word == "…" || (word.count >= 3 && word.allSatisfy { $0 == "." })
     }
 
-    /// An ellipsis ending a word — before any closing quote or bracket — becomes a full
-    /// stop; after "?" or "!" it is simply dropped. `1...5` (not at the end) is untouched.
-    /// nil when there was nothing to replace.
-    private static let trailingEllipsis = try! NSRegularExpression(pattern: "([?!]?)(?:\\.{3,}|…)([\"»”’)\\]]*)$")
+    /// An ellipsis ending a word — before any closing quote or bracket — is dropped, and
+    /// nothing is put in its place: "?" or "!" before it stays, a full stop is never added.
+    /// `1...5` (not at the end) is untouched. nil when there was nothing to drop.
+    private static let trailingEllipsis = try! NSRegularExpression(pattern: "(?:\\.{3,}|…)([\"»”’)\\]]*)$")
 
-    static func replacingTrailingEllipsis(_ word: String) -> String? {
+    static func droppingTrailingEllipsis(_ word: String) -> String? {
         let range = NSRange(word.startIndex..., in: word)
         guard let match = trailingEllipsis.firstMatch(in: word, range: range),
               let whole = Range(match.range, in: word),
-              let mark = Range(match.range(at: 1), in: word),
-              let closers = Range(match.range(at: 2), in: word),
+              let closers = Range(match.range(at: 1), in: word),
               whole.lowerBound > word.startIndex else { return nil }
-        let terminator = word[mark].isEmpty ? "." : String(word[mark])
-        return String(word[..<whole.lowerBound]) + terminator + word[closers]
+        return String(word[..<whole.lowerBound]) + word[closers]
     }
 }
 
