@@ -23,14 +23,14 @@ body:
     id: mode
     attributes:
       label: Which mode?
-      options: ["Inline recording", "AI recording", "Record Window", "Settings / other"]
+      options: ["Inline recording", "AI recording", "Record Window", "Edit Selection with AI", "Settings / other"]
     validations:
       required: true
   - type: dropdown
     id: engine
     attributes:
       label: Speech engine
-      options: ["Apple (on-device)", "Groq", "ElevenLabs", "Not sure"]
+      options: ["Apple (on-device)", "Groq", "ElevenLabs", "OpenAI", "Local model (Parakeet / Whisper)", "Not sure"]
     validations:
       required: true
   - type: input

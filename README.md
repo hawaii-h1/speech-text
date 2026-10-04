@@ -19,7 +19,7 @@ Press a global hotkey, talk, press it again — or, with Hold to talk on, hold i
 | Mode | Hotkey | What happens |
 |---|---|---|
 | **Inline** | `Ctrl+Shift+Q` | Speak → text is pasted at your cursor |
-| **AI** | `Ctrl+Shift+A` | Speak → an LLM cleans it up → pasted at your cursor |
+| **AI Rewrite** | `Ctrl+Shift+A` | Speak → an LLM cleans it up → pasted at your cursor |
 | **Record Window** | `Ctrl+Shift+W` | A floating panel for longer dictation you want to edit first |
 | **Edit with AI** | `Ctrl+Shift+E` | Select text, optionally say what to change → the rewrite replaces the selection |
 
@@ -27,7 +27,7 @@ All hotkeys are configurable.
 
 ### The dictation *is* the prompt
 
-AI mode has no mode picker. You just talk, and the model figures out what you wanted from how you said it — clean up this text, write it as an email, translate it, turn it into a commit message. You define these as prompt presets, each with a plain-language "when to use this" description, and the model routes your dictation to the right one.
+AI Rewrite has no mode picker. You just talk, and the model figures out what you wanted from how you said it — clean up this text, write it as an email, translate it, turn it into a commit message. You define these as prompts on the main window's Prompts page, each with a plain-language "when to use this" description, and the model routes your dictation to the right one.
 
 If the LLM fails or refuses, you still get your raw transcript. A dictation is never lost.
 
@@ -73,7 +73,7 @@ Local speech models are third-party weights: Whisper is MIT, and Parakeet v3 is 
 1. Download `SpeechText-<version>.dmg` from the [latest release](https://github.com/yavno/speech-text/releases/latest).
 2. Open the image and drag **SpeechText** into your **Applications** folder.
 3. Open it from Applications. Because it came from the Internet, macOS checks it before the first launch and asks *"SpeechText is an app downloaded from the Internet. Are you sure you want to open it?"*, naming the developer — click **Open**. One question, and the app opens: that is what signing and notarization are for. Every release is signed with an Apple Developer ID certificate and notarized by Apple before it is published, and until the project's Apple account becomes an organization, the developer macOS names is Vladyslav Husakov, the author. If your Mac says something stronger than that — an unidentified developer, or a trip through System Settings › Privacy & Security to open it at all — then that download did not pass the check, and we would like to know: please [open an issue](https://github.com/yavno/speech-text/issues).
-4. SpeechText has no window of its own — look for the microphone in the menu bar, at the top right. A setup window opens on the first run and walks through the rest: which speech engine to use, an optional AI provider, the keys those need, the permissions below, and a dictation to try before you rely on it.
+4. SpeechText lives in the menu bar — look for its S mark at the top right; *Open SpeechText* there opens its main window. A setup window opens on the first run and walks through the rest: which speech engine to use, an optional AI provider, the keys those need, the permissions below, and a dictation to try before you rely on it.
 
 After that, SpeechText keeps itself up to date: it checks once a day, shows you what changed, and installs the update when you agree. *Check for Updates…* in the menu asks straight away.
 
@@ -122,7 +122,7 @@ This matters, so it is stated plainly:
 - **Apple engine** — audio never leaves your Mac.
 - **Local model** (Parakeet or Whisper) — audio never leaves your Mac either; the model runs on it, and no key is involved.
 - **Groq / ElevenLabs / OpenAI** — audio is uploaded to that provider, using *your* API key, under *their* privacy policy. SpeechText has no server and never sees your audio or your keys.
-- **AI mode** — the transcript text (not the audio) is sent to the LLM provider you selected, with your key.
+- **AI Rewrite and Edit with AI** — text, never the audio, is sent to the LLM provider you selected, with your key: the transcript (or the selected text and your instruction), your Dictionary's words, and the app, window title and field the text is for. Nothing is read from a password manager, and only the app's name from a password field.
 - **History** — transcripts are stored locally in `~/Library/Application Support/SpeechText/`. Failed recordings keep their audio for 7 days so you can retry, then it is deleted.
 - **API keys** — a release keeps them in the macOS keychain, where no other app can read them; a build you make yourself keeps them in its preferences file (see [SECURITY.md](SECURITY.md)). Never transmitted anywhere except to the provider they belong to.
 

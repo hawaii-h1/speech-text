@@ -120,7 +120,8 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
 3. Catalogue entries, a model key in `SettingsKeys`, and the descriptor's `speechModel`
    (`ModelSetting`: that key and the default). `portable`, normalisation and
    `RecordingConfiguration`'s `apiKeys` / `models` and the Settings picker follow
-   from the descriptor. A realtime model's ID gets a constant beside the catalogue.
+   from the descriptor. A realtime model's ID gets a constant in Settings.swift, beside
+   `elevenLabsRealtimeModel`.
 4. `makeBatchTranscriber` and `makeRecognitionSession`.
 
 ## 5. Realtime speech engine
@@ -163,7 +164,8 @@ Read CLAUDE.md's streaming sections first. The rules:
   verification request. `APIKeyStore.keys`, the key check, the clipboard pick-up and the
   AI step's reuse of a speech key all follow from it; `ProviderKeyTests` checks the
   prefix against every other provider's.
-- A row in Settings › API Keys (`apiKeys`, with roles).
+- The Settings › API Keys row follows from the descriptor (`APIKeyPage.order`, its `roles`
+  as tags); nothing to add.
 - A vendor with speech and chat has **one** key.
 
 ## 8. UI, tests, docs

@@ -38,7 +38,7 @@ Accessibility (the ⌘V paste and reading the focused field) and speech recognit
 git config core.hooksPath .githooks
 ```
 
-Adds the DCO sign-off to every commit, and refuses one that carries a `DEVELOPMENT_TEAM`, a source file without the SPDX header, or a source file that is in no target. See [CONTRIBUTING.md](../CONTRIBUTING.md#hooks).
+Adds the DCO sign-off to every commit, and refuses one that carries a `DEVELOPMENT_TEAM`, a new Swift file without the SPDX header, or a new Swift file that is in no target. See [CONTRIBUTING.md](../CONTRIBUTING.md#hooks).
 
 ## Tests
 
@@ -123,8 +123,9 @@ altogether.
 
 ### Known unsigned history
 
-Before squash-only, `main` gathered 42 commits with no trailer. None of them will
-be rewritten to add one: that would change every hash after them. They are:
+`main` holds 45 commits with no trailer: 42 from before squash-only, and three
+squash commits since. None of them will be rewritten to add one: that would change
+every hash after them. They are:
 
 - **39 merge commits** made by the *Merge pull request* button, the last one
   `2b8a471` (PR #42, 2026-09-22). GitHub writes those itself and cannot add a
@@ -138,11 +139,15 @@ be rewritten to add one: that would change every hash after them. They are:
   - `9ff846e` *Add rebuild skill and build identity stamping* (2026-09-16), and
   - `9f82d63` *Move rebuild skill into user-run script and docs* (2026-09-17).
     Both were pushed straight to `main` with no pull request, so no check ran.
+- **Three squash commits** — `a989b44` (PR #108, 2026-09-27), `a8e804e` (PR #131)
+  and `cc9629c` (PR #132, both 2026-10-01) — merged with the message cut down to the
+  title, which dropped the pull requests' `Signed-off-by` lines. This is the gap the
+  bullet on the squash message warns about: nothing checks the squash commit itself.
 
   `ee3eeaf` and `9ff846e` are authored as `Vladyslav Husakov <vladhskv@gmail.com>`,
   and `9f82d63` as Vladyslav Husakov.
 
-A script that counts unsigned commits on `main` should report exactly these 42.
+A script that counts unsigned commits on `main` should report exactly these 45.
 If it finds any others, that is a new gap.
 
 ## CI
@@ -162,6 +167,7 @@ moves the work:
 | No development team | `self-hosted` | `ubuntu-latest` | greps `project.pbxproj` for a `DEVELOPMENT_TEAM` |
 | SPDX headers | `self-hosted` | `ubuntu-latest` | the two-line header on every Swift file |
 | DCO sign-off | `self-hosted` | `ubuntu-latest` | a `Signed-off-by` trailer on every commit in the range |
+| Provider guide | `self-hosted` | `ubuntu-latest` | `scripts/check-provider-guide.sh` — docs/adding-a-provider.md still names code that exists |
 | Base branch | `self-hosted` | `ubuntu-latest` | the base is `main`, or the stack is labelled — see above |
 
 While the repository is private only collaborators can open a pull request, so
@@ -173,7 +179,7 @@ the failure is a job that does not start rather than a stranger's code on
 someone's Mac.
 
 Actions minutes are free for a public repository on the standard runners. The
-three cheap jobs then run on Linux, where they are faster and cost a tenth as
+five cheap jobs then run on Linux, where they are faster and cost a tenth as
 much, and stop competing for a runner with the tests.
 
 A hosted runner starts empty, so WhisperKit, FluidAudio and Sparkle would be

@@ -8,7 +8,7 @@ import AppKit
 /// The app is an `LSUIElement` agent, and an agent's windows have nowhere to be found
 /// once another app covers them: no Dock icon, no ⌘Tab entry, no Window menu. The
 /// default therefore gives the app a Dock icon for exactly as long as one of its
-/// ordinary windows (Settings, History, Debug Log, Presets) is open.
+/// ordinary windows (the main window, Settings, Debug Log) is open.
 enum DockIconMode: String, CaseIterable, Identifiable {
     case never
     case whileWindowOpen
@@ -68,7 +68,7 @@ final class DockIconController {
         observers.forEach(NotificationCenter.default.removeObserver)
     }
 
-    /// Settings, History and the other titled windows — not the recording overlay, the
+    /// The main window, Settings and the other titled windows — not the recording overlay, the
     /// status notice or the Record Window, which are panels floating over another app's
     /// work and must not pull a Dock icon in with them. Setup and Settings draw their own
     /// frame, so they are borderless, but they are ordinary windows the user leaves for a

@@ -29,7 +29,7 @@ Issues labelled [`good first issue`](../../labels/good%20first%20issue) and [`he
 
 ## Hooks
 
-One command turns on the repo's git hooks, and the two mechanical parts of the checklist below stop being things you have to remember:
+One command turns on the repo's git hooks, and the sign-off, the `DEVELOPMENT_TEAM` check and the SPDX header stop being things you have to remember:
 
 ```bash
 git config core.hooksPath .githooks
@@ -65,7 +65,7 @@ Short on purpose. Anything a machine can refuse for you is not on it:
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
 - The description says what changed and why.
 
-Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, and add the sign-off itself.
+Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, fails when docs/adding-a-provider.md no longer matches the provider code, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, except the provider guide, and add the sign-off itself.
 
 ## Language
 

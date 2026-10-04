@@ -13,7 +13,7 @@ current source, replaces `/Applications/SpeechText.app`, and starts it.
 | `--debug` | Debug configuration instead (backups are kept per configuration) |
 | `--release` | Release configuration (the default; undoes an earlier `--debug` on the same line) |
 | `--no-launch` | Build and install, leave it stopped |
-| `--status` | What is installed, what is running, whether either is HEAD |
+| `--status` | What is installed, what is running, whether the installed build is HEAD |
 | `--list` | The retained previous builds |
 | `--rollback [ID]` | Reinstall the previous build, or a named one, and launch it |
 | `--remove-legacy` | Move `SpeachText.app` / `VoicePeter.app` to the Trash |

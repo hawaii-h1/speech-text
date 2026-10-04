@@ -599,8 +599,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 }
 
 extension Notification.Name {
-    /// Posted when something (menu item, status overlay tap) wants the History window.
-    /// AppDelegate owns the window, so AppState signals rather than opening it directly.
+    /// Posted when something (menu item, status overlay tap) wants History — a page of the
+    /// main window. AppDelegate owns the window, so AppState signals rather than opening it directly.
     static let openHistoryWindow = Notification.Name("openHistoryWindow")
     /// A page of the main window, by `MainPage` raw value as the object.
     static let openMainWindowPage = Notification.Name("openMainWindowPage")

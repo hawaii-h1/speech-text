@@ -7,7 +7,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 ## Now
 
 - **Distribution** — the signed, notarized `.dmg` and the in-app updater are in place, and 0.9.1 is packaged as a draft release; what is left is making the repository public, publishing that release, and a Homebrew cask. Until then the only way for anyone else to run SpeechText is to build it, which excludes almost everyone.
-- **Accuracy for technical speech** — library names, identifiers and mixed-language dictation are where every engine struggles. The plan is a user dictionary that would feed its term list to the engine, to a post-transcription replacement table, and to the LLM prompt. None of it is built yet.
+- **Accuracy for technical speech** — library names, identifiers and mixed-language dictation are where every engine struggles. The Dictionary now sends its words to every engine that takes a list, replaces wrong spellings, and tells the LLM to keep them; what is still open is measuring it — Groq's Whisper prompt is on trial, and the engine × clip corpus (#80) is not yet run.
 
 ## Next
 
@@ -17,12 +17,12 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 ## Later
 
-- **Sync** — presets and history across Macs.
+- **Sync** — prompts and history across Macs.
 - **Automation** — URL scheme, Shortcuts, a CLI, and an MCP server, so other tools can start a dictation or read a transcript.
 
 ## Done
 
-Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup; signed, notarized releases that update themselves; OpenAI as a speech engine; API keys in the keychain; dictations made offline saved and retried once the network is back.
+Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup; signed, notarized releases that update themselves; OpenAI as a speech engine; API keys in the keychain; dictations made offline saved and retried once the network is back; a main window with History, Usage and Prompts; a Dictionary whose words reach the engine, a replacement table and the AI prompt.
 
 ## Not planned
 
