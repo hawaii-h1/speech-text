@@ -40,6 +40,9 @@ struct RecordingConfiguration {
     /// How the recogniser's em dashes are drawn — see `DashStyle`. Independent of
     /// `removesDisfluencies`: a user who wants every "е-е-е" kept may still not want "—".
     var dashStyle: DashStyle = .default
+    /// The microphone choice; which device it comes to is looked up each time the audio
+    /// engine is built, so a headset that leaves mid-recording falls back on its own.
+    var microphone: MicrophoneChoice = .automatic
     /// The Dictionary's words in the order they are sent to the speech engine
     /// (`CustomVocabulary.ranked`), or empty when the page's switch is off. Each model
     /// takes what its limits allow (`vocabulary(for:)`), and Groq's Whisper a prompt
@@ -199,6 +202,7 @@ struct RecordingConfiguration {
             }),
             removesDisfluencies: defaults.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
             dashStyle: .current,
+            microphone: MicrophoneChoice(stored: defaults.string(forKey: SettingsKeys.microphone) ?? ""),
             dictionary: Vocabulary.load(),
             replacements: TextReplacements.load()
         )

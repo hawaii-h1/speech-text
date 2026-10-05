@@ -122,6 +122,16 @@ enum SettingsKeys {
     /// The user's typing speed in words a minute, which Usage and Home weigh dictation
     /// against; absent means the average, `HomeWeek.typingWordsPerMinute`.
     static let typingWordsPerMinute = "typingWordsPerMinute"
+    /// The microphone a dictation records from, `MicrophoneChoice.stored`: empty for
+    /// Automatic, `"system"` for the system's input, otherwise a Core Audio device UID.
+    /// A device of this Mac, so machine-local and not in `portable`.
+    static let microphone = "microphone"
+    /// The picked device's name when it was picked, so the picker can name it while it
+    /// is not connected. Machine-local, like `microphone`.
+    static let microphoneName = "microphoneName"
+    /// The one-time notice that Automatic recorded from the Mac's microphone instead of
+    /// Bluetooth headphones has been shown. Machine-local.
+    static let microphoneNoticeShown = "microphoneNoticeShown"
 
     // Debug
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-

@@ -165,6 +165,13 @@ final class SpeechEngine {
     /// instruction, a Try it dictation).
     var onSavedOffline: ((UUID) -> Void)?
 
+    /// What the microphone choice came to for the engine running now.
+    private(set) var microphone: MicrophoneResolution?
+
+    /// Automatic recorded from the Mac's microphone instead of Bluetooth headphones —
+    /// the inline flow says so, once.
+    var onMicrophoneSubstituted: ((MicrophoneResolution) -> Void)?
+
     func startRecording(locale: String = "en-US") {
         guard case .idle = phase else {
             // A second start while one is starting rebuilt the session under it; one
@@ -365,13 +372,14 @@ final class SpeechEngine {
         startAudioEngine(engine)
     }
 
-    /// A fresh `AVAudioEngine` bound to the *current* default input device — the old one
-    /// is torn down first, which avoids stale-format crashes when the user switches
+    /// A fresh `AVAudioEngine` bound to the microphone the choice comes to *now* — the old
+    /// one is torn down first, which avoids stale-format crashes when the user switches
     /// devices between recordings — with the configuration-change observer on it.
     private func makeAudioEngine(waiting: Bool = false) -> AVAudioEngine {
         tearDownAudioEngine(waiting: waiting)
         let engine = AVAudioEngine()
         audioEngine = engine
+        selectMicrophone(for: engine)
 
         // Observe audio hardware changes (device plugged/unplugged, AirPods switch, etc.).
         // AVAudioEngine silently stops when this happens — we need to restart on the new device.
@@ -382,6 +390,37 @@ final class SpeechEngine {
             self?.handleAudioConfigChange()
         }
         return engine
+    }
+
+    /// Points the engine's input at the device the microphone choice resolves to, before
+    /// anything reads its format. Resolved on every engine — a start, a resume, a restart
+    /// after a device change — so a picked headset that leaves falls back on its own. A
+    /// resolution with no device sets nothing: the engine keeps the system's input, the
+    /// path the app always took. A device that cannot be set is logged and the system's
+    /// input used; the microphone choice never fails a recording.
+    private func selectMicrophone(for engine: AVAudioEngine) {
+        let resolution = AudioInputDevices.resolve(configuration?.microphone ?? .automatic)
+        microphone = resolution
+        guard let device = resolution.device else {
+            dlog("Engine", "microphone: system input")
+            return
+        }
+        guard let id = AudioInputDevices.deviceID(forUID: device.uid) else {
+            dlog("Engine", "microphone: \(device.name) is gone — system input")
+            microphone = MicrophoneResolution()
+            return
+        }
+        do {
+            try engine.inputNode.auAudioUnit.setDeviceID(id)
+            let rate = AudioInputDevices.nominalSampleRate(of: id).map { "\(Int($0)) Hz" } ?? "?"
+            dlog("Engine", "microphone: \(device.name) (\(rate))"
+                 + (resolution.avoided.map { " instead of \($0.name)" } ?? "")
+                 + (resolution.pickedIsMissing ? " — the picked microphone is not connected" : ""))
+            if resolution.avoided != nil { onMicrophoneSubstituted?(resolution) }
+        } catch {
+            dlog("Engine", "microphone: could not select \(device.name) (\(error.localizedDescription)) — system input")
+            microphone = MicrophoneResolution()
+        }
     }
 
     /// `prepare()` + `start()` acquire audio hardware resources and can block the main
@@ -719,8 +758,16 @@ final class SpeechEngine {
         // Re-prepared on a device restart: the format may have changed, and no tap
         // exists in between (`tearDownAudioEngine` removed it synchronously).
         writer.prepare(sourceFormat: hwFormat)
+        dlog("Engine", "input format: \(Int(hwFormat.sampleRate)) Hz, \(hwFormat.channelCount) ch")
 
+        // A selected microphone whose format the node had not caught up with would be
+        // converted at the wrong rate — the upload sped up or slowed down. Said once.
+        var reportedFormatMismatch = false
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            if !reportedFormatMismatch, buffer.format.sampleRate != hwFormat.sampleRate {
+                reportedFormatMismatch = true
+                dlog("Engine", "⚠ tap delivers \(Int(buffer.format.sampleRate)) Hz, prepared for \(Int(hwFormat.sampleRate)) Hz")
+            }
             let pcm = writer.append(buffer)
             session.feed(native: buffer, pcm16: pcm)
 

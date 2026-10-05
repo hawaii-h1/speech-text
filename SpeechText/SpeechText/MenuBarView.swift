@@ -371,6 +371,10 @@ struct SettingsView: View {
             }
         }
 
+        SettingsGroup(title: "Microphone") {
+            MicrophoneField()
+        }
+
         SettingsGroup(title: "Language") {
             SpokenLanguagesField(stt: stt)
         }
@@ -707,6 +711,82 @@ struct SpeechModelGroup: View {
                 SettingsNote(note)
                     .padding(.vertical, 11)
             }
+        }
+    }
+}
+
+// MARK: - Microphone
+
+/// Which microphone a dictation records from, and a caption saying what that comes to
+/// right now — Automatic's whole point is a substitution the user would not otherwise see.
+private struct MicrophoneField: View {
+    @AppStorage(SettingsKeys.microphone) private var stored = ""
+    @AppStorage(SettingsKeys.microphoneName) private var storedName = ""
+    @State private var monitor = AudioInputMonitor()
+
+    private var choice: MicrophoneChoice { MicrophoneChoice(stored: stored) }
+
+    private var resolution: MicrophoneResolution {
+        MicrophoneResolution.resolve(choice, devices: monitor.devices, defaultUID: monitor.defaultUID)
+    }
+
+    private var systemDevice: AudioInputDevice? {
+        monitor.devices.first { $0.uid == monitor.defaultUID }
+    }
+
+    /// The device actually recording under the current choice.
+    private var inUse: AudioInputDevice? { resolution.device ?? systemDevice }
+
+    var body: some View {
+        SettingsRow(title: "Microphone", detail: caption) {
+            Picker("Microphone", selection: selection) {
+                Text("Automatic").tag(MicrophoneChoice.automatic.stored)
+                Text("System Default").tag(MicrophoneChoice.systemDefault.stored)
+                Divider()
+                ForEach(monitor.devices) { device in
+                    Text(device.name).tag(device.uid)
+                }
+                // A picked device that is not connected keeps its row, so the picker
+                // never renders blank.
+                if case .device(let uid) = choice, !monitor.devices.contains(where: { $0.uid == uid }) {
+                    Text("\(storedName.isEmpty ? "Microphone" : storedName) (not connected)").tag(uid)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+    }
+
+    private var selection: Binding<String> {
+        Binding(get: { stored }, set: { value in
+            stored = value
+            if let device = monitor.devices.first(where: { $0.uid == value }) {
+                storedName = device.name
+            }
+        })
+    }
+
+    private var caption: String {
+        let now = inUse.map { "Now: \($0.name)." } ?? "No microphone is connected."
+        switch choice {
+        case .automatic:
+            if let avoided = resolution.avoided {
+                return "\(now) It records instead of \(avoided.name), whose own microphone would drop their sound to call quality and take a moment to start."
+            }
+            if systemDevice?.transport == .bluetooth {
+                return "\(now) The Mac's own microphone is off with the lid closed, so these headphones play at call quality while you dictate."
+            }
+            return "\(now) The microphone in System Settings, except that Bluetooth headphones are left to play and the Mac's own microphone records."
+        case .systemDefault:
+            return "\(now) Whatever System Settings › Sound › Input uses."
+        case .device:
+            if resolution.pickedIsMissing {
+                return "Not connected — Automatic decides until it is. \(now)"
+            }
+            if resolution.device?.transport == .bluetooth {
+                return "While it records, these headphones play at call quality and take a moment to start."
+            }
+            return now
         }
     }
 }

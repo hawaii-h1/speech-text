@@ -127,6 +127,9 @@
 		F74002000000000000000003 /* TextReplacements.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000003 /* TextReplacements.swift */; };
 		F78003000000000000000001 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
 		F74003000000000000000001 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000001 /* HallucinationFilter.swift */; };
+		F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000001 /* MicrophoneChoice.swift */; };
+		F7B003000000000000000001 /* MicrophoneChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000001 /* MicrophoneChoice.swift */; };
+		F7B002000000000000000002 /* AudioInputDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000002 /* AudioInputDevices.swift */; };
 		F74003000000000000000002 /* CustomVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000002 /* CustomVocabulary.swift */; };
 		F74003000000000000000003 /* TextReplacements.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000003 /* TextReplacements.swift */; };
 		F79002000000000000000001 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000001 /* APIKeyStore.swift */; };
@@ -229,6 +232,8 @@
 		E400010000000000000001 /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
 		F78001000000000000000001 /* NetworkFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkFailure.swift; sourceTree = "<group>"; };
 		F74001000000000000000001 /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
+		F7B001000000000000000001 /* MicrophoneChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneChoice.swift; sourceTree = "<group>"; };
+		F7B001000000000000000002 /* AudioInputDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDevices.swift; sourceTree = "<group>"; };
 		F74001000000000000000002 /* CustomVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVocabulary.swift; sourceTree = "<group>"; };
 		F74001000000000000000003 /* TextReplacements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReplacements.swift; sourceTree = "<group>"; };
 		F79001000000000000000001 /* APIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStore.swift; sourceTree = "<group>"; };
@@ -349,6 +354,8 @@
 				F78001000000000000000002 /* HistoryRetry.swift */,
 				F78001000000000000000001 /* NetworkFailure.swift */,
 				F74001000000000000000001 /* HallucinationFilter.swift */,
+				F7B001000000000000000001 /* MicrophoneChoice.swift */,
+				F7B001000000000000000002 /* AudioInputDevices.swift */,
 				F74001000000000000000002 /* CustomVocabulary.swift */,
 				F74001000000000000000003 /* TextReplacements.swift */,
 				F79001000000000000000001 /* APIKeyStore.swift */,
@@ -553,6 +560,8 @@
 				F78002000000000000000002 /* HistoryRetry.swift in Sources */,
 				F78002000000000000000001 /* NetworkFailure.swift in Sources */,
 				F74002000000000000000001 /* HallucinationFilter.swift in Sources */,
+				F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */,
+				F7B002000000000000000002 /* AudioInputDevices.swift in Sources */,
 				F74002000000000000000002 /* CustomVocabulary.swift in Sources */,
 				F74002000000000000000003 /* TextReplacements.swift in Sources */,
 				F79002000000000000000001 /* APIKeyStore.swift in Sources */,
@@ -607,6 +616,7 @@
 				F78003000000000000000003 /* OfflineRetryQueue.swift in Sources */,
 				F78003000000000000000001 /* NetworkFailure.swift in Sources */,
 				F74003000000000000000001 /* HallucinationFilter.swift in Sources */,
+				F7B003000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F74003000000000000000002 /* CustomVocabulary.swift in Sources */,
 				F74003000000000000000003 /* TextReplacements.swift in Sources */,
 				F79003000000000000000001 /* APIKeyStore.swift in Sources */,

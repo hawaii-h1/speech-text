@@ -498,3 +498,74 @@ final class ProviderErrorMessageTests: XCTestCase {
                        "Groq couldn't transcribe the recording: too many requests — try again in a moment. (HTTP 429)")
     }
 }
+
+// MARK: - Microphone choice
+
+final class MicrophoneChoiceTests: XCTestCase {
+    private let builtIn = AudioInputDevice(uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", transport: .builtIn)
+    private let airPods = AudioInputDevice(uid: "34-0E-22-ED-33-5E:input", name: "AirPods Pro", transport: .bluetooth)
+    private let usb = AudioInputDevice(uid: "AppleUSBAudioEngine:Yeti", name: "Yeti", transport: .usb)
+    private let iPhone = AudioInputDevice(uid: "iPhone-continuity", name: "iPhone Microphone", transport: .other)
+
+    func testTheStoredValueRoundTrips() {
+        for choice in [MicrophoneChoice.automatic, .systemDefault, .device(uid: airPods.uid)] {
+            XCTAssertEqual(MicrophoneChoice(stored: choice.stored), choice)
+        }
+        XCTAssertEqual(MicrophoneChoice(stored: ""), .automatic, "an install that never chose is Automatic")
+    }
+
+    func testAutomaticRecordsWithTheMacInsteadOfBluetoothHeadphones() {
+        let resolution = MicrophoneResolution.resolve(.automatic, devices: [builtIn, airPods], defaultUID: airPods.uid)
+        XCTAssertEqual(resolution.device, builtIn)
+        XCTAssertEqual(resolution.avoided, airPods)
+    }
+
+    func testAutomaticKeepsTheHeadphonesWhenTheLidIsClosed() {
+        var closed = builtIn
+        closed.canHear = false
+        let resolution = MicrophoneResolution.resolve(.automatic, devices: [closed, airPods], defaultUID: airPods.uid)
+        XCTAssertNil(resolution.device, "a closed lid's microphone records silence")
+        XCTAssertNil(resolution.avoided)
+    }
+
+    func testAutomaticKeepsTheHeadphonesOnAMacWithNoMicrophoneOfItsOwn() {
+        let resolution = MicrophoneResolution.resolve(.automatic, devices: [iPhone, airPods], defaultUID: airPods.uid)
+        XCTAssertNil(resolution.device, "only the Mac's own microphone stands in — never an iPhone")
+    }
+
+    func testAutomaticLeavesEveryOtherSystemInputAlone() {
+        for current in [builtIn, usb, iPhone] {
+            let resolution = MicrophoneResolution.resolve(.automatic, devices: [builtIn, usb, iPhone, airPods],
+                                                          defaultUID: current.uid)
+            XCTAssertNil(resolution.device, "\(current.name) is used as the system has it")
+        }
+        XCTAssertNil(MicrophoneResolution.resolve(.automatic, devices: [], defaultUID: nil).device)
+    }
+
+    func testSystemDefaultNeverSubstitutes() {
+        let resolution = MicrophoneResolution.resolve(.systemDefault, devices: [builtIn, airPods], defaultUID: airPods.uid)
+        XCTAssertEqual(resolution, MicrophoneResolution())
+    }
+
+    func testAPickedDeviceIsUsedEvenWhenItIsTheHeadphones() {
+        let resolution = MicrophoneResolution.resolve(.device(uid: airPods.uid), devices: [builtIn, airPods],
+                                                      defaultUID: airPods.uid)
+        XCTAssertEqual(resolution.device, airPods)
+        XCTAssertNil(resolution.avoided)
+        XCTAssertFalse(resolution.pickedIsMissing)
+    }
+
+    func testAPickedDeviceStaysWhenTheDefaultMoves() {
+        let resolution = MicrophoneResolution.resolve(.device(uid: usb.uid), devices: [builtIn, usb, airPods],
+                                                      defaultUID: airPods.uid)
+        XCTAssertEqual(resolution.device, usb)
+    }
+
+    func testAPickedDeviceThatIsNotConnectedFallsBackToAutomatic() {
+        let resolution = MicrophoneResolution.resolve(.device(uid: usb.uid), devices: [builtIn, airPods],
+                                                      defaultUID: airPods.uid)
+        XCTAssertEqual(resolution.device, builtIn)
+        XCTAssertEqual(resolution.avoided, airPods)
+        XCTAssertTrue(resolution.pickedIsMissing)
+    }
+}

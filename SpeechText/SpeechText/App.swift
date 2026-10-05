@@ -222,6 +222,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) { [weak self] note in
             self?.showMainWindow(on: (note.object as? String).flatMap(MainPage.init(rawValue:)))
         }
+        // A notice's way to a Settings page — the microphone notice's Change.
+        NotificationCenter.default.addObserver(
+            forName: .openSettingsPage, object: nil, queue: .main
+        ) { [weak self] note in
+            self?.showSettings(category: note.object as? SettingsCategory)
+        }
 
         // Auto-register as login item on first launch (default: ON) — unless setup is
         // open, whose Permissions step turns it on where the switch for it is, rather
@@ -604,6 +610,8 @@ extension Notification.Name {
     static let openHistoryWindow = Notification.Name("openHistoryWindow")
     /// A page of the main window, by `MainPage` raw value as the object.
     static let openMainWindowPage = Notification.Name("openMainWindowPage")
+    /// The Settings window, on the `SettingsCategory` given as the object.
+    static let openSettingsPage = Notification.Name("openSettingsPage")
 }
 
 // MARK: - AppState
@@ -612,6 +620,12 @@ extension Notification.Name {
 final class AppState {
     let speechEngine = SpeechEngine()
     let hotkeyManager = HotkeyManager()
+
+    init() {
+        speechEngine.onMicrophoneSubstituted = { [weak self] resolution in
+            self?.showMicrophoneNoticeOnce(resolution)
+        }
+    }
 
     private var overlayPanel: RecordingOverlayPanel?
     private var statusPanel: StatusOverlayPanel?
@@ -1877,6 +1891,24 @@ final class AppState {
         let detail = texts.count == 1 ? texts[0] : "\(texts.count) dictations, oldest first."
         showStatus(icon: "doc.on.clipboard", title: "Back online — copied to the clipboard",
                    detail: detail, tint: Semantic.confirmation, duration: 10)
+    }
+
+    // MARK: - Microphone
+
+    /// The first time Automatic records from the Mac's microphone instead of Bluetooth
+    /// headphones, a notice says so and where to change it — then never again. Not
+    /// during setup's Try it, whose own screen is what the user is reading.
+    private func showMicrophoneNoticeOnce(_ resolution: MicrophoneResolution) {
+        let defaults = UserDefaults.standard
+        guard !isTestDictation, !defaults.bool(forKey: SettingsKeys.microphoneNoticeShown),
+              let device = resolution.device, let avoided = resolution.avoided else { return }
+        defaults.set(true, forKey: SettingsKeys.microphoneNoticeShown)
+        showStatus(icon: "mic", title: "Recording with \(device.name)",
+                   detail: "So \(avoided.name) keeps playing at full quality.",
+                   tint: .secondary, duration: 8,
+                   action: StatusOverlayAction(title: "Change") {
+                       NotificationCenter.default.post(name: .openSettingsPage, object: SettingsCategory.speech)
+                   })
     }
 
     // MARK: - Status Overlay
