@@ -229,3 +229,51 @@ final class StreamReconnectPolicyTests: XCTestCase {
         XCTAssertEqual(policy.delays.reduce(0, +), 26.5, accuracy: 0.01)
     }
 }
+
+/// The rate-limit headers each vendor answers with, read into what is left of each window.
+final class RateLimitTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func testGroqsAndOpenAIsHeadersAreReadWithTheirDurations() throws {
+        let snapshot = try XCTUnwrap(RateLimits.parse(vendor: .groq, model: "openai/gpt-oss-120b", headers: [
+            "x-ratelimit-limit-requests": "14400", "x-ratelimit-remaining-requests": "14370",
+            "x-ratelimit-reset-requests": "2m59.56s",
+            "X-RateLimit-Limit-Tokens": "18000", "x-ratelimit-remaining-tokens": "17997",
+            "x-ratelimit-reset-tokens": "7.66s", "content-type": "application/json",
+        ], now: now))
+        XCTAssertEqual(snapshot.windows.map(\.name), ["requests", "tokens"])
+        let requests = snapshot.windows[0]
+        XCTAssertEqual(requests.limit, 14400)
+        XCTAssertEqual(requests.remaining, 14370)
+        XCTAssertEqual(try XCTUnwrap(requests.resetsAt).timeIntervalSince(now), 179.56, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(requests.used), 30.0 / 14400, accuracy: 1e-9)
+        XCTAssertEqual(snapshot.windows[1].resetsAt?.timeIntervalSince(now) ?? 0, 7.66, accuracy: 0.001)
+        XCTAssertEqual(RateLimits.logLine(snapshot), "requests 14370 of 14400 · tokens 17997 of 18000")
+    }
+
+    func testAnthropicsHeadersAreReadWithTheirTimes() throws {
+        let snapshot = try XCTUnwrap(RateLimits.parse(vendor: .anthropic, model: "claude-sonnet-5", headers: [
+            "anthropic-ratelimit-requests-limit": "50", "anthropic-ratelimit-requests-remaining": "49",
+            "anthropic-ratelimit-requests-reset": "2027-01-15T08:00:30Z",
+            "anthropic-ratelimit-input-tokens-limit": "30000", "anthropic-ratelimit-input-tokens-remaining": "27000",
+        ], now: now))
+        XCTAssertEqual(snapshot.windows.map(\.name), ["input-tokens", "requests"])
+        XCTAssertEqual(snapshot.windows[1].remaining, 49)
+        XCTAssertEqual(snapshot.windows[1].resetsAt, ISO8601DateFormatter().date(from: "2027-01-15T08:00:30Z"))
+    }
+
+    func testAWindowAVendorAddsLaterIsKeptAndAReplyWithNoneHasNoSnapshot() {
+        let audio = RateLimits.parse(vendor: .groq, model: "whisper-large-v3-turbo",
+                                     headers: ["x-ratelimit-remaining-audio-seconds": "7100"], now: now)
+        XCTAssertEqual(audio?.windows, [RateLimitWindow(name: "audio-seconds", remaining: 7100)])
+        XCTAssertNil(RateLimits.parse(vendor: .elevenLabs, model: "scribe_v2", headers: ["request-id": "x"], now: now))
+    }
+
+    func testResetDurationsInGosNotation() {
+        XCTAssertEqual(RateLimits.duration("1h2m3.5s"), 3723.5)
+        XCTAssertEqual(RateLimits.duration("120ms"), 0.12)
+        XCTAssertEqual(RateLimits.duration("6m0s"), 360)
+        XCTAssertNil(RateLimits.duration("soon"))
+        XCTAssertNil(RateLimits.duration(""))
+    }
+}

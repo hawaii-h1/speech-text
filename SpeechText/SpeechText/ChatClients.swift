@@ -271,6 +271,8 @@ struct OpenAICompatibleChatClient: ChatClient {
         dlog("LLM", "\(label): sending request, model=\(model.id), input=\(user.count) chars")
         let (data, response) = try await llmSession.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
+        // Before the status check: a 429 carries the limit that was hit.
+        RateLimitStore.shared.record(vendor: model.provider.vendor, model: model.id, response: response)
 
         try validatedHTTPResponse(response, data: data, log: "LLM", label: label,
                                   invalidResponse: LLMError.invalidResponse,
@@ -370,6 +372,7 @@ struct AnthropicChatClient: ChatClient {
         dlog("LLM", "Anthropic: sending request, model=\(model.id), input=\(user.count) chars")
         let (data, response) = try await llmSession.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
+        RateLimitStore.shared.record(vendor: .anthropic, model: model.id, response: response)
 
         try validatedHTTPResponse(response, data: data, log: "LLM", label: "Anthropic",
                                   invalidResponse: LLMError.invalidResponse,

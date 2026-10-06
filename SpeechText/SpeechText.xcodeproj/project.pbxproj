@@ -122,10 +122,12 @@
 		E700020000000000000001 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E700010000000000000001 /* SettingsWindow.swift */; };
 		E400020000000000000001 /* Onboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E400010000000000000001 /* Onboarding.swift */; };
 		F78002000000000000000001 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
+		F7A102000000000000000001 /* RateLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A101000000000000000001 /* RateLimits.swift */; };
 		F74002000000000000000001 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000001 /* HallucinationFilter.swift */; };
 		F74002000000000000000002 /* CustomVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000002 /* CustomVocabulary.swift */; };
 		F74002000000000000000003 /* TextReplacements.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000003 /* TextReplacements.swift */; };
 		F78003000000000000000001 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
+		F7A103000000000000000001 /* RateLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A101000000000000000001 /* RateLimits.swift */; };
 		F74003000000000000000001 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000001 /* HallucinationFilter.swift */; };
 		F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000001 /* MicrophoneChoice.swift */; };
 		F7B003000000000000000001 /* MicrophoneChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000001 /* MicrophoneChoice.swift */; };
@@ -234,6 +236,7 @@
 		E700010000000000000001 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		E400010000000000000001 /* Onboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Onboarding.swift; sourceTree = "<group>"; };
 		F78001000000000000000001 /* NetworkFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkFailure.swift; sourceTree = "<group>"; };
+		F7A101000000000000000001 /* RateLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateLimits.swift; sourceTree = "<group>"; };
 		F74001000000000000000001 /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
 		F7B001000000000000000001 /* MicrophoneChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneChoice.swift; sourceTree = "<group>"; };
 		F7C001000000000000000001 /* LevelNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LevelNormalizer.swift; sourceTree = "<group>"; };
@@ -358,6 +361,7 @@
 				F78001000000000000000003 /* OfflineRetryQueue.swift */,
 				F78001000000000000000002 /* HistoryRetry.swift */,
 				F78001000000000000000001 /* NetworkFailure.swift */,
+				F7A101000000000000000001 /* RateLimits.swift */,
 				F74001000000000000000001 /* HallucinationFilter.swift */,
 				F7B001000000000000000001 /* MicrophoneChoice.swift */,
 				F7C001000000000000000001 /* LevelNormalizer.swift */,
@@ -566,6 +570,7 @@
 				F78002000000000000000003 /* OfflineRetryQueue.swift in Sources */,
 				F78002000000000000000002 /* HistoryRetry.swift in Sources */,
 				F78002000000000000000001 /* NetworkFailure.swift in Sources */,
+				F7A102000000000000000001 /* RateLimits.swift in Sources */,
 				F74002000000000000000001 /* HallucinationFilter.swift in Sources */,
 				F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F7C002000000000000000001 /* LevelNormalizer.swift in Sources */,
@@ -624,6 +629,7 @@
 				F700030000000000000001 /* ProviderRegistry.swift in Sources */,
 				F78003000000000000000003 /* OfflineRetryQueue.swift in Sources */,
 				F78003000000000000000001 /* NetworkFailure.swift in Sources */,
+				F7A103000000000000000001 /* RateLimits.swift in Sources */,
 				F74003000000000000000001 /* HallucinationFilter.swift in Sources */,
 				F7B003000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F7C003000000000000000001 /* LevelNormalizer.swift in Sources */,

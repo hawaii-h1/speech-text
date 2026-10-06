@@ -351,6 +351,7 @@ struct OpenAICompatibleTranscriber: BatchTranscriber {
         let (data, response) = try await Self.session.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         dlog(log, "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
+        RateLimitStore.shared.record(vendor: provider, model: model, response: response)
 
         let provider = provider
         try validatedHTTPResponse(response, data: data, log: log, label: "transcribe",
