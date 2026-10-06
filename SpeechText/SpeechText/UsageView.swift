@@ -373,9 +373,14 @@ private struct UsageNumbers: View {
                  label: "in \(HomeFormat.integer(summary.dictations)) \(summary.dictations == 1 ? "dictation" : "dictations")")
             tile(symbol: "clock", title: "Time saved", value: saved,
                  label: "vs typing at \(Int(summary.typingWordsPerMinute)) wpm")
-            tile(symbol: "creditcard", title: "Spent",
-                 value: summary.spent > 0 ? [.approx, .number(HomeFormat.money(summary.spent))] : [.number("$0")],
-                 label: spentLabel)
+            if UsagePrices.shown {
+                tile(symbol: "creditcard", title: "Spent",
+                     value: summary.spent > 0 ? [.approx, .number(HomeFormat.money(summary.spent))] : [.number("$0")],
+                     label: spentLabel)
+            } else {
+                tile(symbol: "arrow.up.arrow.down", title: "Requests",
+                     value: [.number(HomeFormat.integer(requests))], label: requestsLabel)
+            }
             tile(symbol: "sparkles", title: "AI Rewrite",
                  value: [.number(HomeFormat.integer(summary.rewrites)), .unit(summary.rewrites == 1 ? "rewrite" : "rewrites")],
                  label: aiLabel)
@@ -389,6 +394,17 @@ private struct UsageNumbers: View {
         if let minutes { parts += [.number(hours == nil ? "\(minutes)" : " \(minutes)"), .unit("min")] }
         if hours == nil && minutes == nil { parts += [.number("0"), .unit("min")] }
         return parts
+    }
+
+    /// Every request the ledger holds in the period.
+    private var requests: Int { summary.requests.reduce(0) { $0 + $1.requests } }
+
+    private var requestsLabel: String {
+        guard requests > 0 else {
+            return summary.dictations > 0 ? "Nothing sent to a provider" : "Nothing dictated yet"
+        }
+        let refused = summary.overhead.failedRequests
+        return "to providers" + (refused > 0 ? " · \(refused) refused" : "")
     }
 
     private var spentLabel: String {
@@ -455,7 +471,9 @@ private struct UsageChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             MainSectionHeader(title, detail: detail) {
-                MainSwitch(items: [(false, "Words"), (true, "Cost")], selection: $showsCost, height: 22)
+                if UsagePrices.shown {
+                    MainSwitch(items: [(false, "Words"), (true, "Cost")], selection: $showsCost, height: 22)
+                }
             }
             MainPanel(padding: EdgeInsets(top: 22, leading: 22, bottom: 16, trailing: 22)) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -575,7 +593,7 @@ private struct UsageKinds: View {
     var body: some View {
         let mostWords = max(1, UsageSummary.Kind.allCases.map { summary.kinds[$0]?.words ?? 0 }.max() ?? 1)
         VStack(alignment: .leading, spacing: 12) {
-            MainSectionHeader("By kind", detail: "words · cost")
+            MainSectionHeader("By kind", detail: UsagePrices.shown ? "words · cost" : nil)
             MainTable {
                 ForEach(Array(UsageSummary.Kind.allCases.enumerated()), id: \.offset) { index, kind in
                     if index > 0 { MainRule() }
@@ -606,10 +624,12 @@ private struct UsageKinds: View {
                         .monospacedDigit()
                         .lineLimit(1)
                     Spacer(minLength: 6)
-                    Text(use.cost > 0 ? HomeFormat.money(use.cost) : use.count > 0 ? "$0" : "—")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(MainColor.ink)
-                        .monospacedDigit()
+                    if UsagePrices.shown {
+                        Text(use.cost > 0 ? HomeFormat.money(use.cost) : use.count > 0 ? "$0" : "—")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(MainColor.ink)
+                            .monospacedDigit()
+                    }
                 }
                 UsageBar(fraction: kind == .edit ? 0 : CGFloat(use.words) / CGFloat(mostWords),
                          color: ai ? MainColor.ai : MainColor.speech.opacity(0.7), minimum: use.count > 0 ? 5 : 0)
@@ -692,7 +712,7 @@ private struct UsageEngines: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MainSectionHeader("By engine", detail: "list prices checked 28 September 2026")
+            MainSectionHeader("By engine", detail: UsagePrices.shown ? "list prices checked 28 September 2026" : nil)
             MainTable {
                 if summary.engines.isEmpty {
                     Text("Nothing dictated in this period.")
@@ -742,6 +762,8 @@ private struct UsageEngines: View {
             Group {
                 if engine.isLocal {
                     MainChip(title: "Free on this Mac", tint: .green)
+                } else if !UsagePrices.shown {
+                    EmptyView()
                 } else if let cost = engine.cost {
                     Text(HomeFormat.money(cost)).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
                 } else {
@@ -1049,9 +1071,14 @@ private struct UsageCounting: View {
                                 UsageTypingSpeedEditor(storedTyping: $storedTyping)
                             }
                     }
-                    note("creditcard", "Prices",
-                         "Each vendor's pay-as-you-go list price, AI Rewrite at the tokens the vendor reported. Free tiers and plans cost less; models on this Mac cost nothing."
-                         + estimatedNote) { EmptyView() }
+                    if UsagePrices.shown {
+                        note("creditcard", "Prices",
+                             "Each vendor's pay-as-you-go list price, AI Rewrite at the tokens the vendor reported. Free tiers and plans cost less; models on this Mac cost nothing."
+                             + estimatedNote) { EmptyView() }
+                    } else {
+                        note("number", "Units, not prices",
+                             "Minutes, tokens and requests as the providers' own replies count them. What they cost depends on your plan — see your provider's billing page.") { EmptyView() }
+                    }
                     note("lock", "On this Mac",
                          "Counted from the last 300 dictations History keeps"
                          + (summary.since.map { ", since " + HistoryFormat.formatter("d MMMM", calendar: .current).string(from: $0) } ?? "")

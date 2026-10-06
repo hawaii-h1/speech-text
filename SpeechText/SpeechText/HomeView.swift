@@ -966,6 +966,14 @@ struct HomeWeekCard: View {
         let unpriced = week.unpricedModels.isEmpty ? ""
             : " · not counting \(week.unpricedModels.joined(separator: ", "))"
 
+        // With no prices shown, the third number is the time spent speaking.
+        let third = UsagePrices.shown
+            ? HomeStat(symbol: "creditcard", title: "Spent",
+                       value: week.spent > 0 ? [.approx, .number(HomeFormat.money(week.spent))] : [.number("$0")],
+                       label: spent + unpriced)
+            : HomeStat(symbol: "waveform", title: "Spoken", value: spoken(week.speakingMinutes),
+                       label: week.dictations > 0 ? "of speech turned into text" : "Nothing dictated yet")
+
         return [
             HomeStat(symbol: "text.alignleft", title: "Dictated",
                      value: [.number(HomeFormat.integer(week.words)), .unit("words")],
@@ -973,10 +981,18 @@ struct HomeWeekCard: View {
             HomeStat(symbol: "clock", title: "Time saved", value: saved,
                      label: storedTyping >= 10 ? "vs typing at \(Int(typing)) wpm"
                         : "vs an average typist (\(Int(typing)) wpm)"),
-            HomeStat(symbol: "creditcard", title: "Spent",
-                     value: week.spent > 0 ? [.approx, .number(HomeFormat.money(week.spent))] : [.number("$0")],
-                     label: spent + unpriced),
+            third,
         ]
+    }
+
+    /// "12 min", "1 h 5 min", "40 s".
+    private func spoken(_ minutes: Double) -> [HomeStat.Part] {
+        guard minutes >= 1 else { return [.number("\(Int((minutes * 60).rounded()))"), .unit("s")] }
+        let (hours, rest) = HomeFormat.duration(minutes: minutes)
+        var parts: [HomeStat.Part] = []
+        if let hours { parts += [.number("\(hours)"), .unit("h")] }
+        if let rest { parts += [.number(hours == nil ? "\(rest)" : " \(rest)"), .unit("min")] }
+        return parts
     }
 }
 

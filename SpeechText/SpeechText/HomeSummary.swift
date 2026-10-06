@@ -93,6 +93,12 @@ func homeWordCount(_ text: String) -> Int {
 /// 28 September 2026). Only what the design priced is here: anything else is reported as
 /// unpriced rather than guessed. What runs on the Mac costs nothing.
 enum UsagePrices {
+    /// Whether Home and Usage show any dollar figure. Off until it is decided how the
+    /// prices are kept current (#129): a list price that has moved since it was written
+    /// down misstates every total built on it, and the units — minutes, tokens, requests,
+    /// limits — are exact without one. The pricing below stays, tested, for when it is on.
+    static let shown = false
+
     struct Chat: Equatable {
         let inputPerToken: Double
         let outputPerToken: Double
