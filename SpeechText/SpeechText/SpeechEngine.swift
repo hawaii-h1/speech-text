@@ -503,7 +503,15 @@ final class SpeechEngine {
             // user what was said so far, with the reason; leaving `.recording` standing
             // with no tap was a dead microphone they only found out about at the stop.
             dlog("Engine", "restartAudioEngine: no usable input after the device change — stopping")
-            stopRecording()
+            if phase == .starting {
+                // `stopRecording` ignores `.starting`: end it as a start failure instead.
+                let message = errorMessage ?? "No audio input device available"
+                onStartFailure?(message)
+                phase = .idle
+                cleanup()
+            } else {
+                stopRecording()
+            }
             return
         }
         startAudioEngine(engine)
@@ -814,8 +822,21 @@ final class SpeechEngine {
         dlog("Engine", "handleAudioConfigChange: audio device changed, phase=\(phase)")
         seLog.warning("handleAudioConfigChange: audio device changed, phase=\(String(describing: self.phase), privacy: .public)")
 
+        // A change that stops the engine is one to act on. Selecting the microphone
+        // (`selectMicrophone`) raises a notification of its own once the engine starts,
+        // and the engine keeps running through it: treated as a device change, it tore
+        // down a starting engine — the start then never landed and the dictation sat in
+        // `.starting` recording nothing — or, under a recording, restarted it, which
+        // selected the device again and raised the next one, until the budget ended the
+        // recording. Every dictation with Bluetooth headphones on Automatic did one or
+        // the other.
+        if audioEngine?.isRunning == true {
+            dlog("Engine", "handleAudioConfigChange: engine still running — nothing to restart")
+            return
+        }
+
         switch phase {
-        case .recording:
+        case .starting where audioEngine != nil, .recording:
             // A device that keeps announcing itself — a Bluetooth headset renegotiating
             // its profile, an aggregate device whose input is not the system's — restarts
             // the engine, and the restart raises the next notification. Past the budget
@@ -827,7 +848,24 @@ final class SpeechEngine {
             guard recentDeviceRestarts.count <= Self.deviceRestartBudget else {
                 dlog("Engine", "handleAudioConfigChange: \(recentDeviceRestarts.count) device changes in \(Int(Self.deviceRestartWindow)) s — stopping")
                 recentDeviceRestarts.removeAll()
-                stopRecording()
+                if phase == .starting {
+                    // `stopRecording` ignores `.starting`; no audio was taken, so this
+                    // ends as a start failure does.
+                    let message = "The microphone kept changing — try again"
+                    errorMessage = message
+                    onStartFailure?(message)
+                    phase = .idle
+                    cleanup()
+                } else {
+                    stopRecording()
+                }
+                return
+            }
+            if phase == .starting {
+                // The start in flight is on an engine that stopped, and a teardown would
+                // bump its token and leave the phase at `.starting` for good; a fresh
+                // engine's start moves it to `.recording` as the first one would have.
+                restartAudioEngine()
                 return
             }
             if providerType != .apple, audioBufferWriter?.isConvertingLive == true {
