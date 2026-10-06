@@ -593,9 +593,28 @@ final class FocusContextTests: XCTestCase {
         for rule in ["No greeting", "Never repeat the instruction back",
                      "No quotation marks or code fences", "speech-recognition noise",
                      "Spoken formatting commands", "language the user asked for",
-                     "never invented", "<<mode:NAME>>"] {
+                     "never invented", "an instruction is content", "<<mode:NAME>>"] {
             XCTAssertTrue(prompt.contains(rule), "lost: \(rule)")
         }
+    }
+
+    /// A spoken request stacks two as often as not ("a letter in English, keep it short").
+    /// One mode is still picked and reported, so History and the Prompts page keep working,
+    /// but the mode is a starting point rather than the whole instruction — which is what
+    /// the Edit prompt has always said about the modes it offers.
+    func testTheRoutingPromptAppliesWhatTheModeDoesNotCover() {
+        let prompt = TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil)
+        XCTAssertTrue(prompt.contains("everything else the transcript asks for"))
+        XCTAssertTrue(prompt.contains("whether or not the mode covers it"))
+        XCTAssertFalse(prompt.contains("Pick the one mode"))
+    }
+
+    /// The counterweight to the rule above. "Rewrite this file in English" dictated into
+    /// Cursor is text to type, not a job to do, and the two forms are told apart only by
+    /// where the cursor is — so the rule names the places rather than the shape.
+    func testAnInstructionDictatedIntoAnEditorIsContent() {
+        let prompt = TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil)
+        XCTAssertTrue(prompt.contains("In a code editor or terminal, an instruction is content"))
     }
 
     func testTheStoredFallbackIsTheOneMarkedDefault() {
@@ -625,16 +644,30 @@ final class FocusContextTests: XCTestCase {
         // With no presets this is exactly the part we write; the presets are the user's
         // and can be any length at all.
         let ours = TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil)
-        XCTAssertLessThanOrEqual(ours.count, 2000)
+        XCTAssertLessThanOrEqual(ours.count, 1700, "framing is \(ours.count) characters")
+    }
+
+    /// The built-in prompts are the other half of what goes out — 2666 of the old 4522
+    /// characters — and they are ours to keep short, unlike a prompt the user wrote. Each
+    /// says what it is for and what to do, and leaves the obvious to the model.
+    ///
+    /// Measured as what they add to the prompt, not as the sum of their fields: the
+    /// `### `, `When to use: ` and `Instructions: ` scaffolding is sent too, and a budget
+    /// that counted only the fields would be read as bounding the wire and would not.
+    func testTheBuiltInPromptsStayCompact() {
+        let framing = TextRefinementService.buildSystemPrompt(presets: [], defaultPresetID: nil).count
+        let whole = TextRefinementService.buildSystemPrompt(presets: PromptPresetStore.builtInDefaults,
+                                                             defaultPresetID: nil).count
+        XCTAssertLessThanOrEqual(whole - framing, 2000,
+                                 "the six built-ins render as \(whole - framing) characters")
     }
 
     /// The Edit shortcut's prompt goes out on every edit, so it has a budget too (#74).
     /// It holds more than the routing prompt — the selection/instruction split and the
-    /// polish rules — and was compressed (wording, not rules) to make room for the
-    /// `<vocabulary>` rule.
+    /// polish rules — so its budget is the looser of the two.
     func testTheEditPromptStaysWithinItsBudget() {
         let ours = TextRefinementService.buildEditSystemPrompt(presets: [])
-        XCTAssertLessThanOrEqual(ours.count, 2500)
+        XCTAssertLessThanOrEqual(ours.count, 2100, "framing is \(ours.count) characters")
     }
 
     func testBothPromptsDescribeTheVocabularyBlockAndEditCarriesIt() {

@@ -10,7 +10,8 @@ import Foundation
 /// `whenToUse` is what the model reads to decide whether this preset matches the
 /// dictation — it is the routing signal, so it should describe the *situation*,
 /// not the output. `instructions` is what the model applies once it has picked
-/// this preset.
+/// this preset; whatever else the dictation asked for is applied on top of them,
+/// so a preset need not anticipate every combination.
 struct PromptPreset: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
@@ -35,88 +36,74 @@ enum PromptPresetStore {
 
     static let cleanupPresetID = fixedID("01")
 
+    /// Each one says what it is for and what to do, and stops there. They go out in full
+    /// on every AI dictation and every edit, they are more than half the prompt, and the
+    /// model fills in the obvious — so a built-in prompt that explains itself is spending
+    /// the user's rate limit to say what the model already knows. The user's own prompts
+    /// may of course be as long as they like.
     static let builtInDefaults: [PromptPreset] = [
         PromptPreset(
             id: cleanupPresetID,
             name: "Clean-up",
-            whenToUse: """
-            The dictation is plain content with no instruction about style, format or \
-            language — the user just wants what they said, written down properly.
-            """,
+            whenToUse: "Plain content, with no instruction about style, format or language.",
             instructions: """
-            Rewrite the dictation as clean written text. Fix speech-recognition errors, \
-            misheard words, punctuation, capitalization and paragraph breaks. Remove \
-            filler words, stutters, repetitions and false starts. Keep the user's own \
-            wording, tone and language — do not translate, do not summarise, do not add \
-            anything that was not said.
+            Write down what was said, as clean text: recognition errors, punctuation, \
+            capitals and paragraphs fixed, fillers and false starts dropped. Keep the \
+            user's own wording and language; add nothing.
             """
         ),
         PromptPreset(
             id: fixedID("02"),
             name: "Rewrite / Draft",
             whenToUse: """
-            The user dictated a rough draft and asked to write, rewrite, polish, expand \
-            or shorten it, or asked for a particular style or tone.
+            A rough draft the user asked to write, rewrite, polish, expand or shorten, or \
+            asked for in a particular style or tone.
             """,
             instructions: """
-            Turn the draft into well-written prose that follows whatever style, tone, \
-            length or audience the user described. Keep every fact and intent from the \
-            draft; invent nothing. If no style was named, write clear, natural prose.
+            Write it as well-made prose in the style, tone and length asked for, clear and \
+            natural if none was named. Keep every fact and intent; invent nothing.
             """
         ),
         PromptPreset(
             id: fixedID("03"),
             name: "Email / Message",
-            whenToUse: """
-            The user asked for an email, letter, Slack or chat message, a reply, or any \
-            text addressed to another person.
-            """,
+            whenToUse: "An email, letter, chat message or reply addressed to someone.",
             instructions: """
-            Write the message. Match the register the user asked for (formal, friendly, \
-            terse…); default to polite and professional. Include a greeting and sign-off \
-            only if the format calls for it. Do not invent names, dates or facts — leave \
-            an obvious placeholder such as [name] when something is genuinely missing.
+            Write the message, in the register asked for and polite and professional \
+            otherwise. Greeting and sign-off only where the format calls for them. Invent \
+            no names, dates or facts — leave an obvious [placeholder] instead.
             """
         ),
         PromptPreset(
             id: fixedID("04"),
             name: "Translate",
-            whenToUse: """
-            The user asked to translate, or asked for the text in a specific language \
-            different from the one they dictated in.
-            """,
+            whenToUse: "The user asked to translate, or for the text in another language.",
             instructions: """
-            Produce the text in the requested target language. Translate meaning, not \
-            words — the result must read as if it were written natively. Preserve tone \
-            and formatting. Output only the translation.
+            Write it in the target language as someone writing natively would, keeping \
+            tone and formatting. Output only the translation.
             """
         ),
         PromptPreset(
             id: fixedID("05"),
             name: "Notes / Bullets",
-            whenToUse: """
-            The user asked for a summary, notes, bullet points, a list, a to-do list, or \
-            for their rambling to be structured.
-            """,
+            whenToUse: "The user asked for a summary, notes, bullet points, a list, or structure.",
             instructions: """
-            Structure the content as compact bullet points or a short list, grouped by \
-            topic, in the order the user raised them. Use plain "- " bullets. One idea \
-            per line, no padding, no closing commentary.
+            Compact "- " bullets, grouped by topic, in the order the user raised them. One \
+            idea per line; no padding, no closing commentary.
             """
         ),
         PromptPreset(
             id: fixedID("06"),
             name: "Technical / Prompt",
             whenToUse: """
-            The user dictated something technical: a commit message, a PR or ticket \
-            description, a bug report, or an instruction meant for an AI coding tool.
+            Something technical: a commit message, a PR or ticket description, a bug \
+            report, or an instruction meant for an AI coding tool.
             """,
             instructions: """
-            Write it in the conventional format for that artefact — imperative mood for \
-            commit messages, problem/steps/expected for bug reports, an explicit \
-            step-by-step task description for an AI coding instruction. Keep identifiers, \
-            paths, commands and code fragments exactly as dictated; correct only obvious \
-            speech-recognition mangling of them.
+            Use that artefact's conventional form — imperative mood for a commit message, \
+            problem / steps / expected for a bug report, explicit steps for an AI \
+            instruction. Keep identifiers, paths and commands exactly as dictated, fixing \
+            only obvious mishearings of them.
             """
         ),
     ]
