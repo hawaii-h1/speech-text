@@ -219,3 +219,94 @@ final class MainPagesTests: XCTestCase {
         XCTAssertEqual(PresetUsage.unnamed(in: records), 1)
     }
 }
+
+/// What an AI pass cost: the tokens each provider's reply says it billed, read into one
+/// meaning whatever the wire said, and priced the same way by Home and Usage.
+final class ChatUsageTests: XCTestCase {
+    private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+        try JSONDecoder().decode(type, from: Data(json.utf8))
+    }
+
+    func testOpenAIsDetailsArePartsOfItsTotals() throws {
+        let reply = try decode(ChatCompletionResponse.self, """
+            {"choices":[{"message":{"content":"Hi."}}],
+             "usage":{"prompt_tokens":1432,"completion_tokens":87,"total_tokens":1519,
+                      "prompt_tokens_details":{"cached_tokens":1024},
+                      "completion_tokens_details":{"reasoning_tokens":40}}}
+            """)
+        XCTAssertEqual(reply.chatUsage, ChatUsage(inputTokens: 1432, outputTokens: 87,
+                                                  cachedInputTokens: 1024, reasoningTokens: 40))
+    }
+
+    func testGroqAndOllamaSendTheTotalsAlone() throws {
+        let groq = try decode(ChatCompletionResponse.self, """
+            {"choices":[{"message":{"content":"Hi."}}],
+             "usage":{"queue_time":0.01,"prompt_tokens":900,"prompt_time":0.02,"completion_tokens":30,
+                      "completion_time":0.05,"total_tokens":930,"total_time":0.07},
+             "x_groq":{"id":"req_1"}}
+            """)
+        XCTAssertEqual(groq.chatUsage, ChatUsage(inputTokens: 900, outputTokens: 30))
+        let none = try decode(ChatCompletionResponse.self, #"{"choices":[{"message":{"content":"Hi."}}]}"#)
+        XCTAssertNil(none.chatUsage, "a reply without usage is estimated, not counted as free")
+    }
+
+    func testAnthropicsCacheTokensAreAddedToItsInput() throws {
+        let reply = try decode(AnthropicChatClient.MessagesResponse.self, """
+            {"content":[{"type":"text","text":"Hi."}],"stop_reason":"end_turn",
+             "usage":{"input_tokens":200,"output_tokens":50,
+                      "cache_creation_input_tokens":300,"cache_read_input_tokens":1000}}
+            """)
+        XCTAssertEqual(reply.usage?.chatUsage, ChatUsage(inputTokens: 1500, outputTokens: 50, cachedInputTokens: 1000))
+    }
+
+    func testAPassRecordedBeforeUsageWasKeptStillDecodes() throws {
+        let refinement = try decode(TranscriptionRecord.Refinement.self, """
+            {"inputText":"hello","outputText":"Hello.","provider":"groq","model":"openai/gpt-oss-120b"}
+            """)
+        XCTAssertNil(refinement.usage)
+        let measured = TranscriptionRecord.Refinement(inputText: "hello", outputText: "Hello.", presetName: nil,
+                                                      provider: "groq", model: "openai/gpt-oss-120b",
+                                                      usage: ChatUsage(inputTokens: 10, outputTokens: 2))
+        let roundTrip = try JSONDecoder().decode(TranscriptionRecord.Refinement.self,
+                                                 from: JSONEncoder().encode(measured))
+        XCTAssertEqual(roundTrip, measured)
+    }
+
+    func testAPassIsPricedAtItsTokensAndEstimatedOnlyWithoutThem() throws {
+        let price = UsagePrices.Chat(inputPerToken: 1 / 1e6, outputPerToken: 10 / 1e6)
+        var pass = TranscriptionRecord.Refinement(inputText: "one two", outputText: "One, two.", presetName: nil,
+                                                  provider: "groq", model: "m")
+        XCTAssertTrue(price.isEstimate(pass))
+        XCTAssertEqual(price.cost(of: pass), price.cost(inputWords: 2, outputWords: 2), accuracy: 1e-12)
+
+        pass.usage = ChatUsage(inputTokens: 3000, outputTokens: 500, cachedInputTokens: 1000, reasoningTokens: 400)
+        XCTAssertFalse(price.isEstimate(pass))
+        XCTAssertEqual(price.cost(of: pass), 3000 / 1e6 + 5000 / 1e6, accuracy: 1e-12,
+                       "every input and output token, the cached and reasoning ones not counted twice")
+        XCTAssertFalse(UsagePrices.Chat(inputPerToken: 0, outputPerToken: 0).isEstimate(
+            TranscriptionRecord.Refinement(inputText: "a", outputText: "b", presetName: nil, provider: "ollama", model: "m")),
+                       "a free model has nothing to estimate")
+    }
+
+    func testHomeAndUsagePriceTheSameRecordsAlike() throws {
+        let now = Date()
+        func record(_ usage: ChatUsage?) -> TranscriptionRecord {
+            var record = TranscriptionRecord(id: UUID(), date: now.addingTimeInterval(-60), text: "hello there olena",
+                                             status: .success, errorMessage: nil, provider: "apple", locale: "uk",
+                                             duration: 3, audioFileName: nil)
+            record.refinement = TranscriptionRecord.Refinement(inputText: "hello there olena", outputText: "Hello there, Olena.",
+                                                               presetName: nil, provider: "anthropic",
+                                                               model: "claude-sonnet-5", usage: usage)
+            return record
+        }
+        let records = [record(ChatUsage(inputTokens: 2400, outputTokens: 30)), record(nil)]
+        let week = HomeWeek(records: records, now: now)
+        let usage = UsageSummary(records: records, period: .week, now: now)
+        XCTAssertEqual(week.aiCost, usage.aiCost, accuracy: 1e-12)
+        XCTAssertEqual(week.estimatedAIPasses, 1)
+        XCTAssertEqual(usage.estimatedAIPasses, 1)
+        let price = try XCTUnwrap(UsagePrices.chat(provider: "anthropic", model: "claude-sonnet-5"))
+        XCTAssertEqual(usage.aiCost, price.cost(ChatUsage(inputTokens: 2400, outputTokens: 30))
+                       + price.cost(inputWords: 3, outputWords: 3), accuracy: 1e-12)
+    }
+}

@@ -17,6 +17,8 @@ enum TextRefinementService {
         let presetName: String?
         let provider: String
         let model: String
+        /// The tokens the provider billed, when it reported them.
+        var usage: ChatUsage? = nil
     }
 
     static var isConfigured: Bool { LLMConfiguration.isConfigured }
@@ -40,14 +42,14 @@ enum TextRefinementService {
         // The system prompt describes <context> whether or not this dictation has one:
         // it stays the same from one recording to the next, and a missing block needs
         // no explanation.
-        let raw = try await provider.complete(
+        let reply = try await provider.complete(
             system: buildSystemPrompt(presets: presets,
                                       defaultPresetID: PromptPresetStore.storedDefaultPresetID()),
             user: userMessage(transcript: source, context: context,
                               vocabulary: Vocabulary.promptBlock(Vocabulary.load()))
         )
 
-        let parsed = parse(raw, presetNames: presets.map(\.name))
+        let parsed = parse(reply.text, presetNames: presets.map(\.name))
         // Models love "—" as much as Scribe does, and the prompt cannot be trusted to stop
         // them; the paste gets the user's dash either way. The model also quietly swaps
         // ordinary characters for look-alikes — see `replacingConfusablePunctuation`.
@@ -58,7 +60,7 @@ enum TextRefinementService {
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
         return Result(text: text, presetName: parsed.presetName,
-                      provider: providerType.rawValue, model: modelID)
+                      provider: providerType.rawValue, model: modelID, usage: reply.usage)
     }
 
     /// Rewrites `selection` — text the user selected in another app — as `instruction`
@@ -69,19 +71,19 @@ enum TextRefinementService {
         let provider = try LLMConfiguration.makeChatClient()
         let presets = PromptPresetStore.load()
         let spoken = instruction?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let raw = try await provider.complete(
+        let reply = try await provider.complete(
             system: buildEditSystemPrompt(presets: presets),
             user: editUserMessage(selection: selection, instruction: spoken, context: context,
                                   vocabulary: Vocabulary.promptBlock(Vocabulary.load()))
         )
 
-        let parsed = parse(raw, presetNames: presets.map(\.name) + [editDefaultModeName, editCustomModeName])
+        let parsed = parse(reply.text, presetNames: presets.map(\.name) + [editDefaultModeName, editCustomModeName])
         let text = polishedReply(parsed.text)
         dlog("Refine", "edit: mode=\(parsed.presetName ?? "—"), instruction=\(spoken?.isEmpty == false ? "yes" : "no"), in=\(selection.count) chars, out=\(text.count) chars")
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
         return Result(text: text, presetName: parsed.presetName,
-                      provider: providerType.rawValue, model: modelID)
+                      provider: providerType.rawValue, model: modelID, usage: reply.usage)
     }
 
     /// An LLM reply as the paste gets it: look-alike characters undone, the Dictionary's

@@ -27,6 +27,9 @@ struct HomeWeek: Equatable {
     var savedMinutes: Double = 0
     var speechCost: Double = 0
     var aiCost: Double = 0
+    /// AI passes this week priced from their words, not their tokens: written before the
+    /// provider's usage was kept.
+    var estimatedAIPasses = 0
     /// Cloud models used this week whose price `UsagePrices` does not know, so `spent`
     /// leaves them out.
     var unpricedModels: [String] = []
@@ -53,10 +56,9 @@ struct HomeWeek: Equatable {
             if let prices { speechCost += minutes * prices } else { unpriced.append(record.provider) }
 
             if let refinement = record.refinement {
-                let input = homeWordCount(refinement.inputText)
-                let output = homeWordCount(refinement.outputText)
                 if let price = UsagePrices.chat(provider: refinement.provider, model: refinement.model) {
-                    aiCost += price.cost(inputWords: input, outputWords: output)
+                    aiCost += price.cost(of: refinement)
+                    if price.isEstimate(refinement) { estimatedAIPasses += 1 }
                 } else {
                     unpriced.append(refinement.model)
                 }
@@ -101,10 +103,34 @@ enum UsagePrices {
         let inputPerToken: Double
         let outputPerToken: Double
 
+        var isFree: Bool { inputPerToken == 0 && outputPerToken == 0 }
+
+        /// What one LLM pass cost: the tokens the provider reported billing, else — for a
+        /// pass recorded before they were kept — the estimate from its words. Home and
+        /// Usage both price a pass through here, so they cannot disagree.
+        func cost(of refinement: TranscriptionRecord.Refinement) -> Double {
+            if let usage = refinement.usage { return cost(usage) }
+            return cost(inputWords: homeWordCount(refinement.inputText),
+                        outputWords: homeWordCount(refinement.outputText))
+        }
+
+        /// Every input token at the input price, cached ones included — a cache read is
+        /// cheaper, so this errs high until the catalogue carries cached prices (#129).
+        func cost(_ usage: ChatUsage) -> Double {
+            Double(usage.inputTokens) * inputPerToken + Double(usage.outputTokens) * outputPerToken
+        }
+
         /// The design's estimate: the routing prompt (~1,100 tokens) plus the words sent,
-        /// and the words returned, at 1.4 tokens a word.
+        /// and the words returned, at 1.4 tokens a word. Only for passes recorded before
+        /// the reply's usage was kept: it misses the presets, the context and vocabulary
+        /// blocks, any reasoning, and Cyrillic's heavier tokenisation.
         func cost(inputWords: Int, outputWords: Int) -> Double {
             (1_100 + Double(inputWords) * 1.4) * inputPerToken + Double(outputWords) * 1.4 * outputPerToken
+        }
+
+        /// Whether `cost(of:)` had to estimate this pass's price rather than count it.
+        func isEstimate(_ refinement: TranscriptionRecord.Refinement) -> Bool {
+            !isFree && refinement.usage == nil
         }
     }
 

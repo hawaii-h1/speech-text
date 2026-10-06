@@ -36,6 +36,10 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
         /// The Edit shortcut's rewrite of text selected in another app: `inputText` is the
         /// selection, and the record's `text` the spoken instruction ("" with none).
         var editsSelection: Bool? = nil
+        /// The tokens the provider billed for the pass, when it reported them — what Usage
+        /// prices. Nil for a pass that never got a reply, and for entries written before
+        /// it was kept, which Usage estimates from their words.
+        var usage: ChatUsage? = nil
 
         var isSelectionEdit: Bool { editsSelection == true }
         var succeeded: Bool { errorMessage == nil && !outputText.isEmpty }
@@ -177,20 +181,24 @@ final class TranscriptionHistory {
 
     /// Attaches the result of the AI step to an existing transcription entry.
     func recordRefinement(id: UUID, input: String, output: String, presetName: String?,
-                          provider: String, model: String, context: FocusContext? = nil) {
+                          provider: String, model: String, context: FocusContext? = nil,
+                          usage: ChatUsage? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
             inputText: input, outputText: output, presetName: presetName,
-            provider: provider, model: model, errorMessage: nil, context: context
+            provider: provider, model: model, errorMessage: nil, context: context, usage: usage
         ))
     }
 
     /// Records that the AI step was attempted and failed. Worth keeping: the pasted text
     /// silently differs from what the user asked for, and the entry explains why.
+    /// `usage`: a reply that came back and was refused by us (the Record Window's collapse
+    /// guard) was still billed.
     func recordRefinementFailure(id: UUID, input: String, error: String,
-                                 provider: String, model: String, context: FocusContext? = nil) {
+                                 provider: String, model: String, context: FocusContext? = nil,
+                                 usage: ChatUsage? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
             inputText: input, outputText: "", presetName: nil,
-            provider: provider, model: model, errorMessage: error, context: context
+            provider: provider, model: model, errorMessage: error, context: context, usage: usage
         ))
     }
 
@@ -199,11 +207,11 @@ final class TranscriptionHistory {
     /// whose text — the instruction — is empty.
     func recordSelectionEdit(recordID: UUID?, selection: String, output: String, error: String?,
                              presetName: String?, provider: String, model: String,
-                             context: FocusContext?) {
+                             context: FocusContext?, usage: ChatUsage? = nil) {
         let refinement = TranscriptionRecord.Refinement(
             inputText: selection, outputText: output, presetName: presetName,
             provider: provider, model: model, errorMessage: error, context: context,
-            editsSelection: true)
+            editsSelection: true, usage: usage)
         if let recordID, records.contains(where: { $0.id == recordID }) {
             updateRefinement(id: recordID, refinement)
             return

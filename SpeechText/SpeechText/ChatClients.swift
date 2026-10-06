@@ -154,8 +154,29 @@ func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
 // MARK: - Protocol
 
 protocol ChatClient {
-    /// Sends a single-turn completion and returns the assistant's plain-text reply.
-    func complete(system: String, user: String) async throws -> String
+    /// Sends a single-turn completion and returns the assistant's plain-text reply, with
+    /// the tokens the provider says it billed for it.
+    func complete(system: String, user: String) async throws -> ChatReply
+}
+
+/// What a chat request returned: the reply and, when the provider reported it, its usage.
+struct ChatReply: Equatable {
+    let text: String
+    let usage: ChatUsage?
+}
+
+/// The tokens a chat request was billed for, as the provider reported them — Usage
+/// prices these instead of estimating from words. The vendors count differently, so each
+/// field has one meaning here whatever the wire said: `inputTokens` is *every* input
+/// token (OpenAI's `prompt_tokens` already includes its cached ones; Anthropic's
+/// `input_tokens` leaves out cache reads and writes, which are added in), and
+/// `outputTokens` every output token, reasoning included (both vendors already include
+/// it). `cachedInputTokens` and `reasoningTokens` are parts of those totals, never extra.
+struct ChatUsage: Codable, Equatable {
+    var inputTokens: Int
+    var outputTokens: Int
+    var cachedInputTokens: Int? = nil
+    var reasoningTokens: Int? = nil
 }
 
 enum LLMError: LocalizedError {
@@ -238,7 +259,7 @@ struct OpenAICompatibleChatClient: ChatClient {
         return body
     }
 
-    func complete(system: String, user: String) async throws -> String {
+    func complete(system: String, user: String) async throws -> ChatReply {
         var request = URLRequest(url: baseURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -261,8 +282,8 @@ struct OpenAICompatibleChatClient: ChatClient {
         guard let raw = decoded.choices.first?.message.content else { throw LLMError.emptyResponse }
         let text = strippingReasoning(raw)
         guard !text.isEmpty else { throw LLMError.emptyResponse }
-        dlog("LLM", "\(label): done in \(String(format: "%.2f", elapsed))s, \(text.count) chars")
-        return text
+        dlog("LLM", "\(label): done in \(String(format: "%.2f", elapsed))s, \(text.count) chars\(decoded.usageLog)")
+        return ChatReply(text: text, usage: decoded.chatUsage)
     }
 }
 
@@ -273,7 +294,36 @@ struct ChatCompletionResponse: Decodable {
         struct Message: Decodable { let content: String? }
         let message: Message
     }
+    /// `prompt_tokens` includes the cached ones and `completion_tokens` the reasoning
+    /// ones; the details are parts of them. Groq and Ollama send the totals alone.
+    struct Usage: Decodable {
+        struct PromptDetails: Decodable { let cached_tokens: Int? }
+        struct CompletionDetails: Decodable { let reasoning_tokens: Int? }
+        let prompt_tokens: Int?
+        let completion_tokens: Int?
+        let prompt_tokens_details: PromptDetails?
+        let completion_tokens_details: CompletionDetails?
+    }
     let choices: [Choice]
+    let usage: Usage?
+
+    /// Nil when the reply carried no usage, or no token counts in it.
+    var chatUsage: ChatUsage? {
+        guard let usage, let input = usage.prompt_tokens, let output = usage.completion_tokens else { return nil }
+        return ChatUsage(inputTokens: input, outputTokens: output,
+                         cachedInputTokens: usage.prompt_tokens_details?.cached_tokens,
+                         reasoningTokens: usage.completion_tokens_details?.reasoning_tokens)
+    }
+
+    var usageLog: String { chatUsage.map { ", \($0.logLine)" } ?? "" }
+}
+
+extension ChatUsage {
+    /// "tokens 1432 in (1024 cached) / 87 out (40 reasoning)" — counts only, for the Debug Log.
+    var logLine: String {
+        "tokens \(inputTokens) in\(cachedInputTokens.map { " (\($0) cached)" } ?? "") / "
+            + "\(outputTokens) out\(reasoningTokens.map { " (\($0) reasoning)" } ?? "")"
+    }
 }
 
 // MARK: - Anthropic
@@ -305,7 +355,7 @@ struct AnthropicChatClient: ChatClient {
         model.refusalFallbacks ? "server-side-fallback-2026-07-01" : nil
     }
 
-    func complete(system: String, user: String) async throws -> String {
+    func complete(system: String, user: String) async throws -> ChatReply {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -326,6 +376,7 @@ struct AnthropicChatClient: ChatClient {
                                   httpError: LLMError.httpError)
 
         let decoded = try JSONDecoder().decode(MessagesResponse.self, from: data)
+        let usage = decoded.usage?.chatUsage
 
         // A policy decline arrives as HTTP 200 — check stop_reason before reading content.
         if decoded.stop_reason == "refusal" {
@@ -338,11 +389,11 @@ struct AnthropicChatClient: ChatClient {
             .compactMap(\.text)
             .joined()
         guard !text.isEmpty else { throw LLMError.emptyResponse }
-        dlog("LLM", "Anthropic: done in \(String(format: "%.2f", elapsed))s, \(text.count) chars")
-        return text
+        dlog("LLM", "Anthropic: done in \(String(format: "%.2f", elapsed))s, \(text.count) chars\(usage.map { ", \($0.logLine)" } ?? "")")
+        return ChatReply(text: text, usage: usage)
     }
 
-    private struct MessagesResponse: Decodable {
+    struct MessagesResponse: Decodable {
         struct Block: Decodable {
             let type: String
             let text: String?
@@ -351,9 +402,25 @@ struct AnthropicChatClient: ChatClient {
             let category: String?
             let explanation: String?
         }
+        /// `input_tokens` leaves out what was read from or written to the prompt cache;
+        /// `output_tokens` includes any thinking.
+        struct Usage: Decodable {
+            let input_tokens: Int
+            let output_tokens: Int
+            let cache_creation_input_tokens: Int?
+            let cache_read_input_tokens: Int?
+
+            var chatUsage: ChatUsage {
+                let read = cache_read_input_tokens ?? 0
+                return ChatUsage(inputTokens: input_tokens + read + (cache_creation_input_tokens ?? 0),
+                                 outputTokens: output_tokens,
+                                 cachedInputTokens: cache_read_input_tokens)
+            }
+        }
         let content: [Block]
         let stop_reason: String?
         let stop_details: StopDetails?
+        let usage: Usage?
     }
 }
 

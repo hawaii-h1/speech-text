@@ -154,6 +154,11 @@ Read CLAUDE.md's streaming sections first. The rules:
 - Either way: `LLMProviderType` case, `chatModelCatalog` entries (fastest good model
   first), a `SettingsKeys` model key and the
   descriptor's `chatModel` (`ModelSetting`); `portable` and normalisation follow.
+- Return a `ChatReply`: the text and the reply's token counts as a `ChatUsage` — every
+  input token in `inputTokens` (cache reads and writes added in where the API reports them
+  apart, as Anthropic's does) and every output token, reasoning included, in
+  `outputTokens`. Usage prices these; nil, for an API that reports none, falls back to an
+  estimate from the words. Pin the decode with a literal reply in `ChatUsageTests`.
 - Throw on any failure; the app falls back to the raw transcript.
 
 ## 7. The key

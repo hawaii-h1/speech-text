@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Edit with AI works on what is selected when you finish the instruction**, not what was selected when you started. If you select other text while speaking, that is the text that gets edited.
 - Clearer messages when a selection edit can no longer find the text it was asked to change.
 - **A dictation made with no connection says where it went.** Instead of "Transcription failed", the notice reads "No connection — saved to History" and offers **Retry**. Once the network is back it is transcribed by itself — only what was saved since SpeechText started — and its text goes to the clipboard with a notice, never into whatever app is in front by then.
+- **Usage counts what AI Rewrite was billed.** Each rewrite and edit now keeps the tokens the provider reported, and Usage and Home price those instead of estimating from the words. Rewrites made before this update are still estimated, and *How this is counted* says how many.
 - **Live text survives a short outage.** When the connection drops mid-dictation, the live engines (ElevenLabs and OpenAI) reconnect and the overlay keeps showing your words. The text pasted at the stop still comes from the upload, which heard what was said while the connection was down.
 
 ### Fixed

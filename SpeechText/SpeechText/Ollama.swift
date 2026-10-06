@@ -348,7 +348,7 @@ struct OllamaChatClient: ChatClient {
         return body
     }
 
-    func complete(system: String, user: String) async throws -> String {
+    func complete(system: String, user: String) async throws -> ChatReply {
         var request = URLRequest(url: ollamaBaseURL().appendingPathComponent("v1/chat/completions"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -394,8 +394,8 @@ struct OllamaChatClient: ChatClient {
         guard !text.isEmpty else { throw LLMError.emptyResponse }
 
         let elapsed = CFAbsoluteTimeGetCurrent() - start
-        dlog("LLM", "Ollama: done in \(String(format: "%.2f", elapsed))s, \(text.count) chars")
-        return text
+        dlog("LLM", "Ollama: done in \(String(format: "%.2f", elapsed))s, \(text.count) chars\(decoded.usageLog)")
+        return ChatReply(text: text, usage: decoded.chatUsage)
     }
 }
 

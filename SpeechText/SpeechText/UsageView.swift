@@ -819,13 +819,23 @@ private struct UsageCounting: View {
                             }
                     }
                     note("creditcard", "Prices",
-                         "Each vendor's pay-as-you-go list price. Free tiers and plans cost less; models on this Mac cost nothing.") { EmptyView() }
+                         "Each vendor's pay-as-you-go list price, AI Rewrite at the tokens the vendor reported. Free tiers and plans cost less; models on this Mac cost nothing."
+                         + estimatedNote) { EmptyView() }
                     note("lock", "On this Mac",
                          "Counted from the last 300 dictations History keeps"
                          + (summary.since.map { ", since " + HistoryFormat.formatter("d MMMM", calendar: .current).string(from: $0) } ?? "")
                          + ". Everything stays on your Mac.") { EmptyView() }
                 }
             }
+        }
+    }
+
+    /// The rewrites priced from their words, because they predate the vendor's token count.
+    private var estimatedNote: String {
+        switch summary.estimatedAIPasses {
+        case 0: ""
+        case 1: " One older rewrite is estimated from its words."
+        case let n: " \(n) older rewrites are estimated from their words."
         }
     }
 

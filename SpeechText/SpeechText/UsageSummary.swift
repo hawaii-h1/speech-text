@@ -6,7 +6,9 @@ import Foundation
 // What the main window's Usage page says, worked out from History — pure, so the numbers,
 // the chart's buckets and the breakdowns are testable without a window. Counted as Home's
 // week counts (`HomeWeek`): words that ended up as text, time saved against typing, and
-// the providers' list prices (`UsagePrices`) for what they price. History keeps the last
+// the providers' list prices (`UsagePrices`) for what they price — an AI pass at the tokens
+// its provider reported, estimated from its words only when it predates them
+// (`UsagePrices.Chat.cost(of:)`). History keeps the last
 // 300 dictations, so "All" is what it holds. The page is UsageView.swift.
 
 /// The page's periods.
@@ -105,6 +107,9 @@ struct UsageSummary: Equatable {
     var speechCost: Double = 0
     var aiCost: Double = 0
     var unpricedModels: [String] = []
+    /// AI passes priced from their words, not their tokens: written before the provider's
+    /// usage was kept.
+    var estimatedAIPasses = 0
     var buckets: [Bucket] = []
     var granularity: Granularity = .day
     var kinds: [Kind: KindUse] = [:]
@@ -187,11 +192,11 @@ struct UsageSummary: Equatable {
                 let a = engine(.ai, refinement.model, provider: refinement.provider)
                 engines[a].uses += 1
                 if let price = UsagePrices.chat(provider: refinement.provider, model: refinement.model) {
-                    ai = price.cost(inputWords: homeWordCount(refinement.inputText),
-                                    outputWords: homeWordCount(refinement.outputText))
+                    ai = price.cost(of: refinement)
+                    if price.isEstimate(refinement) { estimatedAIPasses += 1 }
                     aiCost += ai
                     engines[a].cost = engines[a].cost.map { $0 + ai }
-                    engines[a].isLocal = price.inputPerToken == 0 && price.outputPerToken == 0
+                    engines[a].isLocal = price.isFree
                     if let bucket { buckets[bucket].aiCost += ai }
                 } else {
                     engines[a].cost = nil

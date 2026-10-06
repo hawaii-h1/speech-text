@@ -923,7 +923,7 @@ struct DirectRecordingPanelView: View {
                         TranscriptionHistory.shared.recordRefinementFailure(
                             id: recordID, input: source,
                             error: "Not applied: \(result.presetName ?? "the rewrite") cut the text to \(share)% of its length",
-                            provider: result.provider, model: result.model)
+                            provider: result.provider, model: result.model, usage: result.usage)
                     }
                     return
                 }
@@ -942,7 +942,7 @@ struct DirectRecordingPanelView: View {
                     TranscriptionHistory.shared.recordRefinement(
                         id: recordID, input: source, output: result.text,
                         presetName: result.presetName,
-                        provider: result.provider, model: result.model
+                        provider: result.provider, model: result.model, usage: result.usage
                     )
                 }
             } catch {
