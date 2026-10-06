@@ -310,3 +310,83 @@ final class ChatUsageTests: XCTestCase {
                        + price.cost(inputWords: 3, outputWords: 3), accuracy: 1e-12)
     }
 }
+
+/// Usage's Requests and Overhead, counted from History's ledger.
+final class UsageRequestsTests: XCTestCase {
+    private let now = Date()
+
+    private func record(_ events: [UsageEvent]?, provider: String = "elevenlabs", status: TranscriptionRecord.Status = .success,
+                        duration: TimeInterval = 30, minutesAgo: Double = 1) -> TranscriptionRecord {
+        TranscriptionRecord(id: UUID(), date: now.addingTimeInterval(-minutesAgo * 60), text: status == .success ? "hello" : "",
+                            status: status, errorMessage: nil, provider: provider, locale: "uk", duration: duration,
+                            audioFileName: nil, usageEvents: events)
+    }
+
+    private func speech(_ kind: UsageEvent.Kind, _ model: String, succeeded: Bool = true, seconds: Double = 30,
+                        billed: Double? = nil, latency: Double? = nil) -> UsageEvent {
+        UsageEvent(date: now, kind: kind, vendor: .elevenLabs, model: model, succeeded: succeeded,
+                   audioSeconds: seconds, billedSeconds: billed, latency: latency)
+    }
+
+    func testEachModelsRequestsAreCountedInItsOwnUnits() throws {
+        let rewrite = UsageEvent(date: now, kind: .rewrite, vendor: .anthropic, model: "claude-sonnet-5", succeeded: true,
+                                 tokens: ChatUsage(inputTokens: 2000, outputTokens: 50), latency: 1.5)
+        let summary = UsageSummary(records: [
+            record([speech(.upload, "scribe_v2", billed: 31, latency: 0.8)]),
+            record([speech(.upload, "scribe_v2", latency: 1.2), rewrite]),
+            record([speech(.upload, "scribe_v2", succeeded: false, latency: 9)]),
+        ], period: .week, now: now)
+
+        let scribe = try XCTUnwrap(summary.requests.first)
+        XCTAssertEqual(scribe.model, "scribe_v2")
+        XCTAssertEqual(scribe.requests, 3)
+        XCTAssertEqual(scribe.failed, 1)
+        XCTAssertEqual(scribe.audioSeconds, 90)
+        XCTAssertEqual(scribe.billedSeconds, 31)
+        XCTAssertEqual(scribe.billedRequests, 1, "the rest are only known as sent")
+        XCTAssertEqual(scribe.typicalLatency, 1.0, "the middle of the answered ones; a refusal's wait is not an answer")
+
+        let sonnet = try XCTUnwrap(summary.requests.last)
+        XCTAssertEqual(sonnet.step, .ai)
+        XCTAssertEqual(sonnet.inputTokens, 2000)
+        XCTAssertEqual(sonnet.outputTokens, 50)
+        XCTAssertEqual(summary.overhead.failedRequests, 1)
+    }
+
+    func testOverheadIsWhatWasPaidForWithoutBecomingText() {
+        let summary = UsageSummary(records: [
+            record([speech(.stream, "scribe_v2_realtime", succeeded: false, seconds: 20), speech(.upload, "scribe_v2", seconds: 20)]),
+            record([speech(.stream, "scribe_v2_realtime", seconds: 10)]),
+            record([speech(.upload, "scribe_v2", succeeded: false, seconds: 5), speech(.retry, "scribe_v2", seconds: 5)]),
+            record([], status: .empty, duration: 4),
+            record([], provider: "apple", status: .empty, duration: 6),
+            record([speech(.stream, "scribe_v2_realtime", seconds: 7), speech(.upload, "scribe_v2", seconds: 7)]),
+        ], period: .week, now: now)
+
+        XCTAssertEqual(summary.overhead.paidTwiceSeconds, 27,
+                       "every stream an upload replaced — broken or answering with nothing — and no other")
+        XCTAssertEqual(summary.overhead.retries, 1)
+        XCTAssertEqual(summary.overhead.retrySeconds, 5)
+        XCTAssertEqual(summary.overhead.failedRequests, 2, "the broken socket and the refused upload, not the empty stream")
+        XCTAssertEqual(summary.overhead.notSentSeconds, 4, "silence a cloud engine was spared; Apple sends nothing anyway")
+    }
+
+    func testRecordsFromBeforeTheLedgerAddNoRequests() {
+        let summary = UsageSummary(records: [record(nil, minutesAgo: 60), record([speech(.upload, "scribe_v2")])],
+                                   period: .week, now: now)
+        XCTAssertEqual(summary.requests.map(\.requests), [1])
+        XCTAssertEqual(summary.ledgerSince, now.addingTimeInterval(-60))
+        XCTAssertTrue(UsageSummary(records: [record(nil)], period: .week, now: now).requests.isEmpty)
+    }
+
+    func testUnitsAreWrittenAsAPersonWould() {
+        XCTAssertEqual(UsageFormat.tokens(820), "820")
+        XCTAssertEqual(UsageFormat.tokens(4_820), "4.8k")
+        XCTAssertEqual(UsageFormat.tokens(48_200), "48k")
+        XCTAssertEqual(UsageFormat.tokens(1_300_000), "1.3M")
+        XCTAssertEqual(UsageFormat.wait(0.42), "0.4 s")
+        XCTAssertEqual(UsageFormat.wait(12.4), "12 s")
+        XCTAssertEqual(UsageFormat.audio(45), "45 s")
+        XCTAssertEqual(UsageFormat.audio(720), "12 min")
+    }
+}

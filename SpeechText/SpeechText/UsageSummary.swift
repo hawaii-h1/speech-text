@@ -89,6 +89,48 @@ struct UsageSummary: Equatable {
         var id: String { "\(step)-\(key)-\(provider ?? "")" }
     }
 
+    /// One vendor's model as its own replies count it: the requests the ledger holds
+    /// (`UsageEvent`), what was sent and billed, and how long an answer took.
+    struct RequestUse: Equatable, Identifiable {
+        let step: EngineUse.Step
+        let vendor: Provider
+        let model: String
+        var requests = 0
+        var failed = 0
+        /// Audio sent, and billed where the vendor or its documented minimum said.
+        var audioSeconds: Double = 0
+        var billedSeconds: Double = 0
+        /// Requests whose billed seconds are known; the rest count only as sent.
+        var billedRequests = 0
+        var inputTokens = 0
+        var outputTokens = 0
+        var latencies: [Double] = []
+
+        var id: String { "\(step)-\(vendor.rawValue)-\(model)" }
+
+        /// The middle answer time, so one slow request does not speak for the rest.
+        var typicalLatency: Double? {
+            guard !latencies.isEmpty else { return nil }
+            let sorted = latencies.sorted()
+            let middle = sorted.count / 2
+            return sorted.count.isMultiple(of: 2) ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
+        }
+    }
+
+    /// What was paid for without becoming the text, and what was never sent at all.
+    struct Overhead: Equatable {
+        /// Audio streamed for a segment that the upload then transcribed again.
+        var paidTwiceSeconds: Double = 0
+        var retries = 0
+        var retrySeconds: Double = 0
+        /// Requests a vendor refused, or that broke off.
+        var failedRequests = 0
+        /// Silent segments a cloud engine was never sent.
+        var notSentSeconds: Double = 0
+
+        var isEmpty: Bool { self == Overhead() }
+    }
+
     struct AppUse: Equatable, Identifiable {
         let app: String
         var words = 0
@@ -111,6 +153,11 @@ struct UsageSummary: Equatable {
     /// usage was kept.
     var estimatedAIPasses = 0
     var buckets: [Bucket] = []
+    /// Requests by model, from the ledger — speech first, then the busiest.
+    var requests: [RequestUse] = []
+    var overhead = Overhead()
+    /// The oldest record in the period with a ledger; requests before it were not kept.
+    var ledgerSince: Date?
     var granularity: Granularity = .day
     var kinds: [Kind: KindUse] = [:]
     var engines: [EngineUse] = []
@@ -151,6 +198,7 @@ struct UsageSummary: Equatable {
             .map { Bucket(start: $0) }
 
         var unpriced: [String] = []
+        var requestIndex: [String: Int] = [:]
         var engineIndex: [String: Int] = [:]
         var appIndex: [String: Int] = [:]
 
@@ -171,6 +219,7 @@ struct UsageSummary: Equatable {
 
             let cost = RecordCost(record)
             estimatedAIPasses += cost.estimatedAIPasses
+            countRequests(record, index: &requestIndex)
 
             // The speech step.
             let speech = cost.speech
@@ -234,6 +283,48 @@ struct UsageSummary: Equatable {
         unpricedModels = unpriced.filter { seen.insert($0).inserted }
         engines.sort { ($0.step == .speech ? 0 : 1, -($0.cost ?? 0), -$0.uses) < ($1.step == .speech ? 0 : 1, -($1.cost ?? 0), -$1.uses) }
         apps.sort { $0.words > $1.words }
+        requests.sort { ($0.step == .speech ? 0 : 1, -$0.requests) < ($1.step == .speech ? 0 : 1, -$1.requests) }
+    }
+
+    /// One record's ledger into the per-model rows and the overhead. A record from before
+    /// the ledger adds nothing: its requests were never written down.
+    private mutating func countRequests(_ record: TranscriptionRecord, index: inout [String: Int]) {
+        guard let events = record.usageEvents else { return }
+        if ledgerSince.map({ record.date < $0 }) ?? true { ledgerSince = record.date }
+        if events.isEmpty, record.status == .empty, record.duration > 0,
+           let engine = STTProviderType(rawValue: record.provider), ![.apple, .local].contains(engine) {
+            overhead.notSentSeconds += record.duration
+        }
+        // An upload beside a stream is the stream's fallback: nothing else uploads a
+        // streamed segment, whether the socket broke or answered with nothing.
+        let fellBack = events.contains { $0.kind == .stream } && events.contains { $0.kind == .upload }
+        for event in events {
+            let step: EngineUse.Step = event.kind.isSpeech ? .speech : .ai
+            let key = "\(step)-\(event.vendor.rawValue)-\(event.model)"
+            if index[key] == nil {
+                requests.append(RequestUse(step: step, vendor: event.vendor, model: event.model))
+                index[key] = requests.count - 1
+            }
+            guard let i = index[key] else { continue }
+            requests[i].requests += 1
+            if !event.succeeded {
+                requests[i].failed += 1
+                overhead.failedRequests += 1
+            }
+            requests[i].audioSeconds += event.audioSeconds ?? 0
+            if let billed = event.billedSeconds {
+                requests[i].billedSeconds += billed
+                requests[i].billedRequests += 1
+            }
+            requests[i].inputTokens += event.tokens?.inputTokens ?? 0
+            requests[i].outputTokens += event.tokens?.outputTokens ?? 0
+            if let latency = event.latency, event.succeeded { requests[i].latencies.append(latency) }
+            if event.kind == .stream, fellBack { overhead.paidTwiceSeconds += event.audioSeconds ?? 0 }
+            if event.kind == .retry {
+                overhead.retries += 1
+                overhead.retrySeconds += event.audioSeconds ?? 0
+            }
+        }
     }
 
     /// Each bucket's first day, oldest first, ending with the one that holds today.
@@ -290,6 +381,25 @@ enum UsageFormat {
         case .week: "Week of " + HistoryFormat.formatter("d MMMM", calendar: calendar).string(from: start)
         case .month: HistoryFormat.formatter("MMMM yyyy", calendar: calendar).string(from: start)
         }
+    }
+
+    /// "820", "48.2k", "1.3M" tokens.
+    static func tokens(_ value: Int) -> String {
+        switch value {
+        case ..<1_000: "\(value)"
+        case ..<1_000_000: String(format: value < 10_000 ? "%.1fk" : "%.0fk", Double(value) / 1_000)
+        default: String(format: "%.1fM", Double(value) / 1_000_000)
+        }
+    }
+
+    /// An answer's wait: "0.4 s", "12 s".
+    static func wait(_ seconds: Double) -> String {
+        seconds < 10 ? String(format: "%.1f s", seconds) : "\(Int(seconds.rounded())) s"
+    }
+
+    /// Audio: "45 s", "12 min", "1 h 5 min".
+    static func audio(_ seconds: Double) -> String {
+        seconds < 60 ? "\(Int(seconds.rounded())) s" : HomeFormat.durationText(minutes: seconds / 60)
     }
 
     /// "3.6×", "12×".

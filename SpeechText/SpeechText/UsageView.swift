@@ -43,6 +43,9 @@ struct UsageView: View {
 
                     UsageKinds(summary: summary)
                     UsageEngines(summary: summary)
+                    UsageRequests(summary: summary)
+                    if !summary.overhead.isEmpty { UsageOverhead(overhead: summary.overhead) }
+                    UsageLimits()
                     UsageApps(summary: summary)
                     UsageCounting(summary: summary, storedTyping: $storedTyping, wide: wide)
                 }
@@ -789,6 +792,234 @@ private struct UsageEngines: View {
 
     private func minutes(_ value: Double) -> String {
         value < 1 ? "\(max(1, Int((value * 60).rounded()))) s" : HomeFormat.durationText(minutes: value)
+    }
+}
+
+// MARK: - Requests
+
+/// Every request the period's dictations made, by model, in the vendors' own units: audio
+/// sent and billed, tokens, refusals, and how long an answer typically took. Counted from
+/// History's ledger (`UsageEvent`), so a dictation that fell back or was retried counts
+/// each request it paid for.
+private struct UsageRequests: View {
+    let summary: UsageSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MainSectionHeader("Requests", detail: detail)
+            MainTable {
+                if summary.requests.isEmpty {
+                    Text(summary.ledgerSince == nil && summary.dictations > 0
+                         ? "Requests are counted from this update on."
+                         : "No requests to a provider in this period.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(MainColor.ink2)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ForEach(Array(summary.requests.enumerated()), id: \.element.id) { index, use in
+                    if index > 0 { MainRule() }
+                    row(use)
+                }
+            }
+        }
+    }
+
+    private var detail: String? {
+        guard let since = summary.ledgerSince, let oldest = summary.since, oldest < since else {
+            return "as the providers' replies count them"
+        }
+        return "counted since " + HistoryFormat.formatter("d MMMM", calendar: .current).string(from: since)
+    }
+
+    private func row(_ use: UsageSummary.RequestUse) -> some View {
+        let ai = use.step == .ai
+        return HStack(spacing: 12) {
+            Image(systemName: ai ? "sparkles" : "waveform")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(ai ? MainColor.aiInk : MainColor.okInk)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(name(use)).font(.system(size: 13.5, weight: .medium)).foregroundStyle(MainColor.ink)
+                    Text(use.vendor.displayName).font(.system(size: 12.5)).foregroundStyle(MainColor.ink3)
+                }
+                .lineLimit(1)
+                Text(units(use))
+                    .font(.system(size: 12))
+                    .foregroundStyle(MainColor.ink2)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("\(HomeFormat.integer(use.requests)) \(use.requests == 1 ? "request" : "requests")")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MainColor.ink)
+                if use.failed > 0 {
+                    Text("\(use.failed) refused")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MainColor.problem)
+                }
+            }
+            .monospacedDigit()
+            .frame(width: 110, alignment: .trailing)
+
+            Text(use.typicalLatency.map(UsageFormat.wait) ?? "—")
+                .font(.system(size: 13))
+                .foregroundStyle(MainColor.ink2)
+                .monospacedDigit()
+                .frame(width: 64, alignment: .trailing)
+                .help("A typical wait for an answer: half were faster, half slower.")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+    }
+
+    private func name(_ use: UsageSummary.RequestUse) -> String {
+        switch use.step {
+        case .speech: HomeEngines.plainName(sttModel(vendor: use.vendor, id: use.model).displayName)
+        case .ai: UsageView.chatModelName(use.model)
+        }
+    }
+
+    /// "12 min sent · 14 min billed", "48.2k tokens in · 3.1k out".
+    private func units(_ use: UsageSummary.RequestUse) -> String {
+        switch use.step {
+        case .ai:
+            guard use.inputTokens + use.outputTokens > 0 else { return "no token counts reported" }
+            return "\(UsageFormat.tokens(use.inputTokens)) tokens in · \(UsageFormat.tokens(use.outputTokens)) out"
+        case .speech:
+            let sent = "\(UsageFormat.audio(use.audioSeconds)) sent"
+            guard use.billedRequests > 0 else { return sent }
+            let billed = "\(UsageFormat.audio(use.billedSeconds)) billed"
+                + (use.billedRequests < use.requests ? " (\(use.billedRequests) of \(use.requests) reported)" : "")
+            return sent + " · " + billed
+        }
+    }
+}
+
+// MARK: - Overhead
+
+/// What was paid for without becoming text, and what was never sent — Home's tray.
+private struct UsageOverhead: View {
+    let overhead: UsageSummary.Overhead
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MainSectionHeader("Overhead", detail: "beyond one request a dictation")
+            MainTray {
+                tile("arrow.triangle.2.circlepath", "Paid twice", UsageFormat.audio(overhead.paidTwiceSeconds),
+                     "streamed, then uploaded again when the stream broke or came back empty")
+                tile("arrow.clockwise", "Retries", "\(overhead.retries)",
+                     overhead.retries > 0 ? "\(UsageFormat.audio(overhead.retrySeconds)) sent again from History" : "none from History")
+                tile("exclamationmark.triangle", "Refused", "\(overhead.failedRequests)",
+                     "requests a provider refused or that broke off")
+                tile("speaker.slash", "Not sent", UsageFormat.audio(overhead.notSentSeconds),
+                     "of silence a cloud engine was never sent")
+            }
+        }
+    }
+
+    private func tile(_ symbol: String, _ title: String, _ value: String, _ label: String) -> some View {
+        MainTile {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 7) {
+                    Image(systemName: symbol).font(.system(size: 11.5)).foregroundStyle(MainColor.okInk).frame(width: 14)
+                    Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(MainColor.ink).lineLimit(1)
+                }
+                Text(value)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(MainColor.ink)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .padding(.top, 12)
+                    .padding(.bottom, 6)
+                Text(label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MainColor.ink3)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+// MARK: - Limits
+
+/// What each provider's last reply said is left of its rate limits — a free tier is
+/// spent against these, not dollars. This session only; hidden until a reply has said.
+private struct UsageLimits: View {
+    private var store: RateLimitStore { .shared }
+
+    var body: some View {
+        let snapshots = store.snapshots
+        if !snapshots.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                MainSectionHeader("Limits right now", detail: "from each provider's last reply")
+                MainTable {
+                    ForEach(Array(snapshots.enumerated()), id: \.offset) { index, snapshot in
+                        if index > 0 { MainRule() }
+                        row(snapshot)
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(_ snapshot: RateLimitSnapshot) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name(snapshot)).font(.system(size: 13.5, weight: .medium)).foregroundStyle(MainColor.ink)
+                Text(snapshot.vendor.displayName).font(.system(size: 12.5)).foregroundStyle(MainColor.ink3)
+            }
+            .lineLimit(1)
+            .frame(width: 210, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 9) {
+                ForEach(snapshot.windows, id: \.name) { window in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(window.name.replacingOccurrences(of: "-", with: " ").capitalized)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(MainColor.ink2)
+                            Spacer(minLength: 6)
+                            Text(left(window))
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(MainColor.ink)
+                                .monospacedDigit()
+                        }
+                        if let used = window.used {
+                            UsageBar(fraction: CGFloat(used), color: used > 0.9 ? MainColor.problem : MainColor.speech.opacity(0.7),
+                                     minimum: used > 0 ? 4 : 0)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func name(_ snapshot: RateLimitSnapshot) -> String {
+        snapshot.vendor.descriptor.roles.contains(.speech) && sttModels(of: snapshot.vendor).contains { $0.id == snapshot.model }
+            ? HomeEngines.plainName(sttModel(vendor: snapshot.vendor, id: snapshot.model).displayName)
+            : UsageView.chatModelName(snapshot.model)
+    }
+
+    /// "13,999 of 14,400 left · resets in 3 min".
+    private func left(_ window: RateLimitWindow) -> String {
+        var text = window.remaining.map { HomeFormat.integer($0) } ?? "?"
+        if let limit = window.limit { text += " of \(HomeFormat.integer(limit))" }
+        text += " left"
+        if let reset = window.resetsAt, reset > Date() {
+            let seconds = reset.timeIntervalSinceNow
+            text += " · resets in " + (seconds < 60 ? "\(max(1, Int(seconds))) s" : HomeFormat.durationText(minutes: seconds / 60))
+        }
+        return text
     }
 }
 
