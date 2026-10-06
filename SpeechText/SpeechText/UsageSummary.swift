@@ -169,44 +169,45 @@ struct UsageSummary: Equatable {
             let minutes = record.duration / 60
             let bucket = Self.bucketIndex(for: record.date, in: buckets, granularity: granularity, calendar: calendar)
 
+            let cost = RecordCost(record)
+            estimatedAIPasses += cost.estimatedAIPasses
+
             // The speech step.
-            let speechPrice = UsagePrices.speech(provider: record.provider)
-            let speech = speechPrice.map { minutes * $0 }
+            let speech = cost.speech
             let s = engine(.speech, record.provider, provider: record.sttModel)
             engines[s].uses += 1
             engines[s].minutes += minutes
-            engines[s].isLocal = speechPrice == 0
-            if let speech {
-                speechCost += speech
+            engines[s].isLocal = UsagePrices.speech(provider: record.provider) == 0
+            speechCost += speech
+            if let bucket { buckets[bucket].speechCost += speech }
+            if cost.unpricedSpeech.isEmpty {
                 engines[s].cost = engines[s].cost.map { $0 + speech }
-                if let bucket { buckets[bucket].speechCost += speech }
             } else {
                 engines[s].cost = nil
-                unpriced.append(HistoryFormat.engine(record.provider))
+                unpriced += cost.unpricedSpeech.map(HistoryFormat.engine)
             }
 
-            // The AI Rewrite step.
-            var ai: Double = 0
+            // The AI Rewrite step — what it cost even when a retry has since cleared the
+            // pass it paid for.
+            let ai = cost.ai
+            aiCost += ai
+            if let bucket { buckets[bucket].aiCost += ai }
             if let refinement = record.refinement {
                 if edit { edits += 1 } else if refinement.succeeded { rewrites += 1 }
                 let a = engine(.ai, refinement.model, provider: refinement.provider)
                 engines[a].uses += 1
-                if let price = UsagePrices.chat(provider: refinement.provider, model: refinement.model) {
-                    ai = price.cost(of: refinement)
-                    if price.isEstimate(refinement) { estimatedAIPasses += 1 }
-                    aiCost += ai
+                if cost.unpricedChat.isEmpty {
                     engines[a].cost = engines[a].cost.map { $0 + ai }
-                    engines[a].isLocal = price.isFree
-                    if let bucket { buckets[bucket].aiCost += ai }
+                    engines[a].isLocal = UsagePrices.chat(provider: refinement.provider, model: refinement.model)?.isFree == true
                 } else {
                     engines[a].cost = nil
-                    unpriced.append(refinement.model)
                 }
             }
+            unpriced += cost.unpricedChat
 
             var use = kinds[kind] ?? KindUse()
             use.count += 1
-            use.speechCost += speech ?? 0
+            use.speechCost += speech
             use.aiCost += ai
 
             if record.status != .success || record.refinement?.succeeded == false { failed += 1 }

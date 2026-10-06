@@ -639,3 +639,265 @@ final class LevelNormalizerTests: XCTestCase {
         XCTAssertGreaterThan(after.max()!, 0.9)
     }
 }
+
+// MARK: - The usage ledger
+
+/// Answers as a vendor would, with what it says it billed.
+private final class MeteredBatchTranscriber: BatchTranscriber, @unchecked Sendable {
+    let answer: Result<Transcription, Error>
+    let meter: UsageMeter?
+    init(_ answer: Result<Transcription, Error>, meter: UsageMeter?) {
+        self.answer = answer
+        self.meter = meter
+    }
+    func transcribe(audioFileURL: URL, language: String?) async throws -> String {
+        XCTFail("the metered call is the one a session makes")
+        return try answer.get().text
+    }
+    func transcribeMetered(audioFileURL: URL, language: String?) async throws -> Transcription {
+        try answer.get()
+    }
+}
+
+/// What each request a segment makes leaves in History's ledger — the units Usage counts
+/// and prices, written whatever the request's answer was.
+final class UsageLedgerTests: XCTestCase {
+    private let groq = UsageMeter(vendor: .groq, model: "whisper-large-v3-turbo", minimumBilledSeconds: 10)
+
+    private func writer(seconds: Double, amplitude: Float = 0.5) -> AudioBufferWriter {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        for _ in 0 ..< Int((seconds / 0.1).rounded()) {
+            writer.append(makeSineBuffer(format: mono48k(), frames: 4_800, amplitude: amplitude))
+        }
+        return writer
+    }
+
+    private func upload(_ answer: Result<Transcription, Error>, meter: UsageMeter?, seconds: Double = 1,
+                        amplitude: Float = 0.5) async -> RecognitionOutcome {
+        let session = BatchRecognitionSession(provider: MeteredBatchTranscriber(answer, meter: meter),
+                                              writer: writer(seconds: seconds, amplitude: amplitude), language: nil)
+        let outcome = await session.finish()
+        outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
+        return outcome
+    }
+
+    /// Declared on the protocol, so a transcriber's own metered call is the one that runs
+    /// through `any BatchTranscriber` — an extension-only default would always win.
+    func testAVendorsOwnMeteringIsWhatTheProtocolCalls() async throws {
+        let transcriber: any BatchTranscriber = MeteredBatchTranscriber(
+            .success(Transcription(text: "hi", billing: SpeechBilling(seconds: 3))), meter: groq)
+        let result = try await transcriber.transcribeMetered(audioFileURL: URL(fileURLWithPath: "/dev/null"), language: nil)
+        XCTAssertEqual(result.billing?.seconds, 3)
+        XCTAssertEqual(transcriber.meter, groq)
+    }
+
+    func testAnUploadIsBilledAtTheVendorsFigureElseItsDocumentedMinimum() async throws {
+        let reported = await upload(.success(Transcription(text: "текст", billing: SpeechBilling(seconds: 12))), meter: groq)
+        let event = try XCTUnwrap(reported.usage.first)
+        XCTAssertEqual(reported.usage.count, 1)
+        XCTAssertEqual(event.kind, .upload)
+        XCTAssertEqual(event.vendor, .groq)
+        XCTAssertEqual(event.model, "whisper-large-v3-turbo")
+        XCTAssertTrue(event.succeeded)
+        XCTAssertEqual(try XCTUnwrap(event.audioSeconds), 1, accuracy: 0.05)
+        XCTAssertEqual(event.billedSeconds, 12, "the vendor's figure wins")
+
+        let silentVendor = await upload(.success(Transcription(text: "текст")), meter: groq)
+        XCTAssertEqual(silentVendor.usage.first?.billedSeconds, 10, "Groq bills ten seconds at least")
+
+        let noRule = await upload(.success(Transcription(text: "текст")),
+                                  meter: UsageMeter(vendor: .elevenLabs, model: "scribe_v2", keyterms: 3))
+        XCTAssertNil(noRule.usage.first?.billedSeconds, "unknown, never guessed")
+        XCTAssertEqual(noRule.usage.first?.keyterms, 3)
+    }
+
+    /// A reply dropped as a hallucination, or a refusal, was still a request.
+    func testARequestIsInTheLedgerWhateverItsAnswer() async {
+        let hallucinated = await upload(.success(Transcription(text: "Thank you for watching!")), meter: groq)
+        XCTAssertEqual(hallucinated.text, "")
+        XCTAssertEqual(hallucinated.usage.map(\.succeeded), [true])
+
+        let refused = await upload(.failure(TranscriptionError.httpError(.groq, 401, "{}")), meter: groq)
+        XCTAssertEqual(refused.usage.map(\.succeeded), [false])
+        XCTAssertNil(refused.usage.first?.billedSeconds, "an error reply is not taken as billed")
+
+        let offline = await upload(.failure(URLError(.notConnectedToInternet)), meter: groq)
+        XCTAssertTrue(offline.offline)
+        XCTAssertEqual(offline.usage, [], "a request that reached no network reached no vendor")
+    }
+
+    func testWhatIsNeverSentLeavesNoEntry() async {
+        let silent = await upload(.success(Transcription(text: "текст")), meter: groq, amplitude: 0.001)
+        XCTAssertEqual(silent.usage, [], "a silent segment is not uploaded")
+
+        let local = await upload(.success(Transcription(text: "текст")), meter: nil)
+        XCTAssertEqual(local.text, "текст")
+        XCTAssertEqual(local.usage, [], "a model on this Mac bills nobody")
+    }
+
+    /// A stream that fell back was paid for twice: the socket and the upload.
+    func testAStreamAndTheUploadThatReplacedItAreTwoEntries() async {
+        let realtime = UsageMeter(vendor: .elevenLabs, model: "scribe_v2_realtime")
+
+        let provider = ScriptedStreamingTranscriber()
+        provider.eventsAtFinish = [.committed("Hello there.")]
+        let kept = StreamingRecognitionSession(provider: provider, writer: writer(seconds: 1), languages: [],
+                                               fallback: ScriptedSegment(error: "no fallback expected"), meter: realtime)
+        try! kept.start()
+        let streamed = await kept.finish()
+        XCTAssertEqual(streamed.text, "Hello there.")
+        XCTAssertEqual(streamed.usage.map(\.kind), [.stream])
+        XCTAssertEqual(streamed.usage.first?.model, "scribe_v2_realtime")
+        XCTAssertEqual(streamed.usage.first?.succeeded, true)
+
+        let broken = ScriptedStreamingTranscriber()
+        broken.eventsAtFinish = [.failed(StreamBroke())]
+        let upload = MeteredBatchTranscriber(.success(Transcription(text: "Hello there.", billing: SpeechBilling(seconds: 1))),
+                                             meter: UsageMeter(vendor: .elevenLabs, model: "scribe_v2"))
+        let audio = writer(seconds: 1)
+        let fellBack = StreamingRecognitionSession(provider: broken, writer: audio, languages: [],
+                                                   fallback: BatchRecognitionSession(provider: upload, writer: audio, language: nil),
+                                                   meter: realtime)
+        try! fellBack.start()
+        let answer = await fellBack.finish()
+        answer.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
+        XCTAssertEqual(answer.text, "Hello there.")
+        XCTAssertEqual(answer.usage.map(\.kind), [.stream, .upload])
+        XCTAssertEqual(answer.usage.map(\.model), ["scribe_v2_realtime", "scribe_v2"])
+        XCTAssertEqual(answer.usage.map(\.succeeded), [false, true], "the socket broke")
+
+        let silent = ScriptedStreamingTranscriber()
+        let quietAudio = writer(seconds: 1)
+        let emptied = StreamingRecognitionSession(provider: silent, writer: quietAudio, languages: [],
+                                                  fallback: BatchRecognitionSession(provider: upload, writer: quietAudio, language: nil),
+                                                  meter: realtime)
+        try! emptied.start()
+        let replaced = await emptied.finish()
+        replaced.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
+        XCTAssertEqual(replaced.usage.map(\.kind), [.stream, .upload])
+        XCTAssertEqual(replaced.usage.map(\.succeeded), [true, true],
+                       "a stream that answered with nothing was not refused — only paid for twice")
+    }
+
+    /// The shapes the upload endpoints answer with.
+    func testTheVendorsBillingIsReadFromTheirOwnReplies() {
+        func decode(_ json: String) -> SpeechBilling? { SpeechBilling.decode(Data(json.utf8)) }
+        XCTAssertEqual(decode(#"{"text":"hi","usage":{"type":"duration","seconds":7}}"#), SpeechBilling(seconds: 7))
+        XCTAssertEqual(decode(#"{"text":"hi","usage":{"type":"tokens","input_tokens":120,"input_token_details":{"audio_tokens":110,"text_tokens":10},"output_tokens":8,"total_tokens":128}}"#),
+                       SpeechBilling(tokens: ChatUsage(inputTokens: 120, outputTokens: 8)))
+        XCTAssertEqual(decode(#"{"language_code":"ukr","text":"привіт","audio_duration_secs":4.25,"transcription_id":"t"}"#),
+                       SpeechBilling(seconds: 4.25))
+        XCTAssertNil(decode(#"{"text":"hi","x_groq":{"id":"req"}}"#))
+        XCTAssertNil(decode("not json"))
+    }
+}
+
+/// The ledger as History stores it and Usage prices it.
+final class UsageLedgerPricingTests: XCTestCase {
+    private let now = Date()
+
+    private func record(provider: String = "elevenlabs", duration: TimeInterval = 60, events: [UsageEvent]?,
+                        refinement: TranscriptionRecord.Refinement? = nil) -> TranscriptionRecord {
+        var record = TranscriptionRecord(id: UUID(), date: now, text: "hello there olena", status: .success,
+                                         errorMessage: nil, provider: provider, locale: "uk", duration: duration,
+                                         audioFileName: nil, usageEvents: events)
+        record.refinement = refinement
+        return record
+    }
+
+    private func speech(_ kind: UsageEvent.Kind, _ vendor: Provider, seconds: Double, billed: Double? = nil) -> UsageEvent {
+        UsageEvent(date: now, kind: kind, vendor: vendor, model: "m", succeeded: true,
+                   audioSeconds: seconds, billedSeconds: billed)
+    }
+
+    /// History stores the vendor's and the kind's raw values; a rename is a migration.
+    func testTheLedgerKeepsItsStoredNames() throws {
+        let event = UsageEvent(date: Date(timeIntervalSince1970: 0), kind: .stream, vendor: .elevenLabs,
+                               model: "scribe_v2_realtime", succeeded: true, audioSeconds: 2)
+        let json = String(decoding: try JSONEncoder().encode(event), as: UTF8.self)
+        XCTAssertTrue(json.contains(#""vendor":"elevenLabs""#), json)
+        XCTAssertTrue(json.contains(#""kind":"stream""#), json)
+        XCTAssertEqual(Provider.allCases.map(\.rawValue),
+                       ["apple", "groq", "elevenLabs", "anthropic", "openAI", "local", "ollama"])
+        XCTAssertEqual([UsageEvent.Kind.upload, .stream, .retry, .rewrite, .edit].map(\.rawValue),
+                       ["upload", "stream", "retry", "rewrite", "edit"])
+    }
+
+    func testARecordFromBeforeTheLedgerStillDecodes() throws {
+        let old = try JSONDecoder().decode(TranscriptionRecord.self, from: Data("""
+            {"id":"\(UUID().uuidString)","date":0,"text":"hi","status":"success","provider":"groq","duration":3}
+            """.utf8))
+        XCTAssertNil(old.usageEvents)
+    }
+
+    /// Every request is priced: the socket and the upload that replaced it, at the billed
+    /// seconds where the vendor reported them.
+    func testALedgerIsPricedFromItsEntriesAlone() throws {
+        let elevenLabs = try XCTUnwrap(UsagePrices.speech(vendor: .elevenLabs))
+        let groq = try XCTUnwrap(UsagePrices.speech(vendor: .groq))
+        let cost = RecordCost(record(events: [speech(.stream, .elevenLabs, seconds: 30),
+                                              speech(.upload, .elevenLabs, seconds: 30, billed: 31),
+                                              speech(.retry, .groq, seconds: 3, billed: 10)]))
+        XCTAssertEqual(cost.speech, 30 / 60 * elevenLabs + 31 / 60 * elevenLabs + 10 / 60 * groq, accuracy: 1e-12)
+
+        XCTAssertEqual(RecordCost(record(events: [])).total, 0, "nothing sent, nothing spent — not the minute it lasted")
+        XCTAssertEqual(RecordCost(record(events: nil)).speech, elevenLabs, accuracy: 1e-12,
+                       "a record from before the ledger is priced by its length, as before")
+    }
+
+    /// A retry clears the pass it replaced, not what the pass cost.
+    func testARewriteIsPricedFromTheLedgerAfterItsPassIsCleared() throws {
+        let pass = TranscriptionRecord.Refinement(inputText: "hello", outputText: "Hello.", presetName: nil,
+                                                  provider: "anthropic", model: "claude-sonnet-5",
+                                                  usage: ChatUsage(inputTokens: 2000, outputTokens: 40))
+        let event = try XCTUnwrap(TranscriptionHistory.chatEvent(for: pass, latency: 1.2, date: now))
+        XCTAssertEqual(event.kind, .rewrite)
+        XCTAssertEqual(event.vendor, .anthropic)
+        XCTAssertEqual(event.latency, 1.2)
+
+        let price = try XCTUnwrap(UsagePrices.chat(provider: "anthropic", model: "claude-sonnet-5"))
+        let cleared = RecordCost(record(provider: "apple", events: [event], refinement: nil))
+        XCTAssertEqual(cleared.ai, price.cost(ChatUsage(inputTokens: 2000, outputTokens: 40)), accuracy: 1e-12)
+        let withPass = RecordCost(record(provider: "apple", events: [event], refinement: pass))
+        XCTAssertEqual(withPass.ai, cleared.ai, accuracy: 1e-12, "priced once, from the ledger, not again from the pass")
+        XCTAssertEqual(withPass.estimatedAIPasses, 0)
+
+        var noReply = pass
+        noReply.usage = nil
+        noReply.outputText = ""
+        noReply.errorMessage = "HTTP 500"
+        XCTAssertEqual(TranscriptionHistory.chatEvent(for: noReply, latency: nil)?.succeeded, false)
+        XCTAssertEqual(TranscriptionHistory.chatEvent(for: noReply, latency: nil)?.kind, .rewrite)
+    }
+
+    /// A token-billed transcription is still speech: priced by its audio, never as a chat model.
+    func testASpeechRequestIsPricedAsSpeechWhateverItsReplyCarried() throws {
+        let groq = try XCTUnwrap(UsagePrices.speech(vendor: .groq))
+        var upload = speech(.upload, .groq, seconds: 60)
+        upload.tokens = ChatUsage(inputTokens: 900, outputTokens: 20)
+        let cost = RecordCost(record(provider: "groq", events: [upload]))
+        XCTAssertEqual(cost.speech, groq, accuracy: 1e-12)
+        XCTAssertEqual(cost.ai, 0)
+        XCTAssertEqual(cost.unpricedChat, [])
+    }
+
+    /// A refused upload or retry was not billed; a socket was used whatever it answered.
+    func testARefusedRequestCostsNothingAndAStreamCostsItsAudio() throws {
+        let elevenLabs = try XCTUnwrap(UsagePrices.speech(vendor: .elevenLabs))
+        let refused = UsageEvent(date: now, kind: .retry, vendor: .elevenLabs, model: "scribe_v2", succeeded: false,
+                                 audioSeconds: 60)
+        XCTAssertEqual(RecordCost(record(events: [refused, refused])).speech, 0)
+
+        let broken = UsageEvent(date: now, kind: .stream, vendor: .elevenLabs, model: "scribe_v2_realtime",
+                                succeeded: false, audioSeconds: 30)
+        let cost = RecordCost(record(events: [broken, speech(.upload, .elevenLabs, seconds: 30)]))
+        XCTAssertEqual(cost.speech, elevenLabs, accuracy: 1e-12, "the broken socket and its upload, half a minute each")
+    }
+
+    func testAnEnginesUnpricedRequestsAreNamedNotGuessed() {
+        let cost = RecordCost(record(events: [speech(.upload, .openAI, seconds: 60)]))
+        XCTAssertEqual(cost.speech, 0)
+        XCTAssertEqual(cost.unpricedSpeech, ["openai"], "named as the engine is everywhere else")
+    }
+}

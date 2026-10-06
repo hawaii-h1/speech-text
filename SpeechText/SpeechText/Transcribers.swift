@@ -146,6 +146,82 @@ enum STTTuning {
 
 protocol BatchTranscriber {
     func transcribe(audioFileURL: URL, language: String?) async throws -> String
+    /// The text and what the vendor said it billed. Declared here, not only in the
+    /// extension, so a transcriber's own version is the one called through
+    /// `any BatchTranscriber` — an extension-only method would always run the default
+    /// and the History ledger would never see a vendor's numbers.
+    func transcribeMetered(audioFileURL: URL, language: String?) async throws -> Transcription
+    /// The vendor and model a request goes to, for the History ledger (`UsageEvent`).
+    /// Nil for a transcriber whose requests nobody bills — the local engines.
+    var meter: UsageMeter? { get }
+}
+
+extension BatchTranscriber {
+    func transcribeMetered(audioFileURL: URL, language: String?) async throws -> Transcription {
+        Transcription(text: try await transcribe(audioFileURL: audioFileURL, language: language))
+    }
+
+    var meter: UsageMeter? { nil }
+}
+
+/// An upload's text, and what the vendor said it billed for it.
+struct Transcription: Equatable {
+    let text: String
+    var billing: SpeechBilling? = nil
+}
+
+/// What one speech request was billed for, in the vendor's own words. Only what the
+/// reply said: a vendor that reports nothing leaves both nil, and `UsageMeter` supplies a
+/// documented rule where one exists.
+struct SpeechBilling: Equatable {
+    /// OpenAI's `usage` of `type: "duration"`, ElevenLabs' `audio_duration_secs`.
+    var seconds: Double? = nil
+    /// OpenAI's `usage` of `type: "tokens"`: `inputTokens` counts the audio tokens.
+    var tokens: ChatUsage? = nil
+
+    /// Reads the shapes the upload endpoints answer with. Never throws: a transcript must
+    /// not be lost to a vendor changing a field the app only meters.
+    static func decode(_ data: Data) -> SpeechBilling? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let seconds = (json["audio_duration_secs"] as? NSNumber)?.doubleValue {
+            return SpeechBilling(seconds: seconds)
+        }
+        guard let usage = json["usage"] as? [String: Any] else { return nil }
+        if let seconds = (usage["seconds"] as? NSNumber)?.doubleValue {
+            return SpeechBilling(seconds: seconds)
+        }
+        if let input = (usage["input_tokens"] as? NSNumber)?.intValue,
+           let output = (usage["output_tokens"] as? NSNumber)?.intValue {
+            return SpeechBilling(tokens: ChatUsage(inputTokens: input, outputTokens: output))
+        }
+        return nil
+    }
+}
+
+/// Who a speech request is billed by: the vendor actually called (an Apple session's
+/// uploads go to Groq), the model, and the billing rule the vendor documents where its
+/// reply says nothing — Groq's ten-second minimum per request.
+struct UsageMeter: Equatable {
+    let vendor: Provider
+    let model: String
+    /// Data on the vendor's `OpenAICompatibleUpload`, never a check on its name.
+    var minimumBilledSeconds: Double? = nil
+    /// Terms sent with the request: ElevenLabs bills a surcharge for them.
+    var keyterms = 0
+
+    /// One request's ledger entry. `audioSeconds` is what was sent; billed seconds are
+    /// the vendor's figure, else its documented minimum, else unknown — never a guess.
+    /// `succeeded`: the vendor answered, whatever the answer held — a reply dropped as a
+    /// hallucination was still billed.
+    func event(_ kind: UsageEvent.Kind, audioSeconds: Double, billing: SpeechBilling?, succeeded: Bool,
+               latency: Double?, date: Date = Date()) -> UsageEvent {
+        // A request the vendor refused is taken as unbilled: no vendor here documents
+        // charging for an error reply.
+        let billed = succeeded ? billing?.seconds ?? minimumBilledSeconds.map { max($0, audioSeconds) } : nil
+        return UsageEvent(date: date, kind: kind, vendor: vendor, model: model, succeeded: succeeded,
+                          audioSeconds: audioSeconds, billedSeconds: billed,
+                          tokens: billing?.tokens, keyterms: keyterms > 0 ? keyterms : nil, latency: latency)
+    }
 }
 
 /// The multipart filename and MIME type for an upload, read off the file's extension.
@@ -204,6 +280,8 @@ struct OpenAICompatibleUpload {
     let vocabulary: VocabularyField
     /// Log the language the reply says it detected (OpenAI's `languages`).
     var logsDetectedLanguage = false
+    /// The least a request is billed for, whatever its length — Groq's ten seconds.
+    var minimumBilledSeconds: Double? = nil
 }
 
 /// The upload transcriber for every provider with an `OpenAICompatibleUpload`. The error
@@ -241,7 +319,16 @@ struct OpenAICompatibleTranscriber: BatchTranscriber {
         self.keywords = keywords
     }
 
+    var meter: UsageMeter? {
+        UsageMeter(vendor: provider, model: model, minimumBilledSeconds: upload.minimumBilledSeconds,
+                   keyterms: upload.vocabulary == .keywords ? keywords.count : 0)
+    }
+
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {
+        try await transcribeMetered(audioFileURL: audioFileURL, language: language).text
+    }
+
+    func transcribeMetered(audioFileURL: URL, language: String?) async throws -> Transcription {
         let log = provider.displayName
         let boundary = UUID().uuidString
 
@@ -284,7 +371,7 @@ struct OpenAICompatibleTranscriber: BatchTranscriber {
         } else {
             dlog(log, "transcribe: success, text=\(decoded.text.count) chars")
         }
-        return decoded.text
+        return Transcription(text: decoded.text, billing: SpeechBilling.decode(data))
     }
 
     /// The `languages` field as a log line, whatever shape it arrived in.
@@ -385,7 +472,13 @@ struct ElevenLabsTranscriber: BatchTranscriber {
         self.keyterms = keyterms
     }
 
+    var meter: UsageMeter? { UsageMeter(vendor: .elevenLabs, model: model, keyterms: keyterms.count) }
+
     func transcribe(audioFileURL: URL, language: String?) async throws -> String {
+        try await transcribeMetered(audioFileURL: audioFileURL, language: language).text
+    }
+
+    func transcribeMetered(audioFileURL: URL, language: String?) async throws -> Transcription {
         let url = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
         let boundary = UUID().uuidString
 
@@ -415,8 +508,9 @@ struct ElevenLabsTranscriber: BatchTranscriber {
                                   httpError: { TranscriptionError.httpError(.elevenLabs, $0, $1) })
 
         let decoded = try JSONDecoder().decode(TranscriptionResponse.self, from: data)
-        dlog("ElevenLabs", "transcribe: success, text=\(decoded.text.count) chars")
-        return decoded.text
+        let billing = SpeechBilling.decode(data)
+        dlog("ElevenLabs", "transcribe: success, text=\(decoded.text.count) chars, billed=\(billing?.seconds.map { String(format: "%.1fs", $0) } ?? "?")")
+        return Transcription(text: decoded.text, billing: billing)
     }
 }
 

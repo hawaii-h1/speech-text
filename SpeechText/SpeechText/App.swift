@@ -1081,7 +1081,7 @@ final class AppState {
                         id: recordID, input: aiInput, output: result.text,
                         presetName: result.presetName,
                         provider: result.provider, model: result.model,
-                        context: context, usage: result.usage
+                        context: context, usage: result.usage, latency: result.latency
                     )
                 }
             } catch {
@@ -1568,7 +1568,7 @@ final class AppState {
                 TranscriptionHistory.shared.recordSelectionEdit(
                     recordID: recordID, selection: selection.text, output: result.text, error: nil,
                     presetName: result.presetName, provider: result.provider, model: result.model,
-                    context: context, usage: result.usage)
+                    context: context, usage: result.usage, latency: result.latency)
                 let removal = self.editRemoval
                 let app = self.previousApp
                 self.refinementTask = nil

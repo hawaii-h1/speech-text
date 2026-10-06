@@ -19,6 +19,8 @@ enum TextRefinementService {
         let model: String
         /// The tokens the provider billed, when it reported them.
         var usage: ChatUsage? = nil
+        /// Seconds the request took, for Usage's speed figures.
+        var latency: Double? = nil
     }
 
     static var isConfigured: Bool { LLMConfiguration.isConfigured }
@@ -42,6 +44,7 @@ enum TextRefinementService {
         // The system prompt describes <context> whether or not this dictation has one:
         // it stays the same from one recording to the next, and a missing block needs
         // no explanation.
+        let sent = Date()
         let reply = try await provider.complete(
             system: buildSystemPrompt(presets: presets,
                                       defaultPresetID: PromptPresetStore.storedDefaultPresetID()),
@@ -60,7 +63,8 @@ enum TextRefinementService {
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
         return Result(text: text, presetName: parsed.presetName,
-                      provider: providerType.rawValue, model: modelID, usage: reply.usage)
+                      provider: providerType.rawValue, model: modelID, usage: reply.usage,
+                      latency: Date().timeIntervalSince(sent))
     }
 
     /// Rewrites `selection` — text the user selected in another app — as `instruction`
@@ -71,6 +75,7 @@ enum TextRefinementService {
         let provider = try LLMConfiguration.makeChatClient()
         let presets = PromptPresetStore.load()
         let spoken = instruction?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sent = Date()
         let reply = try await provider.complete(
             system: buildEditSystemPrompt(presets: presets),
             user: editUserMessage(selection: selection, instruction: spoken, context: context,
@@ -83,7 +88,8 @@ enum TextRefinementService {
 
         guard !text.isEmpty else { throw LLMError.emptyResponse }
         return Result(text: text, presetName: parsed.presetName,
-                      provider: providerType.rawValue, model: modelID, usage: reply.usage)
+                      provider: providerType.rawValue, model: modelID, usage: reply.usage,
+                      latency: Date().timeIntervalSince(sent))
     }
 
     /// An LLM reply as the paste gets it: look-alike characters undone, the Dictionary's

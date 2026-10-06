@@ -702,7 +702,7 @@ final class SpeechEngine {
         if !outcome.text.isEmpty {
             if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
             lastRecordID = history.recordSuccess(text: outcome.text, provider: provider, model: model,
-                                                 locale: locale, duration: duration)
+                                                 locale: locale, duration: duration, usage: outcome.usage)
             return
         }
         if failure == nil, !recordsEmptyOutcomes {
@@ -719,14 +719,14 @@ final class SpeechEngine {
         let audioURL = outcome.audioFileURL ?? (tooShortToRetry ? nil : (try? writer?.writeAudioFile()) ?? nil)
         if let error = failure {
             let id = history.recordFailure(error: error, provider: provider, model: model, locale: locale,
-                                           duration: duration, audioURL: audioURL)
+                                           duration: duration, audioURL: audioURL, usage: outcome.usage)
             if outcome.offline, !superseded, history.record(id: id)?.isRetryable == true {
                 offlineRecordID = id
                 onSavedOffline?(id)
             }
         } else {
             history.recordEmpty(provider: provider, model: model, locale: locale,
-                                duration: duration, audioURL: audioURL)
+                                duration: duration, audioURL: audioURL, usage: outcome.usage)
         }
     }
 

@@ -69,6 +69,10 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     /// that fell back to its upload too. Nil for entries written before it was kept, which
     /// Usage then names by their engine alone.
     var sttModel: String?
+    /// Every request this record cost (`UsageEvent`), oldest first. Nil for records
+    /// written before the ledger was kept, which Usage prices the old way; empty for one
+    /// that sent nothing anywhere — Apple, a model on this Mac, or a silent segment.
+    var usageEvents: [UsageEvent]?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
 
@@ -78,6 +82,53 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
         guard let refinement, refinement.succeeded else { return text }
         return refinement.outputText
     }
+}
+
+// MARK: - Usage ledger
+
+/// One request to a vendor, as metering counts it: what was sent and what the vendor
+/// said it billed. A record keeps one per request in `usageEvents` — a stream and the
+/// upload it fell back to are two, a retry is another, a rewrite another — so Usage
+/// counts the work that was paid for, not the one result that survived. Prices are not
+/// stored: the units are, and Usage prices them.
+struct UsageEvent: Codable, Equatable {
+    enum Kind: String, Codable {
+        /// A segment's file upload — including a stream's fallback.
+        case upload
+        /// A realtime socket, reconnects included.
+        case stream
+        /// History's retry of an archived recording.
+        case retry
+        /// AI Rewrite, or the Record Window's ✨.
+        case rewrite
+        /// The Edit shortcut's rewrite of a selection.
+        case edit
+
+        /// A speech request — priced by its audio, whatever else its reply reported
+        /// (OpenAI's token-billed transcriptions carry tokens too).
+        var isSpeech: Bool { self == .upload || self == .stream || self == .retry }
+    }
+
+    let date: Date
+    let kind: Kind
+    /// The vendor actually called — Groq for an Apple session's upload.
+    let vendor: Provider
+    let model: String
+    /// The vendor answered, whatever the answer held — for a stream, the socket did not
+    /// break; one that answered with nothing still counts, as its fallback upload is
+    /// what shows it was paid for twice.
+    let succeeded: Bool
+    /// Audio sent, in seconds; nil for a chat request.
+    var audioSeconds: Double? = nil
+    /// The vendor's own figure, or its documented minimum (`UsageMeter`); nil when
+    /// neither is known — then only `audioSeconds` is.
+    var billedSeconds: Double? = nil
+    /// A chat request's tokens, or a token-billed transcription's.
+    var tokens: ChatUsage? = nil
+    /// Terms sent with a speech request (ElevenLabs bills a surcharge for them).
+    var keyterms: Int? = nil
+    /// Seconds from sending the request to its answer.
+    var latency: Double? = nil
 }
 
 // MARK: - Store
@@ -161,11 +212,11 @@ final class TranscriptionHistory {
     /// Returns the new record's id so a later LLM pass can be attached to this entry.
     @discardableResult
     func recordSuccess(text: String, provider: String, model: String? = nil, locale: String?,
-                       duration: TimeInterval) -> UUID {
+                       duration: TimeInterval, usage: [UsageEvent] = []) -> UUID {
         let id = UUID()
         add(TranscriptionRecord(id: id, date: Date(), text: text, status: .success,
                                 errorMessage: nil, provider: provider, locale: locale,
-                                duration: duration, audioFileName: nil, sttModel: model))
+                                duration: duration, audioFileName: nil, sttModel: model, usageEvents: usage))
         return id
     }
 
@@ -182,11 +233,11 @@ final class TranscriptionHistory {
     /// Attaches the result of the AI step to an existing transcription entry.
     func recordRefinement(id: UUID, input: String, output: String, presetName: String?,
                           provider: String, model: String, context: FocusContext? = nil,
-                          usage: ChatUsage? = nil) {
+                          usage: ChatUsage? = nil, latency: Double? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
             inputText: input, outputText: output, presetName: presetName,
             provider: provider, model: model, errorMessage: nil, context: context, usage: usage
-        ))
+        ), latency: latency)
     }
 
     /// Records that the AI step was attempted and failed. Worth keeping: the pasted text
@@ -195,11 +246,11 @@ final class TranscriptionHistory {
     /// guard) was still billed.
     func recordRefinementFailure(id: UUID, input: String, error: String,
                                  provider: String, model: String, context: FocusContext? = nil,
-                                 usage: ChatUsage? = nil) {
+                                 usage: ChatUsage? = nil, latency: Double? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
             inputText: input, outputText: "", presetName: nil,
             provider: provider, model: model, errorMessage: error, context: context, usage: usage
-        ))
+        ), latency: latency)
     }
 
     /// The Edit shortcut's rewrite. It belongs to the spoken instruction's record when
@@ -207,29 +258,49 @@ final class TranscriptionHistory {
     /// whose text — the instruction — is empty.
     func recordSelectionEdit(recordID: UUID?, selection: String, output: String, error: String?,
                              presetName: String?, provider: String, model: String,
-                             context: FocusContext?, usage: ChatUsage? = nil) {
+                             context: FocusContext?, usage: ChatUsage? = nil, latency: Double? = nil) {
         let refinement = TranscriptionRecord.Refinement(
             inputText: selection, outputText: output, presetName: presetName,
             provider: provider, model: model, errorMessage: error, context: context,
             editsSelection: true, usage: usage)
         if let recordID, records.contains(where: { $0.id == recordID }) {
-            updateRefinement(id: recordID, refinement)
+            updateRefinement(id: recordID, refinement, latency: latency)
             return
         }
         var record = TranscriptionRecord(id: UUID(), date: Date(), text: "", status: .success,
                                          errorMessage: nil, provider: "edit", locale: nil,
-                                         duration: 0, audioFileName: nil)
+                                         duration: 0, audioFileName: nil, usageEvents: [])
         record.refinement = refinement
+        record.usageEvents?.append(contentsOf: Self.chatEvent(for: refinement, latency: latency).map { [$0] } ?? [])
         add(record)
     }
 
-    private func updateRefinement(id: UUID, _ refinement: TranscriptionRecord.Refinement) {
+    /// The pass written onto the record, and its request onto the record's ledger — which
+    /// a later retry's cleared refinement cannot take back: it was billed all the same.
+    /// A record from before the ledger (`usageEvents == nil`) gets no entries at all:
+    /// one entry would make Usage price it from the ledger alone and lose its speech.
+    private func updateRefinement(id: UUID, _ refinement: TranscriptionRecord.Refinement, latency: Double?) {
         guard let index = records.firstIndex(where: { $0.id == id }) else {
             histLog.info("refinement for unknown record \(id.uuidString, privacy: .public) — dropped")
             return
         }
         records[index].refinement = refinement
+        if let event = Self.chatEvent(for: refinement, latency: latency) {
+            records[index].usageEvents?.append(event)
+        }
         save()
+    }
+
+    /// The ledger entry for an LLM pass. A pass that got a reply counts as answered,
+    /// even one refused afterwards (the Record Window's collapse guard); one with no
+    /// reply — a missing key, an HTTP error — sent no tokens anyone billed. Nil when the
+    /// provider is one History cannot name.
+    static func chatEvent(for refinement: TranscriptionRecord.Refinement, latency: Double?,
+                          date: Date = Date()) -> UsageEvent? {
+        guard let vendor = LLMProviderType(rawValue: refinement.provider)?.vendor else { return nil }
+        return UsageEvent(date: date, kind: refinement.isSelectionEdit ? .edit : .rewrite, vendor: vendor,
+                          model: refinement.model, succeeded: refinement.usage != nil || refinement.succeeded,
+                          tokens: refinement.usage, latency: latency)
     }
 
     /// Records a failure and *keeps* the audio so the user can retry it. Passing the temp
@@ -237,12 +308,12 @@ final class TranscriptionHistory {
     /// Returns the new record's id, so a failure the user can retry can name its row.
     @discardableResult
     func recordFailure(error: String, provider: String, model: String? = nil, locale: String?,
-                       duration: TimeInterval, audioURL: URL?) -> UUID {
+                       duration: TimeInterval, audioURL: URL?, usage: [UsageEvent] = []) -> UUID {
         let archived = archive(audioURL: audioURL)
         let id = UUID()
         add(TranscriptionRecord(id: id, date: Date(), text: "", status: .failed,
                                 errorMessage: error, provider: provider, locale: locale,
-                                duration: duration, audioFileName: archived, sttModel: model))
+                                duration: duration, audioFileName: archived, sttModel: model, usageEvents: usage))
         return id
     }
 
@@ -252,19 +323,25 @@ final class TranscriptionHistory {
 
     /// Transcription succeeded technically but produced no words. Audio is kept too —
     /// an empty result is often a provider hiccup worth retrying.
-    func recordEmpty(provider: String, model: String? = nil, locale: String?, duration: TimeInterval, audioURL: URL?) {
+    func recordEmpty(provider: String, model: String? = nil, locale: String?, duration: TimeInterval, audioURL: URL?,
+                     usage: [UsageEvent] = []) {
         let archived = archive(audioURL: audioURL)
         add(TranscriptionRecord(id: UUID(), date: Date(), text: "", status: .empty,
                                 errorMessage: nil, provider: provider, locale: locale,
-                                duration: duration, audioFileName: archived, sttModel: model))
+                                duration: duration, audioFileName: archived, sttModel: model, usageEvents: usage))
     }
 
     /// Replace a failed record's outcome after a successful retry.
     /// `provider` and `model`: the engine the retry went to — the current settings', not
     /// the recording's — so Usage counts and prices the work where it was done.
-    func markRetrySucceeded(id: UUID, text: String, provider: String? = nil, model: String? = nil) {
+    /// `event`: the retry's own request, added to the ledger — the attempts before it
+    /// were billed too, and stay. Not added to a record from before the ledger, which
+    /// Usage keeps pricing the old way.
+    func markRetrySucceeded(id: UUID, text: String, provider: String? = nil, model: String? = nil,
+                            event: UsageEvent? = nil) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         var record = records[index]
+        if let event { record.usageEvents?.append(event) }
         // The audio has served its purpose — reclaim the disk.
         if let url = audioURL(for: record) {
             try? FileManager.default.removeItem(at: url)
@@ -283,9 +360,10 @@ final class TranscriptionHistory {
         save()
     }
 
-    func markRetryFailed(id: UUID, error: String) {
+    func markRetryFailed(id: UUID, error: String, event: UsageEvent? = nil) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].errorMessage = error
+        if let event { records[index].usageEvents?.append(event) }
         save()
     }
 

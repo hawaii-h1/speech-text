@@ -54,6 +54,11 @@ struct RecordingConfiguration {
     /// The terms a file upload is sent: the batch tier, the stream's fallback, a retry.
     var batchVocabulary: [String] { vocabulary(for: batchDescriptor) }
 
+    /// Who a realtime socket is billed by: the selected model, with the terms it is sent.
+    var streamMeter: UsageMeter {
+        UsageMeter(vendor: model.vendor, model: model.id, keyterms: liveVocabulary.count)
+    }
+
     func vocabulary(for descriptor: STTModelDescriptor) -> [String] {
         CustomVocabulary.selected(vocabulary, limits: descriptor.vocabulary.limits)
     }

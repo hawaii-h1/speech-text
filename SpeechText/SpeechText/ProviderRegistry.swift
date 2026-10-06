@@ -9,7 +9,9 @@ import Foundation
 /// Not the user's pick: `STTProviderType` and `LLMProviderType` are what the Speech and AI
 /// Rewrite pickers store, and each maps to its provider through an exhaustive `vendor`.
 /// Groq and OpenAI serve both, with one key.
-enum Provider: String, CaseIterable, Hashable, Identifiable {
+/// `Codable` by its raw value, which History's ledger stores (`UsageEvent.vendor`) — so a
+/// rename of a case is a migration, pinned by `StoredProviderNameTests`.
+enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
     case apple
     case groq
     case elevenLabs
@@ -51,7 +53,9 @@ enum Provider: String, CaseIterable, Hashable, Identifiable {
                 chatModel: ModelSetting(settingsKey: SettingsKeys.groqLLMModel, defaultID: "openai/gpt-oss-120b"),
                 speechUpload: OpenAICompatibleUpload(
                     url: URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!,
-                    fixedFields: [(name: "response_format", value: "json")], vocabulary: .prompt))
+                    fixedFields: [(name: "response_format", value: "json")], vocabulary: .prompt,
+                    // "Audio is billed at a 10-second minimum per request" — console.groq.com/docs/speech-to-text, 2026-10-04.
+                    minimumBilledSeconds: 10))
         case .elevenLabs:
             ProviderDescriptor(displayName: "ElevenLabs", roles: [.speech], apiKey: APIKeyDescriptor(
                 settingsKey: SettingsKeys.elevenLabsAPIKey,

@@ -88,11 +88,16 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// The socket's sample rate. Fixed for the session: a reconnect makes the same
     /// provider again, and the converter below is built for it.
     private let sampleRate: Double
+    /// The realtime model the socket is billed under — its ledger entry, apart from the
+    /// fallback upload's, which the batch session writes itself.
+    private let meter: UsageMeter?
 
     init(provider: StreamingTranscriber, writer: AudioBufferWriter, languages: [String],
          fallback: RecognitionSession,
          reconnect: (() -> StreamingTranscriber?)? = nil,
-         policy: StreamReconnectPolicy = StreamReconnectPolicy()) {
+         policy: StreamReconnectPolicy = StreamReconnectPolicy(),
+         meter: UsageMeter? = nil) {
+        self.meter = meter
         self.needsResampling = provider.sampleRate != AudioBufferWriter.uploadSampleRate
         self.sampleRate = provider.sampleRate
         self.provider = provider
@@ -273,6 +278,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     func finish() async -> RecognitionOutcome {
         // Snapshot under main-actor isolation: `cancel()` nils `eventsTask` on main, a
         // reconnect replaces `provider` there, and this function runs off it.
+        let stopped = Date()
         let (connected, events, provider, hadOutage) = await MainActor.run { () -> (Bool, Task<Void, Never>?, StreamingTranscriber, Bool) in
             self.closing = true
             self.reconnectTask?.cancel()
@@ -299,20 +305,39 @@ final class StreamingRecognitionSession: RecognitionSession {
             (joinedSegments(committedText, partialText).trimmingCharacters(in: .whitespacesAndNewlines), self.failure)
         }
 
+        // The socket's ledger entry: the audio it was sent, and whether it held.
+        // No vendor reports a stream's billed seconds, so only what was sent is known.
+        func streamEvent(answered: Bool) -> [UsageEvent] {
+            guard connected || hadOutage, let meter else { return [] }
+            return [meter.event(.stream, audioSeconds: writer.bufferedDuration, billing: nil, succeeded: answered,
+                                latency: Date().timeIntervalSince(stopped), date: stopped)]
+        }
+
         if failure == nil, !hadOutage, !text.isEmpty {
-            if let dropped = await guardedStreamResult(text) { return dropped }
+            if var dropped = await guardedStreamResult(text) {
+                // A segment too short to be speech leaves no row to carry an entry.
+                if !dropped.cancelled { dropped.usage = streamEvent(answered: true) }
+                return dropped
+            }
             dlog("Engine", "StreamingRecognitionSession.finish: stream done, \(text.count) chars")
-            return RecognitionOutcome(text: text, error: nil, audioFileURL: nil, cancelled: false)
+            return RecognitionOutcome(text: text, error: nil, audioFileURL: nil, cancelled: false,
+                                      usage: streamEvent(answered: true))
         }
 
         let reason = failure ?? (hadOutage ? "dropped during the segment" : "returned nothing")
         dlog("Engine", "StreamingRecognitionSession.finish: stream \(reason) — falling back to batch upload")
         // The partial text on screen described a stream that is being discarded.
         await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
-        let outcome = await fallback.finish()
+        // Answered unless the socket broke: a stream that came back with nothing was a
+        // working request, not a refused one.
+        let streamUsage = streamEvent(answered: failure == nil && !hadOutage)
+        let answer = await fallback.finish()
         await MainActor.run {
-            DictationTraceRecorder.record(.fallback, text: outcome.text, error: outcome.error)
+            DictationTraceRecorder.record(.fallback, text: answer.text, error: answer.error)
         }
+        // The socket was paid for as well as the upload that replaced it.
+        var outcome = answer
+        if !outcome.cancelled { outcome.usage = streamUsage + outcome.usage }
         return outcome
     }
 

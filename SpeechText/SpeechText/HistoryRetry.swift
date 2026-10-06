@@ -64,10 +64,17 @@ final class HistoryRetry {
         let language = configuration.cloudLanguage
         dlog("History", "retry \(recordID.uuidString.prefix(8)): \(configuration.provider.rawValue), language=\(language ?? "auto")")
 
+        let provider = makeBatchTranscriber(configuration: configuration)
+        let start = Date()
+        // The retry's own request, for the record's ledger; nil for a model on this Mac.
+        func event(_ billing: SpeechBilling?, succeeded: Bool) -> UsageEvent? {
+            provider.meter?.event(.retry, audioSeconds: record.duration, billing: billing, succeeded: succeeded,
+                                  latency: Date().timeIntervalSince(start), date: start)
+        }
         do {
-            let provider = makeBatchTranscriber(configuration: configuration)
-            let text = try await provider.transcribe(audioFileURL: audioURL, language: language)
-            var trimmed = configuration.finished(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            let result = try await provider.transcribeMetered(audioFileURL: audioURL, language: language)
+            let billed = event(result.billing, succeeded: true)
+            var trimmed = configuration.finished(result.text.trimmingCharacters(in: .whitespacesAndNewlines))
             // A retry sends the same short clip to a model again, and gets the same
             // invented sign-off back — which would land on the clipboard as a success.
             if HallucinationFilter.isHallucination(trimmed, segmentSeconds: record.duration) {
@@ -76,16 +83,17 @@ final class HistoryRetry {
             }
             guard !trimmed.isEmpty else {
                 let message = "Retry returned no text"
-                history.markRetryFailed(id: recordID, error: message)
+                history.markRetryFailed(id: recordID, error: message, event: billed)
                 return .failed(message)
             }
             history.markRetrySucceeded(id: recordID, text: trimmed,
                                        provider: configuration.batchProvider.rawValue,
-                                       model: configuration.batchModel)
+                                       model: configuration.batchModel, event: billed)
             return .succeeded(trimmed)
         } catch {
             dlog("History", "retry \(recordID.uuidString.prefix(8)) failed: \(error.localizedDescription)")
-            history.markRetryFailed(id: recordID, error: error.localizedDescription)
+            history.markRetryFailed(id: recordID, error: error.localizedDescription,
+                                    event: NetworkFailure.isOffline(error) ? nil : event(nil, succeeded: false))
             return NetworkFailure.isOffline(error) ? .offline : .failed(error.localizedDescription)
         }
     }

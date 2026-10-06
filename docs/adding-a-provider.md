@@ -102,7 +102,8 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
    `STTProviderType` case, build, and fill every `switch` the compiler reports.
 2. OpenAI-compatible: fill the descriptor's `speechUpload` (`OpenAICompatibleUpload`: the
    URL, any fixed fields such as Groq's `response_format=json`, and whether the
-   vocabulary goes as a `prompt` or as `keywords[]`), add the engine to
+   vocabulary goes as a `prompt` or as `keywords[]`, and `minimumBilledSeconds` where the
+   vendor documents a per-request minimum), add the engine to
    `makeBatchTranscriber`'s `OpenAICompatibleTranscriber` case, and pin its form in
    `UploadBodyTests`. Otherwise write the transcriber in `Transcribers.swift`, copying
    `ElevenLabsTranscriber`:
@@ -116,6 +117,11 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
    - let `URLError` through unwrapped (offline detection reads it);
    - a term-list parameter: take `keyterms` in `init` from `configuration.batchVocabulary`
      (realtime: `liveVocabulary`), and set the entry's `vocabulary` limits;
+   - metering: implement `transcribeMetered` (with `transcribe` calling it) returning
+     the reply's billed seconds or tokens as `SpeechBilling` — extend `SpeechBilling.decode`
+     for a new shape and pin it with a literal reply in `UsageLedgerTests` — and `meter`
+     (`UsageMeter`: the vendor, the model, the terms sent). A transcriber without them
+     leaves no entry in History's ledger and is counted as free;
    - log sizes, timings and counts, never text, terms or keys; Foundation only, no SDK.
 3. Catalogue entries, a model key in `SettingsKeys`, and the descriptor's `speechModel`
    (`ModelSetting`: that key and the default). `portable`, normalisation and

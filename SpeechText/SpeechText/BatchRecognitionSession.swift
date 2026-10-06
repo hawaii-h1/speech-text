@@ -64,15 +64,23 @@ final class BatchRecognitionSession: RecognitionSession {
             return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: Task.isCancelled)
         }
 
+        let meter = provider.meter
+        let start = Date()
+        func event(_ billing: SpeechBilling?, succeeded: Bool) -> [UsageEvent] {
+            meter.map { [$0.event(.upload, audioSeconds: duration, billing: billing, succeeded: succeeded,
+                                  latency: Date().timeIntervalSince(start), date: start)] } ?? []
+        }
         do {
             dlog("Engine", "BatchRecognitionSession.finish: calling provider, language=\(language ?? "auto")…")
-            let text = try await provider.transcribe(audioFileURL: fileURL, language: language).trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = try await provider.transcribeMetered(audioFileURL: fileURL, language: language)
+            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             dlog("Engine", "BatchRecognitionSession.finish: done, \(text.count) chars")
+            let usage = event(result.billing, succeeded: true)
             if HallucinationFilter.isHallucination(text, segmentSeconds: duration) {
                 dlog("Engine", "BatchRecognitionSession.finish: the whole result is a known hallucination of a \(String(format: "%.1f", duration))s segment — dropped, audio kept")
-                return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: false)
+                return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: false, usage: usage)
             }
-            return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false)
+            return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false, usage: usage)
         } catch {
             dlog("Engine", "BatchRecognitionSession.finish: error: \(error.localizedDescription)")
             if Task.isCancelled {
@@ -81,7 +89,8 @@ final class BatchRecognitionSession: RecognitionSession {
             }
             return RecognitionOutcome(text: "", error: error.localizedDescription,
                                       audioFileURL: fileURL, cancelled: false,
-                                      offline: NetworkFailure.isOffline(error))
+                                      offline: NetworkFailure.isOffline(error),
+                                      usage: NetworkFailure.isOffline(error) ? [] : event(nil, succeeded: false))
         }
     }
 

@@ -25,7 +25,8 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
             // settings — a dropped stream never comes back as a different engine.
             return StreamingRecognitionSession(provider: streamer, writer: writer,
                                                languages: configuration.languages, fallback: batch,
-                                               reconnect: { makeStreamingTranscriber(configuration: configuration) })
+                                               reconnect: { makeStreamingTranscriber(configuration: configuration) },
+                                               meter: configuration.streamMeter)
         }
         return batch
     }

@@ -52,17 +52,11 @@ struct HomeWeek: Equatable {
             dictations += 1
             let edit = record.refinement?.isSelectionEdit == true
             let minutes = record.duration / 60
-            let prices = UsagePrices.speech(provider: record.provider)
-            if let prices { speechCost += minutes * prices } else { unpriced.append(record.provider) }
-
-            if let refinement = record.refinement {
-                if let price = UsagePrices.chat(provider: refinement.provider, model: refinement.model) {
-                    aiCost += price.cost(of: refinement)
-                    if price.isEstimate(refinement) { estimatedAIPasses += 1 }
-                } else {
-                    unpriced.append(refinement.model)
-                }
-            }
+            let cost = RecordCost(record)
+            speechCost += cost.speech
+            aiCost += cost.ai
+            estimatedAIPasses += cost.estimatedAIPasses
+            unpriced += cost.unpricedSpeech + cost.unpricedChat
 
             guard !edit, record.status == .success else { continue }
             let count = homeWordCount(record.deliveredText)
@@ -134,6 +128,11 @@ enum UsagePrices {
         }
     }
 
+    /// Dollars per minute of speech from `vendor`, the one a ledger entry names.
+    static func speech(vendor: Provider) -> Double? {
+        STTProviderType.allCases.first { $0.vendor == vendor }.flatMap { speech(provider: $0.rawValue) }
+    }
+
     /// Dollars per minute of speech, by `STTProviderType` raw value; nil when not priced.
     static func speech(provider: String) -> Double? {
         switch STTProviderType(rawValue: provider) {
@@ -145,6 +144,11 @@ enum UsagePrices {
         }
     }
 
+    /// A chat model's token prices, for the vendor a ledger entry names.
+    static func chat(vendor: Provider, model: String) -> Chat? {
+        chat(provider: vendor == .ollama ? LLMProviderType.ollama.rawValue : vendor.rawValue, model: model)
+    }
+
     /// A chat model's token prices, by `LLMProviderType` raw value and model ID.
     static func chat(provider: String, model: String) -> Chat? {
         if provider == LLMProviderType.ollama.rawValue { return Chat(inputPerToken: 0, outputPerToken: 0) }
@@ -153,6 +157,71 @@ enum UsagePrices {
         case "openai/gpt-oss-120b": return Chat(inputPerToken: 0.15 / 1e6, outputPerToken: 0.75 / 1e6)
         default: return nil
         }
+    }
+}
+
+/// What one History record cost, worked out the one way Home and Usage both count it.
+/// A record with a ledger (`usageEvents`) is priced from its entries alone — every
+/// request it made, a fallback upload and a retry included, the vendor's billed seconds
+/// where it reported them. One from before the ledger is priced as it always was: its
+/// length at its engine's price, and its AI pass from `Chat.cost(of:)`.
+struct RecordCost: Equatable {
+    var speech: Double = 0
+    var ai: Double = 0
+    /// Engines (`STTProviderType` raw values) and chat models used here with no price.
+    var unpricedSpeech: [String] = []
+    var unpricedChat: [String] = []
+    /// AI passes priced from their words rather than their tokens.
+    var estimatedAIPasses = 0
+
+    var total: Double { speech + ai }
+
+    init(_ record: TranscriptionRecord) {
+        guard let events = record.usageEvents else {
+            if let price = UsagePrices.speech(provider: record.provider) {
+                speech = record.duration / 60 * price
+            } else {
+                unpricedSpeech.append(record.provider)
+            }
+            if let refinement = record.refinement { price(refinement) }
+            return
+        }
+        for event in events {
+            if !event.kind.isSpeech {
+                guard let price = UsagePrices.chat(vendor: event.vendor, model: event.model) else {
+                    unpricedChat.append(event.model)
+                    continue
+                }
+                if let tokens = event.tokens {
+                    ai += price.cost(tokens)
+                } else if event.succeeded, let refinement = record.refinement, !price.isFree {
+                    // Answered, but its provider reported no tokens: the words are all
+                    // there is to go on.
+                    ai += price.cost(inputWords: homeWordCount(refinement.inputText),
+                                     outputWords: homeWordCount(refinement.outputText))
+                    estimatedAIPasses += 1
+                }
+            } else if let seconds = event.billedSeconds ?? event.audioSeconds,
+                      // A refused upload is not taken as billed (`UsageMeter.event`); a
+                      // socket was used whatever became of its answer.
+                      event.succeeded || event.kind == .stream {
+                guard let price = UsagePrices.speech(vendor: event.vendor) else {
+                    unpricedSpeech.append(STTProviderType.allCases.first { $0.vendor == event.vendor }?.rawValue
+                                          ?? event.vendor.rawValue)
+                    continue
+                }
+                speech += seconds / 60 * price
+            }
+        }
+    }
+
+    private mutating func price(_ refinement: TranscriptionRecord.Refinement) {
+        guard let price = UsagePrices.chat(provider: refinement.provider, model: refinement.model) else {
+            unpricedChat.append(refinement.model)
+            return
+        }
+        ai += price.cost(of: refinement)
+        if price.isEstimate(refinement) { estimatedAIPasses += 1 }
     }
 }
 
