@@ -339,16 +339,20 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var speechPage: some View {
-        SettingsGroup(title: "Engine", inset: 5) {
+        SettingsGroup(title: "Engine", trailing: stt.vendor.descriptor.apiKey == nil ? nil : AnyView(keyStatus(for: stt.vendor)),
+                      inset: 5) {
             ForEach(STTProviderType.allCases) { provider in
                 // Only the chosen engine explains itself; five paragraphs at once is a wall.
                 SetupRow(title: provider.displayName,
+                         badge: noKeyBadge(provider.vendor, selected: provider == stt),
                          detail: provider == stt ? provider.subtitle : nil,
                          isSelected: provider == stt) {
                     sttProvider = provider.rawValue
                 }
             }
         }
+
+        missingKeyGroup(for: stt.vendor)
 
         switch stt {
         case .apple:
@@ -423,11 +427,14 @@ struct SettingsView: View {
     private var aiPage: some View {
         SettingsGroup(title: "Provider", trailing: AnyView(aiStatus), inset: 5) {
             ForEach(LLMProviderType.allCases) { provider in
-                SetupRow(title: provider.displayName, isSelected: provider == llm, compact: true) {
+                SetupRow(title: provider.displayName, badge: noKeyBadge(provider.vendor, selected: provider == llm),
+                         isSelected: provider == llm, compact: true) {
                     llmProvider = provider.rawValue
                 }
             }
         }
+
+        missingKeyGroup(for: llm.vendor)
 
         SettingsGroup(title: "Model") {
             switch llm {
@@ -467,16 +474,56 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var aiStatus: some View {
-        if hasLLMKey {
-            SettingsStatus(text: "Ready", ok: true)
-        } else if llm.needsAPIKey {
+        if llm.needsAPIKey || hasLLMKey {
+            keyStatus(for: llm.vendor)
+        } else {
+            SettingsStatus(text: "Needs a model", ok: false)
+        }
+    }
+
+    // MARK: - A missing key, where the engine or provider is picked
+
+    /// Ready, or a link to API Keys when the provider's key is empty — the AI Rewrite and
+    /// Speech pages' header status.
+    @ViewBuilder
+    private func keyStatus(for provider: Provider) -> some View {
+        if keyMissing(provider) {
             Button { category = .apiKeys } label: { SettingsStatus(text: "Needs an API key", ok: false) }
                 .buttonStyle(.plain)
                 .pointingHandCursor()
                 .help("Open API Keys")
         } else {
-            SettingsStatus(text: "Needs a model", ok: false)
+            SettingsStatus(text: "Ready", ok: true)
         }
+    }
+
+    /// "No key" beside a provider in the radio list, so a switch to one without a key is
+    /// seen before the first dictation fails. Orange on the selected row only: a fresh
+    /// install has no keys at all, and every cloud row in orange would read as broken.
+    private func noKeyBadge(_ provider: Provider, selected: Bool) -> SetupBadge? {
+        keyMissing(provider) ? SetupBadge(text: "No key", kind: selected ? .warn : .quality) : nil
+    }
+
+    /// Under the radio list while the selected provider has no key: what will happen,
+    /// and the way to API Keys. Outside the row, whose tap would take the button's.
+    @ViewBuilder
+    private func missingKeyGroup(for provider: Provider) -> some View {
+        if keyMissing(provider) {
+            SettingsGroup {
+                SettingsRow(title: "No \(provider.displayName) API key",
+                            detail: "Dictations will fail until you add one.") {
+                    Button("Add Key…") { category = .apiKeys }
+                        .buttonStyle(SetupButtonStyle(kind: .primary, height: 28))
+                }
+            }
+        }
+    }
+
+    /// The provider needs a key and the store holds none — read off the observed store,
+    /// so it follows a key as it is typed on API Keys.
+    private func keyMissing(_ provider: Provider) -> Bool {
+        guard let key = provider.descriptor.apiKey else { return false }
+        return keys.value(for: key.settingsKey).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - API Keys
