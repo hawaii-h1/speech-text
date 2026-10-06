@@ -1509,11 +1509,16 @@ final class AppState {
     private func removeSelection(_ selection: CapturedSelection) {
         editRemoval = .removing
         let generation = editGeneration
-        if let record = selection.record, let app = previousApp,
-           PasteService.select(record, in: app) == .changed {
-            abortEdit(icon: "text.badge.xmark", title: "Couldn't find the selection again",
-                      detail: "The selected words aren't where they were read. Nothing was edited.")
-            return
+        var confirmed = false
+        if let record = selection.record, let app = previousApp {
+            switch PasteService.select(record, in: app) {
+            case .changed:
+                abortEdit(icon: "text.badge.xmark", title: "Couldn't find the selection again",
+                          detail: "The selected words aren't where they were read. Nothing was edited.")
+                return
+            case .selected: confirmed = true
+            case .unconfirmed: break
+            }
         }
         PasteService.cutSelection { [weak self] cut in
             guard let self, self.isEditMode, self.editGeneration == generation else {
@@ -1526,7 +1531,7 @@ final class AppState {
                 dlog("Edit", "the selection could not be cut — the rewrite will go to the clipboard")
                 self.editRemoval = .notRemovable
             case .cut(let items, let text):
-                guard SelectionEdit.cutMatches(text, selection: selection.text) else {
+                guard SelectionEdit.cutMatches(text, selection: selection.text, selectionConfirmed: confirmed) else {
                     dlog("Edit", "cut \(text.count) chars that are not the selection (read \(selection.record == nil ? "with ⌘C" : "through AX")) — putting them back: cut \(String(text.prefix(60)).debugDescription), read \(String(selection.text.prefix(60)).debugDescription)")
                     PasteService.pasteItems(items)
                     self.abortEdit(icon: "text.badge.xmark", title: "Couldn't confirm the selection",
@@ -1535,7 +1540,7 @@ final class AppState {
                 }
                 let source = SelectionEdit.cutSource(text)
                 if source != selection.text {
-                    dlog("Edit", "the cut differs from the text read only in markup or spacing — rewriting the cut (\(source.count) chars, read \(selection.text.count))")
+                    dlog("Edit", "the cut differs from the text read\(confirmed ? "" : " only in markup or spacing") — rewriting the cut (\(source.count) chars, read \(selection.text.count))")
                     self.editSelection = CapturedSelection(text: source, record: selection.record)
                 }
                 dlog("Edit", "selection cut (\(text.count) chars)")

@@ -260,9 +260,39 @@ enum SelectionEdit {
     /// too: an editor that renders Markdown (T3 Code's composer) reports the rendered text
     /// through AX — no backticks, one newline between paragraphs — while its ⌘X copies the
     /// source, and the two are the same selection.
-    static func cutMatches(_ cut: String, selection: String) -> Bool {
+    ///
+    /// `selectionConfirmed` is a Tier A cut whose range the field itself confirmed as its
+    /// selection just before the ⌘X: the cut is then the user's selection by construction,
+    /// and a difference can only be AX's value disagreeing with its own offsets. Chromium's
+    /// does at a paragraph ending in a space — the value keeps the space, the offsets skip
+    /// it — so the words read are the selection shifted by a character or two (T3 Code
+    /// and Claude, 2026-10-06: a 128-character read of a 129-character selection, its
+    /// last letter missing). Such a cut counts when it is the read shifted by at most
+    /// `maxConfirmedShift` characters at its edges.
+    static func cutMatches(_ cut: String, selection: String, selectionConfirmed: Bool = false) -> Bool {
         let core = markupInsensitive(cut)
-        return !core.isEmpty && core == markupInsensitive(selection)
+        guard !core.isEmpty else { return false }
+        let read = markupInsensitive(selection)
+        if core == read { return true }
+        guard selectionConfirmed else { return false }
+        return isShifted(Array(core.unicodeScalars), Array(read.unicodeScalars))
+            || isShifted(Array(read.unicodeScalars), Array(core.unicodeScalars))
+    }
+
+    /// How far a confirmed selection's read may be off its cut, per edge.
+    static let maxConfirmedShift = 8
+
+    /// Whether `b` is `a` moved along the document: `a` less a few characters at its start
+    /// is `b` less a few at its end, and what they share is most of both.
+    private static func isShifted(_ a: [Unicode.Scalar], _ b: [Unicode.Scalar]) -> Bool {
+        for head in 0...maxConfirmedShift where head < a.count {
+            for tail in 0...maxConfirmedShift where tail < b.count {
+                let shared = a.count - head
+                guard shared == b.count - tail, shared * 2 > max(a.count, b.count) else { continue }
+                if a[head...] == b[..<shared] { return true }
+            }
+        }
+        return false
     }
 
     /// What the edit rewrites once the selection is cut: the cut text, edges trimmed. It is

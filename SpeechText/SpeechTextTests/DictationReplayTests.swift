@@ -1118,6 +1118,25 @@ final class SelectionEditTests: XCTestCase {
                        "У файлі `.env` додано `API_TOKEN`.\n\nДокументація: https://docs.example.com/introduction")
     }
 
+    /// Chromium's AX value keeps a space that ends a paragraph and its offsets skip it, so
+    /// the words read are the selection shifted by one (T3 Code, 2026-10-06: 128 read,
+    /// 129 cut). A selection the field confirmed just before the ⌘X is the user's own, and
+    /// its cut counts; an unconfirmed one still has to match.
+    func testAConfirmedSelectionsCutMayBeOffByAShift() {
+        let document = "Задачі на тиждень: 1, 2, 3, 4 – ще в роботі. \nПереглянь, будь ласка, усі інші задачі. Можливо, щось готово. По решті склади план"
+        let read = String(document.dropLast())
+        XCTAssertFalse(SelectionEdit.cutMatches(document, selection: read))
+        XCTAssertTrue(SelectionEdit.cutMatches(document, selection: read, selectionConfirmed: true))
+        // Shifted along the document: a character missing at one edge, one extra at the other.
+        XCTAssertTrue(SelectionEdit.cutMatches("ab cdefghij", selection: "zab cdefghi", selectionConfirmed: true))
+        XCTAssertTrue(SelectionEdit.cutMatches("zab cdefghi", selection: "ab cdefghij", selectionConfirmed: true))
+        // Other words, or most of the text gone, are never a shift.
+        XCTAssertFalse(SelectionEdit.cutMatches("let x = 1\n", selection: "Two words", selectionConfirmed: true))
+        XCTAssertFalse(SelectionEdit.cutMatches("Two", selection: "Two words here", selectionConfirmed: true))
+        XCTAssertFalse(SelectionEdit.cutMatches("abcdefghij", selection: "abcdXfghij", selectionConfirmed: true))
+        XCTAssertFalse(SelectionEdit.cutMatches(" ", selection: "a", selectionConfirmed: true))
+    }
+
     func testChangesAndEdges() {
         XCTAssertFalse(SelectionEdit.changes("Fine text.", to: " Fine text.\n"))
         XCTAssertFalse(SelectionEdit.changes("Anything", to: "  "))
