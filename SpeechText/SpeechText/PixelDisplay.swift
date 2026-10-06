@@ -157,7 +157,8 @@ struct PixelMatrix: View {
 /// equaliser does. It deliberately does not scroll a history sideways — a track
 /// travelling across the glass reads as a progress bar, not as a voice.
 struct PixelWaveform: View {
-    /// `SpeechEngine.barLevels` — a fresh set of per-segment RMS values on each tap.
+    /// `SpeechEngine.barLevels` — per-segment heights, 0…1, already scaled to the
+    /// voice by `LevelNormalizer`, so they are drawn as they come.
     let levels: [CGFloat]
     let columns: Int
     let rows: Int
@@ -172,15 +173,6 @@ struct PixelWaveform: View {
     /// full 30Hz strobes; a fifth of that reads as movement, and the eased attack
     /// below carries the column smoothly between two draws.
     private static let noiseHold = 5
-    /// A normal speaking voice sits low in the RMS range and only a shout approaches
-    /// the top of it, so the level goes through a compressive curve rather than a
-    /// plain multiplier: `gain` lifts conversation off the floor, and `curve` (< 1)
-    /// keeps the loud end from saturating once it is up there.
-    private static let gain: CGFloat = 2.8
-    private static let curve: Double = 0.7
-    /// Below this the room is just quiet. Without a floor the display twitches at
-    /// nothing, since even silence carries some RMS.
-    private static let noiseFloor: CGFloat = 0.02
     /// How far a column travels towards its target on each tick. Rising is quicker
     /// than falling — the attack is what makes a syllable visible, the slower release
     /// is what stops the grid flickering off between them — but neither is a jump:
@@ -226,7 +218,7 @@ struct PixelWaveform: View {
         switch mode {
         case .level:
             guard columns > 0 else { return }
-            let level = displayLevel
+            let level = currentLevel
             let draw = tick / Self.noiseHold
             tick += 1
             var next = columnLevels.count == columns ? columnLevels : Array(repeating: 0, count: columns)
@@ -261,17 +253,9 @@ struct PixelWaveform: View {
         0.5 + 0.85 * PixelNoise.value(column, draw)
     }
 
-    /// The height the columns are aiming for, 0…1.
-    private var displayLevel: CGFloat {
-        let mean = currentLevel
-        guard mean > Self.noiseFloor else { return 0 }
-        let lifted = min(1, (mean - Self.noiseFloor) * Self.gain)
-        return CGFloat(pow(Double(lifted), Self.curve))
-    }
-
     /// One column's worth of loudness.
     ///
-    /// The engine hands over per-segment RMS for the whole buffer; the mean is what
+    /// The engine hands over a height per segment of the buffer; the mean is what
     /// that instant actually sounded like. Taking the peak instead pins nearly every
     /// column to full height, because a single transient in any segment wins.
     private var currentLevel: CGFloat {

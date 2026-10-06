@@ -542,7 +542,7 @@ private struct HomeTalkDisplay: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: display != .level)) { context in
             let seconds = context.date.timeIntervalSince(start)
-            PixelWaveform(levels: [Self.meanLevel(for: Self.voice(seconds))],
+            PixelWaveform(levels: [CGFloat(Self.voice(seconds))],
                           columns: 16, rows: 8,
                           mode: display == .level ? .level : display == .busy ? .busy : .idle,
                           palette: ai ? .ai : .phosphor(.green))
@@ -553,13 +553,6 @@ private struct HomeTalkDisplay: View {
         let phrase = max(0, sin(s * 1.9) + 0.35)
         let syllable = 0.55 + 0.45 * abs(sin(s * 15.7 + sin(s * 3.1)))
         return min(1, 0.62 * min(1, phrase) * syllable)
-    }
-
-    /// `PixelWaveform` lifts a microphone's RMS through a curve; this is that curve run
-    /// backwards, so the display stands at the height the voice asks for.
-    static func meanLevel(for display: Double) -> CGFloat {
-        guard display > 0 else { return 0 }
-        return CGFloat(pow(display, 1 / 0.7) / 2.8 + 0.02)
     }
 }
 

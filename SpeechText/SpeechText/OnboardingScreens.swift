@@ -411,7 +411,7 @@ private struct DemoStrip: View {
         let palette = TechnoPalette(stored: technoRaw)
         return TimelineView(.periodic(from: .now, by: 0.09)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            let loudness = listening ? CGFloat(0.12 + 0.2 * abs(sin(t * 3.1))) : 0
+            let loudness = listening ? CGFloat(0.4 + 0.48 * abs(sin(t * 3.1))) : 0
             HStack(spacing: 6) {
                 ZStack {
                     glass.fill(palette.screen)

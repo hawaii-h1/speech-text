@@ -569,3 +569,73 @@ final class MicrophoneChoiceTests: XCTestCase {
         XCTAssertTrue(resolution.pickedIsMissing)
     }
 }
+
+// MARK: - LevelNormalizer
+
+/// The level meter's automatic gain: what it draws for a voice must not depend on how
+/// far the microphone is from the mouth.
+final class LevelNormalizerTests: XCTestCase {
+    /// One tap buffer: 1024 frames at 48 kHz.
+    private let seconds = 1024.0 / 48_000
+
+    /// Feeds `duration` seconds of buffers whose loudness `rms(t)` gives, and returns
+    /// each buffer's mean display height.
+    private func run(_ normalizer: inout LevelNormalizer, for duration: Double,
+                     rms: (Double) -> Float) -> [CGFloat] {
+        var heights: [CGFloat] = []
+        var t = 0.0
+        while t < duration {
+            let levels = normalizer.levels(rms: Array(repeating: rms(t), count: 12), seconds: seconds)
+            heights.append(levels.reduce(0, +) / CGFloat(levels.count))
+            t += seconds
+        }
+        return heights
+    }
+
+    /// Syllables at five a second, each 30 dB above the gap after it.
+    private func speech(_ loudness: Float) -> (Double) -> Float {
+        { t in t.truncatingRemainder(dividingBy: 0.2) < 0.12 ? loudness : loudness / 30 }
+    }
+
+    func testAQuietAndALoudMicrophoneDrawTheSameVoiceAlike() {
+        var distant = LevelNormalizer()
+        var headset = LevelNormalizer()
+        // −40 dBFS on a MacBook half a metre away, −14 dBFS on a headset.
+        let quiet = run(&distant, for: 3, rms: speech(0.01)).suffix(47)
+        let loud = run(&headset, for: 3, rms: speech(0.2)).suffix(47)
+        XCTAssertGreaterThan(quiet.max()!, 0.9)
+        XCTAssertGreaterThan(loud.max()!, 0.9)
+        XCTAssertEqual(quiet.max()!, loud.max()!, accuracy: 0.05)
+    }
+
+    func testAQuietVoiceShowsFromItsFirstSyllable() {
+        var normalizer = LevelNormalizer()
+        let first = run(&normalizer, for: 0.1, rms: { _ in 0.01 })
+        XCTAssertGreaterThan(first.first!, 0.4)
+    }
+
+    func testLouderStillRisesHigherThanQuieter() {
+        var normalizer = LevelNormalizer()
+        _ = run(&normalizer, for: 2, rms: speech(0.05))
+        let loud = normalizer.levels(rms: Array(repeating: 0.05, count: 12), seconds: seconds)[0]
+        let softer = normalizer.levels(rms: Array(repeating: 0.0125, count: 12), seconds: seconds)[0]
+        XCTAssertGreaterThan(softer, 0.1)
+        XCTAssertGreaterThan(loud - softer, 0.2)
+    }
+
+    func testARoomWithNobodySpeakingStaysDark() {
+        var normalizer = LevelNormalizer()
+        // Room noise flickering between −62 and −58 dBFS.
+        let hiss = run(&normalizer, for: 5, rms: { t in Int(t / self.seconds) % 2 == 0 ? 0.0008 : 0.00126 })
+        XCTAssertLessThan(hiss.suffix(100).max()!, 0.05)
+        var muted = LevelNormalizer()
+        XCTAssertEqual(run(&muted, for: 1, rms: { _ in 0 }).max(), 0)
+    }
+
+    func testTheScaleFollowsADeviceThatGoesQuieter() {
+        var normalizer = LevelNormalizer()
+        _ = run(&normalizer, for: 3, rms: speech(0.2))
+        let after = run(&normalizer, for: 6, rms: speech(0.01)).suffix(47)
+        XCTAssertGreaterThan(after.max()!, 0.9)
+    }
+}

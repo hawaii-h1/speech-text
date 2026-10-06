@@ -763,6 +763,9 @@ final class SpeechEngine {
         // A selected microphone whose format the node had not caught up with would be
         // converted at the wrong rate — the upload sped up or slowed down. Said once.
         var reportedFormatMismatch = false
+        // Fresh for every tap, so a new device is scaled from the defaults rather than
+        // from the loudness of the one before it.
+        var normalizer = LevelNormalizer()
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             if !reportedFormatMismatch, buffer.format.sampleRate != hwFormat.sampleRate {
                 reportedFormatMismatch = true
@@ -775,7 +778,9 @@ final class SpeechEngine {
             // One main-queue hop per tap buffer (~50/s) just to smooth twelve numbers is
             // avoidable: the levels go into a box the display reads on its own clock,
             // and the hop is taken only when none is already pending.
-            self.levelBox.store(Self.perSegmentRMS(buffer: buffer, count: 12))
+            let seconds = Double(buffer.frameLength) / max(buffer.format.sampleRate, 1)
+            self.levelBox.store(normalizer.levels(rms: Self.perSegmentRMS(buffer: buffer, count: 12),
+                                                  seconds: seconds))
             if !self.levelHopPending.swap(true) {
                 DispatchQueue.main.async {
                     self.levelHopPending.swap(false)
@@ -905,9 +910,10 @@ final class SpeechEngine {
         removeConfigChangeObserver()
     }
 
-    /// Split the audio buffer into N segments and compute RMS for each.
+    /// Split the audio buffer into N segments and compute RMS for each, raw — the
+    /// display's scale is `LevelNormalizer`'s.
     /// Each bar gets a different time-slice of the actual audio → natural asymmetry.
-    private static func perSegmentRMS(buffer: AVAudioPCMBuffer, count: Int) -> [CGFloat] {
+    private static func perSegmentRMS(buffer: AVAudioPCMBuffer, count: Int) -> [Float] {
         guard let data = buffer.floatChannelData else {
             return Array(repeating: 0, count: count)
         }
@@ -918,7 +924,7 @@ final class SpeechEngine {
             return Array(repeating: 0, count: count)
         }
 
-        var levels = [CGFloat]()
+        var levels = [Float]()
         levels.reserveCapacity(count)
         for i in 0..<count {
             let start = i * segmentSize
@@ -928,7 +934,7 @@ final class SpeechEngine {
                 sum += samples[j] * samples[j]
             }
             let rms = sqrt(sum / Float(end - start))
-            levels.append(CGFloat(min(rms * 5.0, 1.0)))
+            levels.append(rms)
         }
         return levels
     }
