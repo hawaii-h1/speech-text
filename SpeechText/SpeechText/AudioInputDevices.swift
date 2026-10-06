@@ -39,6 +39,13 @@ enum AudioInputDevices {
         return read(id, kAudioDevicePropertyNominalSampleRate, into: &rate) ? rate : nil
     }
 
+    /// False once the device is gone — unplugged, or switched off — though its ID may
+    /// still answer for a moment.
+    static func isAlive(_ id: AudioDeviceID) -> Bool {
+        var alive = UInt32(0)
+        return read(id, kAudioDevicePropertyDeviceIsAlive, into: &alive) && alive != 0
+    }
+
     /// The choice as it stands with the devices connected now.
     static func resolve(_ choice: MicrophoneChoice) -> MicrophoneResolution {
         MicrophoneResolution.resolve(choice, devices: all(), defaultUID: defaultInputUID())

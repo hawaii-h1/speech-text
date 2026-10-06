@@ -132,6 +132,7 @@
 		F7C002000000000000000001 /* LevelNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C001000000000000000001 /* LevelNormalizer.swift */; };
 		F7C003000000000000000001 /* LevelNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C001000000000000000001 /* LevelNormalizer.swift */; };
 		F7B002000000000000000002 /* AudioInputDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000002 /* AudioInputDevices.swift */; };
+		F7B00D000000000000000001 /* AudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B00C000000000000000001 /* AudioCapture.swift */; };
 		F74003000000000000000002 /* CustomVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000002 /* CustomVocabulary.swift */; };
 		F74003000000000000000003 /* TextReplacements.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000003 /* TextReplacements.swift */; };
 		F79002000000000000000001 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000001 /* APIKeyStore.swift */; };
@@ -237,6 +238,7 @@
 		F7B001000000000000000001 /* MicrophoneChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneChoice.swift; sourceTree = "<group>"; };
 		F7C001000000000000000001 /* LevelNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LevelNormalizer.swift; sourceTree = "<group>"; };
 		F7B001000000000000000002 /* AudioInputDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDevices.swift; sourceTree = "<group>"; };
+		F7B00C000000000000000001 /* AudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCapture.swift; sourceTree = "<group>"; };
 		F74001000000000000000002 /* CustomVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVocabulary.swift; sourceTree = "<group>"; };
 		F74001000000000000000003 /* TextReplacements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReplacements.swift; sourceTree = "<group>"; };
 		F79001000000000000000001 /* APIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStore.swift; sourceTree = "<group>"; };
@@ -360,6 +362,7 @@
 				F7B001000000000000000001 /* MicrophoneChoice.swift */,
 				F7C001000000000000000001 /* LevelNormalizer.swift */,
 				F7B001000000000000000002 /* AudioInputDevices.swift */,
+				F7B00C000000000000000001 /* AudioCapture.swift */,
 				F74001000000000000000002 /* CustomVocabulary.swift */,
 				F74001000000000000000003 /* TextReplacements.swift */,
 				F79001000000000000000001 /* APIKeyStore.swift */,
@@ -567,6 +570,7 @@
 				F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F7C002000000000000000001 /* LevelNormalizer.swift in Sources */,
 				F7B002000000000000000002 /* AudioInputDevices.swift in Sources */,
+				F7B00D000000000000000001 /* AudioCapture.swift in Sources */,
 				F74002000000000000000002 /* CustomVocabulary.swift in Sources */,
 				F74002000000000000000003 /* TextReplacements.swift in Sources */,
 				F79002000000000000000001 /* APIKeyStore.swift in Sources */,

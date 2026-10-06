@@ -15,7 +15,7 @@ private let seLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechTex
 /// in between as "idle".
 enum RecordingPhase: Equatable {
     case idle
-    /// `AVAudioEngine.prepare()/start()` running on the background queue.
+    /// The capture's `start()` running on the background queue.
     case starting
     case recording
     /// `segmentInFlight` is true while a batch/stream segment handed over at pause is
@@ -98,8 +98,10 @@ final class SpeechEngine {
     /// Kept alive between sessions so the speech model stays loaded (~300-500ms to
     /// create); rebuilt only when the locale changes.
     private var speechRecognizer: SFSpeechRecognizer?
-    /// Created fresh for each recording session so it always binds to the current audio device.
-    private var audioEngine: AVAudioEngine?
+    /// Created fresh for each recording session so it always binds to the current audio
+    /// device: `AVAudioEngine` on the system's input, or the one device the microphone
+    /// choice names (`AudioCapture`).
+    private var audioEngine: AudioCapture?
     /// Collects every segment's audio, whatever the tier: the batch upload, the stream's
     /// fallback, and the archive History keeps when nothing was recognised.
     private var audioBufferWriter: AudioBufferWriter?
@@ -111,7 +113,6 @@ final class SpeechEngine {
     /// switch the provider between pause and stop. Also kept for restart after a device change.
     private var configuration: RecordingConfiguration?
     private var providerType: STTProviderType { configuration?.provider ?? .apple }
-    private var configChangeObserver: NSObjectProtocol?
     /// Incremented each time the engine is torn down. Background engine-start closures compare
     /// against this to detect stale sessions and bail out safely.
     private var engineStartToken = 0
@@ -352,7 +353,7 @@ final class SpeechEngine {
             // Same terminal shape as every other failure path: the result fields first,
             // then `.idle` (so `isStartingEngine` doesn't stay true forever and parked
             // `awaitTranscription()` callers see a finished result), then `cleanup()` —
-            // which also drops the fresh AVAudioEngine, its config-change observer and
+            // which also drops the fresh capture, its configuration-change hook and
             // the half-built session that would otherwise leak until the next start.
             errorMessage = error.localizedDescription
             onStartFailure?(error.localizedDescription)
@@ -372,66 +373,62 @@ final class SpeechEngine {
         startAudioEngine(engine)
     }
 
-    /// A fresh `AVAudioEngine` bound to the microphone the choice comes to *now* — the old
-    /// one is torn down first, which avoids stale-format crashes when the user switches
-    /// devices between recordings — with the configuration-change observer on it.
-    private func makeAudioEngine(waiting: Bool = false) -> AVAudioEngine {
+    /// A fresh capture on the microphone the choice comes to *now* — the old one is torn
+    /// down first, which avoids stale-format crashes when the user switches devices
+    /// between recordings — with its configuration changes routed to
+    /// `handleAudioConfigChange`. Resolved on every capture — a start, a resume, a
+    /// restart after a device change — so a picked headset that leaves falls back on its
+    /// own. A resolution that names a device is captured from that device alone
+    /// (`DeviceCapture`, see AudioCapture.swift for why not through `AVAudioEngine`); one
+    /// that names none keeps `AVAudioEngine` on the system's input, the path the app
+    /// always took. A device that cannot be opened is logged and the system's input
+    /// used; the microphone choice never fails a recording.
+    private func makeAudioEngine(waiting: Bool = false) -> AudioCapture {
         tearDownAudioEngine(waiting: waiting)
-        let engine = AVAudioEngine()
-        audioEngine = engine
-        selectMicrophone(for: engine)
-
-        // Observe audio hardware changes (device plugged/unplugged, AirPods switch, etc.).
-        // AVAudioEngine silently stops when this happens — we need to restart on the new device.
-        removeConfigChangeObserver()
-        configChangeObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in
-            self?.handleAudioConfigChange()
+        let capture = makeCapture()
+        audioEngine = capture
+        capture.onConfigurationChange = { [weak self, weak capture] in
+            // A capture already replaced has nothing left to say.
+            guard let self, let capture, self.audioEngine === capture else { return }
+            self.handleAudioConfigChange()
         }
-        return engine
+        return capture
     }
 
-    /// Points the engine's input at the device the microphone choice resolves to, before
-    /// anything reads its format. Resolved on every engine — a start, a resume, a restart
-    /// after a device change — so a picked headset that leaves falls back on its own. A
-    /// resolution with no device sets nothing: the engine keeps the system's input, the
-    /// path the app always took. A device that cannot be set is logged and the system's
-    /// input used; the microphone choice never fails a recording.
-    private func selectMicrophone(for engine: AVAudioEngine) {
+    private func makeCapture() -> AudioCapture {
         let resolution = AudioInputDevices.resolve(configuration?.microphone ?? .automatic)
         microphone = resolution
         guard let device = resolution.device else {
             dlog("Engine", "microphone: system input")
-            return
+            return EngineCapture()
         }
         guard let id = AudioInputDevices.deviceID(forUID: device.uid) else {
             dlog("Engine", "microphone: \(device.name) is gone — system input")
             microphone = MicrophoneResolution()
-            return
+            return EngineCapture()
         }
         do {
-            try engine.inputNode.auAudioUnit.setDeviceID(id)
-            let rate = AudioInputDevices.nominalSampleRate(of: id).map { "\(Int($0)) Hz" } ?? "?"
-            dlog("Engine", "microphone: \(device.name) (\(rate))"
+            let capture = try DeviceCapture(deviceID: id)
+            dlog("Engine", "microphone: \(device.name) (\(Int(capture.format.sampleRate)) Hz)"
                  + (resolution.avoided.map { " instead of \($0.name)" } ?? "")
                  + (resolution.pickedIsMissing ? " — the picked microphone is not connected" : ""))
             if resolution.avoided != nil { onMicrophoneSubstituted?(resolution) }
+            return capture
         } catch {
-            dlog("Engine", "microphone: could not select \(device.name) (\(error.localizedDescription)) — system input")
+            dlog("Engine", "microphone: could not open \(device.name) (\(error.localizedDescription)) — system input")
             microphone = MicrophoneResolution()
+            return EngineCapture()
         }
     }
 
     /// `prepare()` + `start()` acquire audio hardware resources and can block the main
     /// thread for 100–300 ms, so they run on `engineQueue`. The token detects a stale
     /// start (the user stopped before the engine was ready).
-    private func startAudioEngine(_ engine: AVAudioEngine) {
+    private func startAudioEngine(_ engine: AudioCapture) {
         engineStartToken += 1
         let token = engineStartToken
 
         engineQueue.async { [weak self] in
-            engine.prepare()
             do {
                 try engine.start()
             } catch {
@@ -744,8 +741,7 @@ final class SpeechEngine {
             return false
         }
 
-        let inputNode = audioEngine.inputNode
-        let hwFormat = inputNode.outputFormat(forBus: 0)
+        let hwFormat = audioEngine.format
 
         // Validate — a 0-channel or 0-sampleRate format means no input device is available
         guard hwFormat.channelCount > 0, hwFormat.sampleRate > 0 else {
@@ -754,8 +750,7 @@ final class SpeechEngine {
             return false
         }
 
-        // Pass nil for format so AVAudioEngine uses the hardware's native format.
-        // This avoids "format mismatch" ObjC exceptions that Swift can't catch.
+        // The tap delivers the hardware's native format (see `EngineCapture.installTap`).
         seLog.info("installAudioTap: hwFormat=\(hwFormat.description, privacy: .public)")
 
         // One conversion per buffer: the writer converts to 16 kHz mono Int16 as audio
@@ -774,7 +769,7 @@ final class SpeechEngine {
         // Fresh for every tap, so a new device is scaled from the defaults rather than
         // from the loudness of the one before it.
         var normalizer = LevelNormalizer()
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+        audioEngine.installTap { [weak self] buffer in
             if !reportedFormatMismatch, buffer.format.sampleRate != hwFormat.sampleRate {
                 reportedFormatMismatch = true
                 dlog("Engine", "⚠ tap delivers \(Int(buffer.format.sampleRate)) Hz, prepared for \(Int(hwFormat.sampleRate)) Hz")
@@ -822,14 +817,12 @@ final class SpeechEngine {
         dlog("Engine", "handleAudioConfigChange: audio device changed, phase=\(phase)")
         seLog.warning("handleAudioConfigChange: audio device changed, phase=\(String(describing: self.phase), privacy: .public)")
 
-        // A change that stops the engine is one to act on. Selecting the microphone
-        // (`selectMicrophone`) raises a notification of its own once the engine starts,
-        // and the engine keeps running through it: treated as a device change, it tore
-        // down a starting engine — the start then never landed and the dictation sat in
-        // `.starting` recording nothing — or, under a recording, restarted it, which
-        // selected the device again and raised the next one, until the budget ended the
-        // recording. Every dictation with Bluetooth headphones on Automatic did one or
-        // the other.
+        // A change that stops the capture is one to act on; one it keeps running
+        // through needs nothing. Pointing `AVAudioEngine` at a device with `setDeviceID`
+        // (before `DeviceCapture`) raised a notification of its own once the engine
+        // started, and treated as a device change it tore down a starting engine — the
+        // dictation sat in `.starting` recording nothing — or restarted a recording one,
+        // whose new selection raised the next, until the budget ended it.
         if audioEngine?.isRunning == true {
             dlog("Engine", "handleAudioConfigChange: engine still running — nothing to restart")
             return
@@ -903,11 +896,11 @@ final class SpeechEngine {
     /// closure holds the writer and session strongly until it is removed, so dropping
     /// the engine's references right after is safe. `waiting` is for the one caller
     /// that re-prepares the writer next and must know no callback is inside `append`.
-    private func stopAudioEngine(_ engine: AVAudioEngine, waiting: Bool = false) {
+    private func stopAudioEngine(_ engine: AudioCapture, waiting: Bool = false) {
         engineStartToken += 1
         let stop = {
             engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
+            engine.removeTap()
         }
         if waiting { engineQueue.sync(execute: stop) } else { engineQueue.async(execute: stop) }
     }
@@ -917,16 +910,10 @@ final class SpeechEngine {
         // Bump the token so any in-flight background prepare()/start() knows it's stale.
         engineStartToken += 1
         if let engine = audioEngine {
+            engine.onConfigurationChange = nil
             stopAudioEngine(engine, waiting: waiting)
         }
         audioEngine = nil
-    }
-
-    private func removeConfigChangeObserver() {
-        if let observer = configChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-            configChangeObserver = nil
-        }
     }
 
     /// Never writes `phase`: every caller sets `.idle` immediately before calling, after
@@ -945,7 +932,6 @@ final class SpeechEngine {
         audioBufferWriter = nil
         session?.cancel()
         session = nil
-        removeConfigChangeObserver()
     }
 
     /// Split the audio buffer into N segments and compute RMS for each, raw — the
