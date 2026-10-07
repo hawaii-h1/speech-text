@@ -815,6 +815,7 @@ final class AppState {
     }
 
     private func startRecording() {
+        let began = ProcessInfo.processInfo.systemUptime
         isTestDictation = dictationTest.isActive
         let front = NSWorkspace.shared.frontmostApplication
         if isTestDictation {
@@ -850,6 +851,9 @@ final class AppState {
         // result belongs to the setup window that has long moved on by then.
         speechEngine.onSavedOffline = isTestDictation ? nil : { id in MainActor.assumeIsolated { OfflineRetry.shared.enqueue(id) } }
         speechEngine.startRecording(locale: locale)
+        // The overlay was ordered front above, but draws only once this returns.
+        let held = ProcessInfo.processInfo.systemUptime - began
+        dlog("App", "\(held > 0.25 ? "⚠ " : "")startRecording held the main thread \(Int(held * 1000)) ms — the overlay draws after it")
     }
 
     /// The engine ended the dictation itself: the rest of an ordinary stop, without a

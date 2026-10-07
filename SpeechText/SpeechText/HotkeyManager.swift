@@ -137,8 +137,15 @@ final class HotkeyManager {
                 )
                 guard status == noErr else { return OSStatus(eventNotHandledErr) }
                 let isDown = GetEventKind(event) == UInt32(kEventHotKeyPressed)
+                let pressedAt = GetEventTime(event)
 
                 DispatchQueue.main.async {
+                    // A shortcut that waited for the main thread was acted on late: a stop
+                    // pressed while a start held the thread lands after the fact.
+                    let waited = GetCurrentEventTime() - pressedAt
+                    if waited > 0.2 {
+                        dlog("Hotkey", "⚠ shortcut \(hotKeyID.id) \(isDown ? "press" : "release") reached the app \(Int(waited * 1000)) ms late — the main thread was busy")
+                    }
                     if let action = ShortcutAction.allCases.first(where: { HotkeyManager.hotKeyID($0) == hotKeyID.id }) {
                         HeldShortcuts.shared.set(action, isDown: isDown)
                     }

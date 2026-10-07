@@ -284,6 +284,7 @@ final class SpeechEngine {
         }
         let locale = configuration.locale
         dlog("Engine", "setupRecordingSession: locale=\(locale), provider=\(configuration.provider.rawValue)")
+        var timer = StartTimer()
         phase = .starting
         // Fresh segment with a fresh buffer writer — nothing has been sent for it yet.
         segmentFinishStarted = false
@@ -297,8 +298,10 @@ final class SpeechEngine {
 
         session?.cancel()
         session = nil
+        timer.lap("teardown")
 
         let engine = makeAudioEngine()
+        timer.lap("capture")
 
         let writer = AudioBufferWriter()
         audioBufferWriter = writer
@@ -344,6 +347,7 @@ final class SpeechEngine {
             }
         }
         session = newSession
+        timer.lap("session")
 
         // The session opens first (a stream's TLS handshake overlaps the hardware start),
         // then the tap, then the engine.
@@ -361,6 +365,7 @@ final class SpeechEngine {
             cleanup()
             return
         }
+        timer.lap("session start")
 
         guard installAudioTap() else {
             // No input device: the same terminal shape as a session that would not open.
@@ -370,7 +375,25 @@ final class SpeechEngine {
             cleanup()
             return
         }
-        startAudioEngine(engine)
+        timer.lap("tap")
+        reportMainThreadStart(timer, as: "start")
+        startAudioEngine(engine, timer: timer)
+    }
+
+    /// Past this, a start held the main thread long enough to be seen: the overlay that
+    /// was ordered front before it could not draw.
+    private static let slowStartThreshold: TimeInterval = 0.25
+
+    /// The main thread's share of a start, step by step. A slow one also goes to the
+    /// system log at a level it keeps, so a stall is still readable after the app quit.
+    private func reportMainThreadStart(_ timer: StartTimer, as what: String) {
+        let elapsed = timer.elapsed
+        guard elapsed > Self.slowStartThreshold else {
+            dlog("Engine", "\(what) on the main thread: \(StartTimer.ms(elapsed)) (\(timer.summary))")
+            return
+        }
+        dlog("Engine", "⚠ slow \(what) held the main thread \(StartTimer.ms(elapsed)) (\(timer.summary))")
+        seLog.warning("slow \(what, privacy: .public) held the main thread \(StartTimer.ms(elapsed), privacy: .public) (\(timer.summary, privacy: .public))")
     }
 
     /// A fresh capture on the microphone the choice comes to *now* — the old one is torn
@@ -396,7 +419,12 @@ final class SpeechEngine {
     }
 
     private func makeCapture() -> AudioCapture {
+        let resolveBegan = ProcessInfo.processInfo.systemUptime
         let resolution = AudioInputDevices.resolve(configuration?.microphone ?? .automatic)
+        let resolved = ProcessInfo.processInfo.systemUptime - resolveBegan
+        if resolved > Self.slowStartThreshold {
+            dlog("Engine", "⚠ resolving the microphone took \(StartTimer.ms(resolved))")
+        }
         microphone = resolution
         guard let device = resolution.device else {
             dlog("Engine", "microphone: system input")
@@ -407,9 +435,11 @@ final class SpeechEngine {
             microphone = MicrophoneResolution()
             return EngineCapture()
         }
+        let openBegan = ProcessInfo.processInfo.systemUptime
         do {
             let capture = try DeviceCapture(deviceID: id)
-            dlog("Engine", "microphone: \(device.name) (\(Int(capture.format.sampleRate)) Hz)"
+            dlog("Engine", "microphone: \(device.name) (\(Int(capture.format.sampleRate)) Hz, "
+                 + "resolved in \(StartTimer.ms(resolved)), opened in \(StartTimer.ms(ProcessInfo.processInfo.systemUptime - openBegan)))"
                  + (resolution.avoided.map { " instead of \($0.name)" } ?? "")
                  + (resolution.pickedIsMissing ? " — the picked microphone is not connected" : ""))
             if resolution.avoided != nil { onMicrophoneSubstituted?(resolution) }
@@ -424,11 +454,15 @@ final class SpeechEngine {
     /// `prepare()` + `start()` acquire audio hardware resources and can block the main
     /// thread for 100–300 ms, so they run on `engineQueue`. The token detects a stale
     /// start (the user stopped before the engine was ready).
-    private func startAudioEngine(_ engine: AudioCapture) {
+    private func startAudioEngine(_ engine: AudioCapture, timer: StartTimer? = nil) {
         engineStartToken += 1
         let token = engineStartToken
+        let queued = ProcessInfo.processInfo.systemUptime
 
         engineQueue.async { [weak self] in
+            // A queue still busy with an earlier stop delays the start as surely as a slow
+            // device does.
+            let began = ProcessInfo.processInfo.systemUptime
             do {
                 try engine.start()
             } catch {
@@ -446,6 +480,7 @@ final class SpeechEngine {
                 }
                 return
             }
+            let finished = ProcessInfo.processInfo.systemUptime
             DispatchQueue.main.async { [weak self] in
                 // Session was cancelled (stop pressed before engine finished starting).
                 guard let self, self.engineStartToken == token else {
@@ -458,6 +493,15 @@ final class SpeechEngine {
                 // woke the stop's waiter with an empty result.
                 if self.phase == .starting { self.phase = .recording }
                 seLog.info("startAudioEngine: audio engine started successfully")
+                let now = ProcessInfo.processInfo.systemUptime
+                let timing = "waited \(StartTimer.ms(began - queued)) for the queue, started in \(StartTimer.ms(finished - began))"
+                    + (timer.map { ", \(StartTimer.ms(now - $0.began)) after the start began" } ?? "")
+                if let timer, now - timer.began > 1 {
+                    dlog("Engine", "⚠ microphone live late: \(timing)")
+                    seLog.warning("microphone live late: \(timing, privacy: .public)")
+                } else {
+                    dlog("Engine", "microphone live: \(timing)")
+                }
             }
         }
     }
@@ -494,7 +538,9 @@ final class SpeechEngine {
     private func restartAudioEngine() {
         // Waiting: `installAudioTap` re-prepares the writer, which is only safe once no
         // callback of the old tap can be inside `append`.
+        var timer = StartTimer()
         let engine = makeAudioEngine(waiting: true)
+        timer.lap("capture")
         guard installAudioTap() else {
             // The new device offers no usable input. Ending the recording here hands the
             // user what was said so far, with the reason; leaving `.recording` standing
@@ -511,7 +557,9 @@ final class SpeechEngine {
             }
             return
         }
-        startAudioEngine(engine)
+        timer.lap("tap")
+        reportMainThreadStart(timer, as: "restart")
+        startAudioEngine(engine, timer: timer)
     }
 
     /// Returns once `isTranscribing` is false. Returns immediately when nothing is in
@@ -995,4 +1043,29 @@ private final class AtomicFlag {
         value = new
         return old
     }
+}
+
+// MARK: - Start timing
+
+/// The steps of a start, timed for the Debug Log. Everything up to `startAudioEngine`
+/// runs on the main thread, after the overlay was ordered front and before it can draw:
+/// a step that stalls there (Core Audio answering slowly while Bluetooth headphones
+/// change profile) leaves the user with no overlay and a microphone that opens late,
+/// and the log has to say which step it was.
+private struct StartTimer {
+    private(set) var began = ProcessInfo.processInfo.systemUptime
+    private var last = ProcessInfo.processInfo.systemUptime
+    private var steps: [String] = []
+
+    /// Closes the step since the previous lap.
+    mutating func lap(_ step: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        steps.append("\(step) \(Self.ms(now - last))")
+        last = now
+    }
+
+    var elapsed: TimeInterval { ProcessInfo.processInfo.systemUptime - began }
+    var summary: String { steps.joined(separator: ", ") }
+
+    static func ms(_ seconds: TimeInterval) -> String { "\(Int((seconds * 1000).rounded())) ms" }
 }
