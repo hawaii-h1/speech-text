@@ -1335,7 +1335,7 @@ private struct HomeRecentRow: View {
         HStack(spacing: 14) {
             HomeEntryMark(entry: entry)
             VStack(alignment: .leading, spacing: 5) {
-                Text(entry.text)
+                Text(entry.preview)
                     .font(.system(size: failed ? 13 : 14))
                     .foregroundStyle(failed ? MainColor.ink2 : MainColor.ink)
                     .lineLimit(1)

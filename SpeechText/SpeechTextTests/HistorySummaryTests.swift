@@ -106,6 +106,13 @@ final class HistorySummaryTests: XCTestCase {
         XCTAssertEqual(HomeRecentEntry(record(app: "Slack")).place, "Slack")
     }
 
+    func testARowShowsALettersParagraphsOnOneLine() {
+        let letter = "Hi Amie!\n\nOkay, thanks for the information.  Yes, I’ve learned Spanish.\n"
+        let entry = HomeRecentEntry(record(text: letter))
+        XCTAssertEqual(entry.preview, "Hi Amie! Okay, thanks for the information. Yes, I’ve learned Spanish.")
+        XCTAssertEqual(entry.text, letter, "Copy keeps the line breaks")
+    }
+
     // MARK: Formatting
 
     func testTheFactsAreWrittenAsAPersonWould() {

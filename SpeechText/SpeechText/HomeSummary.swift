@@ -317,6 +317,13 @@ struct HomeRecentEntry: Equatable, Identifiable {
         canRetry = record.isRetryable
     }
 
+    /// The text as a row shows it: every run of whitespace — a paragraph break above all —
+    /// one space, so a letter's "Hi Amie!" and blank line do not leave the row's second
+    /// line empty. `text` keeps the line breaks for Copy.
+    var preview: String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
     /// Where the row says the text went: its app, the Record Window for a success that
     /// names none — or that nothing was pasted.
     var place: String {

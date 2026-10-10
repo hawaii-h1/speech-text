@@ -357,7 +357,7 @@ private struct HistoryRow: View {
                     HStack(spacing: 14) {
                         HomeEntryMark(entry: entry)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(entry.text)
+                            Text(entry.preview)
                                 .font(.system(size: entry.status == .success ? 14 : 13))
                                 .foregroundStyle(entry.status == .success ? MainColor.ink : MainColor.ink2)
                                 .lineLimit(2)
