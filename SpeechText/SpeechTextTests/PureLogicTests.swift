@@ -533,6 +533,17 @@ final class FocusContextTests: XCTestCase {
         XCTAssertEqual(context, FocusContext(appName: "Slack", bundleID: "com.tinyspeck.slackmacgap"))
     }
 
+    func testSummaryNamesTheAppOnce() {
+        XCTAssertEqual(FocusContext(appName: "Slack", windowTitle: "#backend - Acme").summary, "Slack — #backend - Acme")
+        XCTAssertEqual(FocusContext(appName: "Claude", windowTitle: "Claude").summary, "Claude")
+        XCTAssertEqual(FocusContext(appName: "Claude", windowTitle: "Claude", fieldLabel: "Reply").summary, "Claude — Reply")
+        XCTAssertEqual(FocusContext(appName: "Google Chrome",
+                                    windowTitle: "Preply - Google Chrome – Vladyslav (Vlad)").summary,
+                       "Google Chrome — Preply")
+        XCTAssertEqual(FocusContext(appName: "Safari", windowTitle: "Google Chrome – Wikipedia").summary,
+                       "Safari — Google Chrome – Wikipedia")
+    }
+
     func testLabelRepeatingTheWindowTitleIsDropped() {
         XCTAssertNil(capture(labels: ["#backend - Acme"])?.fieldLabel)
     }

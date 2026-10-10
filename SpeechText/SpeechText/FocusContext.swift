@@ -88,9 +88,31 @@ struct FocusContext: Codable, Equatable {
         return "<context>\n\(lines.joined(separator: "\n"))\n</context>"
     }
 
-    /// One line for History and the Debug Log: "Slack — #backend".
+    /// One line for History and the Debug Log: "Slack — #backend". The app's own name is
+    /// said once: a window titled just that ("Claude") adds nothing, and the browsers'
+    /// "Page - Google Chrome – Profile" keeps only the page. The model is still told the
+    /// title as the app wrote it (`promptBlock`); this is only how it is shown.
     var summary: String {
-        [appName ?? bundleID, windowTitle ?? fieldLabel].compactMap { $0 }.joined(separator: " — ")
+        let app = appName ?? bundleID
+        let place = [windowTitle, fieldLabel].lazy
+            .compactMap { $0.flatMap { Self.withoutAppName($0, app: app) } }
+            .first
+        return [app, place].compactMap { $0 }.joined(separator: " — ")
+    }
+
+    /// The title with the app's name taken off its end, or nil when nothing else is left.
+    private static func withoutAppName(_ title: String, app: String?) -> String? {
+        var text = title.trimmingCharacters(in: .whitespaces)
+        if let app, !app.isEmpty {
+            for dash in [" - ", " – ", " — "] {
+                if let range = text.range(of: dash + app, options: [.caseInsensitive, .backwards]) {
+                    text = String(text[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    break
+                }
+            }
+            if text.caseInsensitiveCompare(app) == .orderedSame { return nil }
+        }
+        return text.isEmpty ? nil : text
     }
 
     /// One line, no angle brackets, bounded. Angle brackets are replaced rather than

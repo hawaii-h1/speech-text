@@ -346,23 +346,42 @@ private struct HistoryRow: View {
     let toggle: () -> Void
     @State private var hovering = false
     @State private var copied = false
+    @State private var fullTextHeight: CGFloat = 0
+    @State private var twoLineHeight: CGFloat = 0
 
     private var entry: HomeRecentEntry { HomeRecentEntry(record) }
 
+    /// A plain dictation that fits the row's two lines has nothing more to show, so it
+    /// does not open at all; one cut short opens to its whole text.
+    private var canExpand: Bool { !showsWholeText || fullTextHeight > twoLineHeight + 1 }
+    private var isOpen: Bool { isExpanded && canExpand }
+
+    /// A dictation pasted as it was heard: AI Rewrite and the Edit shortcut have two texts
+    /// to show side by side under the row, a plain dictation only the one the row holds.
+    private var showsWholeText: Bool { record.status == .success && record.refinement == nil }
+
     var body: some View {
         let entry = entry
+        let isOpen = isOpen
         VStack(spacing: 0) {
             HStack(spacing: 14) {
-                Button(action: toggle) {
+                Button(action: { if canExpand { toggle() } }) {
                     HStack(spacing: 14) {
                         HomeEntryMark(entry: entry)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(entry.preview)
-                                .font(.system(size: entry.status == .success ? 14 : 13))
+                            // Closed, the row is the preview on one run of lines; open, a
+                            // plain dictation's whole text with its line breaks.
+                            Text(isOpen && showsWholeText ? entry.text : entry.preview)
+                                .font(textFont)
                                 .foregroundStyle(entry.status == .success ? MainColor.ink : MainColor.ink2)
-                                .lineLimit(2)
+                                // Open, a plain dictation's row is its whole text: there is no
+                                // second text to set beside it, so a pane would only repeat it.
+                                .lineLimit(isOpen && showsWholeText ? nil : 2)
                                 .truncationMode(.tail)
+                                .fixedSize(horizontal: false, vertical: isOpen && showsWholeText)
                                 .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(alignment: .topLeading) { textMeasure(entry) }
                             HStack(spacing: 6) {
                                 Text(entry.place).fontWeight(.medium).foregroundStyle(MainColor.ink)
                                 Text("·")
@@ -382,26 +401,34 @@ private struct HistoryRow: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint(isExpanded ? "Hides the details" : "Shows the details")
+                .help(canExpand ? "" : facts)
+                .accessibilityHint(canExpand ? (isOpen ? "Hides the details" : "Shows the details") : "")
 
-                quickAction(entry)
+                HStack(spacing: 6) {
+                    quickAction(entry)
+                    HistoryDeleteButton(record: record)
+                        .opacity(hovering || isOpen ? 1 : 0)
+                }
+                .fixedSize()
+                // Kept in place when the row cannot open, so every row's buttons line up.
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(hovering || isExpanded ? MainColor.ink2 : MainColor.ink3)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .onTapGesture(perform: toggle)
+                    .foregroundStyle(hovering || isOpen ? MainColor.ink2 : MainColor.ink3)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .opacity(canExpand ? 1 : 0)
+                    .onTapGesture { if canExpand { toggle() } }
                     .accessibilityHidden(true)
             }
             .padding(.leading, 14)
             .padding(.trailing, 16)
             .padding(.vertical, 14)
 
-            if isExpanded {
+            if isOpen {
                 HistoryDetail(record: record)
                     .transition(.opacity)
             }
         }
-        .background(hovering || isExpanded ? MainColor.panel : .clear)
+        .background(hovering || isOpen ? MainColor.panel : .clear)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
         .contextMenu {
@@ -421,18 +448,75 @@ private struct HistoryRow: View {
         }
     }
 
+    private var textFont: Font { .system(size: entry.status == .success ? 14 : 13) }
+
+    /// The text measured twice, unseen — whole as the open row shows it, and the preview
+    /// cut to the closed row's two lines — so the row knows whether opening it would show
+    /// anything more.
+    private func textMeasure(_ entry: HomeRecentEntry) -> some View {
+        ZStack(alignment: .topLeading) {
+            Text(entry.text).font(textFont)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { fullTextHeight = $0 }
+            Text(entry.preview).font(textFont).lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { twoLineHeight = $0 }
+        }
+        .hidden()
+        .accessibilityHidden(true)
+    }
+
+    /// For a row that cannot open: the facts it would have shown, as its tooltip.
+    private var facts: String {
+        var parts: [String] = [HistoryFormat.full(record.date)]
+        if let length = HistoryFormat.length(record.duration) { parts.append(length) }
+        let engine = historyEngine(record)
+        if !engine.isEmpty { parts.append(engine) }
+        if let origin = record.originApp, let destination = record.destinationApp, origin != destination {
+            parts.append("started in \(origin), pasted into \(destination)")
+        }
+        return parts.joined(separator: "  ·  ")
+    }
+
     /// What the row offers on the right: Retry for a closed failure, Copy otherwise — on
     /// hover, and always while the row is open. Copy stays in the row when it opens, so
     /// the text beside it keeps its width and does not reflow.
     @ViewBuilder
     private func quickAction(_ entry: HomeRecentEntry) -> some View {
         if entry.status != .success {
-            if entry.canRetry && !isExpanded { HomeRetryButton(id: record.id) }
+            if entry.canRetry && !isOpen { HomeRetryButton(id: record.id) }
         } else {
             HomeCopyButton(text: record.deliveredText, copied: $copied)
-                .opacity(hovering || isExpanded || copied ? 1 : 0)
+                .opacity(hovering || isOpen || copied ? 1 : 0)
         }
     }
+}
+
+/// Delete as a compact button beside Copy, drawn like it, warning only on hover.
+private struct HistoryDeleteButton: View {
+    let record: TranscriptionRecord
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) { TranscriptionHistory.shared.delete(record) }
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(hovering ? MainColor.problem : MainColor.ink)
+                .frame(minWidth: 14)
+        }
+        .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
+        .onHover { hovering = $0 }
+        .help("Delete")
+        .accessibilityLabel("Delete")
+    }
+}
+
+/// What heard it: "ElevenLabs · Ukrainian".
+private func historyEngine(_ record: TranscriptionRecord) -> String {
+    [HistoryFormat.engine(record.provider), HistoryFormat.language(record.locale)]
+        .compactMap { $0 }.joined(separator: " · ")
 }
 
 enum HistoryClipboard {
@@ -458,18 +542,13 @@ private struct HistoryDetail: View {
             case .empty: problem("Nothing was heard in this recording — a muted microphone, or the shortcut pressed with nothing said.", danger: false)
             case .success: texts
             }
-            if hasCopies {
-                facts
-                actions
-            } else {
-                // Nothing to copy: Delete keeps to the facts' line rather than a row of its own.
-                HStack(alignment: .center, spacing: 12) {
-                    facts
-                    Spacer(minLength: 8)
-                    deleteButton
-                }
+            facts
+            if let said = saidText {
+                HomeCopyButton(text: said, title: record.refinement?.isSelectionEdit == true ? "Copy instruction" : "Copy what you said",
+                               copied: $copiedSaid, height: 28)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 58)
         .padding(.trailing, 16)
         .padding(.bottom, 16)
@@ -504,16 +583,12 @@ private struct HistoryDetail: View {
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
-        } else {
-            HistoryTextPane(title: "Dictated", symbol: "waveform", text: record.text, ai: false, note: "Pasted", model: engine)
         }
+        // A plain dictation has no pane: the open row above already shows its whole text,
+        // and its engine is named in the facts below.
     }
 
-    /// What heard it: "ElevenLabs · Ukrainian".
-    private var engine: String {
-        [HistoryFormat.engine(record.provider), HistoryFormat.language(record.locale)]
-            .compactMap { $0 }.joined(separator: " · ")
-    }
+    private var engine: String { historyEngine(record) }
 
     private func modelName(_ refinement: TranscriptionRecord.Refinement) -> String {
         let name = LLMProviderType(rawValue: refinement.provider)
@@ -556,8 +631,11 @@ private struct HistoryDetail: View {
     private var facts: some View {
         var parts: [String] = [HistoryFormat.full(record.date)]
         if let length = HistoryFormat.length(record.duration) { parts.append(length) }
-        // A success names its engine under what it heard; anything else names it here.
-        if record.status != .success || record.refinement?.isSelectionEdit == true { parts.append(engine) }
+        // A rewrite names its engine under what it heard; anything else names it here.
+        if record.status != .success || record.refinement == nil || record.refinement?.isSelectionEdit == true,
+           !engine.isEmpty {
+            parts.append(engine)
+        }
         if let origin = record.originApp, let destination = record.destinationApp, origin != destination {
             parts.append("started in \(origin), pasted into \(destination)")
         }
@@ -579,26 +657,9 @@ private struct HistoryDetail: View {
 
     // MARK: Actions
 
-    /// What was pasted is copied from the row's own Copy, which stays in place while the
-    /// row is open; only what was said, when it differs, has a button down here.
-    private var hasCopies: Bool { saidText != nil }
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            if let said = saidText {
-                HomeCopyButton(text: said, title: record.refinement?.isSelectionEdit == true ? "Copy instruction" : "Copy what you said",
-                               copied: $copiedSaid, height: 28)
-            }
-            Spacer(minLength: 8)
-            deleteButton
-        }
-    }
-
-    private var deleteButton: some View {
-        HistoryQuietButton(title: "Delete", symbol: "trash", destructive: true) {
-            withAnimation(.easeOut(duration: 0.2)) { TranscriptionHistory.shared.delete(record) }
-        }
-    }
+    // What was pasted is copied, and the record deleted, from the row's own buttons, which
+    // stay in place while the row is open; only what was said, when it differs, has a
+    // button down here.
 
     /// What reached the app: the rewrite, or what was said when there was none — and for
     /// an edit that failed, nothing new.
