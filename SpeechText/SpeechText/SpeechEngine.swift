@@ -419,6 +419,21 @@ final class SpeechEngine {
     }
 
     private func makeCapture() -> AudioCapture {
+        #if DEBUG
+        if E2EMode.audioInputs != nil {
+            // An end-to-end run: no microphone is opened at all.
+            let clip = E2EMode.nextAudioInput()
+            microphone = MicrophoneResolution()
+            do {
+                let capture = try FileCapture(url: clip)
+                dlog("Engine", "microphone: file \(clip?.lastPathComponent ?? "(silence)")")
+                return capture
+            } catch {
+                dlog("Engine", "⚠ could not read \(clip?.path ?? "?"): \(error.localizedDescription) — silence")
+                return try! FileCapture(url: nil)
+            }
+        }
+        #endif
         let resolveBegan = ProcessInfo.processInfo.systemUptime
         let resolution = AudioInputDevices.resolve(configuration?.microphone ?? .automatic)
         let resolved = ProcessInfo.processInfo.systemUptime - resolveBegan

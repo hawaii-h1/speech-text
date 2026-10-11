@@ -238,3 +238,32 @@ final class APIKeyStoreTests: XCTestCase {
         XCTAssertFalse(store.hasAnyKey)
     }
 }
+
+/// The end-to-end run's key file (`-SPTKeysFile`), read in the shape `LiveProviderTests`
+/// takes from the environment.
+final class E2EKeysFileTests: XCTestCase {
+    func testTheEnvFileIsReadOntoTheStoredKeyNames() {
+        let keys = E2EMode.parseKeys("""
+        # test accounts
+        GROQ_API_KEY=gsk_one
+        export OPENAI_API_KEY="sk-two"
+        ELEVENLABS_API_KEY = 'three'
+        ANTHROPIC_API_KEY=
+        SOMETHING_ELSE=four
+        """)
+        XCTAssertEqual(keys, [
+            SettingsKeys.groqAPIKey: "gsk_one",
+            SettingsKeys.openAIAPIKey: "sk-two",
+            SettingsKeys.elevenLabsAPIKey: "three",
+        ])
+    }
+
+    #if DEBUG
+    func testSessionKeysAreHeldWithoutBeingWritten() {
+        let store = APIKeyStore()
+        store.useForThisSession([SettingsKeys.groqAPIKey: "gsk_one"])
+        XCTAssertEqual(store.value(for: SettingsKeys.groqAPIKey), "gsk_one")
+        XCTAssertEqual(store.mode, .unopened)
+    }
+    #endif
+}

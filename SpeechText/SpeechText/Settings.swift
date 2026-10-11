@@ -193,7 +193,10 @@ enum SettingsKeys {
 /// (the speech-text.app domain, reversed) before the first public release. Newest first
 /// matters: a machine that saw several should take the *latest* value, and the loop below
 /// never overwrites a key it has already adopted.
-let preRenameDefaultsDomains = ["com.speechtext.app", "com.speachtext.app", "com.voicepeter.app"]
+/// An end-to-end build (`E2EMode`) has none: its domain starts empty on purpose.
+var preRenameDefaultsDomains: [String] {
+    E2EMode.isActive ? [] : ["com.speechtext.app", "com.speachtext.app", "com.voicepeter.app"]
+}
 
 /// Preferences are keyed by bundle identifier, so each rename leaves every setting —
 /// shortcuts and prompt presets included — reading as empty, which looks exactly like a

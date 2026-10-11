@@ -105,6 +105,16 @@ final class APIKeyStore: @unchecked Sendable {
         }
     }
 
+    #if DEBUG
+    /// Debug builds only, for an end-to-end run (`E2EMode.keysFile`): the keys this
+    /// session reads, held in memory and never written to the keychain or a plist.
+    func useForThisSession(_ keys: [String: String]) {
+        lock.lock()
+        values.merge(keys) { _, new in new }
+        lock.unlock()
+    }
+    #endif
+
     /// Opens the store at launch, moving keys out of the preferences domains when the
     /// keychain is there. `keychain` is nil for a build that cannot reach it.
     /// `legacy` is the chain of pre-rename domains, newest first.

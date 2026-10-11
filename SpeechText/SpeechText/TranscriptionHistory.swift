@@ -162,7 +162,7 @@ final class TranscriptionHistory {
 
     private var baseDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent("SpeechText", isDirectory: true)
+        return support.appendingPathComponent(E2EMode.supportFolderName, isDirectory: true)
     }
 
     /// Folder names this app kept its history under before, newest first: it shipped as
@@ -172,7 +172,7 @@ final class TranscriptionHistory {
 
     private func adoptPreRenameStore() {
         let fm = FileManager.default
-        guard !fm.fileExists(atPath: baseDirectory.path) else { return }
+        guard !E2EMode.isActive, !fm.fileExists(atPath: baseDirectory.path) else { return }
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         for name in Self.preRenameStoreNames {
             let legacy = support.appendingPathComponent(name, isDirectory: true)

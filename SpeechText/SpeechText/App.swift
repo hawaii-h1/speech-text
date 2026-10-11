@@ -127,10 +127,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // says what they are for — not in two unexplained alerts at launch.
             DispatchQueue.main.async { [weak self] in self?.openSetup() }
         } else {
-            // Request microphone access on launch
-            appState.speechEngine.requestMicrophoneAccess { granted in
-                if !granted {
-                    dlog("App", "Microphone access denied")
+            // Request microphone access on launch — but not for an end-to-end run, which
+            // records from a file and whose prompt would take the focus from the document
+            // the script dictates into.
+            if E2EMode.audioInputs == nil {
+                appState.speechEngine.requestMicrophoneAccess { granted in
+                    if !granted {
+                        dlog("App", "Microphone access denied")
+                    }
                 }
             }
 

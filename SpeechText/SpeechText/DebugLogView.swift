@@ -171,13 +171,14 @@ extension DictationTraceRecorder {
         UserDefaults.standard.bool(forKey: SettingsKeys.recordDictationTraces)
     }
 
-    /// `Application Support/SpeechText/Traces`. History is touched first: its rename
+    /// `Application Support/SpeechText/Traces` (`SpeechText-e2e/` in an end-to-end build). History is touched first: its rename
     /// migration moves a pre-rename folder into `SpeechText/` only while that does not
     /// exist yet, and creating `Traces/` would create it.
     static var directory: URL {
         _ = TranscriptionHistory.shared
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SpeechText/Traces", isDirectory: true)
+            .appendingPathComponent(E2EMode.supportFolderName, isDirectory: true)
+            .appendingPathComponent("Traces", isDirectory: true)
     }
 }
 

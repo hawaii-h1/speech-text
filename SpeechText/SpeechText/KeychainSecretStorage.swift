@@ -109,4 +109,11 @@ func openAPIKeyStore() {
     if !report.adopted.isEmpty { line += "; carried over: \(report.adopted.joined(separator: ", "))" }
     if !report.failed.isEmpty { line += "; kept where they were after an error: \(report.failed.joined(separator: ", "))" }
     dlog("Keys", line)
+    #if DEBUG
+    if let file = E2EMode.keysFile {
+        let keys = (try? String(contentsOf: file, encoding: .utf8)).map(E2EMode.parseKeys) ?? [:]
+        APIKeyStore.shared.useForThisSession(keys)
+        dlog("Keys", "end-to-end run: \(keys.count) key(s) from \(file.lastPathComponent), this session only")
+    }
+    #endif
 }

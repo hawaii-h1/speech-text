@@ -221,3 +221,109 @@ final class DeviceCapture: AudioCapture {
         onConfigurationChange?()
     }
 }
+
+// MARK: - A file, for end-to-end runs
+
+#if DEBUG
+/// Debug builds only: plays a file through the tap in real time, as a microphone would
+/// deliver it, so `scripts/e2e.sh` can drive a whole dictation with no person speaking
+/// (`-SPTAudioInput`, see `E2EMode`). The tap gets the file's own format — the corpus is
+/// 48 kHz Float32 mono, what a Mac's microphone hands `AVAudioEngine` — so the writer's
+/// downsampler and the stream's converter run exactly as they do on a microphone. Once
+/// the file has played, or with no file at all, it delivers silence until stopped: a
+/// hold that outlasts the clip keeps recording, as it would in a quiet room.
+final class FileCapture: AudioCapture {
+    let format: AVAudioFormat
+    var onConfigurationChange: (() -> Void)?
+
+    private let samples: AVAudioPCMBuffer?
+    /// Frames per tap callback: 100 ms at 48 kHz, about what `AVAudioEngine`'s input
+    /// tap delivers on a Mac.
+    private let chunkFrames: AVAudioFrameCount
+    private let queue = DispatchQueue(label: "SpeechText.FileCapture.tap", qos: .userInitiated)
+    private let lock = NSLock()
+    private var tap: ((AVAudioPCMBuffer) -> Void)?
+    private var timer: DispatchSourceTimer?
+    private var startedAt: TimeInterval = 0
+    private var delivered: AVAudioFramePosition = 0
+
+    init(url: URL?) throws {
+        if let url {
+            let file = try AVAudioFile(forReading: url)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                                frameCapacity: AVAudioFrameCount(file.length))
+            else { throw DeviceCaptureError.noInput }
+            try file.read(into: buffer)
+            samples = buffer
+            format = file.processingFormat
+        } else {
+            samples = nil
+            format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        }
+        chunkFrames = AVAudioFrameCount(format.sampleRate / 10)
+    }
+
+    var isRunning: Bool { lock.withLock { timer != nil } }
+
+    func installTap(_ block: @escaping (AVAudioPCMBuffer) -> Void) {
+        lock.withLock { tap = block }
+    }
+
+    func removeTap() {
+        lock.withLock { tap = nil }
+        queue.sync {}
+    }
+
+    func start() throws {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(2))
+        timer.setEventHandler { [weak self] in self?.deliverDue() }
+        lock.withLock {
+            startedAt = ProcessInfo.processInfo.systemUptime
+            delivered = 0
+            self.timer = timer
+        }
+        timer.resume()
+    }
+
+    func stop() {
+        let timer = lock.withLock { () -> DispatchSourceTimer? in
+            defer { self.timer = nil }
+            return self.timer
+        }
+        timer?.cancel()
+    }
+
+    /// Everything the clock says is due, in whole chunks — the pace is the wall clock's,
+    /// never the timer's, so a late firing catches up instead of slowing the clip down.
+    private func deliverDue() {
+        let (block, due) = lock.withLock { () -> (((AVAudioPCMBuffer) -> Void)?, AVAudioFramePosition) in
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            return (tap, AVAudioFramePosition(elapsed * format.sampleRate))
+        }
+        while due - delivered >= AVAudioFramePosition(chunkFrames) {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkFrames) else { return }
+            buffer.frameLength = chunkFrames
+            fill(buffer, from: delivered)
+            delivered += AVAudioFramePosition(chunkFrames)
+            block?(buffer)
+        }
+    }
+
+    /// The file's frames from `position` on, zeros past its end.
+    private func fill(_ buffer: AVAudioPCMBuffer, from position: AVAudioFramePosition) {
+        let channels = Int(format.channelCount)
+        let count = Int(buffer.frameLength)
+        guard let out = buffer.floatChannelData else { return }
+        for channel in 0..<channels {
+            out[channel].update(repeating: 0, count: count)
+        }
+        guard let samples, let source = samples.floatChannelData,
+              position < AVAudioFramePosition(samples.frameLength) else { return }
+        let available = min(count, Int(AVAudioFramePosition(samples.frameLength) - position))
+        for channel in 0..<channels {
+            out[channel].update(from: source[channel].advanced(by: Int(position)), count: available)
+        }
+    }
+}
+#endif
