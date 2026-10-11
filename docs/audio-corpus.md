@@ -30,8 +30,9 @@ A description:
 - `expected` is what was said, as it should be written. Empty for a clip that must
   produce nothing (silence, a press shorter than a word).
 - `language`: `uk`, `en` or `mixed` — what the output's alphabet is checked against.
-- `maxWER` is optional. Without it the word error rate is reported, not judged; set it
-  from a baseline run on the real recording.
+- `maxWER` is optional: an absolute bound for a clip that needs one. Without it the
+  word error rate is still judged against the previous run (see **Against the previous
+  run**).
 - Every clip runs with Auto. `forcedLanguages` adds a pass per language, as if the user
   had named exactly that one. A pass forced to another language than the clip's (English
   forced to Ukrainian) is reported only — the checklist's L4, "note what comes out".
@@ -105,7 +106,33 @@ Both runners register the spell-checked segment joins the app registers at launc
 
 Each cell of `summary.md` is `WER · first text on the overlay · stop to text`; ↩ marks a
 streaming engine whose upload answered instead (the stream broke or came back empty),
-❌ a failed check. A streaming run also writes its `DictationTrace` to `traces/`: a
+❌ a failed check.
+
+## Against the previous run
+
+`maxWER` is one bound for every engine, so it is either loose for the strong ones or
+red forever for the weak ones; a run is instead judged against the one before it. The
+previous run is the last one committed under `docs/testing-runs/` (a folder with a
+`results-*.json` that git tracks) other than the run being written — and, when that run
+is itself one of them (`SPEECHTEXT_RUN_DIR` adding to an earlier run), the last one
+named before it. `summary.md` then opens with **Since `<that run>`**: each cell (clip ×
+engine × pass) against the same cell there, listed per engine —
+
+- **worse** (▼ in the tables): its word error rate rose by more than 0.10, as the table
+  shows it, or it fails a check it passed (a check, not a message: `repeated` with other
+  words is the same failure);
+- **better** (▲): the reverse;
+- **new**: a cell the previous run did not have. Never a regression;
+- **not compared**: the clip itself changed — its `expected` text, or its recording (each
+  result keeps both: the text and `audioDigest`, the first 16 hex digits of the WAV's
+  SHA-256). A run from before they were kept still shows a changed text, by measuring its
+  answer against today's; a re-recording with the same text it cannot see.
+
+Nothing here fails the test: a cloud answer varies from run to run, so the list is for
+the reader of the run, as the rest of the summary is. `maxWER` stays the one bound that
+fails, for a clip that needs an absolute one.
+
+A streaming run also writes its `DictationTrace` to `traces/`: a
 regression found live becomes an offline test by copying that file into
 `SpeechTextTests/Traces/` and setting `expectedDocument`.
 

@@ -73,7 +73,8 @@ struct SpeechTextEvaluation {
             .filter { $0.isSelected(by: options.clips) }
         let engines = CorpusEngine.all
             .filter { ($0.isLocal || options.cloud) && (options.engines.isEmpty || options.engines.contains($0.id)) }
-        let folder = options.runDirectory.map(CorpusRunFolder.init) ?? CorpusRunFolder.new(in: repository)
+        var folder = options.runDirectory.map { CorpusRunFolder(url: $0) } ?? CorpusRunFolder.new(in: repository)
+        folder.baseline = CorpusRunFolder.previous(in: repository, before: folder.url)?.url
         let keys = ProviderKeys.fromEnvironment()
         let runner = options.cloud ? "all" : "local"
 

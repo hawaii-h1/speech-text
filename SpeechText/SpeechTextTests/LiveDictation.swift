@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AVFoundation
+import CryptoKit
 import Foundation
 
 // A recorded clip played through the app's own recognition code the way the microphone
@@ -76,6 +77,9 @@ struct TapAudio {
     let format: AVAudioFormat
     let buffers: [AVAudioPCMBuffer]
     let duration: TimeInterval
+    /// The first 16 hex digits of the recording's SHA-256 (and the cut, for a clip taken
+    /// from the start of another): what tells a re-recorded clip from an engine that changed.
+    let digest: String
 
     enum Failure: LocalizedError {
         case unreadable(String)
@@ -91,6 +95,10 @@ struct TapAudio {
     }
 
     init(contentsOf url: URL, seconds: Double? = nil) throws {
+        var hash = SHA256()
+        hash.update(data: try Data(contentsOf: url))
+        if let seconds { hash.update(data: Data("\(seconds)".utf8)) }
+        digest = hash.finalize().prefix(8).map { String(format: "%02x", $0) }.joined()
         let file = try AVAudioFile(forReading: url)
         var frames = AVAudioFrameCount(file.length)
         if let seconds { frames = min(frames, AVAudioFrameCount(seconds * file.processingFormat.sampleRate)) }
@@ -253,6 +261,8 @@ enum LiveDictation {
         let language = pass.language
         var result = CorpusResult(clip: clip.name, engine: engine.id, engineName: engine.name,
                                   language: pass.label, status: .ran)
+        result.expected = clip.expected
+        result.audioDigest = audio.digest
         let configuration = engine.configuration(keys: keys, language: language,
                                                  dictionary: pass.dictionary ? clip.dictionaryEntries : [])
         let writer = AudioBufferWriter()

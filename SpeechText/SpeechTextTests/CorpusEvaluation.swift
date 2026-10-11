@@ -312,11 +312,35 @@ struct CorpusResult: Codable, Equatable {
     var substitutions: [String] = []
     /// Every check the result failed. Empty is a pass.
     var failures: [String] = []
+    /// The clip as it was run — what was said, and a digest of its recording — so a later
+    /// run can tell a clip that changed from an engine that did. Nil in runs before #167.
+    var expected: String?
+    var audioDigest: String?
 
     var passed: Bool { status != .ran || failures.isEmpty }
 }
 
 enum CorpusChecks {
+    /// What each failure message is a failure *of*, by how it begins: a run compared with
+    /// an earlier one asks which checks newly fail, and the earlier run kept only the
+    /// messages. A message no prefix matches is its own kind, so a check added later reads
+    /// as newly failing rather than being missed.
+    static let kinds: [(prefix: String, kind: String)] = [
+        ("pasted ", "pasted for nothing"),
+        ("nothing pasted", "nothing pasted"),
+        ("repeated:", "repeated"),
+        ("WER ", "WER over its bound"),
+        ("Russian letters", "language"),
+        ("mostly not Cyrillic", "language"),
+        ("Cyrillic in English", "language"),
+        ("glued:", "glued"),
+        ("hallucination:", "hallucination"),
+    ]
+
+    static func kind(of failure: String) -> String {
+        kinds.first { failure.hasPrefix($0.prefix) }?.kind ?? failure
+    }
+
     /// The issue's checks: nothing pasted for silence or a press shorter than a word,
     /// something pasted for speech, no phrase doubled, the word error rate within the
     /// clip's bound, and the output in the clip's language.
@@ -362,6 +386,13 @@ enum CorpusChecks {
 /// last.
 struct CorpusRunFolder {
     let url: URL
+    /// The run this one is compared with (`previous(in:before:)`); nil compares nothing.
+    var baseline: URL?
+
+    init(url: URL, baseline: URL? = nil) {
+        self.url = url
+        self.baseline = baseline
+    }
 
     var traces: URL { url.appendingPathComponent("traces", isDirectory: true) }
 
@@ -381,8 +412,51 @@ struct CorpusRunFolder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(results).write(to: resultsFile(runner), options: .atomic)
-        try CorpusSummary.render(allResults())
+        let comparison = try baseline.map {
+            CorpusComparison(try allResults(), previous: try CorpusRunFolder(url: $0).allResults(),
+                             baseline: $0.lastPathComponent)
+        }
+        try CorpusSummary.render(allResults(), comparison: comparison)
             .write(to: url.appendingPathComponent("summary.md"), atomically: true, encoding: .utf8)
+    }
+
+    /// The last run committed under the repository's `docs/testing-runs/` — a folder with
+    /// results, tracked by git — other than `current`, and, when `current` is itself one
+    /// of them (a run added to with `SPEECHTEXT_RUN_DIR`), one named before it: the run
+    /// a new one is judged against. Without git, every folder with results counts.
+    static func previous(in repository: URL, before current: URL) -> CorpusRunFolder? {
+        let runs = repository.appendingPathComponent("docs/testing-runs", isDirectory: true)
+        let current = current.resolvingSymlinksInPath()
+        let names = committedRuns(in: repository) ?? ((try? FileManager.default.contentsOfDirectory(atPath: runs.path)) ?? [])
+            .filter { name in
+                let files = (try? FileManager.default.contentsOfDirectory(atPath: runs.appendingPathComponent(name).path)) ?? []
+                return files.contains { $0.hasPrefix("results-") && $0.hasSuffix(".json") }
+            }
+        let inside = current.deletingLastPathComponent().path == runs.resolvingSymlinksInPath().path
+        return names
+            .filter { !inside || $0 < current.lastPathComponent }
+            .sorted()
+            .last
+            .map { CorpusRunFolder(url: runs.appendingPathComponent($0, isDirectory: true)) }
+    }
+
+    /// The run folders with a results file that git tracks; nil when git cannot say.
+    private static func committedRuns(in repository: URL) -> [String]? {
+        let git = Process()
+        git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        git.arguments = ["-C", repository.path, "ls-files", "--", "docs/testing-runs"]
+        let output = Pipe()
+        git.standardOutput = output
+        git.standardError = FileHandle.nullDevice
+        guard (try? git.run()) != nil else { return nil }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        git.waitUntilExit()
+        guard git.terminationStatus == 0 else { return nil }
+        return Array(Set(String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line -> String? in
+            let parts = line.split(separator: "/")
+            guard parts.count == 4, parts[3].hasPrefix("results-"), parts[3].hasSuffix(".json") else { return nil }
+            return String(parts[2])
+        }))
     }
 
     /// What this runner already wrote here, less the rows of the clips about to run
@@ -407,9 +481,102 @@ struct CorpusRunFolder {
     }
 }
 
+/// A run against the one before it (#167): each cell — clip × engine × pass — judged
+/// against the same cell's earlier result, so every engine is held to its own past and
+/// no bound is set by hand. Worse is a word error rate up by more than 0.10, or a check
+/// that newly fails; better is the reverse. A cell the earlier run did not have is new,
+/// and one whose clip changed since — its text or its recording — is not compared.
+struct CorpusComparison {
+    struct Change: Equatable {
+        var result: CorpusResult
+        var previous: CorpusResult
+        var reasons: [String]
+    }
+
+    /// The earlier run's folder name.
+    var baseline: String
+    var worse: [Change] = []
+    var better: [Change] = []
+    var new: [CorpusResult] = []
+    /// Cells whose clip changed since the earlier run: compared, they would judge the clip.
+    var changedClips: [CorpusResult] = []
+
+    /// More than this much — in the two decimals the table shows — is a change.
+    static let werStep = 10
+
+    init(_ results: [CorpusResult], previous: [CorpusResult], baseline: String) {
+        self.baseline = baseline
+        var earlier: [String: CorpusResult] = [:]
+        for result in previous { earlier[Self.key(result)] = result }
+        for result in results where result.status == .ran {
+            guard let before = earlier[Self.key(result)], before.status == .ran else {
+                new.append(result)
+                continue
+            }
+            if Self.clipChanged(result, since: before) {
+                changedClips.append(result)
+                continue
+            }
+            var worse: [String] = []
+            var better: [String] = []
+            if let now = result.wordErrorRate.map(Self.hundredths),
+               let then = before.wordErrorRate.map(Self.hundredths) {
+                let reason = String(format: "WER %.2f → %.2f", Double(then) / 100, Double(now) / 100)
+                if now - then > Self.werStep { worse.append(reason) }
+                if then - now > Self.werStep { better.append(reason) }
+            }
+            let failing = Self.kinds(result.failures)
+            let failed = Self.kinds(before.failures)
+            let newlyFailing = failing.filter { !failed.contains($0) }
+            let newlyPassing = failed.filter { !failing.contains($0) }
+            if !newlyFailing.isEmpty { worse.append("newly fails: " + newlyFailing.joined(separator: ", ")) }
+            if !newlyPassing.isEmpty { better.append("passes again: " + newlyPassing.joined(separator: ", ")) }
+            if !worse.isEmpty {
+                self.worse.append(Change(result: result, previous: before, reasons: worse + better))
+            } else if !better.isEmpty {
+                self.better.append(Change(result: result, previous: before, reasons: better))
+            }
+        }
+    }
+
+    /// `▼` for a cell that got worse, `▲` for one that got better, nil otherwise.
+    func mark(for result: CorpusResult) -> String? {
+        let key = Self.key(result)
+        if worse.contains(where: { Self.key($0.result) == key }) { return "▼" }
+        if better.contains(where: { Self.key($0.result) == key }) { return "▲" }
+        return nil
+    }
+
+    private static func key(_ result: CorpusResult) -> String {
+        [result.clip, result.engine, result.language].joined(separator: "\u{1F}")
+    }
+
+    private static func hundredths(_ rate: Double) -> Int { Int((rate * 100).rounded()) }
+
+    private static func kinds(_ failures: [String]) -> [String] {
+        var kinds: [String] = []
+        for kind in failures.map(CorpusChecks.kind(of:)) where !kinds.contains(kind) { kinds.append(kind) }
+        return kinds
+    }
+
+    /// The clip's text or recording differs from the earlier run's. A run from before
+    /// either was kept says nothing about its recording, but its text can still be told
+    /// apart: the earlier answer measured against today's text gives another rate.
+    static func clipChanged(_ result: CorpusResult, since before: CorpusResult) -> Bool {
+        if let now = result.audioDigest, let then = before.audioDigest, now != then { return true }
+        if let now = result.expected, let then = before.expected { return now != then }
+        if let now = result.expected, let then = before.wordErrorRate,
+           let remeasured = CorpusMeasure.wordErrorRate(expected: now, actual: before.pasted ?? "") {
+            return hundredths(remeasured) != hundredths(then)
+        }
+        return false
+    }
+}
+
 enum CorpusSummary {
-    /// The engine × clip table (one per language pass), then every result in full.
-    static func render(_ results: [CorpusResult]) -> String {
+    /// The engine × clip table (one per language pass), then every result in full —
+    /// with, given a comparison, what changed since the earlier run ahead of the tables.
+    static func render(_ results: [CorpusResult], comparison: CorpusComparison? = nil) -> String {
         var engines: [(id: String, name: String)] = []
         for result in results where !engines.contains(where: { $0.id == result.engine }) {
             engines.append((result.engine, result.engineName))
@@ -423,6 +590,7 @@ enum CorpusSummary {
         out += "\(ran.count) results, \(ran.filter { !$0.failures.isEmpty }.count) failed. "
         out += "Each cell: WER · first text on the overlay · stop to text. ❌ marks a failed check "
         out += "(listed below); ↩ a streaming engine whose upload answered instead.\n"
+        if let comparison { out += render(comparison, engines: engines) }
 
         for language in languages {
             out += "\n## Language: \(language)\n\n"
@@ -433,7 +601,7 @@ enum CorpusSummary {
                     guard let result = results.first(where: {
                         $0.clip == clip && $0.engine == engine.id && $0.language == language
                     }) else { return "" }
-                    return cell(result)
+                    return cell(result, mark: comparison?.mark(for: result))
                 }
                 out += "| \(clip) | " + cells.joined(separator: " | ") + " |\n"
             }
@@ -455,7 +623,45 @@ enum CorpusSummary {
         return out
     }
 
-    private static func cell(_ result: CorpusResult) -> String {
+    private static func render(_ comparison: CorpusComparison,
+                               engines: [(id: String, name: String)]) -> String {
+        var out = "\n## Since \(comparison.baseline)\n\n"
+        out += "\(comparison.worse.count) worse, \(comparison.better.count) better, \(comparison.new.count) new"
+        if !comparison.changedClips.isEmpty { out += ", \(comparison.changedClips.count) not compared" }
+        out += ". A cell is worse when its WER rose by more than 0.10 or it newly fails a check, "
+        out += "better the other way round; ▼ and ▲ mark them in the tables. "
+        out += "A cell the earlier run did not have is new, not a regression.\n"
+
+        func byEngine(_ title: String, _ changes: [CorpusComparison.Change]) {
+            guard !changes.isEmpty else { return }
+            out += "\n### \(title)\n"
+            for engine in engines {
+                let mine = changes.filter { $0.result.engine == engine.id }
+                guard !mine.isEmpty else { continue }
+                out += "\n**\(engine.name)**\n\n"
+                for change in mine {
+                    out += "- \(change.result.clip) · \(change.result.language): " + change.reasons.joined(separator: "; ") + "\n"
+                }
+            }
+        }
+        byEngine("Worse", comparison.worse)
+        byEngine("Better", comparison.better)
+
+        func list(_ title: String, _ results: [CorpusResult]) {
+            guard !results.isEmpty else { return }
+            out += "\n### \(title)\n\n"
+            for engine in engines {
+                let mine = results.filter { $0.engine == engine.id }
+                guard !mine.isEmpty else { continue }
+                out += "- **\(engine.name)**: " + mine.map { "\($0.clip) · \($0.language)" }.joined(separator: ", ") + "\n"
+            }
+        }
+        list("Not compared: the clip changed since", comparison.changedClips)
+        list("New", comparison.new)
+        return out
+    }
+
+    private static func cell(_ result: CorpusResult, mark: String? = nil) -> String {
         guard result.status == .ran else { return result.status.rawValue }
         var parts: [String] = []
         if let wer = result.wordErrorRate {
@@ -468,6 +674,7 @@ enum CorpusSummary {
         var cell = parts.joined(separator: " · ")
         if result.path == .fallback { cell += " ↩" }
         if !result.failures.isEmpty { cell += " ❌" }
+        if let mark { cell += " " + mark }
         return cell
     }
 }
