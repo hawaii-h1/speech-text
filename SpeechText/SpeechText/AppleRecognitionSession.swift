@@ -22,8 +22,9 @@ final class AppleRecognitionSession: RecognitionSession {
     private var task: SFSpeechRecognitionTask?
     /// Transcript committed from earlier chunks (see `rotate`).
     private var committedText = ""
-    /// The current chunk's partial.
-    private var partialText = ""
+    /// The current chunk's results, kept across the recogniser's resets after a pause
+    /// and its empty finals (`AppleUtterances`, #175).
+    private var utterances = AppleUtterances()
     /// Set on `isFinal`, or promoted from the live text when the recogniser errors.
     private var finalText = ""
     /// Recognition errors other than 216 (cancelled), as `RecognitionFailure` words them.
@@ -96,11 +97,18 @@ final class AppleRecognitionSession: RecognitionSession {
                 DispatchQueue.main.async {
                     // Ignore late callbacks from a chunk we've already rotated away from.
                     guard self.chunkToken == token else { return }
-                    self.partialText = partial
-                    self.onEvent?(.live(committed: self.committedText, partial: self.partialText))
+                    let before = self.utterances
+                    self.utterances.receive(partial)
+                    if self.utterances.settled != before.settled {
+                        dlog("Engine", "apple: a new utterance began — keeping the \(transcriptWords(before.current).count) words before it")
+                    }
+                    // What the recogniser has moved past is committed: it will not revise it.
+                    self.onEvent?(.live(committed: joinedTranscript(self.committedText, self.utterances.settled),
+                                        partial: self.utterances.current))
                     if isFinal {
-                        dlog("Engine", "recognitionTask: isFinal=true, text=\(partial.prefix(80))")
-                        self.finalText = joinedTranscript(self.committedText, self.partialText)
+                        dlog("Engine", "recognitionTask: isFinal=true, text=\(partial.prefix(80))"
+                             + (partial.isEmpty ? " — keeping the \(self.utterances.text.count) chars heard before it" : ""))
+                        self.finalText = joinedTranscript(self.committedText, self.utterances.text)
                         // No-op unless a finish is waiting, so isFinal during a chunk
                         // rotation or a pause changes nothing.
                         self.resolveFinish(cancelled: false)
@@ -116,11 +124,11 @@ final class AppleRecognitionSession: RecognitionSession {
                     // to wait for.
                     self.chunkFailed = true
                     if self.finalText.isEmpty {
-                        self.finalText = joinedTranscript(self.committedText, self.partialText)
+                        self.finalText = joinedTranscript(self.committedText, self.utterances.text)
                     }
                     // Text from the whole segment, earlier chunks included: a fresh chunk
                     // that fails right after a rotation is not a recording without text.
-                    let hasText = !joinedTranscript(self.committedText, self.partialText)
+                    let hasText = !joinedTranscript(self.committedText, self.utterances.text)
                         .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     let permissionDenied = Self.speechPermissionDenied
                     if let failure = RecognitionFailure.apple(
@@ -152,14 +160,14 @@ final class AppleRecognitionSession: RecognitionSession {
 
     private func rotate() {
         guard isFeeding, let recognizer else { return }
-        let live = joinedTranscript(committedText, partialText)
+        let live = joinedTranscript(committedText, utterances.text)
         dlog("Engine", "AppleRecognitionSession.rotate: committing \(live.count) chars, starting fresh chunk")
 
         // Commit the latest partial. Partials arrive continuously, so this captures
         // essentially everything said in this chunk; at most a word at the boundary
         // is at risk, which beats losing every word after the one-minute mark.
         committedText = live.trimmingCharacters(in: .whitespacesAndNewlines)
-        partialText = ""
+        utterances = AppleUtterances()
         // An isFinal from the retired chunk described only that chunk. Left in place it
         // would make the stop return chunk 1 alone, dropping everything said after.
         finalText = ""
@@ -191,7 +199,7 @@ final class AppleRecognitionSession: RecognitionSession {
     func pause() -> String? {
         isFeeding = false
         stopChunkTimer()
-        return joinedTranscript(committedText, partialText).trimmingCharacters(in: .whitespacesAndNewlines)
+        return joinedTranscript(committedText, utterances.text).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func finish() async -> RecognitionOutcome {
@@ -211,7 +219,7 @@ final class AppleRecognitionSession: RecognitionSession {
                     continuation.resume(returning: false)
                     return
                 }
-                dlog("Engine", "apple: waiting ≤0.5s for final result, live=\(joinedTranscript(self.committedText, self.partialText).count) chars")
+                dlog("Engine", "apple: waiting ≤0.5s for final result, live=\(joinedTranscript(self.committedText, self.utterances.text).count) chars")
                 self.finishContinuation = continuation
                 // 0.5s is the upper bound; the recognition callback resolves this early
                 // when a result with `isFinal` arrives, so the user isn't kept waiting on a timer.
@@ -227,7 +235,7 @@ final class AppleRecognitionSession: RecognitionSession {
         return await MainActor.run {
             var text = finalText
             if text.isEmpty {
-                let live = joinedTranscript(committedText, partialText)
+                let live = joinedTranscript(committedText, utterances.text)
                 dlog("Engine", "apple: finalText empty, using live text (\(live.count) chars)")
                 text = live
             }

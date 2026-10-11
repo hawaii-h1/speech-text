@@ -132,6 +132,9 @@
 		F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000001 /* MicrophoneChoice.swift */; };
 		F7B003000000000000000001 /* MicrophoneChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000001 /* MicrophoneChoice.swift */; };
 		F7C002000000000000000001 /* LevelNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C001000000000000000001 /* LevelNormalizer.swift */; };
+		A75200000000000000000001 /* AppleUtterances.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75100000000000000000001 /* AppleUtterances.swift */; };
+		A75300000000000000000001 /* AppleUtterances.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75100000000000000000001 /* AppleUtterances.swift */; };
+		A75400000000000000000001 /* AppleUtterances.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75100000000000000000001 /* AppleUtterances.swift */; };
 		E2E002000000000000000001 /* E2EMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E001000000000000000001 /* E2EMode.swift */; };
 		E2E003000000000000000001 /* E2EMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E001000000000000000001 /* E2EMode.swift */; };
 		E2E004000000000000000001 /* E2EMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E001000000000000000001 /* E2EMode.swift */; };
@@ -303,6 +306,7 @@
 		F74001000000000000000001 /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
 		F7B001000000000000000001 /* MicrophoneChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneChoice.swift; sourceTree = "<group>"; };
 		F7C001000000000000000001 /* LevelNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LevelNormalizer.swift; sourceTree = "<group>"; };
+		A75100000000000000000001 /* AppleUtterances.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleUtterances.swift; sourceTree = "<group>"; };
 		E2E001000000000000000001 /* E2EMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = E2EMode.swift; sourceTree = "<group>"; };
 		F7B001000000000000000002 /* AudioInputDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDevices.swift; sourceTree = "<group>"; };
 		F7B00C000000000000000001 /* AudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCapture.swift; sourceTree = "<group>"; };
@@ -448,6 +452,7 @@
 				F74001000000000000000001 /* HallucinationFilter.swift */,
 				F7B001000000000000000001 /* MicrophoneChoice.swift */,
 				F7C001000000000000000001 /* LevelNormalizer.swift */,
+				A75100000000000000000001 /* AppleUtterances.swift */,
 				E2E001000000000000000001 /* E2EMode.swift */,
 				F7B001000000000000000002 /* AudioInputDevices.swift */,
 				F7B00C000000000000000001 /* AudioCapture.swift */,
@@ -693,6 +698,7 @@
 				F74002000000000000000001 /* HallucinationFilter.swift in Sources */,
 				F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F7C002000000000000000001 /* LevelNormalizer.swift in Sources */,
+				A75200000000000000000001 /* AppleUtterances.swift in Sources */,
 				E2E002000000000000000001 /* E2EMode.swift in Sources */,
 				F7B002000000000000000002 /* AudioInputDevices.swift in Sources */,
 				F7B00D000000000000000001 /* AudioCapture.swift in Sources */,
@@ -757,6 +763,7 @@
 				F74003000000000000000001 /* HallucinationFilter.swift in Sources */,
 				F7B003000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F7C003000000000000000001 /* LevelNormalizer.swift in Sources */,
+				A75300000000000000000001 /* AppleUtterances.swift in Sources */,
 				E2E003000000000000000001 /* E2EMode.swift in Sources */,
 				F74003000000000000000002 /* CustomVocabulary.swift in Sources */,
 				F74003000000000000000003 /* TextReplacements.swift in Sources */,
@@ -825,6 +832,7 @@
 				D8000003000000000000002C /* LocalParakeetRuntime.swift in Sources */,
 				D8000003000000000000002D /* SpeechTextEvaluation.swift in Sources */,
 							D80000030000000000000100 /* LevelNormalizer.swift in Sources */,
+							A75400000000000000000001 /* AppleUtterances.swift in Sources */,
 							E2E004000000000000000001 /* E2EMode.swift in Sources */,
 				D80000030000000000000101 /* MicrophoneChoice.swift in Sources */,
 				D80000030000000000000102 /* ProviderRegistry.swift in Sources */,

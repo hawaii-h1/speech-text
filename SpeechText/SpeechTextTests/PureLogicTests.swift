@@ -2662,3 +2662,58 @@ final class ProviderDescriptorTests: XCTestCase {
         }
     }
 }
+
+/// #175: Apple's on-device results, as the e2e harness recorded them, lose no words —
+/// neither to a reset after a pause nor to an empty final.
+final class AppleUtterancesTests: XCTestCase {
+    private func heard(_ results: [String]) -> AppleUtterances {
+        var utterances = AppleUtterances()
+        results.forEach { utterances.receive($0) }
+        return utterances
+    }
+
+    func testAnEmptyFinalKeepsWhatWasHeard() {
+        let utterances = heard(["Вчора", "Вчора Олена Коваленко", "Вчора Олена Коваленко і Тарас Шевчук зус", ""])
+        XCTAssertEqual(utterances.text, "Вчора Олена Коваленко і Тарас Шевчук зус")
+    }
+
+    func testAResetAfterAPauseKeepsTheSentenceBeforeIt() {
+        let utterances = heard([
+            "Завтра", "Завтра ми поїдемо", "Завтра ми поїдемо до моря",
+            "Якщо", "Якщо погода буде тепло", "Якщо погода буде теплою і сонячною", "",
+        ])
+        XCTAssertEqual(utterances.settled, "Завтра ми поїдемо до моря")
+        XCTAssertEqual(utterances.text, "Завтра ми поїдемо до моря Якщо погода буде теплою і сонячною")
+    }
+
+    func testARevisionIsNotANewUtterance() {
+        // A word growing, the first word growing into itself, a revised first word in a
+        // result as long as the last: all one utterance, so nothing is said twice.
+        XCTAssertEqual(heard(["Вчора Олена Кова", "Вчора Олена Коваленко"]).text, "Вчора Олена Коваленко")
+        XCTAssertEqual(heard(["За ми", "Завтра"]).text, "Завтра")
+        XCTAssertEqual(heard(["Вчора Олена", "Учора Олена"]).text, "Учора Олена")
+        XCTAssertEqual(heard(["Так", "Ні"]).text, "Ні")
+    }
+
+    func testAFinalThatRestatesEverythingIsNotDoubled() {
+        let utterances = heard([
+            "Завтра ми поїдемо до моря", "Якщо погода",
+            "Завтра ми поїдемо до моря. Якщо погода буде теплою",
+        ])
+        XCTAssertEqual(utterances.settled, "Завтра ми поїдемо до моря")
+        XCTAssertEqual(utterances.text, "Завтра ми поїдемо до моря Якщо погода буде теплою")
+    }
+
+    /// The session's events through the span layer, as the overlay and the stop read them:
+    /// the sentence before the pause is committed once, and the empty final drops nothing.
+    func testTheSpanLayerKeepsEveryUtterance() {
+        var utterances = AppleUtterances()
+        var layer = TranscriptSpanLayer()
+        layer.beginSegment()
+        for result in ["Завтра ми поїдемо до моря", "Якщо", "Якщо погода буде теплою", ""] {
+            utterances.receive(result)
+            layer.ingest(committed: utterances.settled, partial: utterances.current)
+        }
+        XCTAssertEqual(layer.text, "Завтра ми поїдемо до моря Якщо погода буде теплою")
+    }
+}

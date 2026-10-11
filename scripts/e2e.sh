@@ -158,7 +158,10 @@ cleanup() {
         local doc app name
         for doc in "${OPEN_DOCS[@]+"${OPEN_DOCS[@]}"}"; do
             app="${doc%%|*}"; name="${doc#*|}"
-            osascript -e "tell application \"$app\" to close (every document whose name is \"$name\") saving no" > /dev/null 2>&1 || true
+            # By name, not `every document whose name is`: Script Editor ignores that
+            # form silently, and a document left open can share a later one's name.
+            osascript -e 'on run argv' -e 'tell application (item 1 of argv) to close document (item 2 of argv) saving no' \
+                -e 'end run' "$app" "$name" > /dev/null 2>&1 || true
         done
     fi
     local path
