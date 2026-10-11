@@ -1,0 +1,8 @@
+{
+  "expected": "Нам потрібно оновити структуру бази даних, а потім перевірити звіти.",
+  "language": "uk",
+  "tags": [
+    "cut-word"
+  ],
+  "note": "Stop for two seconds inside «да… них», then carry on. T12: the word must come out whole."
+}

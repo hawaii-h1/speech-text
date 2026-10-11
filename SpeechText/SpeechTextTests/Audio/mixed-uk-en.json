@@ -1,0 +1,11 @@
+{
+  "expected": "Я відкрив pull request у GitHub, але CI ще не пройшов, тому merge зробимо завтра після code review.",
+  "language": "mixed",
+  "tags": [
+    "mixed"
+  ],
+  "forcedLanguages": [
+    "uk"
+  ],
+  "note": "Ukrainian with English terms, said the English way. The forced uk pass shows what a single stated language does to the English words."
+}

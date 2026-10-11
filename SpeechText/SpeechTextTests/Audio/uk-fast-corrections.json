@@ -1,0 +1,9 @@
+{
+  "expected": "Зустріч буде у вівторок, ні, в середу, о третій, тобто о пів на четверту, в тій самій кімнаті, ні, в сусідній.",
+  "language": "uk",
+  "tags": [
+    "fast",
+    "duplication"
+  ],
+  "note": "Fast, without stopping, as if correcting yourself. The case that doubled text (#67): no phrase may appear twice."
+}

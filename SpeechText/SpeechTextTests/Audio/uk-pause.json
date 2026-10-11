@@ -1,0 +1,8 @@
+{
+  "expected": "Завтра ми поїдемо до моря, якщо погода буде теплою і сонячною.",
+  "language": "uk",
+  "tags": [
+    "pause"
+  ],
+  "note": "Two seconds of silence after «до моря,», mid-sentence. O1, OA3: the full stop a pause invites must not survive."
+}

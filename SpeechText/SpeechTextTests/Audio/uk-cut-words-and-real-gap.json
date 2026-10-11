@@ -1,0 +1,9 @@
+{
+  "expected": "Сервіс зберігає транскрипцію після синхронізації, а сусід знову вмикає перфоратор. А це нова версія.",
+  "language": "uk",
+  "tags": [
+    "cut-word",
+    "segment-join"
+  ],
+  "note": "Said as «Сервіс зберігає транскри… [2 s] …пцію після синхроні… [2 s] …зації, а сусід знову вмикає перфо… [2 s] …ратор. А це нова [2 s] версія.» T12, extended: each cut word comes out whole, and «нова версія» keeps its space — segmentSeparator glues only a word cut in two. Pauses are 2 s so Scribe's VAD (1.5 s) closes a segment at each. Needs the spell-checked joins registered in the harness."
+}

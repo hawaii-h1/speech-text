@@ -1,0 +1,10 @@
+{
+  "expected": "",
+  "language": "uk",
+  "tags": [
+    "silence"
+  ],
+  "note": "The first second of room-tone.wav: the room, nobody speaking. L6, LM7: nothing may be pasted («Evet.» on 17.09).",
+  "source": "room-tone",
+  "seconds": 1.0
+}

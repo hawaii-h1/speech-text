@@ -153,4 +153,4 @@ struct WhisperKitLocalTranscriber: BatchTranscriber {
 }
 
 // `registerLocalSTT()` used to live here, when WhisperKit was the only local engine.
-// It now wires two of them and so belongs to neither — see `LocalModelStore.swift`.
+// It now wires two of them and so belongs to neither — see `LocalSTTRuntime.swift`.

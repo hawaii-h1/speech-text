@@ -24,3 +24,6 @@ NOTE.md
 # Coverage artefacts left by a cancelled test run
 *.profraw
 *.profdata
+
+# Corpus runs: summary.md, results and traces are committed; the xcodebuild logs are not
+docs/testing-runs/*/*.log

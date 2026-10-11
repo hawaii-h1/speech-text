@@ -151,6 +151,66 @@
 		F78003000000000000000010 /* NetworkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000010 /* NetworkTests.swift */; };
 		F79003000000000000000003 /* APIKeyStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000003 /* APIKeyStoreTests.swift */; };
 		E6000200000000000000001A /* OnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6000100000000000000001A /* OnboardingTests.swift */; };
+		D8000002000000000000A001 /* LiveProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A001 /* LiveProviderTests.swift */; };
+		D8000002000000000000A002 /* CorpusEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A002 /* CorpusEvaluation.swift */; };
+		D8000002000000000000A003 /* LiveDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A003 /* LiveDictation.swift */; };
+		D8000002000000000000A004 /* LocalSTTRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A004 /* LocalSTTRuntime.swift */; };
+		D80000030000000000000000 /* LiveDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A003 /* LiveDictation.swift */; };
+		D80000030000000000000001 /* CorpusEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A002 /* CorpusEvaluation.swift */; };
+		D80000030000000000000002 /* HomeSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000001 /* HomeSummary.swift */; };
+		D80000030000000000000003 /* HistorySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000005 /* HistorySummary.swift */; };
+		D80000030000000000000004 /* Vocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000010 /* Vocabulary.swift */; };
+		D80000030000000000000005 /* UsageSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000011 /* UsageSummary.swift */; };
+		D80000030000000000000006 /* TranscriptionHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000014 /* TranscriptionHistory.swift */; };
+		D80000030000000000000007 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000009 /* Settings.swift */; };
+		D80000030000000000000008 /* Transcribers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000000E /* STTProvider.swift */; };
+		D80000030000000000000009 /* AudioBufferWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000000F /* AudioBufferWriter.swift */; };
+		D8000003000000000000000A /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000012 /* DebugLog.swift */; };
+		D8000003000000000000000B /* ChatClients.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000018 /* LLMProvider.swift */; };
+		D8000003000000000000000C /* PromptPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000019 /* PromptPresets.swift */; };
+		D8000003000000000000000D /* TextRefinementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000001A /* TextRefinementService.swift */; };
+		D8000003000000000000000E /* StreamingTranscribers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000023 /* StreamingSTTProvider.swift */; };
+		D8000003000000000000000F /* RecordingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000024 /* RecordingConfiguration.swift */; };
+		D80000030000000000000010 /* TranscriptSpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000029 /* TranscriptSpan.swift */; };
+		D80000030000000000000011 /* TranscriptMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002A /* TranscriptMerge.swift */; };
+		D80000030000000000000012 /* STTModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000C054 /* STTModelCatalog.swift */; };
+		D80000030000000000000013 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
+		D80000030000000000000014 /* LocalModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000002 /* LocalModelCatalog.swift */; };
+		D80000030000000000000015 /* Ollama.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000003 /* OllamaProvider.swift */; };
+		D80000030000000000000016 /* InsertionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002B /* InsertionLedger.swift */; };
+		D80000030000000000000017 /* DeliveryTier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002C /* DeliveryTier.swift */; };
+		D80000030000000000000018 /* FinalizePass.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002F /* FinalizePass.swift */; };
+		D80000030000000000000019 /* TranscriptCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002D /* TranscriptCleanup.swift */; };
+		D8000003000000000000001A /* FocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002E /* FocusContext.swift */; };
+		D8000003000000000000001B /* OverlayPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000030 /* OverlayPlacement.swift */; };
+		D8000003000000000000001C /* InlineDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* InlineDelivery.swift */; };
+		D8000003000000000000001D /* DictationHotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000990000000000000001 /* DictationHotkeys.swift */; };
+		D8000003000000000000001E /* ShortcutConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D200009A0000000000000001 /* ShortcutConflicts.swift */; };
+		D8000003000000000000001F /* SelectionEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = D200009C0000000000000001 /* SelectionEdit.swift */; };
+		D80000030000000000000020 /* SetupServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E500010000000000000001 /* SetupServices.swift */; };
+		D80000030000000000000021 /* OfflineRetryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000003 /* OfflineRetryQueue.swift */; };
+		D80000030000000000000022 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
+		D80000030000000000000023 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000001 /* HallucinationFilter.swift */; };
+		D80000030000000000000024 /* CustomVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000002 /* CustomVocabulary.swift */; };
+		D80000030000000000000025 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000001 /* APIKeyStore.swift */; };
+		D80000030000000000000026 /* RecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000025 /* RecognitionSession.swift */; };
+		D80000030000000000000027 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
+		D80000030000000000000028 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
+		D80000030000000000000029 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
+		D8000003000000000000002A /* LocalSTTRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A004 /* LocalSTTRuntime.swift */; };
+		D8000003000000000000002B /* LocalWhisperRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000005 /* LocalWhisperRuntime.swift */; };
+		D8000003000000000000002C /* LocalParakeetRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000091 /* LocalParakeetRuntime.swift */; };
+		D8000003000000000000002D /* SpeechTextEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A010 /* SpeechTextEvaluation.swift */; };
+		D8000004000000000000A001 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8000005000000000000A001 /* WhisperKit */; };
+		D8000004000000000000A002 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = D8000005000000000000A002 /* FluidAudio */; };
+		D80000030000000000000100 /* LevelNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C001000000000000000001 /* LevelNormalizer.swift */; };
+		D80000030000000000000101 /* MicrophoneChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B001000000000000000001 /* MicrophoneChoice.swift */; };
+		D80000030000000000000102 /* ProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F700010000000000000001 /* ProviderRegistry.swift */; };
+		D80000030000000000000103 /* RateLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A101000000000000000001 /* RateLimits.swift */; };
+		D80000030000000000000104 /* TextReplacements.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000003 /* TextReplacements.swift */; };
+		A10000010000000000000200 /* SpellCheckedJoins.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000200 /* SpellCheckedJoins.swift */; };
+		B10000010000000000000200 /* SpellCheckedJoins.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000200 /* SpellCheckedJoins.swift */; };
+		D80000030000000000000200 /* SpellCheckedJoins.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000200 /* SpellCheckedJoins.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -254,6 +314,13 @@
 		F78001000000000000000010 /* NetworkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkTests.swift; sourceTree = "<group>"; };
 		F79001000000000000000003 /* APIKeyStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStoreTests.swift; sourceTree = "<group>"; };
 		E6000100000000000000001A /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
+		D8000001000000000000A001 /* LiveProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveProviderTests.swift; sourceTree = "<group>"; };
+		D8000001000000000000A002 /* CorpusEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorpusEvaluation.swift; sourceTree = "<group>"; };
+		D8000001000000000000A003 /* LiveDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDictation.swift; sourceTree = "<group>"; };
+		D8000001000000000000A004 /* LocalSTTRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSTTRuntime.swift; sourceTree = "<group>"; };
+		D8000001000000000000A010 /* SpeechTextEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTextEvaluation.swift; sourceTree = "<group>"; };
+		D8000001000000000000A011 /* SpeechTextEvaluation */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = SpeechTextEvaluation; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000010000000000000200 /* SpellCheckedJoins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpellCheckedJoins.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -274,12 +341,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D8000006000000000000A001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8000004000000000000A001 /* WhisperKit in Frameworks */,
+				D8000004000000000000A002 /* FluidAudio in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		A40000010000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				D8000007000000000000A001 /* SpeechTextEvaluation */,
 				A40000010000000000000002 /* SpeechText */,
 				B40000010000000000000001 /* SpeechTextTests */,
 				A40000010000000000000003 /* Products */,
@@ -289,6 +366,7 @@
 		A40000010000000000000002 /* SpeechText */ = {
 			isa = PBXGroup;
 			children = (
+				D8000001000000000000A004 /* LocalSTTRuntime.swift */,
 				A20000010000000000000001 /* App.swift */,
 				A20000010000000000000002 /* MenuBarView.swift */,
 				A20000010000000000000003 /* RecordingOverlay.swift */,
@@ -319,6 +397,7 @@
 				A20000010000000000000028 /* StreamingRecognitionSession.swift */,
 				A20000010000000000000029 /* TranscriptSpan.swift */,
 				A2000001000000000000002A /* TranscriptMerge.swift */,
+				A20000010000000000000200 /* SpellCheckedJoins.swift */,
 				A2000001000000000000C054 /* STTModelCatalog.swift */,
 				C20000010000000000000001 /* SystemCapabilities.swift */,
 				C20000010000000000000002 /* LocalModelCatalog.swift */,
@@ -385,6 +464,7 @@
 			children = (
 				A2000001000000000000000C /* SpeechText.app */,
 				B2000001000000000000000C /* SpeechTextTests.xctest */,
+				D8000001000000000000A011 /* SpeechTextEvaluation */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -392,6 +472,9 @@
 		B40000010000000000000001 /* SpeechTextTests */ = {
 			isa = PBXGroup;
 			children = (
+				D8000001000000000000A003 /* LiveDictation.swift */,
+				D8000001000000000000A002 /* CorpusEvaluation.swift */,
+				D8000001000000000000A001 /* LiveProviderTests.swift */,
 				B20000010000000000000001 /* PureLogicTests.swift */,
 				C20000010000000000000100 /* LocalModelsTests.swift */,
 				E6000100000000000000001A /* OnboardingTests.swift */,
@@ -405,6 +488,14 @@
 				D20000010000000000000004 /* DictationReplayTests.swift */,
 			);
 			path = SpeechTextTests;
+			sourceTree = "<group>";
+		};
+		D8000007000000000000A001 /* SpeechTextEvaluation */ = {
+			isa = PBXGroup;
+			children = (
+				D8000001000000000000A010 /* SpeechTextEvaluation.swift */,
+			);
+			path = SpeechTextEvaluation;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -448,6 +539,26 @@
 			productReference = B2000001000000000000000C /* SpeechTextTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		D8000008000000000000A001 /* SpeechTextEvaluation */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D800000A000000000000A001 /* Build configuration list for PBXNativeTarget "SpeechTextEvaluation" */;
+			buildPhases = (
+				D8000009000000000000A001 /* Sources */,
+				D8000006000000000000A001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SpeechTextEvaluation;
+			packageProductDependencies = (
+				D8000005000000000000A001 /* WhisperKit */,
+				D8000005000000000000A002 /* FluidAudio */,
+			);
+			productName = SpeechTextEvaluation;
+			productReference = D8000001000000000000A011 /* SpeechTextEvaluation */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -478,6 +589,7 @@
 			targets = (
 				A50000010000000000000001 /* SpeechText */,
 				B50000010000000000000001 /* SpeechTextTests */,
+				D8000008000000000000A001 /* SpeechTextEvaluation */,
 			);
 		};
 /* End PBXProject section */
@@ -498,6 +610,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D8000002000000000000A004 /* LocalSTTRuntime.swift in Sources */,
 				F7A002000000000000000001 /* HomeSummary.swift in Sources */,
 				F7A002000000000000000002 /* MainWindow.swift in Sources */,
 				F7A002000000000000000003 /* HomeView.swift in Sources */,
@@ -538,6 +651,7 @@
 				A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */,
 				A10000010000000000000026 /* TranscriptSpan.swift in Sources */,
 				A10000010000000000000027 /* TranscriptMerge.swift in Sources */,
+				A10000010000000000000200 /* SpellCheckedJoins.swift in Sources */,
 				A1000001000000000000C054 /* STTModelCatalog.swift in Sources */,
 				C10000010000000000000001 /* SystemCapabilities.swift in Sources */,
 				C10000010000000000000002 /* LocalModelCatalog.swift in Sources */,
@@ -589,6 +703,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D8000002000000000000A003 /* LiveDictation.swift in Sources */,
+				D8000002000000000000A002 /* CorpusEvaluation.swift in Sources */,
+				D8000002000000000000A001 /* LiveProviderTests.swift in Sources */,
 				F7A003000000000000000001 /* HomeSummary.swift in Sources */,
 				F7A003000000000000000004 /* HomeSummaryTests.swift in Sources */,
 				F7A003000000000000000007 /* HistorySummary.swift in Sources */,
@@ -610,6 +727,7 @@
 				B10000010000000000000018 /* RecordingConfiguration.swift in Sources */,
 				B1000001000000000000001A /* TranscriptSpan.swift in Sources */,
 				B1000001000000000000001B /* TranscriptMerge.swift in Sources */,
+				B10000010000000000000200 /* SpellCheckedJoins.swift in Sources */,
 				B1000001000000000000C054 /* STTModelCatalog.swift in Sources */,
 				C30000010000000000000100 /* LocalModelsTests.swift in Sources */,
 				C30000010000000000000001 /* SystemCapabilities.swift in Sources */,
@@ -646,6 +764,65 @@
 				D30000010000000000000007 /* DictationReplayTests.swift in Sources */,
 				D30000010000000000000008 /* DictationTrace.swift in Sources */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D8000009000000000000A001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D80000030000000000000000 /* LiveDictation.swift in Sources */,
+				D80000030000000000000001 /* CorpusEvaluation.swift in Sources */,
+				D80000030000000000000002 /* HomeSummary.swift in Sources */,
+				D80000030000000000000003 /* HistorySummary.swift in Sources */,
+				D80000030000000000000004 /* Vocabulary.swift in Sources */,
+				D80000030000000000000005 /* UsageSummary.swift in Sources */,
+				D80000030000000000000006 /* TranscriptionHistory.swift in Sources */,
+				D80000030000000000000007 /* Settings.swift in Sources */,
+				D80000030000000000000008 /* Transcribers.swift in Sources */,
+				D80000030000000000000009 /* AudioBufferWriter.swift in Sources */,
+				D8000003000000000000000A /* DebugLog.swift in Sources */,
+				D8000003000000000000000B /* ChatClients.swift in Sources */,
+				D8000003000000000000000C /* PromptPresets.swift in Sources */,
+				D8000003000000000000000D /* TextRefinementService.swift in Sources */,
+				D8000003000000000000000E /* StreamingTranscribers.swift in Sources */,
+				D8000003000000000000000F /* RecordingConfiguration.swift in Sources */,
+				D80000030000000000000010 /* TranscriptSpan.swift in Sources */,
+				D80000030000000000000011 /* TranscriptMerge.swift in Sources */,
+				D80000030000000000000200 /* SpellCheckedJoins.swift in Sources */,
+				D80000030000000000000012 /* STTModelCatalog.swift in Sources */,
+				D80000030000000000000013 /* SystemCapabilities.swift in Sources */,
+				D80000030000000000000014 /* LocalModelCatalog.swift in Sources */,
+				D80000030000000000000015 /* Ollama.swift in Sources */,
+				D80000030000000000000016 /* InsertionLedger.swift in Sources */,
+				D80000030000000000000017 /* DeliveryTier.swift in Sources */,
+				D80000030000000000000018 /* FinalizePass.swift in Sources */,
+				D80000030000000000000019 /* TranscriptCleanup.swift in Sources */,
+				D8000003000000000000001A /* FocusContext.swift in Sources */,
+				D8000003000000000000001B /* OverlayPlacement.swift in Sources */,
+				D8000003000000000000001C /* InlineDelivery.swift in Sources */,
+				D8000003000000000000001D /* DictationHotkeys.swift in Sources */,
+				D8000003000000000000001E /* ShortcutConflicts.swift in Sources */,
+				D8000003000000000000001F /* SelectionEdit.swift in Sources */,
+				D80000030000000000000020 /* SetupServices.swift in Sources */,
+				D80000030000000000000021 /* OfflineRetryQueue.swift in Sources */,
+				D80000030000000000000022 /* NetworkFailure.swift in Sources */,
+				D80000030000000000000023 /* HallucinationFilter.swift in Sources */,
+				D80000030000000000000024 /* CustomVocabulary.swift in Sources */,
+				D80000030000000000000025 /* APIKeyStore.swift in Sources */,
+				D80000030000000000000026 /* RecognitionSession.swift in Sources */,
+				D80000030000000000000027 /* BatchRecognitionSession.swift in Sources */,
+				D80000030000000000000028 /* StreamingRecognitionSession.swift in Sources */,
+				D80000030000000000000029 /* DictationTrace.swift in Sources */,
+				D8000003000000000000002A /* LocalSTTRuntime.swift in Sources */,
+				D8000003000000000000002B /* LocalWhisperRuntime.swift in Sources */,
+				D8000003000000000000002C /* LocalParakeetRuntime.swift in Sources */,
+				D8000003000000000000002D /* SpeechTextEvaluation.swift in Sources */,
+							D80000030000000000000100 /* LevelNormalizer.swift in Sources */,
+				D80000030000000000000101 /* MicrophoneChoice.swift in Sources */,
+				D80000030000000000000102 /* ProviderRegistry.swift in Sources */,
+				D80000030000000000000103 /* RateLimits.swift in Sources */,
+				D80000030000000000000104 /* TextReplacements.swift in Sources */,
+);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
@@ -844,6 +1021,32 @@
 			};
 			name = Release;
 		};
+		D800000B0000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		D800000B0000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -870,6 +1073,15 @@
 			buildConfigurations = (
 				B90000010000000000000003 /* Debug */,
 				B90000010000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D800000A000000000000A001 /* Build configuration list for PBXNativeTarget "SpeechTextEvaluation" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D800000B0000000000000001 /* Debug */,
+				D800000B0000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -915,6 +1127,16 @@
 			productName = Sparkle;
 		};
 		C60000010000000000000003 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C50000010000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+		D8000005000000000000A001 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C50000010000000000000001 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = WhisperKit;
+		};
+		D8000005000000000000A002 /* FluidAudio */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C50000010000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;

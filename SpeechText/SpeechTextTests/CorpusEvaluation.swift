@@ -1,0 +1,473 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+
+// The audio corpus (#80): what a clip is expected to produce, how an engine's answer is
+// judged, and the run's report. Pure logic, shared by `LiveProviderTests` (the cloud
+// engines) and the `SpeechTextEvaluation` command-line tool (the local ones), so both
+// halves of a run are judged by the same rules and land in the same table.
+//
+// The clips' descriptions are committed in `SpeechTextTests/Audio/<name>.json`; the audio
+// is not. It is the maintainer's voice and the repository is public, so the WAVs live
+// outside it and a run finds them through `SPEECHTEXT_CORPUS=<dir>` (`<dir>/<name>.wav`).
+// One description may have several recordings — `<name>@<variant>.wav`, another
+// microphone (`@builtin`) or another way of saying it (`@casual`) — each its own row.
+
+// MARK: - Clips
+
+struct CorpusClip: Codable, Equatable {
+    /// The description's name — the file's without `.json` — and, for a recording of it
+    /// other than `<name>.wav`, `@` and the variant: the row's name.
+    var name = ""
+    /// The recording's variant (`builtin` for `uk-pause@builtin.wav`); nil for `<name>.wav`.
+    var variant: String?
+    /// What was said. Empty for a clip that should produce nothing: silence, or a
+    /// press-and-release too short to be speech.
+    var expected: String
+    /// `uk`, `en`, or `mixed` — what the output's alphabet is checked against.
+    var language: String
+    var tags: [String]?
+    /// The word error rate above which the clip fails. Nil reports the rate without
+    /// judging it: a bound is set from a baseline run on the real recording, not guessed.
+    var maxWER: Double?
+    /// Languages to force on the engines as extra passes, beside the Auto pass every
+    /// clip gets (`["uk"]` — the L3/L4 rows of the manual checklist).
+    var forcedLanguages: [String]?
+    var note: String?
+    /// Another recording this clip is cut from, and how much of its start — so the
+    /// silence clips come out of one `room-tone.wav` rather than a 0.2 s recording that
+    /// would hold nothing but the click of stopping it.
+    var source: String?
+    var seconds: Double?
+    /// The words a user would put in the Dictionary for this clip. A clip that has them
+    /// gets one more pass with them as the Dictionary (#74: does Groq's `prompt` help or
+    /// echo?).
+    var vocabulary: [String]?
+
+    /// The description this row comes from.
+    var descriptionName: String { variant.map { name.dropLast($0.count + 1) }.map(String.init) ?? name }
+
+    /// The WAV this clip is played from.
+    var audioFile: String { source.map { $0 + ".wav" } ?? name + ".wav" }
+
+    var expectsNothing: Bool { expected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private enum CodingKeys: String, CodingKey {
+        case expected, language, tags, maxWER, forcedLanguages, note, source, seconds, vocabulary
+    }
+
+    /// Every clip description in `directory`, by name.
+    static func load(from directory: URL) throws -> [CorpusClip] {
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return try files.map { url in
+            var clip = try JSONDecoder().decode(CorpusClip.self, from: Data(contentsOf: url))
+            clip.name = url.deletingPathExtension().lastPathComponent
+            return clip
+        }
+    }
+
+    /// One row per recording of each description in `corpus`: `<name>.wav` and every
+    /// `<name>@<variant>.wav`. A description with no recording at all keeps its one row,
+    /// which reports `no audio`; one cut from another recording (`source`) has no variants.
+    static func recordings(of clips: [CorpusClip], in corpus: URL) -> [CorpusClip] {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: corpus.path)) ?? []
+        let stems = Set(files.filter { $0.hasSuffix(".wav") }.map { String($0.dropLast(4)) })
+        return clips.flatMap { clip -> [CorpusClip] in
+            guard clip.source == nil else { return [clip] }
+            let variants = stems.filter { $0.hasPrefix(clip.name + "@") }.sorted()
+            var rows = stems.contains(clip.name) ? [clip] : []
+            for stem in variants {
+                var row = clip
+                row.name = stem
+                row.variant = String(stem.dropFirst(clip.name.count + 1))
+                rows.append(row)
+            }
+            return rows.isEmpty ? [clip] : rows
+        }
+    }
+
+    /// Whether a run's list of names (`SPEECHTEXT_CLIPS`, `--clips`) takes this row: by its
+    /// own name (`uk-pause@builtin`) or its description's (`uk-pause`, every recording).
+    func isSelected(by names: [String]) -> Bool {
+        names.isEmpty || names.contains(name) || names.contains(descriptionName)
+    }
+
+    /// The Auto pass first, then each forced language, then — for a clip with a
+    /// vocabulary — Auto again with it as the Dictionary.
+    var passes: [CorpusPass] {
+        [CorpusPass(language: nil)] + (forcedLanguages ?? []).map { CorpusPass(language: $0) }
+            + (vocabulary?.isEmpty == false ? [CorpusPass(language: nil, dictionary: true)] : [])
+    }
+
+    /// The clip's vocabulary as Dictionary entries, as a user would add them: the word,
+    /// nothing it replaces.
+    var dictionaryEntries: [VocabularyEntry] {
+        (vocabulary ?? []).map { VocabularyEntry(term: $0) }
+    }
+}
+
+/// One way a clip is run: Auto or a forced language, with or without its Dictionary.
+struct CorpusPass: Equatable {
+    var language: String?
+    var dictionary = false
+
+    /// The results' and the summary's name for it: `auto`, `uk`, `auto + dictionary`.
+    var label: String { (language ?? "auto") + (dictionary ? " + dictionary" : "") }
+}
+
+// MARK: - Measures
+
+enum CorpusMeasure {
+    /// Lower-cased words with punctuation dropped and every apostrophe spelled one way,
+    /// so "Прив'язка" and "Привʼязка," are the same word. Hyphens inside a word are kept.
+    static func words(_ text: String) -> [String] {
+        let apostrophes: Set<Character> = ["'", "’", "ʼ", "`", "‘"]
+        var normalised = ""
+        for character in text.lowercased() {
+            if apostrophes.contains(character) {
+                normalised.append("'")
+            } else if character.isLetter || character.isNumber || character == "-" {
+                normalised.append(character)
+            } else {
+                normalised.append(" ")
+            }
+        }
+        return normalised.split(separator: " ")
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-'")) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Word-level edit distance over the reference's length: 0 is exact, 1 is as many
+    /// errors as there are words. Nil when there is no reference to measure against.
+    static func wordErrorRate(expected: String, actual: String) -> Double? {
+        let reference = words(expected)
+        let hypothesis = words(actual)
+        guard !reference.isEmpty else { return nil }
+        var previous = Array(0...hypothesis.count)
+        for (i, word) in reference.enumerated() {
+            var current = [i + 1] + Array(repeating: 0, count: hypothesis.count)
+            for (j, candidate) in hypothesis.enumerated() {
+                current[j + 1] = min(previous[j + 1] + 1, current[j] + 1,
+                                     previous[j] + (word == candidate ? 0 : 1))
+            }
+            previous = current
+        }
+        return Double(previous[hypothesis.count]) / Double(reference.count)
+    }
+
+    /// The words the output got wrong in place, as `said → written`, from the same
+    /// alignment as the error rate. The alphabet check only sees an answer written wholly
+    /// in the wrong one; a single Russian-spelled word inside Ukrainian («привіт →
+    /// привет») shows up here, for a reader of the run.
+    static func substitutions(expected: String, actual: String) -> [String] {
+        let reference = words(expected)
+        let hypothesis = words(actual)
+        guard !reference.isEmpty, !hypothesis.isEmpty else { return [] }
+        var table = Array(repeating: Array(repeating: 0, count: hypothesis.count + 1), count: reference.count + 1)
+        for i in 0...reference.count { table[i][0] = i }
+        for j in 0...hypothesis.count { table[0][j] = j }
+        for i in 1...reference.count {
+            for j in 1...hypothesis.count {
+                table[i][j] = min(table[i - 1][j] + 1, table[i][j - 1] + 1,
+                                  table[i - 1][j - 1] + (reference[i - 1] == hypothesis[j - 1] ? 0 : 1))
+            }
+        }
+        var pairs: [String] = []
+        var (i, j) = (reference.count, hypothesis.count)
+        while i > 0, j > 0 {
+            let same = reference[i - 1] == hypothesis[j - 1]
+            if table[i][j] == table[i - 1][j - 1] + (same ? 0 : 1) {
+                if !same { pairs.append("\(reference[i - 1]) → \(hypothesis[j - 1])") }
+                i -= 1
+                j -= 1
+            } else if table[i][j] == table[i - 1][j] + 1 {
+                i -= 1
+            } else {
+                j -= 1
+            }
+        }
+        return pairs.reversed()
+    }
+
+    /// Runs of `n` words that the output holds more often than the speaker said them —
+    /// the shape of a restatement joined on as new speech (#67). Counted against the
+    /// expected text, so a phrase really said twice is not flagged.
+    static func repeatedPhrases(expected: String, actual: String, n: Int = 4) -> [String] {
+        func counts(_ words: [String]) -> [String: Int] {
+            guard words.count >= n else { return [:] }
+            var counts: [String: Int] = [:]
+            for start in 0...(words.count - n) {
+                counts[words[start..<start + n].joined(separator: " "), default: 0] += 1
+            }
+            return counts
+        }
+        let said = counts(words(expected))
+        return counts(words(actual))
+            .filter { $0.value > 1 && $0.value > said[$0.key, default: 0] }
+            .map(\.key)
+            .sorted()
+    }
+
+    /// Two sentences joined at a segment boundary with no space between them
+    /// (`перевірка.Закінчую`): a letter straight after `.`, `!`, `?` or `,` that follows a
+    /// letter. What the expected text itself holds that way (`Node.js`) is not counted.
+    static func gluedSentences(expected: String, actual: String) -> [String] {
+        func glued(_ text: String) -> [String] {
+            let characters = Array(text)
+            var found: [String] = []
+            for index in characters.indices.dropFirst().dropLast()
+            where ".!?,".contains(characters[index]) && characters[index - 1].isLetter && characters[index + 1].isLetter {
+                var start = index - 1
+                while start > 0, characters[start - 1].isLetter { start -= 1 }
+                var end = index + 1
+                while end + 1 < characters.count, characters[end + 1].isLetter { end += 1 }
+                found.append(String(characters[start...end]))
+            }
+            return found
+        }
+        let said = Set(glued(expected))
+        return glued(actual).filter { !said.contains($0) }
+    }
+
+    /// A phrase a model answers silence with (`HallucinationFilter`) anywhere in the
+    /// output — the filter drops only a short segment that is *nothing but* one, so a
+    /// sign-off after real words reaches the paste. Phrases the expected text holds are
+    /// not counted.
+    static func knownHallucinations(expected: String, actual: String) -> [String] {
+        let said = " " + HallucinationFilter.normalized(expected) + " "
+        let written = " " + HallucinationFilter.normalized(actual) + " "
+        return (HallucinationFilter.phrases.sorted() + HallucinationFilter.prefixes)
+            .filter { written.contains(" \($0) ") && !said.contains(" \($0) ") }
+    }
+
+    /// Whether the output is written in the clip's language, judged by its letters. On a
+    /// short dictation that is more reliable than a statistical recogniser, and the
+    /// failure seen in practice is exactly an alphabet one: Ukrainian answered in Russian
+    /// spelling. Nil when there is nothing to judge (a mixed clip, or no text).
+    static func languageProblem(language: String, actual: String) -> String? {
+        let letters = actual.lowercased().filter(\.isLetter)
+        guard !letters.isEmpty else { return nil }
+        let cyrillic = letters.filter { $0.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) } }
+        switch language {
+        case "uk":
+            let russian = Set("ыэъё").intersection(letters)
+            if !russian.isEmpty { return "Russian letters \(String(russian.sorted()))" }
+            if cyrillic.count * 2 < letters.count { return "mostly not Cyrillic" }
+            return nil
+        case "en":
+            return cyrillic.isEmpty ? nil : "Cyrillic in English"
+        default:
+            return nil
+        }
+    }
+}
+
+// MARK: - Results
+
+/// One clip through one engine in one language.
+struct CorpusResult: Codable, Equatable {
+    enum Status: String, Codable {
+        /// The engine answered (with text, nothing, or an error it reported).
+        case ran
+        /// The engine needs a key the environment did not supply.
+        case noKey = "no key"
+        /// A local model that is not on this Mac.
+        case notInstalled = "not installed"
+        /// The clip's WAV is not in the corpus directory.
+        case noAudio = "no audio"
+    }
+
+    /// Which half of a streaming session answered.
+    enum Path: String, Codable {
+        case stream
+        /// The stream broke or came back empty, and the upload answered.
+        case fallback
+        case upload
+        case onDevice = "on device"
+    }
+
+    /// The row's name: the description's, with `@variant` for another recording of it.
+    var clip: String
+    /// `vendor/model`.
+    var engine: String
+    var engineName: String
+    /// The pass: `auto`, the forced language, `auto + dictionary` (`CorpusPass.label`).
+    var language: String
+    var status: Status
+    var path: Path?
+    /// What the stop would have pasted — nil when it pasted nothing.
+    var pasted: String?
+    var error: String?
+    var wordErrorRate: Double?
+    /// From the first buffer to the first text on the overlay.
+    var firstPartialSeconds: Double?
+    /// From the stop to the text that would be pasted.
+    var stopToTextSeconds: Double?
+    /// A local model's load, kept out of `stopToTextSeconds`.
+    var loadSeconds: Double?
+    /// Words written in place of the ones said (`CorpusMeasure.substitutions`).
+    var substitutions: [String] = []
+    /// Every check the result failed. Empty is a pass.
+    var failures: [String] = []
+
+    var passed: Bool { status != .ran || failures.isEmpty }
+}
+
+enum CorpusChecks {
+    /// The issue's checks: nothing pasted for silence or a press shorter than a word,
+    /// something pasted for speech, no phrase doubled, the word error rate within the
+    /// clip's bound, and the output in the clip's language.
+    static func failures(clip: CorpusClip, clipSeconds: Double, pasted: String?, error: String?) -> [String] {
+        var failures: [String] = []
+        let text = pasted ?? ""
+        if clip.expectsNothing || clipSeconds < STTTuning.minimumSegmentSeconds {
+            if pasted != nil { failures.append("pasted “\(text)” for a clip that should produce nothing") }
+            return failures
+        }
+        if pasted == nil {
+            failures.append(error.map { "nothing pasted: \($0)" } ?? "nothing pasted")
+            return failures
+        }
+        let repeated = CorpusMeasure.repeatedPhrases(expected: clip.expected, actual: text)
+        if !repeated.isEmpty {
+            failures.append("repeated: " + repeated.map { "“\($0)”" }.joined(separator: ", "))
+        }
+        if let bound = clip.maxWER, let rate = CorpusMeasure.wordErrorRate(expected: clip.expected, actual: text),
+           rate > bound {
+            failures.append(String(format: "WER %.2f over %.2f", rate, bound))
+        }
+        if let problem = CorpusMeasure.languageProblem(language: clip.language, actual: text) {
+            failures.append(problem)
+        }
+        let glued = CorpusMeasure.gluedSentences(expected: clip.expected, actual: text)
+        if !glued.isEmpty {
+            failures.append("glued: " + glued.map { "“\($0)”" }.joined(separator: ", "))
+        }
+        let invented = CorpusMeasure.knownHallucinations(expected: clip.expected, actual: text)
+        if !invented.isEmpty {
+            failures.append("hallucination: " + invented.map { "“\($0)”" }.joined(separator: ", "))
+        }
+        return failures
+    }
+}
+
+// MARK: - The run's files
+
+/// A run's folder under `docs/testing-runs/`: each runner's results as JSON, the traces
+/// the streaming engines produced, and `summary.md` rendered from every result present —
+/// so the cloud half and the local half of one run end in one table, whichever finished
+/// last.
+struct CorpusRunFolder {
+    let url: URL
+
+    var traces: URL { url.appendingPathComponent("traces", isDirectory: true) }
+
+    /// A new folder named for now, under `docs/testing-runs/`.
+    static func new(in repository: URL, now: Date = Date()) -> CorpusRunFolder {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm"
+        return CorpusRunFolder(url: repository.appendingPathComponent("docs/testing-runs", isDirectory: true)
+            .appendingPathComponent(formatter.string(from: now), isDirectory: true))
+    }
+
+    /// Writes one runner's results (`results-cloud.json`, `results-local.json`) and
+    /// re-renders the summary from every results file in the folder.
+    func write(_ results: [CorpusResult], runner: String) throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try encoder.encode(results).write(to: resultsFile(runner), options: .atomic)
+        try CorpusSummary.render(allResults())
+            .write(to: url.appendingPathComponent("summary.md"), atomically: true, encoding: .utf8)
+    }
+
+    /// What this runner already wrote here, less the rows of the clips about to run
+    /// again — so a clip recorded after a run is added to it, or one re-recorded
+    /// replaced, without running the whole corpus a second time.
+    func earlierResults(runner: String, except clips: [CorpusClip]) -> [CorpusResult] {
+        let running = Set(clips.map(\.name))
+        guard let data = try? Data(contentsOf: resultsFile(runner)),
+              let results = try? JSONDecoder().decode([CorpusResult].self, from: data) else { return [] }
+        return results.filter { !running.contains($0.clip) }
+    }
+
+    private func resultsFile(_ runner: String) -> URL {
+        url.appendingPathComponent("results-\(runner).json")
+    }
+
+    func allResults() throws -> [CorpusResult] {
+        try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("results-") && $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .flatMap { try JSONDecoder().decode([CorpusResult].self, from: Data(contentsOf: $0)) }
+    }
+}
+
+enum CorpusSummary {
+    /// The engine × clip table (one per language pass), then every result in full.
+    static func render(_ results: [CorpusResult]) -> String {
+        var engines: [(id: String, name: String)] = []
+        for result in results where !engines.contains(where: { $0.id == result.engine }) {
+            engines.append((result.engine, result.engineName))
+        }
+        let clipNames = Set(results.map(\.clip)).sorted()
+        var languages: [String] = []
+        for result in results where !languages.contains(result.language) { languages.append(result.language) }
+
+        var out = "# Corpus run\n\n"
+        let ran = results.filter { $0.status == .ran }
+        out += "\(ran.count) results, \(ran.filter { !$0.failures.isEmpty }.count) failed. "
+        out += "Each cell: WER · first text on the overlay · stop to text. ❌ marks a failed check "
+        out += "(listed below); ↩ a streaming engine whose upload answered instead.\n"
+
+        for language in languages {
+            out += "\n## Language: \(language)\n\n"
+            out += "| Clip | " + engines.map(\.name).joined(separator: " | ") + " |\n"
+            out += "|---|" + engines.map { _ in "---|" }.joined() + "\n"
+            for clip in clipNames {
+                let cells = engines.map { engine -> String in
+                    guard let result = results.first(where: {
+                        $0.clip == clip && $0.engine == engine.id && $0.language == language
+                    }) else { return "" }
+                    return cell(result)
+                }
+                out += "| \(clip) | " + cells.joined(separator: " | ") + " |\n"
+            }
+        }
+
+        out += "\n## Every result\n\n"
+        for result in results {
+            out += "- **\(result.clip)** · \(result.engineName) · \(result.language) — \(result.status.rawValue)"
+            if let path = result.path { out += ", \(path.rawValue)" }
+            if let load = result.loadSeconds { out += String(format: ", load %.1f s", load) }
+            out += "\n"
+            if let pasted = result.pasted { out += "  - pasted: \(pasted)\n" }
+            if !result.substitutions.isEmpty {
+                out += "  - misheard: " + result.substitutions.joined(separator: ", ") + "\n"
+            }
+            if let error = result.error { out += "  - error: \(error)\n" }
+            for failure in result.failures { out += "  - ❌ \(failure)\n" }
+        }
+        return out
+    }
+
+    private static func cell(_ result: CorpusResult) -> String {
+        guard result.status == .ran else { return result.status.rawValue }
+        var parts: [String] = []
+        if let wer = result.wordErrorRate {
+            parts.append(String(format: "%.2f", wer))
+        } else {
+            parts.append(result.pasted == nil ? "∅" : "—")
+        }
+        parts.append(result.firstPartialSeconds.map { String(format: "%.1fs", $0) } ?? "—")
+        parts.append(result.stopToTextSeconds.map { String(format: "%.1fs", $0) } ?? "—")
+        var cell = parts.joined(separator: " · ")
+        if result.path == .fallback { cell += " ↩" }
+        if !result.failures.isEmpty { cell += " ❌" }
+        return cell
+    }
+}

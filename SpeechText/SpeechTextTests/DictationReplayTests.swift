@@ -52,6 +52,21 @@ final class PasteOnceReplayTests: XCTestCase {
         XCTAssertEqual(run.stop, .paste("Привіт, це перше речення. А це друге."))
     }
 
+    /// The Dictionary corrects the final text and never the overlay (#123): the stop
+    /// applies `RecordingConfiguration.finished`, the live events only `cleaned`.
+    func testTheDictionaryCorrectsThePasteButNotTheOverlay() async {
+        let app = FakeApp()
+        var setup = DictationReplay.Setup()
+        setup.dictionary = [VocabularyEntry(term: "ChatGPT", misheard: ["чат джіпіті"])]
+        let run = await DictationReplay.run(setup, in: app, [
+            .partial("Спитай чат джіпіті"),
+            .committed("Спитай чат джіпіті."),
+        ])
+
+        XCTAssertEqual(run.overlay.last?.settled, "Спитай чат джіпіті.")
+        assertDocument(run.document, "Спитай ChatGPT.")
+    }
+
     /// A pause mid-sentence: Scribe commits it with a full stop, then re-states it with a
     /// comma once the user carries on. The full stop was only ever on the overlay, which is
     /// the reason nothing goes out early — text already in another app cannot take it back.

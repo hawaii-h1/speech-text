@@ -1,0 +1,11 @@
+{
+  "expected": "",
+  "language": "uk",
+  "tags": [
+    "silence",
+    "short"
+  ],
+  "note": "The first 0.2 s of room-tone.wav — the shortcut pressed and let go at once. OA5, #68: nothing pasted, no hang.",
+  "source": "room-tone",
+  "seconds": 0.2
+}

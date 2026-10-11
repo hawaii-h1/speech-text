@@ -76,6 +76,17 @@ jobs:
             -clonedSourcePackagesDirPath .swiftpm-cache \
             CODE_SIGNING_ALLOWED=NO
 
+      # The corpus tool compiles the test subset by hand-kept list. Built, never run:
+      # running it needs recordings and keys this machine does not have.
+      - name: Build the evaluation tool
+        run: |
+          xcodebuild build \
+            -project SpeechText/SpeechText.xcodeproj \
+            -scheme SpeechTextEvaluation \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .swiftpm-cache \
+            CODE_SIGNING_ALLOWED=NO
+
   pbxproj:
     name: No development team
     # Greps a tracked file. No Mac involved.

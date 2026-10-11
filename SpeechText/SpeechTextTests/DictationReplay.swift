@@ -19,8 +19,10 @@ import XCTest
 //
 // The glue that `SpeechEngine` and `AppState` put around those pieces cannot be compiled
 // here (AVAudioEngine, AppKit), so `DictationReplay.run` repeats it — in the same order,
-// with a comment naming where each step comes from. A change to that order in the app
-// has to be made here too, or these tests describe a flow the app no longer has.
+// with a comment naming where each step comes from. The span layer and the stop's
+// decision are `InlineDictationFlow` (LiveDictation.swift), which the live corpus runs
+// share. A change to that order in the app has to be made here too, or these tests
+// describe a flow the app no longer has.
 
 // MARK: - The app being dictated into
 
@@ -245,7 +247,7 @@ final class DictationReplay {
     private var destination: FakeApp?
     private var context: FocusContext?
     private var recordWindow: String?
-    private var layer = TranscriptSpanLayer()
+    private var flow: InlineDictationFlow!
     /// The socket in use: the first one, or the one the latest reconnect opened.
     private var provider = ScriptedStreamingTranscriber()
     private var providersOpened = 1
@@ -310,6 +312,14 @@ final class DictationReplay {
         setup.dashStyle.applied(to: setup.removesDisfluencies ? cleanedTranscript(text) : text)
     }
 
+    /// `RecordingConfiguration.finished`: what `SpeechEngine.stopRecording` applies to the
+    /// segment's final text.
+    private func finished(_ text: String) -> String {
+        RecordingConfiguration.finished(text, removesDisfluencies: setup.removesDisfluencies,
+                                        dashStyle: setup.dashStyle, dictionary: setup.dictionary,
+                                        replacements: setup.replacements)
+    }
+
     /// A recorded `DictationTrace`, replayed into apps of the same names.
     static func run(_ trace: DictationTrace) async -> Result {
         let setup = Setup(aiMode: trace.setup.aiMode,
@@ -369,8 +379,7 @@ final class DictationReplay {
 
     /// `SpeechEngine.startRecording` → `setupRecordingSession`.
     private func start(fallback: ScriptedSegment) {
-        layer.reset()
-        layer.beginSegment()
+        flow = InlineDictationFlow(clean: cleaned, finish: finished)
 
         // A reconnect opens a fresh scripted socket, at once: the policy's waits are
         // real time, and what they pace is not what a replay is about.
@@ -399,8 +408,8 @@ final class DictationReplay {
         handledEvents += 1
         switch event {
         case .live(let committed, let partial):
-            layer.ingest(committed: cleaned(committed), partial: cleaned(partial))
-            overlay.append(OverlayFrame(settled: layer.stableText, moving: layer.segmentProvisionalText))
+            flow.live(committed: committed, partial: partial)
+            overlay.append(OverlayFrame(settled: flow.layer.stableText, moving: flow.layer.segmentProvisionalText))
         case .failure:
             break
         }
@@ -454,19 +463,9 @@ final class DictationReplay {
                                            windowTitle: destination.windowTitle, fieldLabels: [],
                                            isSecureField: false)
         }
-        var outcome = await session.finish()
-        // SpeechEngine.stopRecording → configuration.finished: the segment result gets the
-        // Dictionary and the Replacements; the live events above get only `cleaned`.
-        outcome.text = RecordingConfiguration.finished(outcome.text, removesDisfluencies: setup.removesDisfluencies,
-                                                       dashStyle: setup.dashStyle, dictionary: setup.dictionary,
-                                                       replacements: setup.replacements)
-
-        let finalText = outcome.text
-        layer.commitSegment(outcome.text)
-        layer.settleSegment()
-
-        let result = InlineDelivery.stopResult(finalText: finalText, failed: outcome.error != nil,
-                                               aiMode: aiMode, recordingText: layer.text)
+        // SpeechEngine.stopRecording → AppState.handleTranscriptionResult: the one copy,
+        // shared with the live corpus runs.
+        let (_, result) = flow.stop(await session.finish(), aiMode: aiMode)
         switch result {
         case .paste(let text):
             deliver(text)
@@ -498,7 +497,7 @@ final class DictationReplay {
 
     /// `AppState.cancelInlineFlow` → `SpeechEngine.cancelRecording`.
     private func cancel() {
-        layer.reset()
+        flow.cancel()
         session.cancel()
     }
 }

@@ -1,0 +1,8 @@
+{
+  "expected": "Найвідповідальніший інженер перевіряв взаємозамінність деталей у п'ятиповерхівці на Хмельниччині. Після перепідключення високопродуктивного сервера зосередженість команди помітно зросла, а безвідповідальність підрядника обговорили на нараді в Шевченківському районі. На столі стояли м'ятний чай, пір'їна й пляшечка олії для здоров'я.",
+  "language": "uk",
+  "tags": [
+    "vocabulary-hard"
+  ],
+  "note": "Long compounds, consonant clusters, apostrophes and rare place names, no numbers (engines write them as digits or words, which WER would count against either)."
+}

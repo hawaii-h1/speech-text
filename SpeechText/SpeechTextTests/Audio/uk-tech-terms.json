@@ -1,0 +1,18 @@
+{
+  "expected": "Я перевірив SpeechText на Parakeet і ElevenLabs, потім задеплоїв сервіс у Kubernetes. Базу PostgreSQL мігрували через GitHub Actions, а логи дивимось у Grafana. Олена Коваленко обіцяла оновити README до п'ятниці.",
+  "language": "mixed",
+  "tags": [
+    "terms",
+    "dictionary"
+  ],
+  "vocabulary": [
+    "SpeechText",
+    "Parakeet",
+    "ElevenLabs",
+    "Kubernetes",
+    "PostgreSQL",
+    "Grafana",
+    "Коваленко"
+  ],
+  "note": "Terms and names a user would put in the Dictionary, said the English way inside Ukrainian. Run with and without `vocabulary` as the Dictionary (#74: Groq's prompt stays on and is measured here — better spelling of the terms, and no harm to the rest)."
+}

@@ -1,0 +1,9 @@
+{
+  "expected": "Ще одна перевірка. Наприкінці говорю довге речення без жодної паузи й зупиняю запис просто на слові відповідальність.",
+  "language": "uk",
+  "tags": [
+    "stop",
+    "tail"
+  ],
+  "note": "As uk-stop-on-short-word, but ending on a long sentence said without a pause and stopped on «відповідальність» with no breath after it."
+}

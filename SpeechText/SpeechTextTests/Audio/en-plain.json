@@ -1,0 +1,11 @@
+{
+  "expected": "Today I am checking how the app recognizes ordinary English speech. I am speaking calmly, at a normal pace, without long pauses. If everything works, this text will appear in the document without a single mistake.",
+  "language": "en",
+  "tags": [
+    "baseline"
+  ],
+  "forcedLanguages": [
+    "uk"
+  ],
+  "note": "15 s, even pace. L2 (Auto); the forced uk pass is L4 and only reported."
+}

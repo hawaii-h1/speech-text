@@ -1,0 +1,8 @@
+{
+  "expected": "Зараз я диктую і водночас друкую на клавіатурі. Текст має вийти таким, як я його сказав, без зайвих слів і без вигаданих фраз.",
+  "language": "uk",
+  "tags": [
+    "noise"
+  ],
+  "note": "Type on the keyboard the whole time — start a second before the first word and stop a second after the last — with the keyboard and microphone where they are for noise-keyboard. Speech over the noise that noise-keyboard has alone (#166): the words must come through, and no phrase the model invents for the clatter may be added."
+}
