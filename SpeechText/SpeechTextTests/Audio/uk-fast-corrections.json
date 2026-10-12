@@ -5,5 +5,9 @@
     "fast",
     "duplication"
   ],
-  "note": "Fast, without stopping, as if correcting yourself. The case that doubled text (#67): no phrase may appear twice."
+  "note": "Fast, without stopping, as if correcting yourself. The case that doubled text (#67): no phrase may appear twice.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

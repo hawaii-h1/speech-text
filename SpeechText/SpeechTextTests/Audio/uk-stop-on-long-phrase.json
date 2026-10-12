@@ -5,5 +5,9 @@
     "stop",
     "tail"
   ],
-  "note": "As uk-stop-on-short-word, but ending on a long sentence said without a pause and stopped on «відповідальність» with no breath after it."
+  "note": "As uk-stop-on-short-word, but ending on a long sentence said without a pause and stopped on «відповідальність» with no breath after it.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

@@ -180,13 +180,13 @@ final class StreamingRecognitionSession: RecognitionSession {
     }
 
     /// What the overlay draws. A stream opened on silence may answer with a known
-    /// hallucination ("Evet.") as its first words; while that is everything the segment
-    /// holds, the overlay shows nothing rather than flash it. The text itself is kept —
+    /// hallucination ("Evet."), a lone «.» or a foreign script as its first words; while
+    /// that is everything the segment holds, the overlay shows nothing rather than flash it. The text itself is kept —
     /// once real words follow, the whole of it is shown, which only extends the empty
     /// view, so the span layer sees no revision.
     private func emitLive() {
         let whole = joinedSegments(committedText, partialText)
-        if HallucinationFilter.isHallucination(whole, segmentSeconds: writer.bufferedDuration) {
+        if HallucinationFilter.rejection(whole, segmentSeconds: writer.bufferedDuration, languages: languages) != nil {
             onEvent?(.live(committed: "", partial: ""))
         } else {
             onEvent?(.live(committed: committedText, partial: partialText))
@@ -369,7 +369,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     }
 
     /// The upload's guards, applied to the stream's answer: a segment too short to be
-    /// speech, a silent one and one whose whole text is a known hallucination come back
+    /// speech, a silent one and one whose whole text `HallucinationFilter` rejects come back
     /// as they would from `BatchRecognitionSession`, not as text to paste. A stream is
     /// answered by the server's model whatever the microphone heard, so without these it
     /// pasted "Evet." for a shortcut pressed and let go. nil lets the text through.
@@ -387,8 +387,8 @@ final class StreamingRecognitionSession: RecognitionSession {
         } else if duration > 0, !writer.hasAudibleSignal {
             dlog("Engine", "StreamingRecognitionSession.finish: the segment is silent — its text dropped")
             dropped = empty
-        } else if HallucinationFilter.isHallucination(text, segmentSeconds: duration) {
-            dlog("Engine", "StreamingRecognitionSession.finish: the whole result is a known hallucination of a \(String(format: "%.1f", duration))s segment — dropped")
+        } else if let rejection = HallucinationFilter.rejection(text, segmentSeconds: duration, languages: languages) {
+            dlog("Engine", "StreamingRecognitionSession.finish: the whole result of a \(String(format: "%.1f", duration))s segment is \(rejection) — dropped")
             dropped = empty
         }
         guard let dropped else { return nil }

@@ -215,7 +215,7 @@ final class BatchRecognitionSessionTests: XCTestCase {
     /// engine writes no History row for.
     func testASegmentTooShortToBeSpeechIsDroppedWithoutATrace() async {
         let provider = RecordingBatchTranscriber()
-        let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.2), language: nil)
+        let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.2), language: nil, languages: [])
 
         let outcome = await session.finish()
 
@@ -228,7 +228,7 @@ final class BatchRecognitionSessionTests: XCTestCase {
 
     func testASegmentLongEnoughToBeSpeechIsUploaded() async {
         let provider = RecordingBatchTranscriber()
-        let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.4), language: nil)
+        let session = BatchRecognitionSession(provider: provider, writer: writer(seconds: 0.4), language: nil, languages: [])
 
         let outcome = await session.finish()
         defer { outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
@@ -257,9 +257,9 @@ final class HallucinationGuardTests: XCTestCase {
         return writer
     }
 
-    private func upload(_ answer: String, seconds: Double) async -> RecognitionOutcome {
+    private func upload(_ answer: String, seconds: Double, languages: [String] = []) async -> RecognitionOutcome {
         let session = BatchRecognitionSession(provider: AnsweringBatchTranscriber(answer),
-                                              writer: writer(seconds: seconds), language: nil)
+                                              writer: writer(seconds: seconds), language: nil, languages: languages)
         return await session.finish()
     }
 
@@ -280,6 +280,37 @@ final class HallucinationGuardTests: XCTestCase {
         defer { outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
 
         XCTAssertEqual(outcome.text, "Thank you for watching!")
+    }
+
+    /// #166: noise a model wrote down — a breath as «.», a cough in another script — is
+    /// dropped like a known phrase, at any length; the script only once languages are stated.
+    func testAnUploadOfPunctuationOrAForeignScriptIsEmptyAndKeepsItsAudio() async {
+        for (answer, languages) in [("..", [String]()), ("うーん。", ["uk", "en"]), ("흠..", ["uk", "en"])] {
+            let outcome = await upload(answer, seconds: 10, languages: languages)
+            defer { outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
+            XCTAssertEqual(outcome.text, "", answer)
+            XCTAssertNotNil(outcome.audioFileURL, answer)
+            XCTAssertFalse(outcome.cancelled, answer)
+        }
+        let unstated = await upload("うーん。", seconds: 10)
+        defer { unstated.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
+        XCTAssertEqual(unstated.text, "うーん。", "with no language stated the model may be right")
+    }
+
+    func testAStreamAnsweredInAForeignScriptIsEmptyAndDrawsNothing() async {
+        let provider = ScriptedStreamingTranscriber()
+        provider.eventsAtFinish = [.committed("음 음 음")]
+        let session = StreamingRecognitionSession(provider: provider, writer: writer(seconds: 5), languages: ["uk", "en"],
+                                                  fallback: ScriptedSegment(error: "no fallback expected"))
+        var drawn: [String] = []
+        session.onEvent = { event in
+            if case .live(let committed, let partial) = event { drawn.append(committed + partial) }
+        }
+        try! session.start()
+        let outcome = await session.finish()
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(drawn.filter { !$0.isEmpty }, [], "the overlay never shows it")
     }
 
     private func stream(_ text: String, writer: AudioBufferWriter) async -> RecognitionOutcome {
@@ -676,7 +707,7 @@ final class UsageLedgerTests: XCTestCase {
     private func upload(_ answer: Result<Transcription, Error>, meter: UsageMeter?, seconds: Double = 1,
                         amplitude: Float = 0.5) async -> RecognitionOutcome {
         let session = BatchRecognitionSession(provider: MeteredBatchTranscriber(answer, meter: meter),
-                                              writer: writer(seconds: seconds, amplitude: amplitude), language: nil)
+                                              writer: writer(seconds: seconds, amplitude: amplitude), language: nil, languages: [])
         let outcome = await session.finish()
         outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
         return outcome
@@ -757,7 +788,7 @@ final class UsageLedgerTests: XCTestCase {
                                              meter: UsageMeter(vendor: .elevenLabs, model: "scribe_v2"))
         let audio = writer(seconds: 1)
         let fellBack = StreamingRecognitionSession(provider: broken, writer: audio, languages: [],
-                                                   fallback: BatchRecognitionSession(provider: upload, writer: audio, language: nil),
+                                                   fallback: BatchRecognitionSession(provider: upload, writer: audio, language: nil, languages: []),
                                                    meter: realtime)
         try! fellBack.start()
         let answer = await fellBack.finish()
@@ -770,7 +801,7 @@ final class UsageLedgerTests: XCTestCase {
         let silent = ScriptedStreamingTranscriber()
         let quietAudio = writer(seconds: 1)
         let emptied = StreamingRecognitionSession(provider: silent, writer: quietAudio, languages: [],
-                                                  fallback: BatchRecognitionSession(provider: upload, writer: quietAudio, language: nil),
+                                                  fallback: BatchRecognitionSession(provider: upload, writer: quietAudio, language: nil, languages: []),
                                                   meter: realtime)
         try! emptied.start()
         let replaced = await emptied.finish()

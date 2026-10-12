@@ -243,6 +243,9 @@ struct SpokenLanguage: Identifiable, Hashable {
     let id: String
     let displayName: String
     let localeIdentifier: String
+    /// What the language is written in — what `HallucinationFilter` lets through once the
+    /// user has stated it (Latin is let through for every language).
+    let scripts: [WritingScript]
 }
 
 /// Special value meaning "no language was requested" — what History records when the
@@ -254,37 +257,38 @@ let autoLanguageID = "auto"
 /// engine. One entry per language rather than per region — the regional identifier only
 /// exists because Apple demands one, and the cloud tiers are sent the ISO code alone.
 let spokenLanguageCatalog: [SpokenLanguage] = [
-    SpokenLanguage(id: "en", displayName: "English", localeIdentifier: "en-US"),
-    SpokenLanguage(id: "uk", displayName: "Ukrainian", localeIdentifier: "uk-UA"),
-    SpokenLanguage(id: "ar", displayName: "Arabic", localeIdentifier: "ar-SA"),
-    SpokenLanguage(id: "zh", displayName: "Chinese", localeIdentifier: "zh-CN"),
-    SpokenLanguage(id: "hr", displayName: "Croatian", localeIdentifier: "hr-HR"),
-    SpokenLanguage(id: "cs", displayName: "Czech", localeIdentifier: "cs-CZ"),
-    SpokenLanguage(id: "da", displayName: "Danish", localeIdentifier: "da-DK"),
-    SpokenLanguage(id: "nl", displayName: "Dutch", localeIdentifier: "nl-NL"),
-    SpokenLanguage(id: "fi", displayName: "Finnish", localeIdentifier: "fi-FI"),
-    SpokenLanguage(id: "fr", displayName: "French", localeIdentifier: "fr-FR"),
-    SpokenLanguage(id: "de", displayName: "German", localeIdentifier: "de-DE"),
-    SpokenLanguage(id: "el", displayName: "Greek", localeIdentifier: "el-GR"),
-    SpokenLanguage(id: "he", displayName: "Hebrew", localeIdentifier: "he-IL"),
-    SpokenLanguage(id: "hi", displayName: "Hindi", localeIdentifier: "hi-IN"),
-    SpokenLanguage(id: "hu", displayName: "Hungarian", localeIdentifier: "hu-HU"),
-    SpokenLanguage(id: "id", displayName: "Indonesian", localeIdentifier: "id-ID"),
-    SpokenLanguage(id: "it", displayName: "Italian", localeIdentifier: "it-IT"),
-    SpokenLanguage(id: "ja", displayName: "Japanese", localeIdentifier: "ja-JP"),
-    SpokenLanguage(id: "ko", displayName: "Korean", localeIdentifier: "ko-KR"),
-    SpokenLanguage(id: "ms", displayName: "Malay", localeIdentifier: "ms-MY"),
-    SpokenLanguage(id: "no", displayName: "Norwegian", localeIdentifier: "nb-NO"),
-    SpokenLanguage(id: "pl", displayName: "Polish", localeIdentifier: "pl-PL"),
-    SpokenLanguage(id: "pt", displayName: "Portuguese", localeIdentifier: "pt-BR"),
-    SpokenLanguage(id: "ro", displayName: "Romanian", localeIdentifier: "ro-RO"),
-    SpokenLanguage(id: "ru", displayName: "Russian", localeIdentifier: "ru-RU"),
-    SpokenLanguage(id: "sk", displayName: "Slovak", localeIdentifier: "sk-SK"),
-    SpokenLanguage(id: "es", displayName: "Spanish", localeIdentifier: "es-ES"),
-    SpokenLanguage(id: "sv", displayName: "Swedish", localeIdentifier: "sv-SE"),
-    SpokenLanguage(id: "th", displayName: "Thai", localeIdentifier: "th-TH"),
-    SpokenLanguage(id: "tr", displayName: "Turkish", localeIdentifier: "tr-TR"),
-    SpokenLanguage(id: "vi", displayName: "Vietnamese", localeIdentifier: "vi-VN"),
+    SpokenLanguage(id: "en", displayName: "English", localeIdentifier: "en-US", scripts: [.latin]),
+    SpokenLanguage(id: "uk", displayName: "Ukrainian", localeIdentifier: "uk-UA", scripts: [.cyrillic]),
+    SpokenLanguage(id: "ar", displayName: "Arabic", localeIdentifier: "ar-SA", scripts: [.arabic]),
+    SpokenLanguage(id: "zh", displayName: "Chinese", localeIdentifier: "zh-CN", scripts: [.han]),
+    SpokenLanguage(id: "hr", displayName: "Croatian", localeIdentifier: "hr-HR", scripts: [.latin]),
+    SpokenLanguage(id: "cs", displayName: "Czech", localeIdentifier: "cs-CZ", scripts: [.latin]),
+    SpokenLanguage(id: "da", displayName: "Danish", localeIdentifier: "da-DK", scripts: [.latin]),
+    SpokenLanguage(id: "nl", displayName: "Dutch", localeIdentifier: "nl-NL", scripts: [.latin]),
+    SpokenLanguage(id: "fi", displayName: "Finnish", localeIdentifier: "fi-FI", scripts: [.latin]),
+    SpokenLanguage(id: "fr", displayName: "French", localeIdentifier: "fr-FR", scripts: [.latin]),
+    SpokenLanguage(id: "de", displayName: "German", localeIdentifier: "de-DE", scripts: [.latin]),
+    SpokenLanguage(id: "el", displayName: "Greek", localeIdentifier: "el-GR", scripts: [.greek]),
+    SpokenLanguage(id: "he", displayName: "Hebrew", localeIdentifier: "he-IL", scripts: [.hebrew]),
+    SpokenLanguage(id: "hi", displayName: "Hindi", localeIdentifier: "hi-IN", scripts: [.devanagari]),
+    SpokenLanguage(id: "hu", displayName: "Hungarian", localeIdentifier: "hu-HU", scripts: [.latin]),
+    SpokenLanguage(id: "id", displayName: "Indonesian", localeIdentifier: "id-ID", scripts: [.latin]),
+    SpokenLanguage(id: "it", displayName: "Italian", localeIdentifier: "it-IT", scripts: [.latin]),
+    SpokenLanguage(id: "ja", displayName: "Japanese", localeIdentifier: "ja-JP",
+                   scripts: [.han, .hiragana, .katakana]),
+    SpokenLanguage(id: "ko", displayName: "Korean", localeIdentifier: "ko-KR", scripts: [.hangul, .han]),
+    SpokenLanguage(id: "ms", displayName: "Malay", localeIdentifier: "ms-MY", scripts: [.latin]),
+    SpokenLanguage(id: "no", displayName: "Norwegian", localeIdentifier: "nb-NO", scripts: [.latin]),
+    SpokenLanguage(id: "pl", displayName: "Polish", localeIdentifier: "pl-PL", scripts: [.latin]),
+    SpokenLanguage(id: "pt", displayName: "Portuguese", localeIdentifier: "pt-BR", scripts: [.latin]),
+    SpokenLanguage(id: "ro", displayName: "Romanian", localeIdentifier: "ro-RO", scripts: [.latin]),
+    SpokenLanguage(id: "ru", displayName: "Russian", localeIdentifier: "ru-RU", scripts: [.cyrillic]),
+    SpokenLanguage(id: "sk", displayName: "Slovak", localeIdentifier: "sk-SK", scripts: [.latin]),
+    SpokenLanguage(id: "es", displayName: "Spanish", localeIdentifier: "es-ES", scripts: [.latin]),
+    SpokenLanguage(id: "sv", displayName: "Swedish", localeIdentifier: "sv-SE", scripts: [.latin]),
+    SpokenLanguage(id: "th", displayName: "Thai", localeIdentifier: "th-TH", scripts: [.thai]),
+    SpokenLanguage(id: "tr", displayName: "Turkish", localeIdentifier: "tr-TR", scripts: [.latin]),
+    SpokenLanguage(id: "vi", displayName: "Vietnamese", localeIdentifier: "vi-VN", scripts: [.latin]),
 ]
 
 func spokenLanguage(id: String) -> SpokenLanguage? {

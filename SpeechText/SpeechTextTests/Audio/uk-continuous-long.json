@@ -6,5 +6,9 @@
     "duplication",
     "restatement"
   ],
-  "note": "About 65 s, fast, no pause longer than a breath. Catches Scribe's growing echo (#67) and GPT Live's one long open item. Every anchor word occurs once, so any repeated phrase is a doubling."
+  "note": "About 65 s, fast, no pause longer than a breath. Catches Scribe's growing echo (#67) and GPT Live's one long open item. Every anchor word occurs once, so any repeated phrase is a doubling.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

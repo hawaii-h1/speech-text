@@ -178,6 +178,18 @@ final class CorpusMeasureTests: XCTestCase {
         XCTAssertEqual(clip.dictionaryEntries.map(\.term), ["Grafana"])
     }
 
+    /// #166: the script rule measured as the owner runs the app — Auto, uk and en stated.
+    func testAClipWithSpokenLanguagesGetsAPassWithThemStated() throws {
+        let clip = try JSONDecoder().decode(CorpusClip.self, from: Data("""
+            {"expected": "", "language": "uk", "spokenLanguages": ["uk", "en"]}
+            """.utf8))
+        XCTAssertEqual(clip.passes.map(\.label), ["auto", "uk+en"])
+        let engine = try XCTUnwrap(CorpusEngine.all.first { $0.id == "groq/whisper-large-v3-turbo" })
+        let configuration = engine.configuration(keys: ProviderKeys(keys: [:]), language: nil, stated: clip.passes[1].stated)
+        XCTAssertEqual(configuration.languages, ["uk", "en"])
+        XCTAssertNil(configuration.cloudLanguage, "two languages stated force none")
+    }
+
     func testSentencesGluedAtABoundaryAreFound() {
         XCTAssertEqual(CorpusMeasure.gluedSentences(expected: "Це перевірка. Закінчую.",
                                                     actual: "Це перевірка.Закінчую."), ["перевірка.Закінчую"])

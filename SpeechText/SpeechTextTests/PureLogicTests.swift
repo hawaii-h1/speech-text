@@ -1477,6 +1477,18 @@ final class TranscriptCleanupTests: XCTestCase {
         configuration.removesDisfluencies = false
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
     }
+
+    /// #166: Scribe answered a cough with hesitations alone; with them gone only «, ,» was
+    /// left, and it was pasted.
+    func testWhatIsLeftWithNoLetterOrDigitIsNothing() {
+        let configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "", .elevenLabs: "scribe_v2"])
+        XCTAssertEqual(configuration.cleaned("Um, um,"), "")
+        XCTAssertEqual(configuration.cleaned("Хм, хм,"), "")
+        XCTAssertEqual(configuration.cleaned("Е-е-е..."), "")
+        XCTAssertEqual(configuration.finished("Um, um."), "")
+        XCTAssertEqual(configuration.cleaned("Um, 42"), "42")
+        XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, ні")
+    }
 }
 
 // MARK: - Dash style (TranscriptCleanup.swift)
@@ -2236,6 +2248,67 @@ final class HallucinationFilterTests: XCTestCase {
     /// A writer that measured nothing (0 s) leaves the phrase as the only evidence.
     func testAnUnmeasuredSegmentCountsAsShort() {
         XCTAssertTrue(HallucinationFilter.isHallucination("Evet.", segmentSeconds: 0))
+    }
+
+    /// #166: «.» and «..» are what a model writes for a breath — at any length.
+    func testAResultWithNoLetterOrDigitIsRejected() {
+        for text in [".", "..", "…", " ?! ", "— –"] {
+            XCTAssertEqual(HallucinationFilter.rejection(text, segmentSeconds: 30, languages: []), .noLettersOrDigits, text)
+        }
+        for text in ["", "   ", "42", "Так.", "OK"] {
+            XCTAssertNil(HallucinationFilter.rejection(text, segmentSeconds: 30, languages: []), text)
+        }
+    }
+
+    /// The phrase rule keeps its 2 s bound inside the one entry point.
+    func testAKnownPhraseIsRejectedOnlyOnAShortSegment() {
+        XCTAssertEqual(HallucinationFilter.rejection("Thank you for watching.", segmentSeconds: 1, languages: []), .knownPhrase)
+        XCTAssertNil(HallucinationFilter.rejection("Thank you for watching.", segmentSeconds: 15, languages: []))
+    }
+
+    /// #166: what the corpus's breath and cough came back as, for someone who speaks
+    /// Ukrainian and English.
+    func testAResultWhollyInAScriptNoStatedLanguageUsesIsRejected() {
+        for text in ["うーん。", "흠..", "음 음 음", "嗯", "مرحبا", "שלום", "สวัสดี", "नमस्ते", "Γεια"] {
+            XCTAssertEqual(HallucinationFilter.rejection(text, segmentSeconds: 30, languages: ["uk", "en"]),
+                           .foreignScript, text)
+        }
+    }
+
+    func testAScriptOfAStatedLanguageOrLatinIsKept() {
+        let kept: [(String, [String])] = [
+            ("Привіт", ["uk"]), ("Docker", ["uk"]), ("OK, 흠", ["uk"]), ("こんにちは", ["ja"]), ("カタカナ", ["ja"]),
+            ("漢字", ["ja"]), ("안녕", ["ko"]), ("你好", ["zh"]), ("Ciao", ["it"]), ("Привет", ["ru", "en"]),
+            ("Hola", ["xx"]), ("ᚠᚢᚦ", ["uk"]),   // an unknown code judges nothing; an unmapped script is kept
+        ]
+        for (text, languages) in kept {
+            XCTAssertNil(HallucinationFilter.rejection(text, segmentSeconds: 30, languages: languages), text)
+        }
+        XCTAssertNil(HallucinationFilter.rejection("うーん。", segmentSeconds: 30, languages: []),
+                     "with no language stated the script is never judged")
+        XCTAssertEqual(HallucinationFilter.rejection("你好", segmentSeconds: 30, languages: ["ko"]), nil,
+                       "Korean is written with Han too")
+        XCTAssertEqual(HallucinationFilter.rejection("こんにちは", segmentSeconds: 30, languages: ["zh"]), .foreignScript)
+    }
+
+    /// Every language a user can state has a script the rule knows, and its own letters
+    /// are never taken for a foreign script.
+    func testEveryCatalogueLanguageHasAScript() {
+        let samples: [WritingScript: String] = [
+            .latin: "a", .cyrillic: "ж", .greek: "λ", .arabic: "ب", .hebrew: "ש", .devanagari: "क", .thai: "ก",
+            .hangul: "한", .hiragana: "あ", .katakana: "ア", .han: "字",
+        ]
+        XCTAssertEqual(Set(samples.keys), Set(WritingScript.allCases))
+        for (script, letter) in samples {
+            XCTAssertEqual(WritingScript.of(letter.unicodeScalars.first!), script, letter)
+        }
+        for language in spokenLanguageCatalog {
+            XCTAssertFalse(language.scripts.isEmpty, language.id)
+            for script in language.scripts {
+                XCTAssertFalse(HallucinationFilter.isForeignScript(samples[script]!, languages: [language.id]),
+                               "\(language.id) \(script)")
+            }
+        }
     }
 
     func testNormalisationKeepsWordsAndDropsEverythingElse() {

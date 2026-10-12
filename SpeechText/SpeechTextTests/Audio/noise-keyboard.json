@@ -5,5 +5,18 @@
     "noise",
     "hallucination"
   ],
-  "note": "10 s of typing on the keyboard, nobody speaking. N2: noise above the −44 dBFS floor reaches the model; nothing may be pasted."
+  "note": "10 s of typing on the keyboard, nobody speaking. N2: noise above the −44 dBFS floor reaches the model; nothing may be pasted.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ],
+  "vocabulary": [
+    "SpeechText",
+    "Parakeet",
+    "ElevenLabs",
+    "Kubernetes",
+    "PostgreSQL",
+    "Grafana",
+    "Коваленко"
+  ]
 }

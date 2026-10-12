@@ -14,11 +14,15 @@ final class BatchRecognitionSession: RecognitionSession {
     private let writer: AudioBufferWriter
     /// nil leaves the language to the model — see `RecordingConfiguration.cloudLanguage`.
     private let language: String?
+    /// Every language the user stated, which the result's script is judged against
+    /// (`HallucinationFilter.rejection`); empty judges no script.
+    private let languages: [String]
 
-    init(provider: BatchTranscriber, writer: AudioBufferWriter, language: String?) {
+    init(provider: BatchTranscriber, writer: AudioBufferWriter, language: String?, languages: [String]) {
         self.provider = provider
         self.writer = writer
         self.language = language
+        self.languages = languages
     }
 
     /// Nothing to open.
@@ -76,8 +80,8 @@ final class BatchRecognitionSession: RecognitionSession {
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             dlog("Engine", "BatchRecognitionSession.finish: done, \(text.count) chars")
             let usage = event(result.billing, succeeded: true)
-            if HallucinationFilter.isHallucination(text, segmentSeconds: duration) {
-                dlog("Engine", "BatchRecognitionSession.finish: the whole result is a known hallucination of a \(String(format: "%.1f", duration))s segment — dropped, audio kept")
+            if let rejection = HallucinationFilter.rejection(text, segmentSeconds: duration, languages: languages) {
+                dlog("Engine", "BatchRecognitionSession.finish: the whole result of a \(String(format: "%.1f", duration))s segment is \(rejection) — dropped, audio kept")
                 return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: false, usage: usage)
             }
             return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false, usage: usage)

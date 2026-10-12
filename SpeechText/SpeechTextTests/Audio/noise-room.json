@@ -5,5 +5,18 @@
     "noise",
     "hallucination"
   ],
-  "note": "15 s of a fan or the street through a window — no singing, no TV, no voices. N3: nothing may be pasted."
+  "note": "15 s of a fan or the street through a window — no singing, no TV, no voices. N3: nothing may be pasted.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ],
+  "vocabulary": [
+    "SpeechText",
+    "Parakeet",
+    "ElevenLabs",
+    "Kubernetes",
+    "PostgreSQL",
+    "Grafana",
+    "Коваленко"
+  ]
 }

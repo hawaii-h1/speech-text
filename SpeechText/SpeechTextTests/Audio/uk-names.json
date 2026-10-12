@@ -4,5 +4,9 @@
   "tags": [
     "names"
   ],
-  "note": "Proper names and a hyphenated town."
+  "note": "Proper names and a hyphenated town.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

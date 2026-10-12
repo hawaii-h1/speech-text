@@ -5,5 +5,9 @@
     "silence",
     "hallucination"
   ],
-  "note": "«Перевірка.», then 8 s of silence, then stop. N5: nothing invented after the word («Дякую за перегляд», subtitle credits). HallucinationFilter does not apply: the result is not the hallucination alone."
+  "note": "«Перевірка.», then 8 s of silence, then stop. N5: nothing invented after the word («Дякую за перегляд», subtitle credits). HallucinationFilter does not apply: the result is not the hallucination alone.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

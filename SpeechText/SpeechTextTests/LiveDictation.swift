@@ -209,12 +209,15 @@ struct CorpusEngine {
     /// is the clip's Dictionary pass: its words are sent to the engine as the app sends
     /// them (`vocabulary`, ranked as a fresh list is — newest first) and correct the
     /// stop's text (`dictionary`).
-    func configuration(keys: ProviderKeys, language: String?, dictionary: [VocabularyEntry] = []) -> RecordingConfiguration {
+    /// `stated` is "Languages I speak" with nothing forced (two or more); `language`
+    /// forces one, as a single stated language does.
+    func configuration(keys: ProviderKeys, language: String?, stated: [String] = [],
+                       dictionary: [VocabularyEntry] = []) -> RecordingConfiguration {
         let forced = language.flatMap { spokenLanguage(id: $0) }
         var configuration = RecordingConfiguration(
             provider: provider,
             locale: forced?.localeIdentifier ?? "en-US",
-            languages: forced.map { [$0.id] } ?? [],
+            languages: forced.map { [$0.id] } ?? stated,
             localeIsAutomatic: forced == nil,
             apiKeys: keys.keys,
             models: [model.vendor: model.id],
@@ -263,12 +266,12 @@ enum LiveDictation {
                                   language: pass.label, status: .ran)
         result.expected = clip.expected
         result.audioDigest = audio.digest
-        let configuration = engine.configuration(keys: keys, language: language,
+        let configuration = engine.configuration(keys: keys, language: language, stated: pass.stated,
                                                  dictionary: pass.dictionary ? clip.dictionaryEntries : [])
         let writer = AudioBufferWriter()
         let fallback = ObservedFallback(BatchRecognitionSession(
             provider: makeBatchTranscriber(configuration: configuration),
-            writer: writer, language: configuration.cloudLanguage))
+            writer: writer, language: configuration.cloudLanguage, languages: configuration.languages))
         let session: RecognitionSession
         let streams: Bool
         // RecognitionSessionFactory, minus Apple.
@@ -337,7 +340,8 @@ enum LiveDictation {
         DictationTraceRecorder.current = nil
         if let recorder, let traceDirectory {
             writeTrace(recorder, named: "\(clip.name)--\(engine.model.vendor.rawValue)-\(engine.model.id)"
-                       + (language.map { "--\($0)" } ?? "") + (pass.dictionary ? "--dictionary" : ""),
+                       + (language.map { "--\($0)" } ?? "") + (pass.dictionary ? "--dictionary" : "")
+                       + (pass.stated.isEmpty ? "" : "--" + pass.label),
                        into: traceDirectory)
         }
         if let file = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: file) }

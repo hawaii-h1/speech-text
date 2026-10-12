@@ -4,5 +4,9 @@
   "tags": [
     "vocabulary-hard"
   ],
-  "note": "Long compounds, consonant clusters, apostrophes and rare place names, no numbers (engines write them as digits or words, which WER would count against either)."
+  "note": "Long compounds, consonant clusters, apostrophes and rare place names, no numbers (engines write them as digits or words, which WER would count against either).",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

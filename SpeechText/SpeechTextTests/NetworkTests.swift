@@ -71,7 +71,7 @@ final class OfflineOutcomeTests: XCTestCase {
     /// which is what turns "Transcription failed" into "saved to History".
     func testAnUploadWithNoNetworkIsOfflineAndKeepsItsAudio() async throws {
         let session = BatchRecognitionSession(provider: ThrowingBatchTranscriber(URLError(.notConnectedToInternet)),
-                                              writer: audibleWriter(), language: nil)
+                                              writer: audibleWriter(), language: nil, languages: [])
         let outcome = await session.finish()
         let file = try XCTUnwrap(outcome.audioFileURL)
         defer { AudioBufferWriter.cleanup(fileURL: file) }
@@ -83,7 +83,7 @@ final class OfflineOutcomeTests: XCTestCase {
 
     func testAProviderErrorIsNotOffline() async throws {
         let session = BatchRecognitionSession(provider: ThrowingBatchTranscriber(URLError(.timedOut)),
-                                              writer: audibleWriter(), language: nil)
+                                              writer: audibleWriter(), language: nil, languages: [])
         let outcome = await session.finish()
         outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
 

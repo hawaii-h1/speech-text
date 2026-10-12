@@ -4,5 +4,9 @@
   "tags": [
     "pause"
   ],
-  "note": "Two seconds of silence after «до моря,», mid-sentence. O1, OA3: the full stop a pause invites must not survive."
+  "note": "Two seconds of silence after «до моря,», mid-sentence. O1, OA3: the full stop a pause invites must not survive.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

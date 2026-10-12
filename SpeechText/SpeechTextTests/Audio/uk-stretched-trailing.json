@@ -4,5 +4,9 @@
   "tags": [
     "disfluency"
   ],
-  "note": "Said as «Ну тооо… [«то» drawn out ~1 s] я подумав, що це можна відкласти… [trailing off, 2 s pause] Добре, вирішимо завтра.» A stretched «тооо» and a trailing «…» are cleaned (cleanedTranscript); whether an engine writes them at all is up to it."
+  "note": "Said as «Ну тооо… [«то» drawn out ~1 s] я подумав, що це можна відкласти… [trailing off, 2 s pause] Добре, вирішимо завтра.» A stretched «тооо» and a trailing «…» are cleaned (cleanedTranscript); whether an engine writes them at all is up to it.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

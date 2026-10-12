@@ -65,8 +65,14 @@ struct RecordingConfiguration {
 
     /// `cleanedTranscript(text)` when the setting is on, `text` untouched otherwise, with
     /// its dashes in the chosen style either way.
+    ///
+    /// What is left with no letter or digit in it is nothing: hesitations alone («Um, um,»)
+    /// pass `HallucinationFilter` as letters and come out of the cleanup as «, ,» (Scribe
+    /// on a cough, #166). Safe on cumulative text — an empty view is a prefix of
+    /// whatever real words follow.
     func cleaned(_ text: String) -> String {
-        dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
+        let cleaned = dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
+        return cleaned.contains(where: { $0.isLetter || $0.isNumber }) ? cleaned : ""
     }
 
     /// Groq Whisper's `prompt`: the ranked words as one line, within its limit — on

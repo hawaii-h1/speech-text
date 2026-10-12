@@ -5,5 +5,9 @@
     "pause",
     "restatement"
   ],
-  "note": "About 20 s; a two-second pause after each «вимоги.», «команді.», «помилки,». Scribe commits on each and restates: nothing may be doubled."
+  "note": "About 20 s; a two-second pause after each «вимоги.», «команді.», «помилки,». Scribe commits on each and restates: nothing may be doubled.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

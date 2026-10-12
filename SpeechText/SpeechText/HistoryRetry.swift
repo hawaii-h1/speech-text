@@ -77,8 +77,10 @@ final class HistoryRetry {
             var trimmed = configuration.finished(result.text.trimmingCharacters(in: .whitespacesAndNewlines))
             // A retry sends the same short clip to a model again, and gets the same
             // invented sign-off back — which would land on the clipboard as a success.
-            if HallucinationFilter.isHallucination(trimmed, segmentSeconds: record.duration) {
-                dlog("History", "retry \(recordID.uuidString.prefix(8)): the whole result is a known hallucination — dropped")
+            // The script is judged against the languages stated now, as the language is.
+            if let rejection = HallucinationFilter.rejection(trimmed, segmentSeconds: record.duration,
+                                                             languages: configuration.languages) {
+                dlog("History", "retry \(recordID.uuidString.prefix(8)): the whole result is \(rejection) — dropped")
                 trimmed = ""
             }
             guard !trimmed.isEmpty else {

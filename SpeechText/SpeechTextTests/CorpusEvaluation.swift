@@ -44,6 +44,10 @@ struct CorpusClip: Codable, Equatable {
     /// gets one more pass with them as the Dictionary (#74: does Groq's `prompt` help or
     /// echo?).
     var vocabulary: [String]?
+    /// "Languages I speak", stated with nothing forced (two or more, as the owner runs the
+    /// app): one more pass, Auto with these stated — what the script rule in
+    /// `HallucinationFilter` is judged against (#166).
+    var spokenLanguages: [String]?
 
     /// The description this row comes from.
     var descriptionName: String { variant.map { name.dropLast($0.count + 1) }.map(String.init) ?? name }
@@ -54,7 +58,7 @@ struct CorpusClip: Codable, Equatable {
     var expectsNothing: Bool { expected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     private enum CodingKeys: String, CodingKey {
-        case expected, language, tags, maxWER, forcedLanguages, note, source, seconds, vocabulary
+        case expected, language, tags, maxWER, forcedLanguages, note, source, seconds, vocabulary, spokenLanguages
     }
 
     /// Every clip description in `directory`, by name.
@@ -96,10 +100,12 @@ struct CorpusClip: Codable, Equatable {
     }
 
     /// The Auto pass first, then each forced language, then — for a clip with a
-    /// vocabulary — Auto again with it as the Dictionary.
+    /// vocabulary — Auto again with it as the Dictionary, then Auto with the clip's
+    /// spoken languages stated.
     var passes: [CorpusPass] {
         [CorpusPass(language: nil)] + (forcedLanguages ?? []).map { CorpusPass(language: $0) }
             + (vocabulary?.isEmpty == false ? [CorpusPass(language: nil, dictionary: true)] : [])
+            + (spokenLanguages?.isEmpty == false ? [CorpusPass(language: nil, stated: spokenLanguages ?? [])] : [])
     }
 
     /// The clip's vocabulary as Dictionary entries, as a user would add them: the word,
@@ -109,13 +115,19 @@ struct CorpusClip: Codable, Equatable {
     }
 }
 
-/// One way a clip is run: Auto or a forced language, with or without its Dictionary.
+/// One way a clip is run: Auto or a forced language, with or without its Dictionary, or
+/// Auto with several languages stated.
 struct CorpusPass: Equatable {
     var language: String?
     var dictionary = false
+    /// The languages stated, none of them forced; empty for every other pass.
+    var stated: [String] = []
 
-    /// The results' and the summary's name for it: `auto`, `uk`, `auto + dictionary`.
-    var label: String { (language ?? "auto") + (dictionary ? " + dictionary" : "") }
+    /// The results' and the summary's name for it: `auto`, `uk`, `auto + dictionary`,
+    /// `uk+en`.
+    var label: String {
+        stated.isEmpty ? (language ?? "auto") + (dictionary ? " + dictionary" : "") : stated.joined(separator: "+")
+    }
 }
 
 // MARK: - Measures

@@ -6,5 +6,18 @@
     "hallucination",
     "disfluency"
   ],
-  "note": "8 s of breathing, one cough and one «хм», nothing else. N4: nothing may be pasted; «хм» is a hesitation the cleanup drops."
+  "note": "8 s of breathing, one cough and one «хм», nothing else. N4: nothing may be pasted; «хм» is a hesitation the cleanup drops.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ],
+  "vocabulary": [
+    "SpeechText",
+    "Parakeet",
+    "ElevenLabs",
+    "Kubernetes",
+    "PostgreSQL",
+    "Grafana",
+    "Коваленко"
+  ]
 }

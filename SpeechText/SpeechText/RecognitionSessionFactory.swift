@@ -19,7 +19,8 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
                                        contextualStrings: configuration.liveVocabulary)
     case .groq, .elevenlabs, .openai, .local:
         let batch = BatchRecognitionSession(provider: makeBatchTranscriber(configuration: configuration),
-                                            writer: writer, language: configuration.cloudLanguage)
+                                            writer: writer, language: configuration.cloudLanguage,
+                                            languages: configuration.languages)
         if let streamer = makeStreamingTranscriber(configuration: configuration) {
             // A reconnect makes the same provider again, from the same snapshot of the
             // settings — a dropped stream never comes back as a different engine.

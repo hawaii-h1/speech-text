@@ -7,5 +7,9 @@
   "forcedLanguages": [
     "uk"
   ],
-  "note": "Ukrainian with English terms, said the English way. The forced uk pass shows what a single stated language does to the English words."
+  "note": "Ukrainian with English terms, said the English way. The forced uk pass shows what a single stated language does to the English words.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

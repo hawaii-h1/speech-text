@@ -7,5 +7,9 @@
   "forcedLanguages": [
     "uk"
   ],
-  "note": "15 s, even pace. L1 (Auto) and L3 (forced uk)."
+  "note": "15 s, even pace. L1 (Auto) and L3 (forced uk).",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

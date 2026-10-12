@@ -5,5 +5,9 @@
     "stop",
     "tail"
   ],
-  "note": "Said as «Ще одна перевірка. [2 s pause] Закінчую коротким словом: так», the recording stopped on «так» with no breath after it. T10: the last word survives finish(), and the two sentences do not glue («перевірка.Закінчую»). The 2 s pause lets Scribe close the first segment (VAD threshold 1.5 s)."
+  "note": "Said as «Ще одна перевірка. [2 s pause] Закінчую коротким словом: так», the recording stopped on «так» with no breath after it. T10: the last word survives finish(), and the two sentences do not glue («перевірка.Закінчую»). The 2 s pause lets Scribe close the first segment (VAD threshold 1.5 s).",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

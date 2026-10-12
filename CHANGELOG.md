@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Noise is no longer pasted as text.** A model that hears a breath, a cough or a keyboard sometimes answers with «.», «..» or words in another alphabet («うーん。», «흠..»). A result with no letter or digit is now dropped, and so is one written entirely in an alphabet none of the languages in Settings › Speech › *Languages I speak* uses (Latin always counts). With no languages stated, nothing is dropped for its alphabet. The recording stays in History, so it can be retried.
 - **The Apple engine no longer loses a dictation at the stop.** On-device recognition could end with an empty final result and erase the words shown on the overlay, so nothing was pasted. A pause mid-dictation also dropped the sentence before it. Both now keep every word heard.
 - A live dictation is no longer pasted with its last words twice. A realtime engine can send the end of the recording again after the stop, and that repeat is now ignored instead of appended; waiting for it no longer holds up the paste.
 - **No more invented sign-offs.** A shortcut pressed with nothing said could paste text nobody spoke: "Thank you for watching", "Дякую за перегляд", "Evet.". A short recording whose whole result is one of these known phrases now pastes nothing, and it no longer flashes on the overlay. Such a recording stays in History, where it can be retried. The live engines (ElevenLabs and OpenAI) now also ignore silent recordings and ones too short to be speech, as the upload engines already did.

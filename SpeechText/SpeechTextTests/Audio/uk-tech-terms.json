@@ -14,5 +14,9 @@
     "Grafana",
     "Коваленко"
   ],
-  "note": "Terms and names a user would put in the Dictionary, said the English way inside Ukrainian. Run with and without `vocabulary` as the Dictionary (#74: Groq's prompt stays on and is measured here — better spelling of the terms, and no harm to the rest)."
+  "note": "Terms and names a user would put in the Dictionary, said the English way inside Ukrainian. Run with and without `vocabulary` as the Dictionary (#74: Groq's prompt stays on and is measured here — better spelling of the terms, and no harm to the rest).",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

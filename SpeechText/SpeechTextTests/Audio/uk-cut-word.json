@@ -4,5 +4,9 @@
   "tags": [
     "cut-word"
   ],
-  "note": "Stop for two seconds inside «да… них», then carry on. T12: the word must come out whole."
+  "note": "Stop for two seconds inside «да… них», then carry on. T12: the word must come out whole.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

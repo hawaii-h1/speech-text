@@ -40,7 +40,11 @@ A description:
   that has one gets one more pass, `auto + dictionary`, with those words as the
   Dictionary: sent to every engine that takes them, as the app sends them (Groq's
   `prompt`, a term list), and correcting the stop's text — the measurement #74 asked for
-  before trusting Groq's `prompt`.
+  before trusting Groq's `prompt`. The noise and silence clips carry `uk-tech-terms`'
+  words too: silence is where a Whisper prompt is said to come back as text.
+- `spokenLanguages` (optional) is "Languages I speak" with nothing forced — `["uk",
+  "en"]` on every clip, as the owner runs the app. It adds a pass named after them
+  (`uk+en`): Auto, with the script rule of `HallucinationFilter` judging against them.
 
 One description may have several recordings. `<clip>@<variant>.wav` is played against
 `<clip>.json` and reported as its own row, `<clip>@<variant>`: another microphone

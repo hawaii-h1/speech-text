@@ -7,5 +7,9 @@
   "forcedLanguages": [
     "en"
   ],
-  "note": "English with one Ukrainian phrase, the mirror of mixed-uk-en. X2: the English is not translated and the phrase stays Ukrainian. The forced en pass shows what a single stated English does to it."
+  "note": "English with one Ukrainian phrase, the mirror of mixed-uk-en. X2: the English is not translated and the phrase stays Ukrainian. The forced en pass shows what a single stated English does to it.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }

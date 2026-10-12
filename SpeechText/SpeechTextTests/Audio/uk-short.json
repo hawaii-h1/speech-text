@@ -4,5 +4,9 @@
   "tags": [
     "short"
   ],
-  "note": "About one second of real speech: short, but above the 0.3 s floor, so it must be pasted."
+  "note": "About one second of real speech: short, but above the 0.3 s floor, so it must be pasted.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
 }
