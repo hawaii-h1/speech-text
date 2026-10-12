@@ -59,10 +59,48 @@ func segmentSeparator(_ previous: String, _ next: String,
 }
 
 /// `head` and the next segment `tail`, joined by `segmentSeparator`.
+///
+/// One boundary is read past what the provider wrote: a segment that trails off into
+/// `...` / `…` straight after a letter. Scribe ends a segment its VAD closed on a pause
+/// that way, and opens the next with a capital whether or not a sentence starts there —
+/// so a word cut by the pause arrived as "перфо..." | "Ратор." and was pasted in two
+/// (#165). There the boundary is judged as if the capital were lowercase, and when the
+/// halves glue, the dots go and the second half is written in lowercase: "перфоратор.".
+/// Nothing else changes — a capital that continues no cut word keeps its case
+/// ("нова... | Версія."), as `cleanedTranscript` keeps the case after the dots it drops.
+///
+/// Dropping the dots rewrites `head`, which the stream reported before. That is safe for
+/// the span layer when hesitations are cleaned, since `cleanedTranscript` drops a
+/// trailing `...` anyway and the cleaned text still only grows; with cleaning off the
+/// layer sees its committed text rewritten and redraws the segment once.
 func joinedSegments(_ head: String, _ tail: String) -> String {
     if head.isEmpty { return tail }
     if tail.isEmpty { return head }
+    if let stem = trailingOffStem(head) {
+        let continuation = lowercasingFirstLetter(tail)
+        if segmentSeparator(stem, continuation).isEmpty { return stem + continuation }
+    }
     return head + segmentSeparator(head, tail) + tail
+}
+
+/// `text` without the `...` / `…` it trails off into, when a letter comes right before
+/// the dots — nil otherwise ("так?..", "1...", a bare "...").
+private func trailingOffStem(_ text: String) -> String? {
+    let stem: Substring
+    if text.hasSuffix("…") {
+        stem = text.dropLast()
+    } else if text.hasSuffix("...") {
+        stem = text.dropLast(3)
+    } else {
+        return nil
+    }
+    guard let last = stem.last, last.isLetter else { return nil }
+    return String(stem)
+}
+
+private func lowercasingFirstLetter(_ text: String) -> String {
+    guard let first = text.first, first.isUppercase else { return text }
+    return first.lowercased() + text.dropFirst()
 }
 
 // MARK: - Merging a realtime transcript onto what is already committed

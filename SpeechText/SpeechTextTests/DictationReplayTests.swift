@@ -141,6 +141,44 @@ final class PasteOnceReplayTests: XCTestCase {
         XCTAssertTrue(run.logged("(joins previous)"))
     }
 
+    /// #165, from the corpus trace `uk-cut-words-and-real-gap` (Scribe realtime): a pause
+    /// inside "перфоратор" closed a segment that trails off into "...", and the next one
+    /// opens with a capital. The word is pasted whole; "нова... | Версія." is two words and
+    /// keeps its capital.
+    private let wordCutBeforeTrailingDots: [DictationReplay.Step] = [
+        .partial("а сусід знову вмикає перфо-"),
+        .partial("а сусід знову вмикає перфо..."),
+        .committed("а сусід знову вмикає перфо..."),
+        .partial("Ратор."),
+        .partial("Ратор. А це нов"),
+        .partial("Ратор. А це нова..."),
+        .committed("Ратор. А це нова..."),
+        .partial("Версія."),
+    ]
+
+    func testAWordCutBeforeTrailingDotsIsGluedBack() async {
+        TranscriptJoin.isWord = { ["перфоратор", "нова", "версія"].contains($0.lowercased()) }
+        let run = await DictationReplay.run(in: FakeApp(), wordCutBeforeTrailingDots,
+                                            atStop: [.committed("Версія.")])
+
+        assertDocument(run.document, "а сусід знову вмикає перфоратор. А це нова Версія.")
+        XCTAssertTrue(run.logged("(joins previous)"))
+        XCTAssertFalse(run.logged("committed rewritten"), "the cleaned text only grows")
+    }
+
+    /// With hesitation cleanup off the dots the stream reported stay in the committed text
+    /// until the glue takes them back off: the segment is redrawn once, and the word still
+    /// goes in whole, once.
+    func testAWordCutBeforeTrailingDotsIsGluedBackWithCleanupOff() async {
+        TranscriptJoin.isWord = { ["перфоратор", "нова", "версія"].contains($0.lowercased()) }
+        var setup = DictationReplay.Setup()
+        setup.removesDisfluencies = false
+        let run = await DictationReplay.run(setup, in: FakeApp(), wordCutBeforeTrailingDots,
+                                            atStop: [.committed("Версія.")])
+
+        assertDocument(run.document, "а сусід знову вмикає перфоратор. А це нова... Версія.")
+    }
+
     /// The doubled dictation: Scribe re-states everything it has committed, grown by a
     /// word or two, as the next partial and then as the next commit.
     func testARestatedTranscriptIsNotPastedTwice() async {

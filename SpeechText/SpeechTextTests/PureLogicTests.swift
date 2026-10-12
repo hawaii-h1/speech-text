@@ -1623,7 +1623,8 @@ final class SegmentJoinTests: XCTestCase {
         XCTAssertEqual(segmentSeparator("Ось нова база дани", "х, звідки ми", isWord: isWord), "")
     }
 
-    /// Punctuation closed the first segment: that was a pause between words.
+    /// Punctuation closed the first segment: that was a pause between words. ("в..." is
+    /// judged as "в" by `joinedSegments`, and "вmain" is no word either.)
     func testAPunctuatedBoundaryKeepsItsSpace() {
         XCTAssertEqual(segmentSeparator("попадає в...", "main сесію", isWord: isWord), " ")
         XCTAssertEqual(segmentSeparator("база дани.", "х", isWord: isWord), " ")
@@ -1653,6 +1654,53 @@ final class SegmentJoinTests: XCTestCase {
     /// behaviour, a space everywhere.
     func testWithNoDictionaryEveryBoundaryKeepsItsSpace() {
         XCTAssertEqual(segmentSeparator("база дани", "х, звідки"), " ")
+    }
+
+    // #165: Scribe trails a segment closed inside a word off into "..." and opens the
+    // next with a capital — "перфо..." | "Ратор.".
+
+    private let cutBeforeDots: Set<String> = ["перфоратор", "нова", "версія", "даних"]
+    private func isWordAfterDots(_ word: String) -> Bool { cutBeforeDots.contains(word.lowercased()) }
+
+    func testAWordCutBeforeTrailingDotsIsGluedAndLowercased() {
+        TranscriptJoin.isWord = isWordAfterDots
+        XCTAssertEqual(joinedSegments("а сусід знову вмикає перфо...", "Ратор. А це нова..."),
+                       "а сусід знову вмикає перфоратор. А це нова...")
+        XCTAssertEqual(joinedSegments("вмикає перфо…", "Ратор."), "вмикає перфоратор.")
+        XCTAssertEqual(joinedSegments("база дани...", "х, звідки"), "база даних, звідки")
+    }
+
+    /// A capital after the dots that continues no cut word keeps its case and its space:
+    /// the model's capitals are not rewritten (owner's decision on #165).
+    func testACapitalAfterTrailingDotsThatIsAWordKeepsItsCase() {
+        TranscriptJoin.isWord = isWordAfterDots
+        XCTAssertEqual(joinedSegments("А це нова...", "Версія."), "А це нова... Версія.")
+    }
+
+    /// Only dots straight after a letter are a trailing-off; nothing registered glues nothing.
+    func testOnlyDotsAfterALetterAreReadPast() {
+        TranscriptJoin.isWord = { _ in true }
+        XCTAssertEqual(joinedSegments("перфо?..", "Ратор."), "перфо?.. Ратор.")
+        XCTAssertEqual(joinedSegments("перфо....", "ратор."), "перфо.... ратор.")
+        TranscriptJoin.isWord = { _ in false }
+        XCTAssertEqual(joinedSegments("перфо...", "Ратор."), "перфо... Ратор.")
+    }
+
+    /// The span layer, fed the cleaned cumulative text as the engine feeds it: the dots go
+    /// with cleanup, the glued half continues the span before it, nothing is redrawn.
+    func testTheSpanLayerGluesAWordCutBeforeTrailingDots() {
+        TranscriptJoin.isWord = isWordAfterDots
+        var committed = "а сусід знову вмикає перфо..."
+        var layer = TranscriptSpanLayer()
+        layer.ingest(committed: cleanedTranscript(committed), partial: "")
+        committed = joinedSegments(committed, "Ратор. А це нова...")
+        layer.ingest(committed: cleanedTranscript(committed), partial: "")
+        committed = joinedSegments(committed, "Версія.")
+        layer.ingest(committed: cleanedTranscript(committed), partial: "")
+
+        XCTAssertEqual(layer.visibleSpans.map(\.text), ["а сусід знову вмикає перфо", "ратор. А це нова", "Версія."])
+        XCTAssertEqual(layer.visibleSpans.map(\.joinsPrevious), [false, true, false])
+        XCTAssertEqual(layer.text, "а сусід знову вмикає перфоратор. А це нова Версія.")
     }
 
     /// The streaming merge uses it, so the cumulative committed text — and History — read
