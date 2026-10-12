@@ -145,6 +145,10 @@ Read CLAUDE.md's streaming sections first. The rules:
 - Keep the lock order: `sendLock` before `lock`, and never hold `lock` across `task.send`.
 - Report a server that never started a session as `TranscriptionError.realtime(provider,
   "no_session", …)`: that is the code `StreamReconnectPolicy.isReconnectable` reopens.
+- `RealtimeShape.serverVAD` decides more than segmentation: a server-VAD model's stream is
+  trusted only while no segment stays open past `STTTuning.streamLongestTrustedSegmentSeconds`
+  (`RecordingConfiguration.longestTrustedStreamSegment`); past it the stop takes the upload.
+  Measure the new model on the corpus's `uk-continuous-long` before relying on that limit.
 - If the vendor uses one model name on both endpoints, coin a realtime ID
   (`<model>-realtime`) and map it back in the transcriber.
 - Start from the closer existing transcriber: ElevenLabs (cumulative, server VAD) or OpenAI

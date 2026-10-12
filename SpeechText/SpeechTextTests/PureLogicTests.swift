@@ -2711,6 +2711,58 @@ final class ProviderDescriptorTests: XCTestCase {
     }
 }
 
+// MARK: - Open segment clock (#164)
+
+final class OpenSegmentClockTests: XCTestCase {
+    private func bytes(_ seconds: Double) -> Int { Int(seconds * 16_000) * 2 }
+
+    func testItMeasuresTheAudioSentNotTheClock() {
+        var clock = OpenSegmentClock(sampleRate: 16_000)
+        clock.feed(byteCount: bytes(7.5))
+        XCTAssertEqual(clock.longestSeconds, 7.5, accuracy: 0.001)
+    }
+
+    func testTheLongestSegmentIsKeptAcrossCommits() {
+        var clock = OpenSegmentClock(sampleRate: 16_000)
+        clock.feed(byteCount: bytes(18))
+        clock.segmentClosed()
+        clock.feed(byteCount: bytes(4))
+        clock.segmentClosed()
+        clock.feed(byteCount: bytes(6))
+        XCTAssertEqual(clock.longestSeconds, 18, accuracy: 0.001)
+    }
+
+    /// The segment still open counts, so a dictation the server never committed is measured.
+    func testTheOpenSegmentCounts() {
+        var clock = OpenSegmentClock(sampleRate: 16_000)
+        clock.feed(byteCount: bytes(3))
+        clock.segmentClosed()
+        clock.feed(byteCount: bytes(21))
+        XCTAssertEqual(clock.longestSeconds, 21, accuracy: 0.001)
+    }
+
+    func testOnlyALongerSegmentExceedsTheLimit() {
+        var clock = OpenSegmentClock(sampleRate: 16_000)
+        clock.feed(byteCount: bytes(30))
+        XCTAssertFalse(clock.exceeded(30))
+        clock.feed(byteCount: bytes(0.1))
+        XCTAssertTrue(clock.exceeded(30))
+        XCTAssertFalse(clock.exceeded(nil), "no limit, no upload")
+    }
+
+    /// Scribe's server runs VAD and gets the limit; OpenAI's keeps one item open until the
+    /// stop by design, and an upload model has no stream to limit.
+    func testOnlyAServerVADStreamIsLimited() {
+        func configuration(_ provider: STTProviderType, _ models: [Provider: String]) -> RecordingConfiguration {
+            RecordingConfiguration(provider: provider, locale: "uk-UA", localeIsAutomatic: false, apiKeys: [:], models: models)
+        }
+        XCTAssertEqual(configuration(.elevenlabs, [.elevenLabs: elevenLabsRealtimeModel]).longestTrustedStreamSegment,
+                       STTTuning.streamLongestTrustedSegmentSeconds)
+        XCTAssertNil(configuration(.openai, [.openAI: openAIRealtimeSTTModel]).longestTrustedStreamSegment)
+        XCTAssertNil(configuration(.elevenlabs, [.elevenLabs: "scribe_v2"]).longestTrustedStreamSegment)
+    }
+}
+
 /// #175: Apple's on-device results, as the e2e harness recorded them, lose no words —
 /// neither to a reset after a pause nor to an empty final.
 final class AppleUtterancesTests: XCTestCase {

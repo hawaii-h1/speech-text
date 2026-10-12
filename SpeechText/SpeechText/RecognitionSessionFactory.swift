@@ -26,7 +26,8 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
             return StreamingRecognitionSession(provider: streamer, writer: writer,
                                                languages: configuration.languages, fallback: batch,
                                                reconnect: { makeStreamingTranscriber(configuration: configuration) },
-                                               meter: configuration.streamMeter)
+                                               meter: configuration.streamMeter,
+                                               longestTrustedSegment: configuration.longestTrustedStreamSegment)
         }
         return batch
     }

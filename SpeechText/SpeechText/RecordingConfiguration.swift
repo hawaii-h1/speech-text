@@ -134,6 +134,15 @@ struct RecordingConfiguration {
     /// inline dictation shows that text on the overlay; the upload tiers have none to show.
     var hasLiveText: Bool { model.delivery == .systemRecognizer || streams }
 
+    /// The longest segment the stream's own text is trusted for
+    /// (`STTTuning.streamLongestTrustedSegmentSeconds`, #164): a model whose server closes
+    /// segments on a pause. nil for one that keeps a single item open until the stop —
+    /// OpenAI's, which invented nothing in that time on the corpus.
+    var longestTrustedStreamSegment: Double? {
+        guard case .realtime(let shape) = model.delivery, shape.serverVAD else { return nil }
+        return STTTuning.streamLongestTrustedSegmentSeconds
+    }
+
     /// Model ID used for any file upload: the stream's fallback, and History retries.
     /// The realtime model only exists behind the WebSocket, so it maps to its vendor's
     /// upload model; Apple has no batch API, so an Apple session's upload goes to Groq.

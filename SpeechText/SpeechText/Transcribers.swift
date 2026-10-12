@@ -56,6 +56,21 @@ enum STTTuning {
     /// only cuts more sentences — at 1.0 s thinking pauses already split them.
     static let vadSilenceThresholdSeconds: Double = 1.5
 
+    /// A Scribe Realtime segment left open longer than this is not trusted: the stop
+    /// pastes the upload's answer instead of the stream's (`OpenSegmentClock`, #164).
+    /// The server closes a segment by itself after about 36 s of audio, whatever the VAD
+    /// says (ElevenLabs' commit-strategy guide, which also advises committing every
+    /// 20–30 s), and a segment that ran up to that bound is where the #80 corpus caught
+    /// the model writing text that is not in the audio: on `uk-continuous-long` the
+    /// MacBook microphone's second segment ended in "Що ще?" fifteen times in five runs
+    /// of six, and the headset's in an invented schedule in two. 30 s is short of that
+    /// bound and past every segment a dictation with ordinary pauses produced — the
+    /// clean `uk-hard-words`, one 25.7 s segment, stays on the stream — so only a
+    /// dictation the server had to cut is paid for twice. 20 s, tried first, sent that
+    /// clip to the upload too. Closing long segments from the client was measured and
+    /// rejected: the reply to each client commit often ended in an invented sentence.
+    static let streamLongestTrustedSegmentSeconds: Double = 30
+
     /// How long `finish()` waits for the transcript of its final commit before pasting
     /// what it has. Scribe normally answers well inside a second; this only bounds the
     /// wait when the server is slow or the reply is lost, so the paste can never hang.

@@ -571,6 +571,27 @@ final class RecordedTraceTests: XCTestCase {
         assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
     }
 
+    /// A trace holds no audio, so a long Scribe segment (#164) is recorded at the stop
+    /// with its length, and the replay measures the same segment: the upload's paste
+    /// recurs, not the stream's invented ending.
+    func testATraceOfALongSegmentReplaysTheUpload() async throws {
+        let recorder = DictationTraceRecorder(setup: DictationTrace.Setup(app: "TextEdit"))
+        recorder.record(.partial, text: "Після обіду кожен перевірить свій робочий акаунт.")
+        recorder.record(.stop)
+        recorder.record(.segmentTooLong, text: "35.9")
+        recorder.record(.committed, text: "Після обіду кожен перевірить свій робочий акаунт. Що ще? Що ще? Що ще?")
+        recorder.record(.fallback, text: "Після обіду кожен перевірить свій робочий акаунт.")
+        recorder.record(.stopPaste, text: "Після обіду кожен перевірить свій робочий акаунт. ")
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let trace = try DictationTrace.decode(Data(contentsOf: XCTUnwrap(recorder.write(into: directory))))
+
+        let run = await DictationReplay.run(trace)
+        XCTAssertEqual(run.app.pastes, DictationReplay.recordedPastes(trace))
+        XCTAssertTrue(run.logged("kept a segment open too long"))
+    }
+
     /// A trace records where the dictation started and where it was pasted, and replays
     /// into the second.
     func testATraceRecordsBothApps() async throws {
@@ -1276,5 +1297,75 @@ final class DictionaryReplayTests: XCTestCase {
         ])
         XCTAssertFalse(run.overlay.contains { $0.text.contains("SpeechText") || $0.text.contains("GPT") })
         XCTAssertEqual(run.document, "Відкрий SpeechText і GPT. ")
+    }
+}
+
+// MARK: - A segment kept open too long (#164)
+
+/// Scribe Realtime left one segment open for 28 s of continuous reading, and the end of
+/// it was text nobody said — the #80 corpus's `uk-continuous-long`. A stream whose longest
+/// segment ran past `STTTuning.streamLongestTrustedSegmentSeconds` is finished by the
+/// upload, as a stream that had an outage is.
+@MainActor
+final class LongSegmentReplayTests: XCTestCase {
+    private let upload = "Після обіду кожен перевірить свій робочий акаунт."
+
+    /// From the trace: the real sentence on the overlay, then an invented schedule in
+    /// the commit at the stop. The upload's text goes in.
+    func testALongSegmentIsPastedFromTheUpload() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .audio(seconds: 18),
+            .partial("Після обіду кожен перевірить"),
+            .audio(seconds: 18),
+            .partial("Після обіду кожен перевірить свій робочий акаунт."),
+        ], atStop: [.committed("Після обіду кожен перевірить свій робочий акаунт. У понеділок з 9:00 до 18:00 працюємо.")],
+           fallback: ScriptedSegment(text: upload))
+
+        assertDocument(run.document, upload)
+        XCTAssertTrue(run.logged("kept a segment open too long"))
+        XCTAssertTrue(run.overlay.contains { $0.text == "Після обіду кожен перевірить свій робочий акаунт." },
+                      "the overlay showed the stream while the user spoke")
+    }
+
+    /// A long dictation closed by the server's VAD every 10 s: each segment is
+    /// short, and the stream's own text is pasted with nothing to wait for.
+    func testShortSegmentsKeepTheStreamsText() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .audio(seconds: 10),
+            .committed("Перше речення."),
+            .audio(seconds: 10),
+            .committed("Друге речення."),
+            .audio(seconds: 10),
+            .partial("Третє"),
+        ], atStop: [.committed("Третє речення.")],
+           fallback: ScriptedSegment(error: "the upload must not be asked"))
+
+        assertDocument(run.document, "Перше речення. Друге речення. Третє речення.")
+    }
+
+    /// The segment still open at the stop counts: 25 s with no commit at all.
+    func testTheSegmentOpenAtTheStopCounts() async {
+        let run = await DictationReplay.run(in: FakeApp(), [
+            .audio(seconds: 5),
+            .committed("Коротке."),
+            .audio(seconds: 32),
+            .partial("Довге"),
+        ], atStop: [.committed("Довге речення. Що ще? Що ще? Що ще?")],
+           fallback: ScriptedSegment(text: "Коротке. Довге речення."))
+
+        assertDocument(run.document, "Коротке. Довге речення.")
+    }
+
+    /// OpenAI's socket keeps one item open until the stop by design: no limit applies.
+    func testAStreamWithoutServerVADIsTrustedWhateverItsLength() async {
+        var setup = DictationReplay.Setup()
+        setup.longestTrustedSegment = nil
+        let run = await DictationReplay.run(setup, in: FakeApp(), [
+            .audio(seconds: 40),
+            .partial("Усе одним шматком"),
+        ], atStop: [.committed("Усе одним шматком.")],
+           fallback: ScriptedSegment(error: "the upload must not be asked"))
+
+        assertDocument(run.document, "Усе одним шматком.")
     }
 }

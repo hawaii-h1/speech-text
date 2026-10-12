@@ -178,11 +178,17 @@ final class DictationReplay {
         /// The segment's audio, for the guards that measure it. nil is an empty writer:
         /// nothing measured, so only the text decides.
         var writer: AudioBufferWriter?
+        /// `RecordingConfiguration.longestTrustedStreamSegment`: Scribe's, as the replays
+        /// are Scribe-shaped; nil for OpenAI's.
+        var longestTrustedSegment: Double? = STTTuning.streamLongestTrustedSegmentSeconds
     }
 
     enum Step {
         case partial(String)
         case committed(String)
+        /// The microphone's audio reaching the socket — silence, `seconds` of it; what
+        /// `OpenSegmentClock` measures a segment by.
+        case audio(seconds: Double)
         /// The socket dropped (`StreamingSTTEvent.failed`).
         case streamBreaks
         /// The network went away under the socket, and the session opened a fresh one
@@ -351,6 +357,10 @@ final class DictationReplay {
                 if case .streamBreaks = steps.last {
                     steps[steps.count - 1] = .connectionDrops
                 }
+            case .segmentTooLong:
+                // Recorded at the stop, as the session measured it; replayed as that much
+                // audio before the stop, so the replay's own clock decides the same way.
+                steps.append(.audio(seconds: Double(event.text ?? "") ?? STTTuning.streamLongestTrustedSegmentSeconds + 1))
             case .modeSwitch where !stopped:
                 steps.append(.switchMode(ai: event.text == "ai"))
             case .stop:
@@ -394,7 +404,8 @@ final class DictationReplay {
                     return next
                 }
             },
-            policy: StreamReconnectPolicy(delays: [0, 0, 0, 0, 0, 0, 0, 0]))
+            policy: StreamReconnectPolicy(delays: [0, 0, 0, 0, 0, 0, 0, 0]),
+            longestTrustedSegment: setup.longestTrustedSegment)
         // Sessions deliver events on the main thread, which is where this replay runs.
         session.onEvent = { [unowned self] event in
             MainActor.assumeIsolated { self.handle(event) }
@@ -419,6 +430,11 @@ final class DictationReplay {
         switch step {
         case .partial(let text): await emit(.partial(text))
         case .committed(let text): await emit(.committed(text))
+        case .audio(let seconds):
+            // `SpeechEngine.installAudioTap` → `RecognitionSession.feed`, with the
+            // writer's 16 kHz bytes; the native buffer is unused at that rate.
+            let bytes = Int(seconds * AudioBufferWriter.uploadSampleRate) * 2
+            session.feed(native: Self.tapBuffer, pcm16: Data(count: bytes))
         case .streamBreaks: await emit(.failed(StreamBroke()))
         case .connectionDrops:
             let opened = providersOpened
@@ -438,6 +454,10 @@ final class DictationReplay {
             speechTextInFront = true
         }
     }
+
+    private static let tapBuffer = AVAudioPCMBuffer(
+        pcmFormat: AVAudioFormat(standardFormatWithSampleRate: AudioBufferWriter.uploadSampleRate, channels: 1)!,
+        frameCapacity: 1)!
 
     /// Sends one event and waits until the session has handed it on: every provider event
     /// becomes exactly one `.live` event.

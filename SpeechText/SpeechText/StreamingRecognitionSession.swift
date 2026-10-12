@@ -91,13 +91,21 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// The realtime model the socket is billed under — its ledger entry, apart from the
     /// fallback upload's, which the batch session writes itself.
     private let meter: UsageMeter?
+    /// How long the server has kept each segment open, and how long it may before the
+    /// stop stops trusting the stream (#164): nil for a provider that keeps one item open
+    /// until the stop by design.
+    private let segments: OpenSegmentBox
+    private let longestTrustedSegment: Double?
 
     init(provider: StreamingTranscriber, writer: AudioBufferWriter, languages: [String],
          fallback: RecognitionSession,
          reconnect: (() -> StreamingTranscriber?)? = nil,
          policy: StreamReconnectPolicy = StreamReconnectPolicy(),
-         meter: UsageMeter? = nil) {
+         meter: UsageMeter? = nil,
+         longestTrustedSegment: Double? = nil) {
         self.meter = meter
+        self.segments = OpenSegmentBox(OpenSegmentClock(sampleRate: provider.sampleRate))
+        self.longestTrustedSegment = longestTrustedSegment
         self.needsResampling = provider.sampleRate != AudioBufferWriter.uploadSampleRate
         self.sampleRate = provider.sampleRate
         self.provider = provider
@@ -121,6 +129,8 @@ final class StreamingRecognitionSession: RecognitionSession {
         let generation = self.generation
         self.provider = provider
         providerHasSpoken = false
+        // A new socket opens a segment of its own.
+        segments.segmentClosed()
         provider.connect(languages: languages)
         eventsTask = Task { [weak self] in
             for await event in provider.events {
@@ -151,6 +161,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             // what it actually adds. Joining it whole pastes the dictation twice.
             partialText = transcriptContinuation(of: committedText, committedWords: committedWords, in: text)
         case .committed(let text):
+            segments.segmentClosed()
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 // Merged, not appended: a commit that restates the whole accumulated
@@ -242,11 +253,15 @@ final class StreamingRecognitionSession: RecognitionSession {
                 }
                 return
             }
-            if !converted.isEmpty { provider.send(pcm16: converted) }
+            if !converted.isEmpty {
+                provider.send(pcm16: converted)
+                segments.feed(byteCount: converted.count)
+            }
             return
         }
         if let pcm16 {
             provider.send(pcm16: pcm16)
+            segments.feed(byteCount: pcm16.count)
         } else if !writer.isConvertingLive {
             // No live converter (or it died mid-session). The writer keeps the audio
             // natively, but the stream can no longer be fed, so the stop must upload the file.
@@ -279,13 +294,24 @@ final class StreamingRecognitionSession: RecognitionSession {
         // Snapshot under main-actor isolation: `cancel()` nils `eventsTask` on main, a
         // reconnect replaces `provider` there, and this function runs off it.
         let stopped = Date()
+        let longest = segments.clock
+        let tooLong = longest.exceeded(longestTrustedSegment)
         let (connected, events, provider, hadOutage) = await MainActor.run { () -> (Bool, Task<Void, Never>?, StreamingTranscriber, Bool) in
             self.closing = true
             self.reconnectTask?.cancel()
             self.reconnectTask = nil
             return (self.connected, self.eventsTask, self.provider, self.hadOutage)
         }
-        if hadOutage {
+        if tooLong {
+            // The text at the end of a segment this long is where the model was caught
+            // inventing words, so the upload answers; nothing of the stream's is waited for.
+            await MainActor.run {
+                DictationTraceRecorder.record(.segmentTooLong, text: String(format: "%.1f", (longest.longestSeconds * 10).rounded(.up) / 10))
+            }
+            dlog("Engine", "StreamingRecognitionSession.finish: a segment ran \(String(format: "%.1f", longest.longestSeconds))s, over \(longestTrustedSegment ?? 0)s — the upload answers")
+            provider.cancel()
+            await events?.value
+        } else if hadOutage {
             // The socket in use now — if the reconnect got one — never heard the outage,
             // so its text has a hole in it wherever the link was down. Nothing to wait
             // for: close it and let the upload, which has the whole segment, answer.
@@ -313,7 +339,7 @@ final class StreamingRecognitionSession: RecognitionSession {
                                 latency: Date().timeIntervalSince(stopped), date: stopped)]
         }
 
-        if failure == nil, !hadOutage, !text.isEmpty {
+        if failure == nil, !hadOutage, !tooLong, !text.isEmpty {
             if var dropped = await guardedStreamResult(text) {
                 // A segment too short to be speech leaves no row to carry an entry.
                 if !dropped.cancelled { dropped.usage = streamEvent(answered: true) }
@@ -324,7 +350,8 @@ final class StreamingRecognitionSession: RecognitionSession {
                                       usage: streamEvent(answered: true))
         }
 
-        let reason = failure ?? (hadOutage ? "dropped during the segment" : "returned nothing")
+        let reason = failure ?? (hadOutage ? "dropped during the segment"
+            : tooLong ? "kept a segment open too long" : "returned nothing")
         dlog("Engine", "StreamingRecognitionSession.finish: stream \(reason) — falling back to batch upload")
         // The partial text on screen described a stream that is being discarded.
         await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
@@ -387,6 +414,35 @@ final class StreamingRecognitionSession: RecognitionSession {
 /// read or write the reference — never across a `send`, which takes the provider's own
 /// locks. A buffer that read the old provider just before a swap goes to a closed
 /// socket, whose `send` does nothing.
+/// The session's `OpenSegmentClock`: fed on the audio thread, told on main that the
+/// server closed a segment.
+private final class OpenSegmentBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: OpenSegmentClock
+
+    init(_ clock: OpenSegmentClock) {
+        value = clock
+    }
+
+    var clock: OpenSegmentClock {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func feed(byteCount: Int) {
+        lock.lock()
+        value.feed(byteCount: byteCount)
+        lock.unlock()
+    }
+
+    func segmentClosed() {
+        lock.lock()
+        value.segmentClosed()
+        lock.unlock()
+    }
+}
+
 private final class TranscriberBox: @unchecked Sendable {
     private let lock = NSLock()
     private var provider: StreamingTranscriber?

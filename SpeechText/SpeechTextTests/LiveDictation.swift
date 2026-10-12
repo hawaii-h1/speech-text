@@ -276,7 +276,8 @@ enum LiveDictation {
             session = StreamingRecognitionSession(provider: streamer, writer: writer,
                                                   languages: configuration.languages, fallback: fallback,
                                                   reconnect: { makeStreamingTranscriber(configuration: configuration) },
-                                                  meter: configuration.streamMeter)
+                                                  meter: configuration.streamMeter,
+                                                  longestTrustedSegment: configuration.longestTrustedStreamSegment)
             streams = true
         } else {
             session = fallback

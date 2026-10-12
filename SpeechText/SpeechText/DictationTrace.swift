@@ -38,6 +38,10 @@ struct DictationTrace: Codable, Equatable {
             /// A fresh stream took over from the one that failed before it
             /// (`StreamReconnectPolicy`); the events after it are the new stream's.
             case streamReconnected
+            /// At the stop: a segment ran past `STTTuning.streamLongestTrustedSegmentSeconds`
+            /// (#164), so the upload answers; `text` is its length in seconds. A trace holds
+            /// no audio, so this is what lets a replay measure the same segment.
+            case segmentTooLong
             /// The user switched the dictation's mode with the other shortcut; `text` is
             /// `"ai"` or `"inline"`. `Setup.aiMode` is the mode it started in.
             case modeSwitch
