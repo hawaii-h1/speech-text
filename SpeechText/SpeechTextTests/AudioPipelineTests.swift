@@ -245,6 +245,136 @@ private final class AnsweringBatchTranscriber: BatchTranscriber, @unchecked Send
     func transcribe(audioFileURL: URL, language: String?) async throws -> String { answer }
 }
 
+/// A detector that answers what it is told, and counts what it was asked.
+private final class FakeVoiceDetector: VoiceActivityDetector, @unchecked Sendable {
+    let probabilities: [Float]?
+    private(set) var samplesSeen = 0
+    init(_ probabilities: [Float]?) { self.probabilities = probabilities }
+    func speechProbabilities(_ samples: [Float]) async throws -> [Float] {
+        samplesSeen = samples.count
+        guard let probabilities else { throw URLError(.cannotDecodeContentData) }
+        return probabilities
+    }
+}
+
+/// A transcriber that must never be asked.
+private final class UnreachableBatchTranscriber: BatchTranscriber, @unchecked Sendable {
+    private(set) var called = false
+    func transcribe(audioFileURL: URL, language: String?) async throws -> String {
+        called = true
+        return "Thank you for watching."
+    }
+}
+
+/// #172: a segment with no voice in it is neither sent nor pasted.
+final class VoiceActivityTests: XCTestCase {
+    private func writer(seconds: Double) -> AudioBufferWriter {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        for _ in 0 ..< Int((seconds / 0.1).rounded()) {
+            writer.append(makeSineBuffer(format: mono48k(), frames: 4_800, amplitude: 0.5))
+        }
+        return writer
+    }
+
+    private func withDetector<T>(_ detector: VoiceActivityDetector?, _ body: () async throws -> T) async rethrows -> T {
+        let saved = VoiceActivity.detector
+        VoiceActivity.detector = detector
+        defer { VoiceActivity.detector = saved }
+        return try await body()
+    }
+
+    /// The corpus's own windows (#172): «Так.» filled two; room noise on a MacBook's
+    /// microphone raised one isolated window to 0.95 in fifteen seconds.
+    func testALongSegmentNeedsTwoWindowsAndAShortOneOne() {
+        let word: [Float] = [0.09, 0.06, 0.09, 1, 1, 0.21, 0.25, 0.16]
+        XCTAssertTrue(VoiceActivityReading(probabilities: word, segmentSeconds: 2.0).holdsSpeech)
+        let room = Array(repeating: Float(0.01), count: 30) + [0.17, 0.95, 0.13] + Array(repeating: Float(0.01), count: 30)
+        XCTAssertFalse(VoiceActivityReading(probabilities: room, segmentSeconds: 15).holdsSpeech)
+        XCTAssertTrue(VoiceActivityReading(probabilities: [0.1, 0.95, 0.1], segmentSeconds: 1.5).holdsSpeech,
+                      "a short segment: one window is a one-word dictation")
+        XCTAssertTrue(VoiceActivityReading(probabilities: [0.1, 0.95, 0.1],
+                                           segmentSeconds: STTTuning.voiceShortSegmentSeconds).holdsSpeech)
+        XCTAssertFalse(VoiceActivityReading(probabilities: [0.1, 0.95, 0.1], segmentSeconds: 2.6).holdsSpeech)
+        XCTAssertFalse(VoiceActivityReading(probabilities: [0.58, STTTuning.voiceProbabilityThreshold],
+                                            segmentSeconds: 1).holdsSpeech,
+                       "the keyboard's loudest window, and the threshold itself, are not a voice")
+        XCTAssertFalse(VoiceActivityReading(probabilities: [], segmentSeconds: 0).holdsSpeech)
+        let reading = VoiceActivityReading(probabilities: [0.9, 1, 0.3], segmentSeconds: 0.8)
+        XCTAssertEqual(reading.maxProbability, 1)
+        XCTAssertEqual(reading.windowsOverThreshold, 2)
+    }
+
+    func testAnUploadWithNoVoiceIsNeverSentAndKeepsItsAudio() async {
+        let detector = FakeVoiceDetector([0.1, 0.6, 0.2])
+        let transcriber = UnreachableBatchTranscriber()
+        let outcome = await withDetector(detector) {
+            await BatchRecognitionSession(provider: transcriber, writer: writer(seconds: 3), language: nil, languages: [])
+                .finish()
+        }
+        defer { outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:)) }
+        XCTAssertFalse(transcriber.called, "nothing sent, nothing billed")
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertNil(outcome.error)
+        XCTAssertNotNil(outcome.audioFileURL, "archived for a History retry")
+        XCTAssertFalse(outcome.cancelled, "an empty result, which History records")
+        XCTAssertEqual(outcome.usage, [], "no request, no ledger entry")
+        XCTAssertEqual(detector.samplesSeen, 48_000, "the segment's 16 kHz samples")
+    }
+
+    func testAnUploadWithAVoiceIsSent() async {
+        for detector in [FakeVoiceDetector([0.1, 0.99, 0.99, 0.2]), FakeVoiceDetector(nil), nil] {
+            let transcriber = UnreachableBatchTranscriber()
+            let outcome = await withDetector(detector) {
+                await BatchRecognitionSession(provider: transcriber, writer: writer(seconds: 3), language: nil, languages: [])
+                    .finish()
+            }
+            outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
+            XCTAssertTrue(transcriber.called, "a voice, a detector that failed, or none at all: sent as before")
+        }
+    }
+
+    /// A one-word dictation: one window over the threshold is enough in a short segment,
+    /// not in a long one.
+    func testOneWindowSendsAShortSegmentButNotALongOne() async {
+        for (seconds, sent) in [(2.0, true), (3.0, false)] {
+            let transcriber = UnreachableBatchTranscriber()
+            let outcome = await withDetector(FakeVoiceDetector([0.1, 1, 0.2])) {
+                await BatchRecognitionSession(provider: transcriber, writer: writer(seconds: seconds), language: nil,
+                                              languages: []).finish()
+            }
+            outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
+            XCTAssertEqual(transcriber.called, sent, "\(seconds) s")
+        }
+    }
+
+    func testAStreamWithNoVoiceIsNotPasted() async {
+        let provider = ScriptedStreamingTranscriber()
+        provider.eventsAtFinish = [.committed("Thank you.")]
+        let outcome = await withDetector(FakeVoiceDetector([0.2, 0.3])) { () async -> RecognitionOutcome in
+            let session = StreamingRecognitionSession(provider: provider, writer: writer(seconds: 3), languages: [],
+                                                      fallback: ScriptedSegment(error: "no fallback expected"))
+            try! session.start()
+            return await session.finish()
+        }
+        XCTAssertEqual(outcome.text, "")
+        XCTAssertNil(outcome.error)
+        XCTAssertFalse(outcome.cancelled)
+    }
+
+    func testAStreamWithAVoiceIsPasted() async {
+        let provider = ScriptedStreamingTranscriber()
+        provider.eventsAtFinish = [.committed("Thank you.")]
+        let outcome = await withDetector(FakeVoiceDetector([0.2, 1, 1])) { () async -> RecognitionOutcome in
+            let session = StreamingRecognitionSession(provider: provider, writer: writer(seconds: 3), languages: [],
+                                                      fallback: ScriptedSegment(error: "no fallback expected"))
+            try! session.start()
+            return await session.finish()
+        }
+        XCTAssertEqual(outcome.text, "Thank you.")
+    }
+}
+
 /// The upload's and the stream's guards against text nobody said (#74).
 final class HallucinationGuardTests: XCTestCase {
 

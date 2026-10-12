@@ -200,6 +200,12 @@
 		D80000030000000000000021 /* OfflineRetryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000003 /* OfflineRetryQueue.swift */; };
 		D80000030000000000000022 /* NetworkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78001000000000000000001 /* NetworkFailure.swift */; };
 		D80000030000000000000023 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000001 /* HallucinationFilter.swift */; };
+		F75002000000000000000001 /* VoiceActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75001000000000000000001 /* VoiceActivity.swift */; };
+		F75003000000000000000001 /* VoiceActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75001000000000000000001 /* VoiceActivity.swift */; };
+		F75004000000000000000001 /* VoiceActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75001000000000000000001 /* VoiceActivity.swift */; };
+		F75002000000000000000002 /* VoiceActivityRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75001000000000000000002 /* VoiceActivityRuntime.swift */; };
+		F75004000000000000000002 /* VoiceActivityRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75001000000000000000002 /* VoiceActivityRuntime.swift */; };
+		F75005000000000000000003 /* silero-vad-unified-256ms-v6.2.1.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = F75001000000000000000003 /* silero-vad-unified-256ms-v6.2.1.mlmodelc */; };
 		D80000030000000000000024 /* CustomVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74001000000000000000002 /* CustomVocabulary.swift */; };
 		D80000030000000000000025 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79001000000000000000001 /* APIKeyStore.swift */; };
 		D80000030000000000000026 /* RecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000025 /* RecognitionSession.swift */; };
@@ -310,6 +316,9 @@
 		F78001000000000000000001 /* NetworkFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkFailure.swift; sourceTree = "<group>"; };
 		F7A101000000000000000001 /* RateLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateLimits.swift; sourceTree = "<group>"; };
 		F74001000000000000000001 /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
+		F75001000000000000000001 /* VoiceActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceActivity.swift; sourceTree = "<group>"; };
+		F75001000000000000000002 /* VoiceActivityRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceActivityRuntime.swift; sourceTree = "<group>"; };
+		F75001000000000000000003 /* silero-vad-unified-256ms-v6.2.1.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "silero-vad-unified-256ms-v6.2.1.mlmodelc"; path = "Resources/silero-vad-unified-256ms-v6.2.1.mlmodelc"; sourceTree = "<group>"; };
 		F7B001000000000000000001 /* MicrophoneChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneChoice.swift; sourceTree = "<group>"; };
 		F7C001000000000000000001 /* LevelNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LevelNormalizer.swift; sourceTree = "<group>"; };
 		A75100000000000000000001 /* AppleUtterances.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleUtterances.swift; sourceTree = "<group>"; };
@@ -457,6 +466,10 @@
 				F78001000000000000000001 /* NetworkFailure.swift */,
 				F7A101000000000000000001 /* RateLimits.swift */,
 				F74001000000000000000001 /* HallucinationFilter.swift */,
+				F75001000000000000000001 /* VoiceActivity.swift */,
+				F75001000000000000000002 /* VoiceActivityRuntime.swift */,
+				F75001000000000000000003 /* silero-vad-unified-256ms-v6.2.1.mlmodelc */,
+				F75001000000000000000004 /* ThirdPartyNotices.txt */,
 				F7B001000000000000000001 /* MicrophoneChoice.swift */,
 				F7C001000000000000000001 /* LevelNormalizer.swift */,
 				A75100000000000000000001 /* AppleUtterances.swift */,
@@ -470,7 +483,6 @@
 				D20000010000000000000002 /* RecognitionSessionFactory.swift */,
 				D20000010000000000000005 /* DictationTrace.swift */,
 				A20000010000000000000011 /* Assets.xcassets */,
-				F75001000000000000000004 /* ThirdPartyNotices.txt */,
 				A2000001000000000000000A /* Info.plist */,
 				A2000001000000000000000B /* SpeechText.entitlements */,
 			);
@@ -618,6 +630,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000001000000000000000E /* Assets.xcassets in Resources */,
+				F75005000000000000000003 /* silero-vad-unified-256ms-v6.2.1.mlmodelc in Resources */,
 				F75005000000000000000004 /* ThirdPartyNotices.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -706,6 +719,8 @@
 				F78002000000000000000001 /* NetworkFailure.swift in Sources */,
 				F7A102000000000000000001 /* RateLimits.swift in Sources */,
 				F74002000000000000000001 /* HallucinationFilter.swift in Sources */,
+				F75002000000000000000001 /* VoiceActivity.swift in Sources */,
+				F75002000000000000000002 /* VoiceActivityRuntime.swift in Sources */,
 				F7B002000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F7C002000000000000000001 /* LevelNormalizer.swift in Sources */,
 				A75200000000000000000001 /* AppleUtterances.swift in Sources */,
@@ -771,6 +786,7 @@
 				F78003000000000000000001 /* NetworkFailure.swift in Sources */,
 				F7A103000000000000000001 /* RateLimits.swift in Sources */,
 				F74003000000000000000001 /* HallucinationFilter.swift in Sources */,
+				F75003000000000000000001 /* VoiceActivity.swift in Sources */,
 				F7B003000000000000000001 /* MicrophoneChoice.swift in Sources */,
 				F7C003000000000000000001 /* LevelNormalizer.swift in Sources */,
 				A75300000000000000000001 /* AppleUtterances.swift in Sources */,
@@ -832,6 +848,8 @@
 				D80000030000000000000021 /* OfflineRetryQueue.swift in Sources */,
 				D80000030000000000000022 /* NetworkFailure.swift in Sources */,
 				D80000030000000000000023 /* HallucinationFilter.swift in Sources */,
+				F75004000000000000000001 /* VoiceActivity.swift in Sources */,
+				F75004000000000000000002 /* VoiceActivityRuntime.swift in Sources */,
 				D80000030000000000000024 /* CustomVocabulary.swift in Sources */,
 				D80000030000000000000025 /* APIKeyStore.swift in Sources */,
 				D80000030000000000000026 /* RecognitionSession.swift in Sources */,

@@ -328,6 +328,12 @@ struct CorpusResult: Codable, Equatable {
     /// run can tell a clip that changed from an engine that did. Nil in runs before #167.
     var expected: String?
     var audioDigest: String?
+    /// What the voice activity detector made of the clip (#172): its highest window and
+    /// how many windows were over `STTTuning.voiceProbabilityThreshold` — so a run shows
+    /// the margin, not only whether the clip was sent. Nil where no detector ran (the test
+    /// bundle, which cannot load it).
+    var voiceProbability: Double?
+    var voiceWindows: Int?
 
     var passed: Bool { status != .ran || failures.isEmpty }
 }
@@ -630,6 +636,9 @@ enum CorpusSummary {
                 out += "  - misheard: " + result.substitutions.joined(separator: ", ") + "\n"
             }
             if let error = result.error { out += "  - error: \(error)\n" }
+            if let voice = result.voiceProbability, let windows = result.voiceWindows {
+                out += String(format: "  - voice: max %.2f, %d windows over the threshold\n", voice, windows)
+            }
             for failure in result.failures { out += "  - ❌ \(failure)\n" }
         }
         return out

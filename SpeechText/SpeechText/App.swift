@@ -148,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registerLocalSTT()
         registerSpellCheckedJoins()
         registerVocabularyHistory()
+        registerVoiceActivity()
         dockIcon = DockIconController()
         migrateHotkeyLayoutIfNeeded()
 

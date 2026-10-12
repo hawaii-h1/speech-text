@@ -1,0 +1,13 @@
+{
+  "expected": "Добре, надішли це завтра зранку.",
+  "language": "uk",
+  "tags": [
+    "quiet",
+    "voice-activity"
+  ],
+  "note": "Whispered at a normal pace. Whether the voice activity detector still hears a voice (#172).",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
+}

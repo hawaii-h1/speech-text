@@ -8,10 +8,14 @@ import Foundation
 /// The same clips, the same `LiveDictation` run and the same checks as
 /// `LiveProviderTests`, written into the same run folder, so `summary.md` holds one table.
 ///
-///     SpeechTextEvaluation --corpus <dir> [--run-dir <dir>] [--engines a,b] [--clips a,b] [--cloud]
+///     SpeechTextEvaluation --corpus <dir> [--run-dir <dir>] [--engines a,b] [--clips a,b] [--cloud] [--no-local]
 ///
-/// `--cloud` adds the cloud engines, with keys from the environment only. A model that is
-/// not on this Mac is a `not installed` row. `scripts/evaluate.sh` runs both halves.
+/// `--cloud` adds the cloud engines, with keys from the environment only; `--no-local`
+/// leaves the local ones out. A model that is not on this Mac is a `not installed` row.
+/// The cloud rows go to `results-cloud.json` and the local ones to `results-local.json`,
+/// whichever way they were run. It is what `scripts/evaluate.sh` runs: unlike the test
+/// bundle it can load the voice activity detector (FluidAudio), so its cloud rows are
+/// judged as the app judges them.
 @main
 struct SpeechTextEvaluation {
     @MainActor
@@ -30,6 +34,7 @@ struct SpeechTextEvaluation {
         var engines: [String] = []
         var clips: [String] = []
         var cloud = false
+        var local = true
 
         init(_ arguments: ArraySlice<String>) throws {
             var arguments = arguments
@@ -44,6 +49,7 @@ struct SpeechTextEvaluation {
                 case "--engines": engines = try value(argument).split(separator: ",").map(String.init)
                 case "--clips": clips = try value(argument).split(separator: ",").map(String.init)
                 case "--cloud": cloud = true
+                case "--no-local": local = false
                 default: throw UsageError("unknown argument \(argument)")
                 }
             }
@@ -54,7 +60,7 @@ struct SpeechTextEvaluation {
         let message: String
         init(_ message: String) { self.message = message }
         var errorDescription: String? {
-            message + "\nusage: SpeechTextEvaluation --corpus <dir> [--run-dir <dir>] [--engines vendor/model,…] [--clips a,…] [--cloud]"
+            message + "\nusage: SpeechTextEvaluation --corpus <dir> [--run-dir <dir>] [--engines vendor/model,…] [--clips a,…] [--cloud] [--no-local]"
         }
     }
 
@@ -68,17 +74,27 @@ struct SpeechTextEvaluation {
         guard let corpus = options.corpus else { throw UsageError("--corpus is required") }
         registerLocalSTT()
         registerSpellCheckedJoins()
+        // The app's own copy of the voice activity model, from the checkout.
+        let loading = Date()
+        await registerVoiceActivity(modelURL: repository.appendingPathComponent(
+            "SpeechText/SpeechText/Resources/\(sileroVoiceActivityModel).mlmodelc"))?.value
+        print(VoiceActivity.detector == nil ? "voice activity detector: not loaded — segments are not judged"
+              : String(format: "voice activity detector loaded in %.0f ms", Date().timeIntervalSince(loading) * 1000))
         let descriptions = try CorpusClip.load(from: repository.appendingPathComponent("SpeechText/SpeechTextTests/Audio"))
         let clips = CorpusClip.recordings(of: descriptions, in: corpus)
             .filter { $0.isSelected(by: options.clips) }
         let engines = CorpusEngine.all
-            .filter { ($0.isLocal || options.cloud) && (options.engines.isEmpty || options.engines.contains($0.id)) }
+            .filter { ($0.isLocal ? options.local : options.cloud) && (options.engines.isEmpty || options.engines.contains($0.id)) }
         var folder = options.runDirectory.map { CorpusRunFolder(url: $0) } ?? CorpusRunFolder.new(in: repository)
         folder.baseline = CorpusRunFolder.previous(in: repository, before: folder.url)?.url
         let keys = ProviderKeys.fromEnvironment()
-        let runner = options.cloud ? "all" : "local"
-
-        var results = folder.earlierResults(runner: runner, except: clips)
+        // One results file per kind of engine, whichever of them ran: a folder never holds
+        // the same cell twice under two runners' names.
+        func runner(_ engine: CorpusEngine) -> String { engine.isLocal ? "local" : "cloud" }
+        var results: [String: [CorpusResult]] = [:]
+        for name in Set(engines.map(runner)) {
+            results[name] = folder.earlierResults(runner: name, except: clips)
+        }
         var loaded: Set<String> = []
         for clip in clips {
             let audio = try? TapAudio(clip: clip, in: corpus)
@@ -107,13 +123,13 @@ struct SpeechTextEvaluation {
                     }
                     print("\(clip.name) · \(engine.id) · \(result.language): \(result.status.rawValue)"
                           + (result.failures.isEmpty ? "" : " ❌ " + result.failures.joined(separator: "; ")))
-                    results.append(result)
-                    try folder.write(results, runner: runner)
+                    results[runner(engine), default: []].append(result)
+                    try folder.write(results[runner(engine)] ?? [], runner: runner(engine))
                 }
             }
         }
         print("\(folder.url.path)/summary.md")
-        if results.contains(where: { !$0.passed }) { exit(1) }
+        if results.values.joined().contains(where: { !$0.passed }) { exit(1) }
     }
 
     private static func prewarm(_ engine: CorpusEngine) async throws {

@@ -141,6 +141,27 @@ enum STTTuning {
     /// value, not a measurement: the audio corpus (#80) is what tunes it.
     static let hallucinationSegmentSeconds: Double = 2.0
 
+    /// A window of Silero VAD (256 ms) whose speech probability is above this holds a
+    /// voice (`VoiceActivity`, #172). Measured on the #80 corpus: the loudest keyboard and
+    /// room noise reached 0.78 (the MacBook's own microphone), every recording of speech
+    /// reached 1.00 in at least four windows; a cough reached 1.00 too, which is why
+    /// `HallucinationFilter` still judges what comes back.
+    static let voiceProbabilityThreshold: Float = 0.85
+
+    /// How many windows over `voiceProbabilityThreshold` a segment needs to be sent.
+    /// Measured on the corpus's tap path (#172): a single word, «Так.», filled exactly two
+    /// windows, every longer recording of speech at least four — and room noise on a
+    /// MacBook's microphone raised one isolated window to 0.95 in fifteen seconds. So a
+    /// long segment needs two, which that spike never reaches, and a short one needs one,
+    /// because a one-word dictation is short and losing it is worse than letting a
+    /// moment of noise reach the engine, where `HallucinationFilter` still judges it.
+    static let voiceWindowsRequired = 2
+    static let voiceWindowsRequiredWhenShort = 1
+    /// At most this long, a segment is short for `voiceWindowsRequiredWhenShort`: a
+    /// one-word dictation with the press and release around it (the corpus's «Так.» is
+    /// 2.0 s); the noise clips are 10–15 s.
+    static let voiceShortSegmentSeconds = 2.5
+
     /// Batch upload timeouts. `URLSession.shared` ignores `URLRequest.timeoutInterval`
     /// and enforces its own 60 s default, which a multi-minute FLAC can exceed. 120 s
     /// per request covers a stalled response; 300 s for the whole resource covers a

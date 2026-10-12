@@ -1,0 +1,13 @@
+{
+  "expected": "Так.",
+  "language": "uk",
+  "tags": [
+    "short",
+    "voice-activity"
+  ],
+  "note": "One short word at a normal voice, half a second of room before and after. The voice activity detector's narrowest case (#172): a lone word may fit in one 256 ms window.",
+  "spokenLanguages": [
+    "uk",
+    "en"
+  ]
+}

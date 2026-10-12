@@ -369,7 +369,8 @@ final class StreamingRecognitionSession: RecognitionSession {
     }
 
     /// The upload's guards, applied to the stream's answer: a segment too short to be
-    /// speech, a silent one and one whose whole text `HallucinationFilter` rejects come back
+    /// speech, a silent one, one with no voice in it and one whose whole text
+    /// `HallucinationFilter` rejects come back
     /// as they would from `BatchRecognitionSession`, not as text to paste. A stream is
     /// answered by the server's model whatever the microphone heard, so without these it
     /// pasted "Evet." for a shortcut pressed and let go. nil lets the text through.
@@ -386,6 +387,11 @@ final class StreamingRecognitionSession: RecognitionSession {
             dropped = .discarded
         } else if duration > 0, !writer.hasAudibleSignal {
             dlog("Engine", "StreamingRecognitionSession.finish: the segment is silent — its text dropped")
+            dropped = empty
+        } else if duration > 0, let reading = await VoiceActivity.read(writer), !reading.holdsSpeech {
+            // The audio has already gone up the socket; what the server made of a
+            // keyboard or a fan is still not pasted (#172).
+            dlog("Engine", "StreamingRecognitionSession.finish: no voice in the segment — its text dropped")
             dropped = empty
         } else if let rejection = HallucinationFilter.rejection(text, segmentSeconds: duration, languages: languages) {
             dlog("Engine", "StreamingRecognitionSession.finish: the whole result of a \(String(format: "%.1f", duration))s segment is \(rejection) — dropped")

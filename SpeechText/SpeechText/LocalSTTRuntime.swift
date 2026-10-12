@@ -14,8 +14,8 @@ import Foundation
 /// Everything else here — the catalogue, the hardware read, the recommendation, the
 /// download bookkeeping, the Settings UI — is Foundation only. Keeping inference behind
 /// a protocol means `import WhisperKit` appears in exactly one file
-/// (`LocalWhisperRuntime.swift`) and `import FluidAudio` in exactly one other
-/// (`LocalParakeetRuntime.swift`), so the rest stays compilable by the test target — and
+/// (`LocalWhisperRuntime.swift`) and `import FluidAudio` in exactly one other for the
+/// engine (`LocalParakeetRuntime.swift`; the voice activity detector has its own), so the rest stays compilable by the test target — and
 /// the second engine, when it came, was one conforming type rather than a rewrite.
 protocol LocalSTTRuntime: Sendable {
     /// Fetches `variant` into `base` and returns the folder it landed in. Progress is

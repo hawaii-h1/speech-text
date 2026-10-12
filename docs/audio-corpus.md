@@ -66,17 +66,24 @@ and `SPEECHTEXT_CLIPS=uk-pause,uk-names` narrow it. The cloud half costs cents.
 a new one: the clips run now replace their own rows and every other row stays, so a clip
 recorded — or re-recorded — after a run needs no second full run.
 
-The two halves:
+Both kinds of engine run through **`SpeechTextEvaluation`** (a command-line target with
+its own scheme), which `scripts/evaluate.sh` builds and runs: `--cloud` adds the cloud
+engines, `--no-local` leaves the local ones out. Unlike the test bundle it links
+FluidAudio, so it loads the voice activity detector (#172) and a cloud engine's segment is
+judged — sent or not, pasted or not — as the app judges it. Cloud rows go to
+`results-cloud.json`, local ones to `results-local.json`. Every local model in the
+catalogue is a row; one that is not installed says `not installed`. A model's first load
+after a build can take minutes (Core ML specialises it for the Mac) and is reported as
+`load`, apart from the stop-to-text time.
 
-- **`LiveProviderTests`** (the test bundle) — the cloud engines. Skipped unless
-  `SPEECHTEXT_LIVE=1`; `scripts/evaluate.sh` sets it, passing each variable through as
-  `TEST_RUNNER_<NAME>`, since an unhosted test bundle does not inherit the shell's
-  environment.
-- **`SpeechTextEvaluation`** (a command-line target with its own scheme) — the local
-  engines, which the test bundle cannot import. Every local model in the catalogue is a
-  row; one that is not installed says `not installed`. A model's first load after a
-  build can take minutes (Core ML specialises it for the Mac) and is reported as
-  `load`, apart from the stop-to-text time.
+**`LiveProviderTests`** (the test bundle) can still run the cloud engines on their own —
+`SPEECHTEXT_LIVE=1`, each variable passed as `TEST_RUNNER_<NAME>`, since an unhosted test
+bundle does not inherit the shell's environment — but without the voice detector, which
+the bundle cannot load: a quick check of an engine, not a run to commit.
+
+Each row also records what the detector made of the clip (`voice: max 0.95, 1 windows
+over the threshold` in *Every result*): the margin between noise and speech is read off
+every run, not only whether a clip was sent.
 
 Apple's recogniser is not in the matrix: its permission prompt would hang a headless
 run, so T9 stays manual.

@@ -318,6 +318,19 @@ final class AudioBufferWriter {
         }
     }
 
+    /// The segment's audio as 16 kHz mono floats, for the voice activity detector; nil
+    /// once any of it fell back to native buffers, which were never converted.
+    var convertedSamples: [Float]? {
+        lock.lock()
+        let pcm = pcm16
+        let unconverted = nativeFormat != nil && !nativeBuffers.isEmpty
+        lock.unlock()
+        guard !unconverted else { return nil }
+        return pcm.withUnsafeBytes { raw in
+            raw.bindMemory(to: Int16.self).map { Float($0) / 32_768 }
+        }
+    }
+
     var bufferedDuration: TimeInterval {
         lock.lock()
         defer { lock.unlock() }
