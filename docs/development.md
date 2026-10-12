@@ -10,6 +10,8 @@ open SpeechText/SpeechText.xcodeproj
 
 Build with `Cmd+B`, run with `Cmd+R`. The first build resolves three Swift packages, all pinned in `Package.resolved`: [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) and [FluidAudio](https://github.com/FluidInference/FluidAudio) for the two local speech engines, and [Sparkle](https://sparkle-project.org) for updates; everything else is Apple frameworks. FluidAudio declares Swift 6 tools, so it takes Xcode 16 or later.
 
+Their licences — and those of the code each carries inside it — ship in the app as `Resources/ThirdPartyNotices.txt` (Settings › General › Acknowledgements). It is generated: after adding, removing or updating a package, run `scripts/third-party-notices.sh` and commit the result; `ThirdPartyNoticesTests` fails while the file names a version `Package.resolved` no longer pins.
+
 ### Code signing
 
 The tracked project has an **empty `DEVELOPMENT_TEAM`** on purpose, so the repo builds for anyone who clones it. Xcode signs it locally ("Sign to Run Locally"), which is all you need for development.

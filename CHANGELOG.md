@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Acknowledgements** in Settings › General: the open-source code SpeechText is built on — WhisperKit, FluidAudio and Sparkle, and the code each carries inside it — with the full text of every licence.
 - **A new Settings window**, laid out like the setup window and split into categories: General, Appearance, Speech, Formatting, AI Rewrite, API Keys and Permissions. Each skin shows a preview of its overlay, in the colours you picked.
 - **API Keys lists every key.** The ones your current choices need come first, marked *Added* or *Needed*. Each key is tagged with what it can serve, *Speech*, *AI Rewrite* or both, so a key can be entered before you pick the engine that needs it.
 - **Display colours for the techno skin**: green (the original), amber, cyan, white, or any colour of your own. AI mode stays violet whatever you pick.

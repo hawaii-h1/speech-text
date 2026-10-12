@@ -206,6 +206,16 @@ struct SettingsView: View {
                         .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
                 }
             }
+            SettingsDivider()
+            // The licences the bundled third-party code requires to travel with every copy
+            // (scripts/third-party-notices.sh); opened in the system's text viewer.
+            SettingsRow(title: "Acknowledgements",
+                        detail: "The open-source code SpeechText is built on, and its licences.") {
+                if let notices = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt") {
+                    Button("Show") { NSWorkspace.shared.open(notices) }
+                        .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
+                }
+            }
         }
     }
 
