@@ -179,11 +179,15 @@ private struct UsageSpeedPanel: View {
 private struct UsageTypingSpeedEditor: View {
     @Binding var storedTyping: Double
 
+    /// Prose on no particular subject, with the capitals, commas and longer words real
+    /// writing has — an easy line of short words would measure a speed nobody types at.
     private static let sentences = [
-        "I'll send the updated notes to the team this afternoon, and we can go through the plan together on Friday.",
-        "Could you check the numbers once more before we share the report with everyone tomorrow morning?",
-        "Thanks for the quick reply. Let's keep the meeting short and leave the details for the written summary.",
-        "The new version is almost ready, but a few small things still need testing before it goes out next week.",
+        "Curiosity rarely arrives on schedule; it tends to show up halfway through something else, uninvited and oddly persistent.",
+        "Somewhere between the third draft and the fourth, the original question quietly changed, and nobody noticed until much later.",
+        "Old maps were confident about coastlines and vague about interiors, which is roughly how most of us describe our own plans.",
+        "A good explanation feels obvious afterwards, as if the idea had been waiting patiently for someone to say it out loud.",
+        "Weather, traffic and the price of coffee: three things everyone discusses, few understand, and nobody can change before Tuesday.",
+        "The quietest rooms are seldom silent; listen carefully and there's a refrigerator humming, a clock ticking, a neighbour's piano.",
     ]
 
     @State private var sentence = Self.sentences.randomElement() ?? Self.sentences[0]
@@ -381,8 +385,8 @@ private struct UsageNumbers: View {
                 tile(symbol: "arrow.up.arrow.down", title: "Requests",
                      value: [.number(HomeFormat.integer(requests))], label: requestsLabel)
             }
-            tile(symbol: "sparkles", title: "AI Rewrite",
-                 value: [.number(HomeFormat.integer(summary.rewrites)), .unit(summary.rewrites == 1 ? "rewrite" : "rewrites")],
+            tile(symbol: "sparkles", title: "Rewritten by AI",
+                 value: [.number(HomeFormat.integer(summary.rewrites)), .unit(summary.rewrites == 1 ? "dictation" : "dictations")],
                  label: aiLabel)
         }
     }
@@ -421,8 +425,9 @@ private struct UsageNumbers: View {
     private var aiLabel: String {
         guard summary.dictations > 0 else { return "Nothing rewritten yet" }
         let share = Int((Double(summary.rewrites) / Double(summary.dictations) * 100).rounded())
-        let edits = summary.edits > 0 ? " · \(summary.edits) \(summary.edits == 1 ? "edit" : "edits")" : ""
-        return "\(share)% of dictations" + edits
+        let edits = summary.edits > 0
+            ? ", and \(summary.edits) \(summary.edits == 1 ? "selection" : "selections") edited" : ""
+        return "\(share)% of all dictations" + edits
     }
 
     private func tile(symbol: String, title: String, value: [HomeStat.Part], label: String) -> some View {
@@ -506,7 +511,9 @@ private struct UsageChart: View {
             return UsageFormat.title(bucket.start, granularity: summary.granularity) + " · "
                 + (showsCost ? HomeFormat.money(bucket.cost) : "\(HomeFormat.integer(bucket.words)) words")
         }
-        return showsCost ? "\(HomeFormat.money(summary.spent)) in all" : "\(HomeFormat.integer(summary.words)) words in all"
+        let total = showsCost ? "\(HomeFormat.money(summary.spent)) in all" : "\(HomeFormat.integer(summary.words)) words in all"
+        guard let since = summary.chartSince else { return total }
+        return total + " · since " + HistoryFormat.formatter("d MMM", calendar: .current).string(from: since) + ", when History starts"
     }
 
     private func legendItem(_ color: Color, _ title: String) -> some View {
@@ -606,7 +613,7 @@ private struct UsageKinds: View {
     private func row(_ kind: UsageSummary.Kind, use: UsageSummary.KindUse, mostWords: Int) -> some View {
         let (title, symbol, ai, noun): (String, String, Bool, String) = switch kind {
         case .dictated: ("Dictated", "mic", false, "dictations")
-        case .rewritten: ("AI Rewrite", "sparkles", true, "rewrites")
+        case .rewritten: ("Rewritten by AI", "sparkles", true, "dictations")
         case .edit: ("Edit selection", "pencil", true, "edits")
         }
         return HStack(spacing: 12) {
@@ -747,33 +754,38 @@ private struct UsageEngines: View {
             HStack(spacing: 10) {
                 Text(name(engine)).font(.system(size: 14, weight: .medium)).foregroundStyle(MainColor.ink)
                 Text(vendor(engine)).font(.system(size: 13)).foregroundStyle(MainColor.ink3)
+                // Beside the name rather than in a column of its own, so the amounts line
+                // up whether a row has it or not.
+                if engine.isLocal {
+                    MainChip(title: "Free on this Mac", tint: .green)
+                }
             }
             .lineLimit(1)
             .padding(.leading, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(ai ? "\(HomeFormat.integer(engine.uses)) \(engine.uses == 1 ? "rewrite" : "rewrites")"
-                 : "\(minutes(engine.minutes)) of audio")
+            Text(ai ? aiUses(engine) : "\(minutes(engine.minutes)) of audio")
                 .font(.system(size: 13))
                 .foregroundStyle(MainColor.ink2)
                 .monospacedDigit()
                 .frame(width: 140, alignment: .leading)
+            .padding(.trailing, UsagePrices.shown ? 0 : 16)
 
-            Group {
-                if engine.isLocal {
-                    MainChip(title: "Free on this Mac", tint: .green)
-                } else if !UsagePrices.shown {
-                    EmptyView()
-                } else if let cost = engine.cost {
-                    Text(HomeFormat.money(cost)).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
-                } else {
-                    Text("Not priced").font(.system(size: 12.5)).foregroundStyle(MainColor.ink3)
-                        .help("SpeechText has no list price for this model, so it isn't counted in Spent.")
+            if UsagePrices.shown {
+                Group {
+                    if engine.isLocal {
+                        Text("$0").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
+                    } else if let cost = engine.cost {
+                        Text(HomeFormat.money(cost)).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
+                    } else {
+                        Text("Not priced").font(.system(size: 12.5)).foregroundStyle(MainColor.ink3)
+                            .help("SpeechText has no list price for this model, so it isn't counted in Spent.")
+                    }
                 }
+                .monospacedDigit()
+                .frame(width: 120, alignment: .trailing)
+                .padding(.trailing, 16)
             }
-            .monospacedDigit()
-            .frame(width: 120, alignment: .trailing)
-            .padding(.trailing, 16)
         }
         .frame(minHeight: 48)
         .fixedSize(horizontal: false, vertical: true)
@@ -810,6 +822,19 @@ private struct UsageEngines: View {
             case nil: engine.provider ?? ""
             }
         }
+    }
+
+    /// "7 rewrites · 2 edits": the dictations it rewrote and the selections it edited.
+    private func aiUses(_ engine: UsageSummary.EngineUse) -> String {
+        let rewrites = engine.uses - engine.edits
+        var parts: [String] = []
+        if rewrites > 0 || engine.edits == 0 {
+            parts.append("\(HomeFormat.integer(rewrites)) \(rewrites == 1 ? "rewrite" : "rewrites")")
+        }
+        if engine.edits > 0 {
+            parts.append("\(HomeFormat.integer(engine.edits)) \(engine.edits == 1 ? "edit" : "edits")")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func minutes(_ value: Double) -> String {
@@ -1080,7 +1105,7 @@ private struct UsageCounting: View {
                              "Minutes, tokens and requests as the providers' own replies count them. What they cost depends on your plan — see your provider's billing page.") { EmptyView() }
                     }
                     note("lock", "On this Mac",
-                         "Counted from the last 300 dictations History keeps"
+                         "Counted from \(HistoryRetention.stored(UserDefaults.standard.string(forKey: SettingsKeys.historyRetention)).phrase), as History keeps them"
                          + (summary.since.map { ", since " + HistoryFormat.formatter("d MMMM", calendar: .current).string(from: $0) } ?? "")
                          + ". Everything stays on your Mac.") { EmptyView() }
                 }

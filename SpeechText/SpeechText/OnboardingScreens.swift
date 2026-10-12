@@ -670,7 +670,7 @@ private struct AIScreen: View {
                 }
                 .padding(.bottom, 10)
                 (Text("Optional. Press ") + kbd(shortcutText(for: .ai)) + Text(" instead of ")
-                 + kbd(shortcutText(for: .inline)) + Text(" and AI turns what you say into clean text for the app you're in."))
+                 + kbd(shortcutText(for: .inline)) + Text(" and AI turns what you say — or what you ask for — into clean text for the app you're in."))
                     .setupLead(14.5)
                     .padding(.bottom, 16)
                 VStack(spacing: 10) {

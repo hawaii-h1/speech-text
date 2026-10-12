@@ -138,37 +138,68 @@ final class HomeSummaryTests: XCTestCase {
 
     func testThePictureHearsThenPastesOnce() {
         let words = HomeTalk.dictate.said.count
-        XCTAssertEqual(HomeTalk(tick: 0, ai: false, holdToTalk: false).phase, .idle)
-        let hearing = HomeTalk(tick: 8 + 4 * 5, ai: false, holdToTalk: false)
+        XCTAssertEqual(HomeTalk(tick: 0, mode: .dictate, holdToTalk: false).phase, .idle)
+        let hearing = HomeTalk(tick: 8 + 4 * 5, mode: .dictate, holdToTalk: false)
         XCTAssertEqual(hearing.phase, .hear)
         XCTAssertEqual(hearing.heard, 6)
         XCTAssertEqual(hearing.partial.split(separator: " ").count, 2, "the last two words are the partial")
-        XCTAssertEqual(HomeTalk(tick: 8 + 4 * words, ai: false, holdToTalk: false).caption, .words)
-        let done = HomeTalk(tick: 8 + 4 * words + 3, ai: false, holdToTalk: false)
+        XCTAssertEqual(HomeTalk(tick: 8 + 4 * words, mode: .dictate, holdToTalk: false).caption, .words)
+        let done = HomeTalk(tick: 8 + 4 * words + 3, mode: .dictate, holdToTalk: false)
         XCTAssertEqual(done.phase, .done)
         XCTAssertEqual(done.caption, .pasted)
         XCTAssertEqual(done.display, .idle)
         // …and loops.
-        XCTAssertEqual(HomeTalk(tick: 8 + 4 * words + 3 + 30, ai: false, holdToTalk: false).phase, .idle)
+        XCTAssertEqual(HomeTalk(tick: 8 + 4 * words + 3 + 30, mode: .dictate, holdToTalk: false).phase, .idle)
     }
 
     func testTheAITabRewritesBeforeItPastes() {
         let words = HomeTalk.ai.said.count
-        let work = HomeTalk(tick: 8 + 4 * words + 5, ai: true, holdToTalk: false)
+        let work = HomeTalk(tick: 8 + 4 * words + 5, mode: .ai, holdToTalk: false)
         XCTAssertEqual(work.phase, .work)
         XCTAssertEqual(work.caption, .rewriting)
         XCTAssertEqual(work.display, .busy)
-        XCTAssertEqual(HomeTalk(tick: 8 + 4 * words + 14, ai: true, holdToTalk: false).phase, .done)
+        XCTAssertEqual(HomeTalk(tick: 8 + 4 * words + 14, mode: .ai, holdToTalk: false).phase, .done)
     }
 
-    func testTheKeysTapWithoutHoldToTalkAndStayDownWithIt() {
+    func testTheKeysGoDownOneAfterAnotherAndTapWithoutHoldToTalk() {
         let words = HomeTalk.dictate.said.count
         let middle = 8 + 2 * words
-        XCTAssertTrue(HomeTalk(tick: 8, ai: false, holdToTalk: false).keysDown, "pressed to start")
-        XCTAssertFalse(HomeTalk(tick: middle, ai: false, holdToTalk: false).keysDown)
-        XCTAssertTrue(HomeTalk(tick: 8 + 4 * words - 1, ai: false, holdToTalk: false).keysDown, "pressed to stop")
-        XCTAssertTrue(HomeTalk(tick: middle, ai: false, holdToTalk: true).keysDown)
-        XCTAssertFalse(HomeTalk(tick: 8 + 4 * words, ai: false, holdToTalk: true).keysDown, "let go at the stop")
+        func lit(_ tick: Int, hold: Bool = false) -> Set<Int> {
+            HomeTalk(tick: tick, mode: .dictate, holdToTalk: hold).litKeys
+        }
+        XCTAssertEqual(lit(5), [])
+        XCTAssertEqual(lit(6), [0], "⌃ first")
+        XCTAssertEqual(lit(7), [0, 1], "then ⇧")
+        XCTAssertEqual(lit(8), [0, 1, 2], "the letter last, as the overlay starts listening")
+        XCTAssertEqual(lit(middle), [])
+        XCTAssertEqual(lit(8 + 4 * words - 3), [0], "pressed again to stop, key by key")
+        XCTAssertEqual(lit(8 + 4 * words - 1), [0, 1, 2])
+        XCTAssertEqual(lit(8 + 4 * words), [])
+    }
+
+    func testWithHoldToTalkOnlyTheLetterStaysDown() {
+        let words = HomeTalk.dictate.said.count
+        func lit(_ tick: Int) -> Set<Int> { HomeTalk(tick: tick, mode: .dictate, holdToTalk: true).litKeys }
+        XCTAssertEqual(lit(8), [0, 1, 2])
+        XCTAssertEqual(lit(11), [0, 1, 2])
+        XCTAssertEqual(lit(12), [2], "⌃⇧ let go, the letter held")
+        XCTAssertEqual(lit(8 + 2 * words), [2])
+        XCTAssertEqual(lit(8 + 4 * words), [], "let go at the stop")
+        XCTAssertEqual(HomeTalk(tick: 9, mode: .dictate, holdToTalk: true, keyCount: 4).litKeys, [0, 1, 2, 3])
+        XCTAssertEqual(HomeTalk(tick: 13, mode: .dictate, holdToTalk: true, keyCount: 4).litKeys, [3])
+    }
+
+    func testTheEditTabReplacesTheSelectionAndNeverPastesTheInstruction() {
+        let words = HomeTalk.edit.said.count
+        let hearing = HomeTalk(tick: 8 + 4, mode: .edit, holdToTalk: false)
+        XCTAssertTrue(hearing.isAI && hearing.isEdit)
+        XCTAssertEqual(hearing.message, .selection(HomeTalk.edit.selection!), "the selection stays while the instruction is spoken")
+        let work = HomeTalk(tick: 8 + 4 * words + 5, mode: .edit, holdToTalk: false)
+        XCTAssertEqual(work.caption, .rewriting)
+        XCTAssertEqual(work.message, .caret, "cut once the instruction is over")
+        let done = HomeTalk(tick: 8 + 4 * words + 14, mode: .edit, holdToTalk: false)
+        XCTAssertEqual(done.message, .pasted)
+        XCTAssertFalse(HomeTalk.edit.output.contains(HomeTalk.edit.said.joined(separator: " ")))
     }
 }
 

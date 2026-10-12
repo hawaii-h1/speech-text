@@ -32,6 +32,49 @@ final class HistorySummaryTests: XCTestCase {
                                        errorMessage: failed ? "HTTP 529" : nil, editsSelection: edit)
     }
 
+    // MARK: App and date
+
+    func testHistoryIsNarrowedToAnAppAsItsRowNamesIt() {
+        let records = [record(app: "Slack"), record(hoursAgo: 1, app: "Slack"), record(daysAgo: 1, app: "Mail"),
+                       record(daysAgo: 2), record(daysAgo: 3, status: .empty)]
+        XCTAssertEqual(HistoryNarrowing.apps(in: records).map(\.app), ["Slack", "Mail", "Not pasted", "Record Window"])
+        XCTAssertEqual(HistoryNarrowing.apps(in: records).first?.count, 2)
+        let slack = HistoryDay.group(records, narrowing: HistoryNarrowing(app: "Slack"), now: now, calendar: calendar)
+        XCTAssertEqual(slack.flatMap(\.records).count, 2)
+        let unpasted = HistoryDay.group(records, narrowing: HistoryNarrowing(app: "Not pasted"), now: now, calendar: calendar)
+        XCTAssertEqual(unpasted.flatMap(\.records).map(\.status), [.empty])
+    }
+
+    func testHistoryIsNarrowedToARangeOfDaysOrOneDay() {
+        let records = [record(), record(daysAgo: 1), record(daysAgo: 6), record(daysAgo: 7), record(daysAgo: 40)]
+        func count(_ dates: HistoryDates) -> Int {
+            HistoryDay.group(records, narrowing: HistoryNarrowing(dates: dates), now: now, calendar: calendar)
+                .flatMap(\.records).count
+        }
+        XCTAssertEqual(count(.anyTime), 5)
+        XCTAssertEqual(count(.today), 1)
+        XCTAssertEqual(count(.last7Days), 3, "today and the six days before it")
+        XCTAssertEqual(count(.last30Days), 4)
+        XCTAssertEqual(count(.day(calendar.date(byAdding: .day, value: -7, to: now)!)), 1)
+    }
+
+    // MARK: How long History keeps dictations
+
+    func testHistoryKeepsANumberASpanOfTimeOrEverything() {
+        let records = (0..<1200).map { record(hoursAgo: $0 * 12) }
+        XCTAssertEqual(HistoryRetention.default, .last300, "what History always kept")
+        XCTAssertEqual(HistoryRetention.last300.keptCount(of: records, now: now, calendar: calendar), 300)
+        XCTAssertEqual(HistoryRetention.last1000.keptCount(of: records, now: now, calendar: calendar), 1000)
+        XCTAssertEqual(HistoryRetention.forever.keptCount(of: records, now: now, calendar: calendar), 1200)
+        XCTAssertEqual(HistoryRetention.days30.keptCount(of: records, now: now, calendar: calendar), 61,
+                       "two a day for thirty days, and the one right on the line")
+        XCTAssertEqual(HistoryRetention.year.keptCount(of: records, now: now, calendar: calendar), 731)
+        XCTAssertEqual(HistoryRetention.last300.keptCount(of: Array(records.prefix(10)), now: now, calendar: calendar), 10)
+        XCTAssertEqual(HistoryRetention.stored("nonsense"), .last300)
+        XCTAssertEqual(HistoryRetention.stored(nil), .last300)
+        XCTAssertEqual(HistoryRetention.stored("1y"), .year)
+    }
+
     // MARK: Days
 
     func testRecordsAreGroupedByDayNewestFirst() {

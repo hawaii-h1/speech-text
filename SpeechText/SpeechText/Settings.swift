@@ -109,12 +109,15 @@ enum SettingsKeys {
     /// Machine-local, like the overlay's spot: a new Mac is a fresh start, so not in
     /// `portable`.
     static let holdTipFollowedCount = "holdTipFollowedCount"
-    /// The main window's Home had its intro card — the shortcut to learn — closed with its
-    /// ✕. A lesson taken on this Mac, so not in `portable`.
+    /// The main window's Home has its intro card — the shortcut to learn — hidden, from
+    /// Settings › Appearance. A lesson taken on this Mac, so not in `portable`.
     static let homeIntroHidden = "homeIntroHidden"
-    /// The Prompts page had its card on how AI Rewrite picks a prompt closed with its ✕.
-    /// Machine-local, like Home's.
+    /// The Prompts page has its card on how AI Rewrite picks a prompt hidden, from
+    /// Settings › Appearance. Machine-local, like Home's.
     static let promptsIntroHidden = "promptsIntroHidden"
+    /// How much History keeps, `HistoryRetention.rawValue`; absent means the latest 300,
+    /// as it always kept. Machine-local like History itself, so not in `portable`.
+    static let historyRetention = "historyRetention"
     /// The main window's Dictionary: JSON-encoded `[VocabularyEntry]`. In `portable`, like
     /// every setting the user builds up; written only by the page and by the one-time
     /// move of `customVocabulary`.

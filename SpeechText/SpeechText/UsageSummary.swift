@@ -8,8 +8,8 @@ import Foundation
 // week counts (`HomeWeek`): words that ended up as text, time saved against typing, and
 // the providers' list prices (`UsagePrices`) for what they price — an AI pass at the tokens
 // its provider reported, estimated from its words only when it predates them
-// (`UsagePrices.Chat.cost(of:)`). History keeps the last
-// 300 dictations, so "All" is what it holds. The page is UsageView.swift.
+// (`UsagePrices.Chat.cost(of:)`). History keeps what `HistoryRetention` lets it, so
+// "All" is what it holds. The page is UsageView.swift.
 
 /// The page's periods.
 enum UsagePeriod: String, CaseIterable, Identifiable {
@@ -81,6 +81,9 @@ struct UsageSummary: Equatable {
         /// a speech one, nil for records written before History kept it.
         var provider: String?
         var uses = 0
+        /// Of an AI Rewrite model's `uses`, the selections it edited (the Edit shortcut);
+        /// the rest were dictations it rewrote.
+        var edits = 0
         var minutes: Double = 0
         /// Nil when `UsagePrices` does not know its price.
         var cost: Double? = 0
@@ -164,6 +167,9 @@ struct UsageSummary: Equatable {
     var apps: [AppUse] = []
     /// The oldest dictation History still holds.
     var since: Date?
+    /// The day the chart starts on when History begins inside the period — nil when the
+    /// chart covers the whole period.
+    var chartSince: Date?
     let typingWordsPerMinute: Double
 
     var spent: Double { speechCost + aiCost }
@@ -194,7 +200,19 @@ struct UsageSummary: Equatable {
         }
         let span = (calendar.dateComponents([.day], from: first, to: today).day ?? 0) + 1
         granularity = span <= 31 ? .day : span <= 120 ? .week : .month
-        buckets = Self.bucketStarts(from: first, to: today, granularity: granularity, calendar: calendar)
+        // The chart starts at History's oldest day when the period reaches further back,
+        // rather than with a row of empty bars for days nothing could have been dictated
+        // — though never with fewer than a week of days or a month of weeks. The scale
+        // (`granularity`) is still the period's.
+        var chartStart = first
+        if let since, calendar.startOfDay(for: since) > first {
+            let shortest = granularity == .day
+                ? calendar.date(byAdding: .day, value: -6, to: today)
+                : calendar.date(byAdding: .weekOfYear, value: -3, to: today)
+            chartStart = min(calendar.startOfDay(for: since), shortest ?? today)
+            if chartStart > first { chartSince = calendar.startOfDay(for: since) }
+        }
+        buckets = Self.bucketStarts(from: max(first, chartStart), to: today, granularity: granularity, calendar: calendar)
             .map { Bucket(start: $0) }
 
         var unpriced: [String] = []
@@ -221,19 +239,21 @@ struct UsageSummary: Equatable {
             estimatedAIPasses += cost.estimatedAIPasses
             countRequests(record, index: &requestIndex)
 
-            // The speech step.
+            // The speech step — none for an edit sent with no instruction.
             let speech = cost.speech
-            let s = engine(.speech, record.provider, provider: record.sttModel)
-            engines[s].uses += 1
-            engines[s].minutes += minutes
-            engines[s].isLocal = UsagePrices.speech(provider: record.provider) == 0
             speechCost += speech
             if let bucket { buckets[bucket].speechCost += speech }
-            if cost.unpricedSpeech.isEmpty {
-                engines[s].cost = engines[s].cost.map { $0 + speech }
-            } else {
-                engines[s].cost = nil
-                unpriced += cost.unpricedSpeech.map(HistoryFormat.engine)
+            if record.hasSpeech {
+                let s = engine(.speech, record.provider, provider: record.sttModel)
+                engines[s].uses += 1
+                engines[s].minutes += minutes
+                engines[s].isLocal = UsagePrices.speech(provider: record.provider) == 0
+                if cost.unpricedSpeech.isEmpty {
+                    engines[s].cost = engines[s].cost.map { $0 + speech }
+                } else {
+                    engines[s].cost = nil
+                    unpriced += cost.unpricedSpeech.map(HistoryFormat.engine)
+                }
             }
 
             // The AI Rewrite step — what it cost even when a retry has since cleared the
@@ -245,6 +265,7 @@ struct UsageSummary: Equatable {
                 if edit { edits += 1 } else if refinement.succeeded { rewrites += 1 }
                 let a = engine(.ai, refinement.model, provider: refinement.provider)
                 engines[a].uses += 1
+                if edit { engines[a].edits += 1 }
                 if cost.unpricedChat.isEmpty {
                     engines[a].cost = engines[a].cost.map { $0 + ai }
                     engines[a].isLocal = UsagePrices.chat(provider: refinement.provider, model: refinement.model)?.isFree == true

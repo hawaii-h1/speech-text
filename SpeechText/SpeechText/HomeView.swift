@@ -23,8 +23,9 @@ struct HomeView: View {
             let width = proxy.size.width
             ScrollView {
                 VStack(spacing: 34) {
+                    // Hidden and shown again from Settings › Appearance, not from the card.
                     if !introHidden {
-                        HomeIntroCard(pageWidth: width, actions: actions) { introHidden = true }
+                        HomeIntroCard(pageWidth: width, actions: actions)
                             .padding(.horizontal, 10)
                             .padding(.top, 10)
                     }
@@ -99,8 +100,7 @@ struct HomeLink: View {
 }
 
 /// A shortcut as keys: white caps with a key's shadow under them, lit while the key is
-/// down — in the phosphor, or on an AI shortcut in the AI violet (`aiGradient` runs it
-/// from green into violet, as the approved AI Rewrite gradient does).
+/// down — in the phosphor, or on an AI shortcut in the AI violet.
 struct HomeKeycaps: View {
     let keys: [String]
     var size: CGFloat = 26
@@ -112,7 +112,6 @@ struct HomeKeycaps: View {
     /// Single keys lit while the rest wait — the ones the user is holding right now.
     var litKeys: Set<Int> = []
     var ai = false
-    var aiGradient = false
     var muted = false
 
     private static let capFill = Color.setup(0xFFFFFF, dark: 0xFFFFFF, 0.08)
@@ -131,13 +130,7 @@ struct HomeKeycaps: View {
                     .padding(.horizontal, key.count > 1 ? size * 0.27 : 0)
                     .background {
                         if lit {
-                            if ai && aiGradient {
-                                shape.fill(LinearGradient(stops: [.init(color: Color(hex: 0x3FAE78), location: 0),
-                                                                  .init(color: Color(hex: 0x8F7CE6), location: 0.7)],
-                                                          startPoint: .leading, endPoint: .trailing))
-                            } else {
-                                shape.fill(ai ? Color(hex: 0x9684E6) : SetupColor.phosphor)
-                            }
+                            shape.fill(ai ? Color(hex: 0x9684E6) : SetupColor.phosphor)
                         } else {
                             shape.fill(Self.capFill)
                                 .shadow(color: Self.capShadow, radius: 0, y: 1.5)
@@ -146,7 +139,7 @@ struct HomeKeycaps: View {
                     .overlay(shape.strokeBorder(lit ? Color(hex: 0x182C20).opacity(0.12) : Self.capEdge, lineWidth: 0.5))
                     .background {
                         if lit {
-                            shape.fill(ai ? Color(hex: 0x9684E6).opacity(aiGradient ? 0.3 : 0.4) : SetupColor.phosphor.opacity(0.35))
+                            shape.fill(ai ? Color(hex: 0x9684E6).opacity(0.3) : SetupColor.phosphor.opacity(0.35))
                                 .padding(-3)
                                 .blur(radius: ai ? 0 : 4)
                         }
@@ -164,15 +157,15 @@ struct HomeKeycaps: View {
 
 // MARK: - The intro card
 
-/// The shortcut to learn, laid on its side: a tab for each dictation shortcut, the words on
-/// a white with a breath of the green in it, and on the green a dictation playing out —
-/// the techno overlay hearing it, then the text pasted once into a message.
+/// The shortcut to learn, laid on its side: a tab for each shortcut that types — Dictate,
+/// AI Rewrite and Edit — the words on a white with a breath of the green in it, and on the
+/// green a dictation playing out — the techno overlay hearing it, then the text pasted once
+/// into a message, or an edit replacing the selection. Settings › Appearance hides it.
 struct HomeIntroCard: View {
     let pageWidth: CGFloat
     let actions: MainWindowActions
-    let onHide: () -> Void
 
-    enum Tab { case dictate, ai }
+    enum Tab { case dictate, ai, edit }
     @State private var tab: Tab = .dictate
     @State private var start = Date()
     @State private var ready = HomeReadiness.current()
@@ -202,15 +195,30 @@ struct HomeIntroCard: View {
         return LLMConfiguration.isConfigured
     }
 
+    private var action: ShortcutAction {
+        switch tab { case .dictate: .inline; case .ai: .ai; case .edit: .edit }
+    }
+
+    /// What the picture plays: without a provider the AI shortcut dictates plain text, and
+    /// Edit — which cannot work without one — still shows what it would do.
+    private var mode: HomeTalk.Mode {
+        switch tab {
+        case .dictate: .dictate
+        case .ai: aiConfigured ? .ai : .dictate
+        case .edit: .edit
+        }
+    }
+
     var body: some View {
-        let isAI = tab == .ai
+        let isAI = tab != .dictate
+        let keys = shortcutKeys(shortcutText(for: action))
         TimelineView(.periodic(from: start, by: HomeTalk.tickSeconds)) { context in
             let tick = max(0, Int(context.date.timeIntervalSince(start) / HomeTalk.tickSeconds))
-            let talk = HomeTalk(tick: tick, ai: isAI && aiConfigured, holdToTalk: holdToTalk)
+            let talk = HomeTalk(tick: tick, mode: mode, holdToTalk: holdToTalk, keyCount: keys.count)
             ZStack(alignment: .topLeading) {
                 art(isAI: isAI)
                 HStack(spacing: 0) {
-                    words(isAI: isAI, keysDown: talk.keysDown)
+                    words(keys: keys, litKeys: talk.litKeys)
                         .frame(width: wordsWidth, alignment: .leading)
                     HomeTalkPicture(talk: talk, tick: tick, sideBySide: sideBySide)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -219,7 +227,6 @@ struct HomeIntroCard: View {
                 HStack(spacing: 6) {
                     Spacer()
                     if ready { HomeReadyChip() }
-                    closeButton
                 }
                 .padding(11)
             }
@@ -245,14 +252,30 @@ struct HomeIntroCard: View {
 
     // MARK: The words
 
-    private func words(isAI: Bool, keysDown: Bool) -> some View {
-        let action: ShortcutAction = isAI ? .ai : .inline
-        let title = !isAI ? "Speak, and it's typed" : aiConfigured ? "Speak it, get it polished" : "Rewrite needs a provider"
-        let text = !isAI
-            ? (holdToTalk ? "Hold the shortcut and speak, then let go — the text lands wherever your cursor is, in any app."
-               : "Press the shortcut, speak, press it again — the text lands wherever your cursor is, in any app.")
-            : aiConfigured ? "Say it roughly — AI Rewrite turns it into a message, an email or a list before it's pasted."
-            : "Needs an AI provider — a key, or a model on this Mac. Until then the shortcut dictates plain text."
+    private var title: String {
+        switch tab {
+        case .dictate: "Speak, and it's typed"
+        case .ai: aiConfigured ? "Speak it, get it polished" : "Rewrite needs a provider"
+        case .edit: aiConfigured ? "Select it, say what to change" : "Edit needs a provider"
+        }
+    }
+
+    private var text: String {
+        switch tab {
+        case .dictate:
+            holdToTalk ? "Hold the shortcut and speak, then let go — the text lands wherever your cursor is, in any app."
+                : "Press the shortcut, speak, press it again — the text lands wherever your cursor is, in any app."
+        case .ai:
+            aiConfigured ? "Just talk, or say what you want — “a polite reply, in English” — and AI Rewrite pastes the finished text."
+                : "Needs an AI provider — a key, or a model on this Mac. Until then the shortcut dictates plain text."
+        case .edit:
+            aiConfigured ? "Select text in any app and tell AI how to improve it — “shorter”, “friendlier”, “in English”. Say nothing, and it just polishes."
+                : "Needs an AI provider — a key, or a model on this Mac — to rewrite the text you select."
+        }
+    }
+
+    private func words(keys: [String], litKeys: Set<Int>) -> some View {
+        let isAI = tab != .dictate
         return VStack(alignment: .leading, spacing: 0) {
             Text(title)
                 .font(.system(size: compact ? 28 : 32, weight: .bold))
@@ -269,8 +292,8 @@ struct HomeIntroCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, compact ? 16 : 20)
             HStack(spacing: 16) {
-                HomeKeycaps(keys: shortcutKeys(shortcutText(for: action)), size: 34, radius: 9, fontSize: 15,
-                            weight: .medium, spacing: 5, lit: keysDown, ai: isAI && aiConfigured)
+                HomeKeycaps(keys: keys, size: 34, radius: 9, fontSize: 15,
+                            weight: .medium, spacing: 5, litKeys: litKeys, ai: mode != .dictate)
                 if isAI && !aiConfigured {
                     Button("Choose a provider") { actions.openSettings(.ai) }
                         .buttonStyle(SetupButtonStyle(kind: .primary, height: 36))
@@ -297,6 +320,7 @@ struct HomeIntroCard: View {
         HStack(spacing: 0) {
             tabButton("Dictate", .dictate)
             tabButton("AI Rewrite", .ai)
+            tabButton("Edit", .edit)
         }
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(MainColor.ink.opacity(0.06)))
@@ -322,31 +346,6 @@ struct HomeIntroCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    /// ✕ hides the whole card.
-    private var closeButton: some View {
-        HomeCloseButton(action: onHide)
-    }
-}
-
-private struct HomeCloseButton: View {
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(hovering ? MainColor.ink : MainColor.ink2)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(MainColor.ink.opacity(hovering ? 0.11 : 0.06)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help("Hide this card")
-        .accessibilityLabel("Hide this card")
     }
 }
 
@@ -414,7 +413,8 @@ struct HomeTalkPicture: View {
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("A dictation being typed into \(talk.script.app)")
+        .accessibilityLabel(talk.isEdit ? "Selected text in \(talk.script.app) being rewritten"
+                            : "A dictation being typed into \(talk.script.app)")
     }
 
     // MARK: The message
@@ -429,15 +429,21 @@ struct HomeTalkPicture: View {
             .font(.system(size: 12))
 
             Group {
-                if talk.phase == .done {
+                switch talk.message {
+                case .pasted:
                     VStack(alignment: .leading, spacing: 6) {
                         Text(talk.script.output)
-                        if talk.isAI, let preset = talk.script.preset {
+                        if talk.isEdit {
+                            HomeTag(symbol: "pencil", title: "Edited", tint: .ai, size: 11)
+                        } else if talk.isAI, let preset = talk.script.preset {
                             HomeTag(symbol: "sparkles", title: preset, tint: .ai, size: 11)
                         }
                     }
                     .transition(.opacity.combined(with: .offset(y: 3)))
-                } else {
+                case .selection(let selection):
+                    // Selected, as the Mac draws a selection, while the instruction is said.
+                    Text(Self.selected(selection))
+                case .caret:
                     // A caret blinking once a second, waiting for the paste.
                     Rectangle().fill(MainColor.ink)
                         .frame(width: 1.5, height: 16)
@@ -450,7 +456,7 @@ struct HomeTalkPicture: View {
             .foregroundStyle(MainColor.ink)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, minHeight: 61, alignment: .topLeading)
-            .animation(.easeOut(duration: 0.35), value: talk.phase == .done)
+            .animation(.easeOut(duration: 0.35), value: talk.message)
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -460,6 +466,12 @@ struct HomeTalkPicture: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
             .strokeBorder(Color(hex: 0x182C20).opacity(0.12), lineWidth: 0.5))
         .shadow(color: Color(red: 16 / 255, green: 40 / 255, blue: 28 / 255).opacity(0.28), radius: 12, y: 9)
+    }
+
+    private static func selected(_ text: String) -> AttributedString {
+        var selected = AttributedString(text)
+        selected.backgroundColor = Color(nsColor: .selectedTextBackgroundColor)
+        return selected
     }
 
     // MARK: The overlay
@@ -481,7 +493,7 @@ struct HomeTalkPicture: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .frame(width: Self.overlayWidth)
-                .background(Self.transcriptGlass.fill(Self.palette.screen))
+                .background(Self.transcriptGlass.fill(talk.isEdit ? TechnoSkin.editScreen : Self.palette.screen))
                 .overlay {
                     InnerShadow(shape: Self.transcriptGlass, width: 6.6, blur: 3.3)
                     InnerShadow(shape: Self.transcriptGlass, width: 4, blur: 2, offset: CGSize(width: 0, height: -1))
@@ -492,8 +504,16 @@ struct HomeTalkPicture: View {
 
             HStack(spacing: 6) {
                 ZStack {
-                    Self.stripGlass.fill(Self.palette.screen)
+                    Self.stripGlass.fill(talk.isEdit ? TechnoSkin.editScreen : Self.palette.screen)
                     HomeTalkDisplay(display: talk.display, ai: talk.isAI)
+                    if talk.isEdit {
+                        // The Edit shortcut's mark in the glass's corner, as the overlay has it.
+                        EditGlyph(size: 13)
+                            .foregroundStyle(TechnoSkin.aiPeak.opacity(0.85))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .padding(.leading, 14)
+                            .padding(.top, 10)
+                    }
                     InnerShadow(shape: Self.stripGlass, width: 6.6, blur: 3.3)
                     InnerShadow(shape: Self.stripGlass, width: 4, blur: 2, offset: CGSize(width: 0, height: -1))
                 }
@@ -527,7 +547,8 @@ struct HomeTalkPicture: View {
                 .opacity(0.75 + 0.25 * cos(Double(tick) * 0.1 * 2 * .pi / 1.2))
         case .pasted:
             Text(Image(systemName: "checkmark")).font(.system(size: 10, weight: .semibold)).foregroundStyle(ink)
-                + Text(verbatim: "  Pasted into \(talk.script.app)").foregroundStyle(ink.opacity(0.9))
+                + Text(verbatim: talk.isEdit ? "  Selection replaced" : "  Pasted into \(talk.script.app)")
+                    .foregroundStyle(ink.opacity(0.9))
         }
     }
 }
@@ -614,9 +635,29 @@ enum AppIcons {
 
     static func icon(named name: String) -> NSImage? {
         if let known = cache[name] { return known }
-        let found = lookUp(name)
+        let found = lookUp(name).map(small)
         cache[name] = found
         return found
+    }
+
+    /// The icon drawn once into a 48 pt bitmap at twice the pixels: the workspace's icon
+    /// carries every size up to 1024, which each row drawing it would otherwise scale down
+    /// again on every frame of a scroll. No mark is drawn larger than about 40 pt.
+    private static func small(_ icon: NSImage) -> NSImage {
+        let side: CGFloat = 48
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(side * 2), pixelsHigh: Int(side * 2),
+                                            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return icon }
+        bitmap.size = NSSize(width: side, height: side)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        NSGraphicsContext.restoreGraphicsState()
+        let image = NSImage(size: bitmap.size)
+        image.addRepresentation(bitmap)
+        return image
     }
 
     private static func lookUp(_ name: String) -> NSImage? {
@@ -1121,8 +1162,7 @@ private struct HomeWeekDays: View {
 // MARK: - More ways to dictate
 
 /// The other shortcuts: white tiles in a grey tray. The keys light as they go down on the
-/// keyboard, one at a time (`HomeKeyboard`), never the tile; an AI shortcut's in the
-/// approved green-into-violet.
+/// keyboard, one at a time (`HomeKeyboard`), never the tile; an AI shortcut's in violet.
 struct HomeWays: View {
     let actions: MainWindowActions
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
@@ -1142,10 +1182,10 @@ struct HomeWays: View {
             HomeSectionHeader(title: "More ways to dictate", link: "Change shortcuts") { actions.openSettings(.general) }
             HStack(alignment: .top, spacing: 6) {
                 HomeWayTile(action: .ai, symbol: .sparkles, name: "Dictate with AI Rewrite",
-                            description: "Say it roughly — get a message, an email or a list.",
+                            description: "Just talk, or say what you want — AI pastes the finished text.",
                             off: aiReady ? nil : "Works as plain Dictate until you", actions: actions)
                 HomeWayTile(action: .edit, symbol: .pencil, name: "Edit selection",
-                            description: "Select text, then say how to change it.",
+                            description: "Select text, then tell AI how to improve it.",
                             off: aiReady ? nil : "Needs AI Rewrite —", actions: actions)
                 HomeWayTile(action: .recordWindow, symbol: .record, name: "Record Window",
                             description: "Dictate into a window of its own, then copy or insert.",
@@ -1250,7 +1290,7 @@ private struct HomeWayTile: View {
                 let keys = shortcutKeys(shortcutText(for: action))
                 HomeKeycaps(keys: keys, lit: HeldShortcuts.shared.down.contains(action),
                             litKeys: HomeKeyboard.shared.litKeys(keys, of: action),
-                            ai: isAI, aiGradient: true, muted: muted)
+                            ai: isAI, muted: muted)
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(name)

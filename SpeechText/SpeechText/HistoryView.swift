@@ -11,8 +11,11 @@ import AppKit
 /// prompt it chose; a failed one retries from the audio kept for a week. Built in Home's
 /// parts — the hairline tables, the app marks, the tags — so the two read as one window.
 struct HistoryView: View {
+    let actions: MainWindowActions
     @State private var query = ""
     @State private var filter: HistoryFilter = .all
+    @State private var narrowing = HistoryNarrowing()
+    @AppStorage(SettingsKeys.historyRetention) private var retentionRaw = HistoryRetention.default.rawValue
     @State private var expanded: UUID?
     /// The days opened past their first `HistoryDaySection.shown` dictations.
     @State private var openDays: Set<Date> = []
@@ -23,7 +26,7 @@ struct HistoryView: View {
 
     var body: some View {
         let records = history.records
-        let days = HistoryDay.group(records, filter: filter, query: query)
+        let days = HistoryDay.group(records, filter: filter, query: query, narrowing: narrowing)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
                 header(records)
@@ -33,7 +36,7 @@ struct HistoryView: View {
                             .padding(.top, 26)
                     }
                     ForEach(days) { day in
-                        HistoryDaySection(day: day, expanded: $expanded,
+                        HistoryDaySection(day: day, expanded: $expanded, actions: actions,
                                           showsAll: Binding(get: { openDays.contains(day.id) },
                                                             set: { if $0 { openDays.insert(day.id) } else { openDays.remove(day.id) } }))
                             .padding(.top, 26)
@@ -82,6 +85,7 @@ struct HistoryView: View {
                         .foregroundStyle(MainColor.ink3)
                         .monospacedDigit()
                 }
+                HistorySettingsButton { actions.openSettingsAt(.history) }
             }
             Text(MainPage.history.lead)
                 .font(.system(size: 14))
@@ -94,19 +98,41 @@ struct HistoryView: View {
 
     /// Pinned under the title while the days scroll past.
     private func toolbar(_ records: [TranscriptionRecord]) -> some View {
-        HStack(spacing: 14) {
+        let search = HStack(spacing: 8) {
             HistorySearchField(query: $query, focused: $searchFocused)
-                .frame(maxWidth: 340)
-            Spacer(minLength: 0)
-            HistoryFilterSwitch(filter: $filter, counts: Dictionary(uniqueKeysWithValues: HistoryFilter.allCases.map { f in
-                (f, records.filter { f.includes($0) && HistorySearch.matches($0, query: query) }.count)
-            }))
+                .frame(minWidth: 150, maxWidth: 300)
+            HistoryAppMenu(app: $narrowing.app, apps: HistoryNarrowing.apps(in: records))
+            HistoryDatesMenu(dates: $narrowing.dates)
+        }
+        let filters = HistoryFilterSwitch(filter: $filter, counts: counts(records))
+        // On one line while it fits; in a narrow window the filters go under the search.
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                search
+                Spacer(minLength: 6)
+                filters
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                search
+                filters
+            }
         }
         .padding(.vertical, 10)
         .background(MainColor.card)
         .overlay(alignment: .bottom) {
             Rectangle().fill(MainColor.separator).frame(height: 1)
         }
+    }
+
+    /// Each filter's count under the search, the app and the dates — one pass, since the
+    /// toolbar is redrawn with every key typed in the search.
+    private func counts(_ records: [TranscriptionRecord]) -> [HistoryFilter: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: HistoryFilter.allCases.map { ($0, 0) })
+        let now = Date()
+        for record in records where narrowing.includes(record, now: now) && HistorySearch.matches(record, query: query) {
+            for filter in HistoryFilter.allCases where filter.includes(record) { counts[filter, default: 0] += 1 }
+        }
+        return counts
     }
 
     // MARK: Nothing to show
@@ -116,15 +142,21 @@ struct HistoryView: View {
         VStack(alignment: .leading, spacing: 14) {
             if nothingAtAll {
                 Text("Nothing dictated yet. Press \(shortcutText(for: .inline)) in any app, speak, and press it again — every dictation is kept here.")
-            } else if query.isEmpty {
+            } else if query.isEmpty && narrowing.isEmpty {
                 Text("No \(filter == .edits ? "edits" : filter == .failed ? "failed dictations" : "dictations rewritten by AI") yet.")
+            } else if query.isEmpty {
+                Text("Nothing \(filter == .all ? "" : "in \(filter.title) ")\(narrowingPhrase).")
             } else {
-                Text("Nothing matches “\(query)”\(filter == .all ? "" : " in \(filter.title)").")
+                Text("Nothing matches “\(query)”\(filter == .all ? "" : " in \(filter.title)")\(narrowing.isEmpty ? "" : " " + narrowingPhrase).")
             }
             if !nothingAtAll {
                 HStack(spacing: 8) {
                     if !query.isEmpty {
                         Button("Clear search") { query = "" }
+                            .buttonStyle(SetupButtonStyle(kind: .secondary, height: 30))
+                    }
+                    if !narrowing.isEmpty {
+                        Button("Any app, any time") { narrowing = HistoryNarrowing() }
                             .buttonStyle(SetupButtonStyle(kind: .secondary, height: 30))
                     }
                     if filter != .all {
@@ -145,14 +177,28 @@ struct HistoryView: View {
         }
     }
 
+    /// "in Slack, in the last 7 days".
+    private var narrowingPhrase: String {
+        var parts: [String] = []
+        if let app = narrowing.app { parts.append(app == "Not pasted" ? "that wasn't pasted" : "in \(app)") }
+        switch narrowing.dates {
+        case .anyTime: break
+        case .today: parts.append("today")
+        case .day(let day): parts.append("on " + HistoryFormat.formatter("d MMMM", calendar: .current).string(from: day))
+        case let dates: parts.append("in the " + dates.title.lowercased())
+        }
+        return parts.joined(separator: ", ")
+    }
+
     // MARK: Foot
 
     private var footer: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("History keeps your last 300 dictations on this Mac. The audio of one that failed is kept for 7 days, for a retry.")
+            Text("History keeps \(HistoryRetention.stored(retentionRaw).phrase) on this Mac. The audio of one that failed is kept for 7 days, for a retry.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(MainColor.ink3)
                 .fixedSize(horizontal: false, vertical: true)
+            HomeLink(title: "Change") { actions.openSettingsAt(.history) }
             Spacer(minLength: 12)
             HistoryQuietButton(title: "Clear History…", symbol: "trash", destructive: true) { confirmingClear = true }
         }
@@ -193,6 +239,169 @@ private struct HistorySearchField: View {
         .overlay(shape.strokeBorder(focused.wrappedValue ? MainColor.okInk.opacity(0.55) : MainColor.panelBorder,
                                     lineWidth: focused.wrappedValue ? 1.5 : 1))
         .animation(.easeOut(duration: 0.12), value: focused.wrappedValue)
+    }
+}
+
+/// A narrowing beside the search, drawn as the search field is: its name, or what it is
+/// set to — then on the soft green, with an ✕ to clear it. Opens a popover to choose.
+private struct HistoryNarrowButton<Choices: View>: View {
+    let symbol: String
+    let title: String
+    let isSet: Bool
+    let clear: () -> Void
+    @ViewBuilder var choices: (_ dismiss: @escaping () -> Void) -> Choices
+    @State private var showing = false
+    @State private var hovering = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        HStack(spacing: 6) {
+            Button { showing.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: symbol).font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(isSet ? MainColor.okInk : MainColor.ink3)
+                    Text(title)
+                        .font(.system(size: 13, weight: isSet ? .medium : .regular))
+                        .foregroundStyle(isSet ? MainColor.ink : MainColor.ink2)
+                        .lineLimit(1)
+                    if !isSet {
+                        Image(systemName: "chevron.down").font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(MainColor.ink3)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if isSet {
+                Button(action: clear) {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundStyle(MainColor.ink3)
+                }
+                .buttonStyle(.plain)
+                .help("Clear")
+            }
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 32)
+        .background(shape.fill(isSet ? MainColor.phosphorSoft : hovering ? MainColor.panel.opacity(0.7) : MainColor.panel))
+        .overlay(shape.strokeBorder(isSet ? MainColor.okInk.opacity(0.35) : MainColor.panelBorder, lineWidth: 1))
+        .onHover { hovering = $0 }
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            choices { showing = false }
+        }
+    }
+}
+
+/// One choice in a narrowing's popover: a mark, its name, how many, and a tick when set.
+private struct HistoryChoiceRow<Mark: View>: View {
+    let title: String
+    var count: Int?
+    let selected: Bool
+    let action: () -> Void
+    @ViewBuilder var mark: () -> Mark
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                mark()
+                Text(title).font(.system(size: 13)).foregroundStyle(MainColor.ink).lineLimit(1)
+                Spacer(minLength: 12)
+                if let count {
+                    Text(HomeFormat.integer(count)).font(.system(size: 12)).foregroundStyle(MainColor.ink3).monospacedDigit()
+                }
+                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(MainColor.okInk)
+                    .opacity(selected ? 1 : 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(hovering ? MainColor.panel : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// The app a dictation went to, as its row names it.
+private struct HistoryAppMenu: View {
+    @Binding var app: String?
+    let apps: [(app: String, count: Int)]
+
+    var body: some View {
+        HistoryNarrowButton(symbol: "app.dashed", title: app ?? "App", isSet: app != nil, clear: { app = nil }) { dismiss in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    HistoryChoiceRow(title: "Any app", selected: app == nil, action: { app = nil; dismiss() }) {
+                        Image(systemName: "square.grid.2x2").font(.system(size: 12)).foregroundStyle(MainColor.ink3)
+                            .frame(width: 20, height: 20)
+                    }
+                    ForEach(apps, id: \.app) { item in
+                        HistoryChoiceRow(title: item.app, count: item.count, selected: app == item.app,
+                                         action: { app = item.app; dismiss() }) {
+                            HomeAppMark(app: item.app == "Not pasted" ? nil : item.app, size: 20, radius: 6)
+                        }
+                    }
+                }
+                .padding(6)
+            }
+            .frame(width: 250)
+            .frame(maxHeight: 360)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// A range of days, or one day picked on a calendar.
+private struct HistoryDatesMenu: View {
+    @Binding var dates: HistoryDates
+    @State private var day = Date()
+
+    var body: some View {
+        HistoryNarrowButton(symbol: "calendar", title: dates == .anyTime ? "Date" : dates.title,
+                            isSet: dates != .anyTime, clear: { dates = .anyTime }) { dismiss in
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(HistoryDates.presets, id: \.self) { preset in
+                    HistoryChoiceRow(title: preset.title, selected: dates == preset, action: { dates = preset; dismiss() }) {
+                        EmptyView()
+                    }
+                }
+                Rectangle().fill(MainColor.separator).frame(height: 1).padding(.vertical, 5)
+                Text("On a day")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(MainColor.ink3)
+                    .padding(.horizontal, 10)
+                DatePicker("On a day", selection: Binding(get: { day }, set: { day = $0; dates = .day($0) }),
+                           in: ...Date(), displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .padding(.horizontal, 4)
+            }
+            .padding(6)
+            .frame(width: 250)
+            .onAppear { if case .day(let chosen) = dates { day = chosen } }
+        }
+    }
+}
+
+/// The gear beside History's count: Settings, at how much History keeps.
+private struct HistorySettingsButton: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "gearshape")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(hovering ? MainColor.ink : MainColor.ink3)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(hovering ? MainColor.panel : .clear))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("How much History keeps")
+        .accessibilityLabel("History settings")
     }
 }
 
@@ -249,6 +458,7 @@ private struct HistoryFilterSwitch: View {
 private struct HistoryDaySection: View {
     let day: HistoryDay
     @Binding var expanded: UUID?
+    let actions: MainWindowActions
     @Binding var showsAll: Bool
 
     /// Enough for a morning's dictations, and about a screen.
@@ -283,7 +493,7 @@ private struct HistoryDaySection: View {
             VStack(spacing: 0) {
                 ForEach(Array(records.enumerated()), id: \.element.id) { index, record in
                     if index > 0 { Rectangle().fill(MainColor.separator).frame(height: 1) }
-                    HistoryRow(record: record, isExpanded: expanded == record.id) {
+                    HistoryRow(record: record, isExpanded: expanded == record.id, actions: actions) {
                         withAnimation(.easeOut(duration: 0.2)) {
                             expanded = expanded == record.id ? nil : record.id
                         }
@@ -343,13 +553,22 @@ private struct HistoryShowAllRow: View {
 private struct HistoryRow: View {
     let record: TranscriptionRecord
     let isExpanded: Bool
+    let actions: MainWindowActions
     let toggle: () -> Void
+    /// Worked out once per row, not on every redraw of it.
+    private let entry: HomeRecentEntry
     @State private var hovering = false
     @State private var copied = false
     @State private var fullTextHeight: CGFloat = 0
     @State private var twoLineHeight: CGFloat = 0
 
-    private var entry: HomeRecentEntry { HomeRecentEntry(record) }
+    init(record: TranscriptionRecord, isExpanded: Bool, actions: MainWindowActions, toggle: @escaping () -> Void) {
+        self.record = record
+        self.isExpanded = isExpanded
+        self.actions = actions
+        self.toggle = toggle
+        entry = HomeRecentEntry(record)
+    }
 
     /// A plain dictation that fits the row's two lines has nothing more to show, so it
     /// does not open at all; one cut short opens to its whole text.
@@ -381,7 +600,11 @@ private struct HistoryRow: View {
                                 .fixedSize(horizontal: false, vertical: isOpen && showsWholeText)
                                 .multilineTextAlignment(.leading)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(alignment: .topLeading) { textMeasure(entry) }
+                                .background(alignment: .topLeading) {
+                                    // Only a plain dictation needs to know whether it is cut
+                                    // short; anything else always opens.
+                                    if showsWholeText { textMeasure(entry) }
+                                }
                             HStack(spacing: 6) {
                                 Text(entry.place).fontWeight(.medium).foregroundStyle(MainColor.ink)
                                 Text("·")
@@ -424,13 +647,17 @@ private struct HistoryRow: View {
             .padding(.vertical, 14)
 
             if isOpen {
-                HistoryDetail(record: record)
+                HistoryDetail(record: record, actions: actions)
                     .transition(.opacity)
             }
         }
-        .background(hovering || isOpen ? MainColor.panel : .clear)
+        // Only the grey under the row fades: an animation on the whole row ran its every
+        // view again for each row the pointer crossed while scrolling.
+        .background {
+            Rectangle().fill(hovering || isOpen ? MainColor.panel : .clear)
+                .animation(.easeOut(duration: 0.12), value: hovering)
+        }
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
         .contextMenu {
             if !record.deliveredText.isEmpty {
                 Button("Copy") { HistoryClipboard.copy(record.deliveredText) }
@@ -515,7 +742,8 @@ private struct HistoryDeleteButton: View {
 
 /// What heard it: "ElevenLabs · Ukrainian".
 private func historyEngine(_ record: TranscriptionRecord) -> String {
-    [HistoryFormat.engine(record.provider), HistoryFormat.language(record.locale)]
+    guard record.hasSpeech else { return "" }
+    return [HistoryFormat.engine(record.provider), HistoryFormat.language(record.locale)]
         .compactMap { $0 }.joined(separator: " · ")
 }
 
@@ -533,13 +761,15 @@ enum HistoryClipboard {
 /// what went wrong and the way to retry; where it went, what heard it, and the actions.
 private struct HistoryDetail: View {
     let record: TranscriptionRecord
+    let actions: MainWindowActions
     @State private var copiedSaid = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             switch record.status {
             case .failed: problem(record.errorMessage ?? "Transcription failed.", danger: true)
-            case .empty: problem("Nothing was heard in this recording — a muted microphone, or the shortcut pressed with nothing said.", danger: false)
+            case .empty: problem("Nothing was heard in this recording — a muted microphone, or the shortcut pressed with nothing said.",
+                                 danger: false, microphoneLink: true)
             case .success: texts
             }
             facts
@@ -598,7 +828,7 @@ private struct HistoryDetail: View {
 
     // MARK: A failure
 
-    private func problem(_ message: String, danger: Bool) -> some View {
+    private func problem(_ message: String, danger: Bool, microphoneLink: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(message)
@@ -612,6 +842,11 @@ private struct HistoryDetail: View {
                     .font(.system(size: 12))
                     .foregroundStyle(MainColor.ink3)
                     .fixedSize(horizontal: false, vertical: true)
+                if microphoneLink {
+                    // Which microphone recorded is the one setting behind "nothing heard".
+                    HomeLink(title: "Microphone settings") { actions.openSettingsAt(.microphone) }
+                        .padding(.leading, -8)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if record.isRetryable {

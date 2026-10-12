@@ -45,11 +45,11 @@ struct PromptsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 34) {
                     MainPageTitle(.prompts)
-                    // Off, the banner carries the way to turn AI Rewrite on, so it cannot be closed.
+                    // Hidden from Settings › Appearance. Off, the banner carries the way to turn
+                    // AI Rewrite on, so it shows whatever that setting says.
                     if !introHidden || !aiReady {
                         PromptsBanner(presets: presets, aiReady: aiReady,
-                                      choose: { actions.openSettings(.ai) },
-                                      hide: { withAnimation(.easeOut(duration: 0.2)) { introHidden = true } })
+                                      choose: { actions.openSettings(.ai) })
                     }
                     HStack(alignment: .top, spacing: 24) {
                         list(uses: uses)
@@ -272,7 +272,6 @@ private struct PromptsBanner: View {
     let presets: [PromptPreset]
     let aiReady: Bool
     let choose: () -> Void
-    let hide: () -> Void
 
     /// Under the words, white with a breath of the violet in it; in Dark Mode, the card.
     private static let background = Color.setup(0xF8F6FE, dark: 0x232624)
@@ -313,23 +312,6 @@ private struct PromptsBanner: View {
         .frame(height: 230)
         .background(Self.background)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(alignment: .topTrailing) {
-            if aiReady {
-                Button(action: hide) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(MainColor.ink)
-                        .frame(width: 24, height: 24)
-                        .background(MainColor.card.opacity(0.7), in: Circle())
-                        .background(.ultraThinMaterial, in: Circle())
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .padding(11)
-                .help("Hide this card")
-                .accessibilityLabel("Hide this card")
-            }
-        }
     }
 
     private var text: some View {
@@ -338,17 +320,17 @@ private struct PromptsBanner: View {
                 Image(systemName: "sparkles").font(.system(size: 11.5)).foregroundStyle(MainColor.aiInk)
                 Text("How AI Rewrite picks a prompt").font(.system(size: 13.5, weight: .medium)).foregroundStyle(MainColor.ink)
             }
-            Text("You don't choose — it does")
+            Text("Talk, or say what you want")
                 .font(.system(size: 30, weight: .bold))
                 .tracking(-1)
                 .foregroundStyle(MainColor.ink)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.7)
                 .padding(.top, 14)
                 .padding(.bottom, 8)
             Text(aiReady
-                 ? "It reads what you said, picks the prompt whose “When to use” fits, and follows its instructions. Nothing fits? The Default does."
-                 : "Once AI Rewrite has a provider — a key, or a model on this Mac — it reads what you said and picks the prompt whose “When to use” fits.")
+                 ? "Words to tidy up, or a request like “make it a list, in English”: it picks the prompt whose “When to use” fits and does what else you asked. Nothing fits? The Default does."
+                 : "Once AI Rewrite has a provider — a key, or a model on this Mac — it reads what you said, or what you asked for, and picks the prompt whose “When to use” fits.")
                 .font(.system(size: 14))
                 .foregroundStyle(MainColor.ink2)
                 .lineSpacing(4)
@@ -633,23 +615,40 @@ private struct PromptRecentCard: View {
 /// Dictionary's words, spelled as written.
 private struct PromptsToldCard: View {
     let go: (MainPage) -> Void
+    @State private var width: CGFloat = 0
+
+    /// Under this the two tiles side by side squeeze their words into a narrow column, so
+    /// they stack, each keeping its picture beside its words.
+    private static let sideBySideWidth: CGFloat = 940
 
     var body: some View {
         let words = Vocabulary.hints(Vocabulary.load())
+        let tiles = Group {
+            cell(title: "Where you're dictating",
+                 detail: "The app, its window and the field — so the same words become a chat message in Slack and a letter in Mail. Never a password manager's.") {
+                PromptsPlacesPicture()
+            }
+            cell(title: "Your Dictionary",
+                 detail: words.isEmpty ? "Names and terms you add there are spelled exactly as you write them."
+                 : "\(words.count) \(words.count == 1 ? "word" : "words"), spelled exactly as you write them.",
+                 link: ("Open Dictionary", { go(.dictionary) })) {
+                PromptsWordsPicture(words: words)
+            }
+        }
         VStack(alignment: .leading, spacing: 12) {
             MainSectionHeader("What else AI Rewrite is told", detail: "besides the prompt, with every AI dictation")
-            MainTray {
-                cell(title: "Where you're dictating",
-                     detail: "The app, its window and the field — so the same words become a chat message in Slack and a letter in Mail. Never a password manager's.") {
-                    PromptsPlacesPicture()
-                }
-                cell(title: "Your Dictionary",
-                     detail: words.isEmpty ? "Names and terms you add there are spelled exactly as you write them."
-                     : "\(words.count) \(words.count == 1 ? "word" : "words"), spelled exactly as you write them.",
-                     link: ("Open Dictionary", { go(.dictionary) })) {
-                    PromptsWordsPicture(words: words)
+            Group {
+                if width == 0 || width >= Self.sideBySideWidth {
+                    MainTray { tiles }
+                } else {
+                    VStack(spacing: 6) { tiles }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(6)
+                        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(MainColor.panel))
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
         }
     }
 

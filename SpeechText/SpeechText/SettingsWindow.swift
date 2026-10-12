@@ -66,6 +66,28 @@ final class SettingsWindow: NSWindow {
 extension Notification.Name {
     /// Posted with a `SettingsCategory` to turn an open Settings window to that page.
     static let settingsShowCategory = Notification.Name("SettingsShowCategory")
+    /// Posted when `SettingsAnchor.pending` names a group to scroll to.
+    static let settingsScrollToAnchor = Notification.Name("SettingsScrollToAnchor")
+}
+
+/// A group further down a Settings page that another window links straight to, so the
+/// setting it talks about is on screen when Settings opens — not below the fold.
+enum SettingsAnchor: String {
+    /// General › History, from the History page.
+    case history
+    /// Speech › Microphone, from a dictation in which nothing was heard.
+    case microphone
+
+    var category: SettingsCategory {
+        switch self {
+        case .history: .general
+        case .microphone: .speech
+        }
+    }
+
+    /// The group the next Settings page to appear scrolls to: a window built ahead, or one
+    /// already open, takes it from the notification, and a new one when it appears.
+    @MainActor static var pending: SettingsAnchor?
 }
 
 // MARK: - Categories
@@ -116,7 +138,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: "How the recording overlay and the Record Window look."
         case .speech: "Turns what you say into text. Runs for every dictation."
         case .formatting: "Small fixes made to every transcript before it is pasted."
-        case .ai: "Optional. Turns what you dictate into an email, a list, a translation — for the AI Recording shortcut and the ✨ toggle in the Record Window. What you say is the prompt: the model picks the matching preset and rewrites the text."
+        case .ai: "Optional. Turns what you dictate into finished text — say it as it comes, or say what you want (“a short reply, in English”). For the AI Rewrite and Edit shortcuts and the ✨ toggle in the Record Window: the model picks the matching prompt and does what else you asked."
         case .apiKeys: "The keys your current choices use come first. Each key is tagged with what it can do: Speech, AI Rewrite, or both."
         case .permissions: "What macOS lets SpeechText do."
         }

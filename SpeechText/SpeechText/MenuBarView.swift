@@ -42,6 +42,11 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
     @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
     @AppStorage(SettingsKeys.dockIconMode) private var dockIconRaw = DockIconMode.default.rawValue
+    @AppStorage(SettingsKeys.homeIntroHidden) private var homeIntroHidden = false
+    @AppStorage(SettingsKeys.promptsIntroHidden) private var promptsIntroHidden = false
+    @AppStorage(SettingsKeys.historyRetention) private var historyRetentionRaw = HistoryRetention.default.rawValue
+    /// A shorter choice waiting for the user to agree to the dictations it deletes.
+    @State private var pendingRetention: HistoryRetention?
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     // Sparkle keeps this in its own defaults key, so it is read from the updater rather
@@ -125,16 +130,36 @@ struct SettingsView: View {
             // A vertical ScrollView takes its width from its content, so the content is
             // given the page's width outright; otherwise a long caption widens the page
             // past the window.
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    content
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        content
+                    }
+                    .frame(width: Self.pageWidth - 56, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 28)
                 }
-                .frame(width: Self.pageWidth - 56, alignment: .leading)
-                .padding(.horizontal, 28)
-                .padding(.bottom, 28)
+                // A new page starts at its top, not where the last one was scrolled to —
+                // unless another window linked to a group further down.
+                .id(category)
+                .onAppear { scrollToPendingAnchor(scroller) }
+                // Settings already open on another page: the link turns it first.
+                .onChange(of: category) { scrollToPendingAnchor(scroller) }
+                .onReceive(NotificationCenter.default.publisher(for: .settingsScrollToAnchor)) { _ in
+                    scrollToPendingAnchor(scroller)
+                }
             }
-            // A new page starts at its top, not where the last one was scrolled to.
-            .id(category)
+        }
+    }
+
+    /// Scrolls to the group a link asked for, once its page is the one showing; a page still
+    /// to appear takes it in its own `onAppear`.
+    private func scrollToPendingAnchor(_ scroller: ScrollViewProxy) {
+        guard let anchor = SettingsAnchor.pending, anchor.category == category else { return }
+        SettingsAnchor.pending = nil
+        // A turn later, once the page has been laid out.
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.25)) { scroller.scrollTo(anchor, anchor: .top) }
         }
     }
 
@@ -189,6 +214,8 @@ struct SettingsView: View {
             }
         }
 
+        historyGroup
+
         SettingsGroup(title: UpdateChecker.shared.isConfigured ? "Updates" : "About") {
             // Absent in a build with no signing key, where the updater never starts.
             if UpdateChecker.shared.isConfigured {
@@ -216,6 +243,51 @@ struct SettingsView: View {
                         .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
                 }
             }
+        }
+    }
+
+    // MARK: - History
+
+    private var historyRetention: HistoryRetention { HistoryRetention.stored(historyRetentionRaw) }
+
+    /// How much History keeps. A choice that would delete dictations already kept asks
+    /// first, as Messages does — they cannot be brought back.
+    private var historyGroup: some View {
+        SettingsGroup(title: "History") {
+            SettingsRow(title: "Keep dictations",
+                        detail: "History keeps \(historyRetention.phrase) on this Mac. The audio of one that failed is kept for 7 days, for a retry.") {
+                Picker("Keep dictations", selection: Binding(
+                    get: { historyRetention },
+                    set: { choice in
+                        if TranscriptionHistory.shared.droppedCount(under: choice) > 0 {
+                            pendingRetention = choice
+                        } else {
+                            historyRetentionRaw = choice.rawValue
+                        }
+                    })) {
+                    ForEach(HistoryRetention.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+        .id(SettingsAnchor.history)
+        .confirmationDialog(pendingRetention.map { choice in
+            let count = TranscriptionHistory.shared.droppedCount(under: choice)
+            return "Delete \(count == 1 ? "1 older dictation" : "\(HomeFormat.integer(count)) older dictations")?"
+        } ?? "", isPresented: Binding(get: { pendingRetention != nil }, set: { if !$0 { pendingRetention = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let choice = pendingRetention {
+                    historyRetentionRaw = choice.rawValue
+                    TranscriptionHistory.shared.applyRetention()
+                }
+                pendingRetention = nil
+            }
+            Button("Cancel", role: .cancel) { pendingRetention = nil }
+        } message: {
+            Text("Keeping \(pendingRetention?.phrase ?? "") deletes the older ones from History, with any audio kept for a retry. This can't be undone.")
         }
     }
 
@@ -277,6 +349,20 @@ struct SettingsView: View {
                         .help("Any colour — the glass and the shell follow its hue")
                     }
                 }
+            }
+        }
+
+        // The cards that explain a page, for anyone who has learnt it: shown or hidden
+        // only here, so a card closed by mistake is never gone for good.
+        SettingsGroup(title: "Main window") {
+            SettingsRow(title: "Shortcut card on Home",
+                        detail: "The card at the top of Home that plays each shortcut — Dictate, AI Rewrite and Edit.") {
+                SettingsSwitch(isOn: Binding(get: { !homeIntroHidden }, set: { homeIntroHidden = !$0 }))
+            }
+            SettingsDivider()
+            SettingsRow(title: "How AI Rewrite picks a prompt",
+                        detail: "The card at the top of the Prompts page, with examples of what you say and the prompt it fits.") {
+                SettingsSwitch(isOn: Binding(get: { !promptsIntroHidden }, set: { promptsIntroHidden = !$0 }))
             }
         }
     }
@@ -388,6 +474,7 @@ struct SettingsView: View {
         SettingsGroup(title: "Microphone") {
             MicrophoneField()
         }
+        .id(SettingsAnchor.microphone)
 
         SettingsGroup(title: "Language") {
             SpokenLanguagesField(stt: stt)

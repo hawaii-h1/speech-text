@@ -59,6 +59,121 @@ enum HistorySearch {
     }
 }
 
+// MARK: - App and date
+
+/// The day range History is narrowed to, beside the search and the filters.
+enum HistoryDates: Equatable, Hashable {
+    case anyTime, today, last7Days, last30Days
+    /// One day the user picked.
+    case day(Date)
+
+    static let presets: [HistoryDates] = [.anyTime, .today, .last7Days, .last30Days]
+
+    var title: String {
+        switch self {
+        case .anyTime: "Any time"
+        case .today: "Today"
+        case .last7Days: "Last 7 days"
+        case .last30Days: "Last 30 days"
+        case .day(let day): HistoryFormat.formatter("d MMM yyyy", calendar: .current).string(from: day)
+        }
+    }
+
+    func includes(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        let today = calendar.startOfDay(for: now)
+        func since(_ days: Int) -> Bool {
+            date >= (calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today)
+        }
+        switch self {
+        case .anyTime: return true
+        case .today: return since(1)
+        case .last7Days: return since(7)
+        case .last30Days: return since(30)
+        case .day(let day): return calendar.isDate(date, inSameDayAs: day)
+        }
+    }
+}
+
+/// What History is narrowed to besides the filter and the search: the app a dictation went
+/// to — named as its row names it (`HomeRecentEntry.place`, so "Record Window" and "Not
+/// pasted" are there too) — and a range of days.
+struct HistoryNarrowing: Equatable {
+    var app: String?
+    var dates: HistoryDates = .anyTime
+
+    var isEmpty: Bool { app == nil && dates == .anyTime }
+
+    func includes(_ record: TranscriptionRecord, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        if let app, HomeRecentEntry(record).place != app { return false }
+        return dates.includes(record.date, now: now, calendar: calendar)
+    }
+
+    /// Every place dictations went, the busiest first, with how many went there.
+    static func apps(in records: [TranscriptionRecord]) -> [(app: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for record in records { counts[HomeRecentEntry(record).place, default: 0] += 1 }
+        return counts.map { (app: $0.key, count: $0.value) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.app.localizedCompare($1.app) == .orderedAscending }
+    }
+}
+
+// MARK: - How long History keeps dictations
+
+/// How much History keeps: a number of the latest dictations, the ones from a span of
+/// time, or all of them — a single choice as Messages' "Keep messages" is. The audio of a
+/// failed dictation is kept a week whatever this says (`TranscriptionHistory.audioRetention`).
+enum HistoryRetention: String, CaseIterable, Identifiable {
+    case last300 = "300"
+    case last1000 = "1000"
+    case days30 = "30d"
+    case year = "1y"
+    case forever
+
+    /// What History always kept before the choice existed.
+    static let `default` = HistoryRetention.last300
+
+    var id: String { rawValue }
+
+    /// A stored value; anything unknown is the default.
+    static func stored(_ raw: String?) -> HistoryRetention {
+        raw.flatMap(HistoryRetention.init(rawValue:)) ?? .default
+    }
+
+    var title: String {
+        switch self {
+        case .last300: "300 dictations"
+        case .last1000: "1,000 dictations"
+        case .days30: "30 days"
+        case .year: "1 year"
+        case .forever: "Forever"
+        }
+    }
+
+    /// The end of "History keeps …".
+    var phrase: String {
+        switch self {
+        case .last300: "your last 300 dictations"
+        case .last1000: "your last 1,000 dictations"
+        case .days30: "the last 30 days of dictations"
+        case .year: "the last year of dictations"
+        case .forever: "every dictation"
+        }
+    }
+
+    /// How many of `records` — newest first — it keeps: the rest are older than it allows.
+    func keptCount(of records: [TranscriptionRecord], now: Date = Date(), calendar: Calendar = .current) -> Int {
+        switch self {
+        case .last300: return min(records.count, 300)
+        case .last1000: return min(records.count, 1000)
+        case .forever: return records.count
+        case .days30, .year:
+            let cutoff = calendar.date(byAdding: self == .days30 ? .day : .year, value: self == .days30 ? -30 : -1,
+                                       to: now) ?? now
+            return records.firstIndex { $0.date < cutoff } ?? records.count
+        }
+    }
+}
+
 // MARK: - Days
 
 /// One day of History: its records newest first, and what they came to.
@@ -76,13 +191,15 @@ struct HistoryDay: Identifiable, Equatable {
         }
     }
 
-    /// The records that pass `filter` and `query`, one day each, newest day first. History
-    /// is kept newest first, and so is each day.
+    /// The records that pass `filter`, `query` and `narrowing`, one day each, newest day
+    /// first. History is kept newest first, and so is each day.
     static func group(_ records: [TranscriptionRecord], filter: HistoryFilter = .all, query: String = "",
+                      narrowing: HistoryNarrowing = HistoryNarrowing(), now: Date = Date(),
                       calendar: Calendar = .current) -> [HistoryDay] {
         var days: [HistoryDay] = []
         var current: (start: Date, records: [TranscriptionRecord])?
-        for record in records where filter.includes(record) && HistorySearch.matches(record, query: query) {
+        for record in records where filter.includes(record) && HistorySearch.matches(record, query: query)
+            && narrowing.includes(record, now: now, calendar: calendar) {
             let start = calendar.startOfDay(for: record.date)
             if current?.start == start {
                 current?.records.append(record)
@@ -118,12 +235,22 @@ struct HistoryDay: Identifiable, Equatable {
 // MARK: - Formatting
 
 enum HistoryFormat {
+    /// Made once per format and calendar: a `DateFormatter` is costly to build, and every
+    /// History row asks for its clock each time it is drawn.
+    nonisolated(unsafe) private static var formatters: [String: DateFormatter] = [:]
+    private static let formattersLock = NSLock()
+
     static func formatter(_ format: String, calendar: Calendar) -> DateFormatter {
+        let key = "\(format)|\(calendar.identifier)|\(calendar.timeZone.identifier)"
+        formattersLock.lock()
+        defer { formattersLock.unlock() }
+        if let known = formatters[key] { return known }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_GB")
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = format
+        formatters[key] = formatter
         return formatter
     }
 

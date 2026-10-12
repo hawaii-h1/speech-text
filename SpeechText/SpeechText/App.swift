@@ -470,30 +470,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// main. A closed window is let go, so the next one opens on General — or the page the
     /// main window asked for — with every status read afresh.
     func showSettings(category: SettingsCategory? = nil) {
+        MainActor.assumeIsolated { presentSettings(category: category) }
+    }
+
+    /// Settings on the page that holds `anchor`, scrolled to it.
+    func showSettings(at anchor: SettingsAnchor) {
         MainActor.assumeIsolated {
-            if let settingsWindow {
-                if let category {
-                    NotificationCenter.default.post(name: .settingsShowCategory, object: category)
-                }
-                settingsWindow.present()
-                return
+            SettingsAnchor.pending = anchor
+            presentSettings(category: anchor.category)
+            NotificationCenter.default.post(name: .settingsScrollToAnchor, object: nil)
+        }
+    }
+
+    @MainActor
+    private func presentSettings(category: SettingsCategory?) {
+        if let settingsWindow {
+            if let category {
+                NotificationCenter.default.post(name: .settingsShowCategory, object: category)
             }
-            if let window = preparedSettingsWindow {
-                preparedSettingsWindow = nil
-                settingsWindow = window
-                window.present()
-                if let category, category != .general {
-                    NotificationCenter.default.post(name: .settingsShowCategory, object: category)
-                }
-                return
-            }
-            let window = SettingsWindow(category: category ?? .general) { [weak self] in
-                self?.settingsWindow = nil
-                self?.prepareSettingsWindowSoon()
-            }
+            settingsWindow.present()
+            return
+        }
+        if let window = preparedSettingsWindow {
+            preparedSettingsWindow = nil
             settingsWindow = window
             window.present()
+            if let category, category != .general {
+                NotificationCenter.default.post(name: .settingsShowCategory, object: category)
+            }
+            return
         }
+        let window = SettingsWindow(category: category ?? .general) { [weak self] in
+            self?.settingsWindow = nil
+            self?.prepareSettingsWindowSoon()
+        }
+        settingsWindow = window
+        window.present()
     }
 
     /// Builds the next Settings window a moment after the main window has drawn — and again
@@ -530,7 +542,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         MainActor.assumeIsolated {
             if mainWindow == nil {
                 let actions = MainWindowActions(
-                    openSettings: { [weak self] category in self?.showSettings(category: category) })
+                    openSettings: { [weak self] category in self?.showSettings(category: category) },
+                    openSettingsAt: { [weak self] anchor in self?.showSettings(at: anchor) })
                 mainWindow = MainWindow(actions: actions) { [weak self] in
                     self?.mainWindow = nil
                     self?.preparedSettingsWindow = nil

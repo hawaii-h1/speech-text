@@ -51,7 +51,8 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     var status: Status
     var errorMessage: String?
     /// The speech engine's `STTProviderType` raw value. A retry that succeeds rewrites
-    /// it with the engine that transcribed it then.
+    /// it with the engine that transcribed it then. `noSpeechProvider` for an edit sent
+    /// with no spoken instruction, which no engine heard.
     var provider: String
     let locale: String?
     let duration: TimeInterval
@@ -75,6 +76,13 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     var usageEvents: [UsageEvent]?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
+
+    /// The `provider` of an edit sent with no instruction (a double press): nothing was
+    /// recorded, so no engine heard anything and Usage counts no speech for it.
+    static let noSpeechProvider = "edit"
+
+    /// Whether a speech engine heard anything for this record.
+    var hasSpeech: Bool { provider != Self.noSpeechProvider }
 
     /// What the user actually received — the refined text when the LLM pass worked,
     /// otherwise the raw transcription.
@@ -140,8 +148,11 @@ final class TranscriptionHistory {
     /// Newest first.
     private(set) var records: [TranscriptionRecord] = []
 
-    /// Cap on retained entries. Archived audio for pruned entries is deleted with them.
-    private let maxRecords = 300
+    /// How much History keeps (`SettingsKeys.historyRetention`): the latest 300 until
+    /// the user chooses otherwise. Entries it lets go take their archived audio with them.
+    var retention: HistoryRetention {
+        HistoryRetention.stored(UserDefaults.standard.string(forKey: SettingsKeys.historyRetention))
+    }
     /// Archived audio is only useful for a retry; expire it so the disk doesn't grow forever.
     static let audioRetention: TimeInterval = 7 * 24 * 60 * 60
 
@@ -156,6 +167,8 @@ final class TranscriptionHistory {
         adoptPreRenameStore()
         load()
         pruneExpiredAudio()
+        // A span of time lets entries go as the days pass, not only when one is added.
+        applyRetention()
     }
 
     // MARK: Paths
@@ -268,7 +281,7 @@ final class TranscriptionHistory {
             return
         }
         var record = TranscriptionRecord(id: UUID(), date: Date(), text: "", status: .success,
-                                         errorMessage: nil, provider: "edit", locale: nil,
+                                         errorMessage: nil, provider: TranscriptionRecord.noSpeechProvider, locale: nil,
                                          duration: 0, audioFileName: nil, usageEvents: [])
         record.refinement = refinement
         record.usageEvents?.append(contentsOf: Self.chatEvent(for: refinement, latency: latency).map { [$0] } ?? [])
@@ -371,13 +384,30 @@ final class TranscriptionHistory {
 
     private func add(_ record: TranscriptionRecord) {
         records.insert(record, at: 0)
-        if records.count > maxRecords {
-            let dropped = records[maxRecords...]
-            dropped.forEach(deleteAudio)
-            records.removeLast(records.count - maxRecords)
-        }
+        trim(to: retention)
         histLog.info("recorded \(record.status.rawValue, privacy: .public) entry, \(record.text.count) chars")
         save()
+    }
+
+    /// How many entries `retention` would let go right now — what Settings asks about
+    /// before a shorter choice deletes them.
+    func droppedCount(under retention: HistoryRetention) -> Int {
+        records.count - retention.keptCount(of: records)
+    }
+
+    /// Lets go of what the stored choice no longer keeps; Settings calls it once the user
+    /// has agreed to a shorter one.
+    func applyRetention() {
+        if trim(to: retention) { save() }
+    }
+
+    @discardableResult
+    private func trim(to retention: HistoryRetention) -> Bool {
+        let kept = retention.keptCount(of: records)
+        guard kept < records.count else { return false }
+        records[kept...].forEach(deleteAudio)
+        records.removeLast(records.count - kept)
+        return true
     }
 
     func delete(_ record: TranscriptionRecord) {
@@ -450,7 +480,7 @@ final class TranscriptionHistory {
     /// Schedules one write for a burst of mutations.
     ///
     /// A single dictation mutates the store several times (the record, the apps it went
-    /// between, its refinement), and each write re-encodes up to 300 entries. The pending write is
+    /// between, its refinement), and each write re-encodes every entry kept. The pending write is
     /// cancelled and re-scheduled instead of stacking, so a burst costs one encode. The
     /// snapshot is taken when the write *fires*, so it is always the latest state.
     ///

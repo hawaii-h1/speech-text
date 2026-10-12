@@ -184,7 +184,9 @@ struct RecordCost: Equatable {
 
     init(_ record: TranscriptionRecord) {
         guard let events = record.usageEvents else {
-            if let price = UsagePrices.speech(provider: record.provider) {
+            if !record.hasSpeech {
+                // An edit with no instruction: nothing was heard, nothing to price.
+            } else if let price = UsagePrices.speech(provider: record.provider) {
                 speech = record.duration / 60 * price
             } else {
                 unpricedSpeech.append(record.provider)
@@ -359,11 +361,14 @@ struct HomeRecentEntry: Equatable, Identifiable {
 
 /// The intro card's picture, as a function of time: one dictation playing out on a loop —
 /// the overlay hears it word by word, then the stop pastes it, once, into a message
-/// (rewritten first on the AI tab). Its phases, the keys pressing with it, hold to talk
-/// keeping them down, Rewriting… on AI and the one paste at the stop are the design's
-/// approved animation — keep them as they are.
+/// (rewritten first on the AI tab; on the Edit tab a selection is replaced by what the
+/// instruction asked for). Its phases, Rewriting… while AI works and the one paste at the
+/// stop are the design's approved animation. The keys press one after another, quickly,
+/// and with hold to talk the modifiers are let go while the letter stays down — changed at
+/// the owner's call on 2026-10-12, so the card teaches what the hold tip does.
 struct HomeTalk: Equatable {
     enum Phase: Equatable { case idle, hear, work, done }
+    enum Mode: Equatable { case dictate, ai, edit }
 
     struct Script: Equatable {
         let app: String
@@ -372,6 +377,8 @@ struct HomeTalk: Equatable {
         let output: String
         /// The preset the rewrite reports, shown beside the pasted text.
         let preset: String?
+        /// The text selected before an edit, which its output replaces.
+        var selection: String? = nil
     }
 
     static let dictate = Script(
@@ -386,34 +393,66 @@ struct HomeTalk: Equatable {
         output: "Hi Olena, I'm running a few minutes late — please start without me. Sorry!",
         preset: "Email / Message")
 
+    static let edit = Script(
+        app: "Notes", place: "Trip plan",
+        said: "make it sound more sure".split(separator: " ").map(String.init),
+        output: "Let's go on Friday — it works for everyone.",
+        preset: nil,
+        selection: "i think maybe we could go on friday if thats ok for everyone")
+
     /// One tick is 100 ms.
     static let tickSeconds = 0.1
 
     let script: Script
-    let isAI: Bool
+    let mode: Mode
     let phase: Phase
     /// Words heard so far.
     let heard: Int
-    /// The shortcut's keys are down.
-    let keysDown: Bool
+    /// Which of the shortcut's caps are down, by index — the modifiers first, the letter
+    /// last, as the caps are drawn.
+    let litKeys: Set<Int>
 
-    init(tick: Int, ai: Bool, holdToTalk: Bool) {
-        let script = ai ? Self.ai : Self.dictate
-        let idle = 8, hear = script.said.count * 4, work = ai ? 14 : 3, show = 30
+    /// The text goes to AI — a rewrite or an edit; the overlay is violet.
+    var isAI: Bool { mode != .dictate }
+    var isEdit: Bool { mode == .edit }
+    /// Every key is down.
+    var keysDown: Bool { !litKeys.isEmpty }
+
+    init(tick: Int, mode: Mode, holdToTalk: Bool, keyCount: Int = 3) {
+        let script = switch mode { case .dictate: Self.dictate; case .ai: Self.ai; case .edit: Self.edit }
+        let idle = 8, hear = script.said.count * 4, work = mode == .dictate ? 3 : 14, show = 30
         let k = tick % (idle + hear + work + show)
         let phase: Phase = k < idle ? .idle : k < idle + hear ? .hear : k < idle + hear + work ? .work : .done
         self.script = script
-        isAI = ai
+        self.mode = mode
         self.phase = phase
         heard = switch phase {
         case .idle: 0
         case .hear: (k - idle) / 4 + 1
         case .work, .done: script.said.count
         }
-        // With hold to talk the keys stay down while it listens; otherwise they tap at the
-        // start and at the stop.
-        keysDown = holdToTalk ? phase == .hear
-            : (k >= idle && k < idle + 2) || (k >= idle + hear - 2 && k < idle + hear)
+        litKeys = Self.keys(at: k, idle: idle, hear: hear, holdToTalk: holdToTalk, count: keyCount)
+    }
+
+    /// The keys go down one after another, a tick apart, the letter last and just as the
+    /// overlay starts listening. With hold to talk the modifiers come up shortly after —
+    /// only the letter has to stay down — and the letter at the stop; otherwise the whole
+    /// shortcut is tapped at the start and again at the stop.
+    static func keys(at k: Int, idle: Int, hear: Int, holdToTalk: Bool, count: Int) -> Set<Int> {
+        let count = max(1, min(count, idle))
+        let letter = count - 1
+        let pressed = idle - letter
+        let stop = idle + hear
+        func cascade(from start: Int, until end: Int) -> Set<Int> {
+            guard k >= start, k < end else { return [] }
+            return Set((0..<count).filter { k >= start + $0 })
+        }
+        if holdToTalk {
+            let modifiersUp = idle + 4
+            if k < modifiersUp { return cascade(from: pressed, until: modifiersUp) }
+            return k < stop ? [letter] : []
+        }
+        return cascade(from: pressed, until: idle + 2).union(cascade(from: stop - count, until: stop))
     }
 
     /// The transcript on the overlay's glass: the settled words, then the last two — the
@@ -440,6 +479,17 @@ struct HomeTalk: Equatable {
         case .work: isAI ? .rewriting : .words
         case .done: .pasted
         }
+    }
+
+    /// What the message holds: the selection waiting to be edited, nothing but the caret
+    /// (before a paste, and once an edit's instruction is over and the selection is cut),
+    /// or the text pasted.
+    enum Message: Equatable { case caret, selection(String), pasted }
+
+    var message: Message {
+        if phase == .done { return .pasted }
+        if let selection = script.selection, phase != .work { return .selection(selection) }
+        return .caret
     }
 
     /// The dot matrix — `PixelDisplayMode`, which this file cannot name: the voice while

@@ -66,6 +66,8 @@ final class MainWindow: NSWindow {
 /// of its own — the speech engine, AI Rewrite's provider and the API keys live there.
 struct MainWindowActions {
     var openSettings: (SettingsCategory?) -> Void
+    /// Settings scrolled to one group — the setting a page is talking about.
+    var openSettingsAt: (SettingsAnchor) -> Void = { _ in }
 }
 
 @Observable
@@ -206,7 +208,7 @@ struct MainWindowView: View {
         case .home:
             HomeView(actions: actions) { navigation.page = $0 }
         case .history:
-            HistoryView()
+            HistoryView(actions: actions)
         case .usage:
             UsageView()
         case .prompts:

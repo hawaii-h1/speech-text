@@ -196,6 +196,41 @@ final class MainPagesTests: XCTestCase {
         XCTAssertEqual(speech.first { $0.provider == nil }?.uses, 1)
     }
 
+    func testAnEditWithNoInstructionIsNoSpeechEngine() {
+        var edit = record(text: "", provider: TranscriptionRecord.noSpeechProvider, duration: 0,
+                          refinement: refinement(edit: true), app: nil)
+        edit.usageEvents = []
+        var older = edit
+        older.usageEvents = nil
+        let summary = UsageSummary(records: [edit, older, record(refinement: refinement(model: "claude-sonnet-5"))],
+                                   period: .week, now: now, calendar: calendar)
+        XCTAssertEqual(summary.engines.filter { $0.step == .speech }.map(\.key), ["groq"],
+                       "an edit sent with no spoken instruction was heard by no engine")
+        XCTAssertFalse(summary.unpricedModels.contains("edit"))
+        let ai = summary.engines.first { $0.step == .ai }
+        XCTAssertEqual(ai?.uses, 3)
+        XCTAssertEqual(ai?.edits, 2, "the selections it edited are counted apart from the dictations it rewrote")
+    }
+
+    func testTheChartStartsWhereHistoryDoesButKeepsThePeriodsScale() {
+        let month = UsageSummary(records: [record(daysAgo: 2)], period: .month, now: now, calendar: calendar)
+        XCTAssertEqual(month.granularity, .day)
+        XCTAssertEqual(month.buckets.count, 7, "no empty bars before History began, but never under a week")
+        XCTAssertNotNil(month.chartSince)
+
+        let older = UsageSummary(records: [record(daysAgo: 12)], period: .month, now: now, calendar: calendar)
+        XCTAssertEqual(older.buckets.count, 13)
+        XCTAssertEqual(older.buckets.first?.words, 6)
+
+        let quarter = UsageSummary(records: [record(daysAgo: 20)], period: .quarter, now: now, calendar: calendar)
+        XCTAssertEqual(quarter.granularity, .week, "a short History does not turn 90 days into days")
+        XCTAssertLessThan(quarter.buckets.count, 6)
+
+        let full = UsageSummary(records: [record(daysAgo: 40)], period: .month, now: now, calendar: calendar)
+        XCTAssertEqual(full.buckets.count, 30)
+        XCTAssertNil(full.chartSince)
+    }
+
     func testAQuarterIsCountedInWeeks() {
         let summary = UsageSummary(records: [record(daysAgo: 80)], period: .quarter, now: now, calendar: calendar)
         XCTAssertEqual(summary.granularity, .week)
