@@ -42,6 +42,9 @@ are one provider, one key, two catalogue entries. All capability values:
 | | `.selectedModel(of:)` | borrows another vendor's pick (Apple → Groq) |
 | `Requirement` | `.none` / `.apiKey(key)` / `.installedModel` | what must exist before it runs |
 | `Vocabulary` | `.none` / `.termList(TermListLimits)` | takes the user's term list, and its limits |
+| `ListPrice` (speech and chat: the descriptor's `price`) | `.free` | runs on the Mac (local models, Apple, Ollama) |
+| | `.listed(rates)` | the vendor's list price: `SpeechRates` (a minute, plus a keyterm surcharge) or `ChatRates` (input, cached input, output per token) |
+| | `.notPriced` | the vendor publishes no price; Usage names the model rather than guessing |
 | `VocabularyField` (OpenAI-compatible upload) | `.prompt` | the words as Whisper's free-text `prompt` (Groq) |
 | | `.keywords` | a `keywords[]` field per term (OpenAI) |
 | `Dialect` (chat) | `.classic` | `max_tokens` + `temperature` (Groq) |
@@ -82,11 +85,12 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
 
 ## 3. A new model for a vendor already here
 
-- Speech: one `STTModelDescriptor` in `sttModelCatalog`, with a dated comment. Update
-  `testPickersKeepTheirOrderAndNames`.
+- Speech: one `STTModelDescriptor` in `sttModelCatalog`, with a dated comment and its
+  `price` from the vendor's page (docs/prices.md). Update `testPickersKeepTheirOrderAndNames`
+  and add its row to `ListPriceTests`.
 - Chat: one `ChatModelDescriptor` in `chatModelCatalog`, with its measured switches
-  (`reasoningEffort`, `reasoningOutput`, `refusalFallbacks`) and a dated comment, and its
-  whole body in `ChatRequestBodyTests`. An Ollama model is a `LocalLLMModel`, with its
+  (`reasoningEffort`, `reasoningOutput`, `refusalFallbacks`), its `price` and a dated
+  comment, its whole body in `ChatRequestBodyTests` and its row in `ListPriceTests`. An Ollama model is a `LocalLLMModel`, with its
   `reasoningEffort`; its descriptor is derived.
 - Changing a default: the `defaultID` of the provider's `ModelSetting` in
   `ProviderDescriptor`, and `testTheDefaultModelsAreTheChosenOnes`. Catalogue entries carry
@@ -123,7 +127,7 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
      (`UsageMeter`: the vendor, the model, the terms sent). A transcriber without them
      leaves no entry in History's ledger and is counted as free;
    - log sizes, timings and counts, never text, terms or keys; Foundation only, no SDK.
-3. Catalogue entries, a model key in `SettingsKeys`, and the descriptor's `speechModel`
+3. Catalogue entries, each with its `price` (docs/prices.md), a model key in `SettingsKeys`, and the descriptor's `speechModel`
    (`ModelSetting`: that key and the default). `portable`, normalisation and
    `RecordingConfiguration`'s `apiKeys` / `models` and the Settings picker follow
    from the descriptor. A realtime model's ID gets a constant in Settings.swift, beside
@@ -162,7 +166,7 @@ Read CLAUDE.md's streaming sections first. The rules:
 - Own API: a struct like `AnthropicChatClient`; build the request body in a pure
   function so it can be tested.
 - Either way: `LLMProviderType` case, `chatModelCatalog` entries (fastest good model
-  first), a `SettingsKeys` model key and the
+  first, each with its `price` — docs/prices.md), a `SettingsKeys` model key and the
   descriptor's `chatModel` (`ModelSetting`); `portable` and normalisation follow.
 - Return a `ChatReply`: the text and the reply's token counts as a `ChatUsage` — every
   input token in `inputTokens` (cache reads and writes added in where the API reports them
@@ -229,7 +233,7 @@ stt      | SpeechText/SpeechText/SettingsEngines.swift           | func onlineSp
 stt      | SpeechText/SpeechText/MenuBarView.swift               | struct SpokenLanguagesField                   | review      | the caption, only if the engine takes a language set
 stt      | SpeechText/SpeechTextTests/PureLogicTests.swift       | func testPickersKeepTheirOrderAndNames        | manual      | the new picker's ids and names
 stt      | SpeechText/SpeechText/HomeView.swift                  | private var speechEngine                      | compiler    | the engine's line on Home, with its stored model
-stt      | SpeechText/SpeechText/HomeSummary.swift               | static func speech(provider: String)          | compiler    | its price a minute, or nil written out (#129)
+stt      | SpeechText/SpeechTextTests/HomeSummaryTests.swift     | final class ListPriceTests                    | manual      | each model's list price, as on its descriptor (docs/prices.md)
 realtime | SpeechText/SpeechText/StreamingTranscribers.swift     | protocol StreamingTranscriber                 | manual:file | the transcriber class
 realtime | SpeechText/SpeechText/StreamingTranscribers.swift     | func makeStreamingTranscriber                 | compiler    | a case returning the realtime transcriber
 realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func isReconnectable                   | review      | its "no session" failure must be TranscriptionError.realtime(_, "no_session", _)
@@ -239,7 +243,7 @@ llm      | SpeechText/SpeechText/ChatClients.swift               | static func m
 llm      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the chat model key, named in the descriptor's chatModel
 llm      | SpeechText/SpeechText/SettingsEngines.swift           | func onlineAIServiceLine                      | review      | Settings › AI Rewrite lists every keyed pick by itself; add its line here, and each model's in chatModelLine
 llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class ChatRequestBodyTests              | manual      | each model's whole request body, written out
-llm      | SpeechText/SpeechText/HomeSummary.swift               | static func chat(provider: String, model: String) | review      | its models' token prices, or they show as not priced (#129)
+llm      | SpeechText/SpeechTextTests/HomeSummaryTests.swift     | final class ListPriceTests                    | manual      | each model's token prices, as on its descriptor (docs/prices.md)
 key      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | <vendor>APIKey
 key      | SpeechText/SpeechText/ProviderRegistry.swift          | var descriptor: ProviderDescriptor            | compiler    | the Provider case and its ProviderDescriptor: name, roles, and the APIKeyDescriptor (key page, create note, prefix, sample, verification)
 key      | SpeechText/SpeechText/SetupServices.swift             | enum SetupCards                               | review      | a setup card on the Speech and AI steps, if the maintainer wants one; SetupCardsTests checks what it saves

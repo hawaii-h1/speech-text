@@ -65,6 +65,30 @@ struct ChatModelDescriptor: Equatable {
     let reasoningOutput: ReasoningOutput
     /// Anthropic's server-side refusal fallbacks, documented for the Opus 5 / Fable 5 tier.
     let refusalFallbacks: Bool
+    /// The vendor's list price, checked on `UsagePrices.checked`. Required, so a model
+    /// added without one fails to build rather than showing as free.
+    let price: ListPrice<ChatRates>
+}
+
+/// What a vendor charges for a chat model's tokens.
+struct ChatRates: Hashable {
+    let inputPerToken: Double
+    /// A cache read (`ChatUsage.cachedInputTokens`) — the input price where the vendor
+    /// lists no cache.
+    let cachedInputPerToken: Double
+    let outputPerToken: Double
+
+    init(inputPerToken: Double, cachedInputPerToken: Double? = nil, outputPerToken: Double) {
+        self.inputPerToken = inputPerToken
+        self.cachedInputPerToken = cachedInputPerToken ?? inputPerToken
+        self.outputPerToken = outputPerToken
+    }
+
+    /// Dollars per million tokens, as every vendor lists them.
+    static func perMillion(input: Double, cachedInput: Double? = nil, output: Double) -> ChatRates {
+        ChatRates(inputPerToken: input / 1e6, cachedInputPerToken: cachedInput.map { $0 / 1e6 },
+                  outputPerToken: output / 1e6)
+    }
 }
 
 /// Groq: checked against Groq's model and deprecation pages on 2026-09-16. Both Llama
@@ -90,32 +114,49 @@ struct ChatModelDescriptor: Equatable {
 /// accepted values are `none / low / medium / high / xhigh`; `minimal` is rejected. Only
 /// the 5.6 family was measured, so a model added here without a measurement is sent
 /// nothing: an unsupported value costs the whole rewrite, a default effort only time.
+///
+/// Prices are pay-as-you-go list prices per million tokens as of `UsagePrices.checked`
+/// (docs/prices.md): Groq's models page (cached input only for gpt-oss, at the 50 %
+/// discount its prompt-caching page states), Anthropic's pricing page (cache hits as the
+/// cached price), OpenAI's pricing page (standard tier). A model on this Mac is free.
 let chatModelCatalog: [ChatModelDescriptor] = [
     ChatModelDescriptor(provider: .groq, id: "openai/gpt-oss-120b", displayName: "GPT-OSS 120B",
-                        reasoningEffort: "low", reasoningOutput: .excluded, refusalFallbacks: false),
+                        reasoningEffort: "low", reasoningOutput: .excluded, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 0.15, cachedInput: 0.075, output: 0.60))),
     ChatModelDescriptor(provider: .groq, id: "openai/gpt-oss-20b", displayName: "GPT-OSS 20B (fastest)",
-                        reasoningEffort: "low", reasoningOutput: .excluded, refusalFallbacks: false),
+                        reasoningEffort: "low", reasoningOutput: .excluded, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 0.075, cachedInput: 0.0375, output: 0.30))),
     ChatModelDescriptor(provider: .groq, id: "qwen/qwen3.8-27b", displayName: "Qwen3.8 27B (preview)",
-                        reasoningEffort: "none", reasoningOutput: .hidden, refusalFallbacks: false),
+                        reasoningEffort: "none", reasoningOutput: .hidden, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 0.80, output: 4.00))),
+    // Groq lists no price for it ("Contact sales").
     ChatModelDescriptor(provider: .groq, id: "minimaxai/minimax-m2.7", displayName: "MiniMax M2.7 (preview)",
-                        reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false),
+                        reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false,
+                        price: .notPriced),
 
     ChatModelDescriptor(provider: .anthropic, id: "claude-sonnet-5", displayName: "Claude Sonnet 5",
-                        reasoningEffort: "low", reasoningOutput: .unchanged, refusalFallbacks: false),
+                        reasoningEffort: "low", reasoningOutput: .unchanged, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 2, cachedInput: 0.20, output: 10))),
     ChatModelDescriptor(provider: .anthropic, id: "claude-opus-5", displayName: "Claude Opus 5",
-                        reasoningEffort: "low", reasoningOutput: .unchanged, refusalFallbacks: true),
+                        reasoningEffort: "low", reasoningOutput: .unchanged, refusalFallbacks: true,
+                        price: .listed(.perMillion(input: 5, cachedInput: 0.50, output: 25))),
     ChatModelDescriptor(provider: .anthropic, id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5 (fastest)",
-                        reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false),
+                        reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 1, cachedInput: 0.10, output: 5))),
 
     ChatModelDescriptor(provider: .openai, id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna — fastest",
-                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false),
+                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 0.20, cachedInput: 0.02, output: 1.20))),
     ChatModelDescriptor(provider: .openai, id: "gpt-5.6-terra", displayName: "GPT-5.6 Terra — balanced",
-                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false),
+                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 2, cachedInput: 0.20, output: 12))),
     ChatModelDescriptor(provider: .openai, id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol — flagship",
-                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false),
+                        reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false,
+                        price: .listed(.perMillion(input: 4, cachedInput: 0.40, output: 20))),
 ] + localLLMModels.map { local in
     ChatModelDescriptor(provider: .ollama, id: local.id, displayName: local.displayName,
-                        reasoningEffort: local.reasoningEffort, reasoningOutput: .unchanged, refusalFallbacks: false)
+                        reasoningEffort: local.reasoningEffort, reasoningOutput: .unchanged, refusalFallbacks: false,
+                        price: .free)
 }
 
 func chatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
@@ -135,8 +176,9 @@ func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
         // Normalisation moves a stored cloud ID the catalogue no longer lists to the
         // default at launch, so only an ID nobody measured gets here. It is sent no
         // switch: an unsupported one costs the whole rewrite, a default effort only time.
+        // Nor a price: it is named as unpriced, never charged at another model's rate.
         return ChatModelDescriptor(provider: provider, id: id, displayName: id, reasoningEffort: nil,
-                                   reasoningOutput: .unchanged, refusalFallbacks: false)
+                                   reasoningOutput: .unchanged, refusalFallbacks: false, price: .notPriced)
     case .ollama:
         // Ollama runs any tag the daemon has. A tag takes the effort of the catalogue
         // family its name begins with (any gpt-oss build takes `gpt-oss:20b`'s `low`), and
@@ -147,7 +189,7 @@ func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
             .max { $0.name.count < $1.name.count }
         return ChatModelDescriptor(provider: .ollama, id: id, displayName: id,
                                    reasoningEffort: family?.model.reasoningEffort ?? "none",
-                                   reasoningOutput: .unchanged, refusalFallbacks: false)
+                                   reasoningOutput: .unchanged, refusalFallbacks: false, price: .free)
     }
 }
 

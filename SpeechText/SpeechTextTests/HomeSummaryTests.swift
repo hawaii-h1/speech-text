@@ -67,27 +67,22 @@ final class HomeSummaryTests: XCTestCase {
     }
 
     func testSpentPricesWhatItKnowsAndNamesWhatItDoesNot() {
+        var turbo = record(duration: 60, provider: "groq")
+        turbo.sttModel = "whisper-large-v3-turbo"
+        var minimax = record(duration: 60, provider: "local",
+                             refinement: refinement(model: "minimaxai/minimax-m2.7", provider: "groq"))
+        minimax.sttModel = "parakeet-tdt-0.6b-v3"
         let week = HomeWeek(records: [
+            turbo,
+            minimax,
             record(duration: 60, provider: "groq"),
-            record(duration: 60, provider: "local"),
-            record(duration: 60, provider: "openai", refinement: refinement(model: "gpt-5.6-luna", provider: "openai")),
+            record(duration: 60, provider: "openai", refinement: refinement(model: "gpt-9", provider: "openai")),
         ], now: now, calendar: calendar)
         XCTAssertEqual(week.speechCost, 0.04 / 60, accuracy: 1e-9)
         XCTAssertEqual(week.aiCost, 0)
-        XCTAssertEqual(week.unpricedModels, ["openai", "gpt-5.6-luna"])
-    }
-
-    /// Every engine has a price or an explicit "not priced", keyed by the raw value History
-    /// stores; a string that names no engine is not priced.
-    func testEverySpeechEngineIsPricedOrSaysItIsNot() {
-        let expected: [String: Double?] = [
-            "apple": 0, "local": 0, "groq": 0.04 / 60, "elevenlabs": 0.40 / 60, "openai": nil,
-        ]
-        XCTAssertEqual(Set(STTProviderType.allCases.map(\.rawValue)), Set(expected.keys))
-        for (provider, price) in expected {
-            XCTAssertEqual(UsagePrices.speech(provider: provider), price, provider)
-        }
-        XCTAssertNil(UsagePrices.speech(provider: "not-an-engine"))
+        XCTAssertEqual(week.unpricedModels, ["MiniMax M2.7", "Groq", "OpenAI", "gpt-9"],
+                       "named as the pages name them: a model with no list price, an engine whose models differ "
+                       + "and the record named none, an ID the catalogue does not list")
     }
 
     func testAnOllamaRewriteCostsNothing() {
@@ -114,6 +109,8 @@ final class HomeSummaryTests: XCTestCase {
         XCTAssertEqual(HomeFormat.money(0), "$0")
         XCTAssertEqual(HomeFormat.money(0.004), "<$0.01")
         XCTAssertEqual(HomeFormat.money(0.2), "$0.20")
+        XCTAssertEqual(HomeFormat.estimate(1.2), "≈ $1.20")
+        XCTAssertEqual(HomeFormat.estimate(0), "$0", "nothing spent is exact")
         XCTAssertEqual(HomeFormat.integer(2831), "2,831")
     }
 
@@ -208,5 +205,91 @@ private extension TranscriptionRecord {
         var copy = self
         copy.refinement = refinement
         return copy
+    }
+}
+
+/// The list prices on the catalogues: every model has one or says it has none, and the
+/// table is written out here, so a refreshed price is a deliberate two-line change
+/// (docs/prices.md).
+final class ListPriceTests: XCTestCase {
+    /// Dollars a minute, and the keyterm surcharge a minute.
+    private let speech: [String: (Double, Double)] = [
+        "groq/whisper-large-v3-turbo": (0.04 / 60, 0),
+        "groq/whisper-large-v3": (0.111 / 60, 0),
+        "elevenLabs/scribe_v2": (0.22 / 60, 0.05 / 60),
+        "elevenLabs/scribe_v2_realtime": (0.39 / 60, 0.08 / 60),
+        "openAI/gpt-transcribe": (0.0045, 0),
+        "openAI/gpt-4o-mini-transcribe": (0.003, 0),
+        "openAI/gpt-live-transcribe": (0.017, 0),
+    ]
+
+    /// Dollars per million tokens: input, cached input, output; nil for not priced.
+    private let chat: [String: (Double, Double, Double)?] = [
+        "groq/openai/gpt-oss-120b": (0.15, 0.075, 0.60),
+        "groq/openai/gpt-oss-20b": (0.075, 0.0375, 0.30),
+        "groq/qwen/qwen3.8-27b": (0.80, 0.80, 4.00),
+        "groq/minimaxai/minimax-m2.7": nil,
+        "anthropic/claude-sonnet-5": (2, 0.20, 10),
+        "anthropic/claude-opus-5": (5, 0.50, 25),
+        "anthropic/claude-haiku-4-5": (1, 0.10, 5),
+        "openai/gpt-5.6-luna": (0.20, 0.02, 1.20),
+        "openai/gpt-5.6-terra": (2, 0.20, 12),
+        "openai/gpt-5.6-sol": (4, 0.40, 20),
+    ]
+
+    func testEverySpeechModelIsPricedFreeOrSaysItIsNot() {
+        for model in sttModelCatalog {
+            let key = "\(model.vendor.rawValue)/\(model.id)"
+            switch model.vendor {
+            case .apple, .local:
+                XCTAssertEqual(model.price, .free, "\(key) runs on the Mac")
+            default:
+                guard let expected = speech[key] else { return XCTFail("\(key) has no row here: add its price") }
+                guard case .listed(let rates) = model.price else { return XCTFail("\(key) is not priced") }
+                XCTAssertEqual(rates.perMinute, expected.0, accuracy: 1e-12, key)
+                XCTAssertEqual(rates.keytermSurchargePerMinute, expected.1, accuracy: 1e-12, key)
+            }
+        }
+        let cloud = sttModelCatalog.filter { ![.apple, .local].contains($0.vendor) }
+        XCTAssertEqual(Set(cloud.map { "\($0.vendor.rawValue)/\($0.id)" }), Set(speech.keys), "a row for a model that is gone")
+    }
+
+    func testEveryChatModelIsPricedFreeOrSaysItIsNot() {
+        for model in chatModelCatalog {
+            let key = "\(model.provider.rawValue)/\(model.id)"
+            if model.provider == .ollama {
+                XCTAssertEqual(model.price, .free, "\(key) runs on the Mac")
+                continue
+            }
+            guard let row = chat[key] else { XCTFail("\(key) has no row here: add its price"); continue }
+            guard let expected = row else {
+                XCTAssertEqual(model.price, .notPriced, "\(key) is written down as not priced")
+                continue
+            }
+            guard case .listed(let rates) = model.price else { XCTFail("\(key) is not priced"); continue }
+            XCTAssertEqual(rates.inputPerToken * 1e6, expected.0, accuracy: 1e-9, key)
+            XCTAssertEqual(rates.cachedInputPerToken * 1e6, expected.1, accuracy: 1e-9, key)
+            XCTAssertEqual(rates.outputPerToken * 1e6, expected.2, accuracy: 1e-9, key)
+            XCTAssertLessThanOrEqual(rates.cachedInputPerToken, rates.inputPerToken, key)
+        }
+        let cloud = chatModelCatalog.filter { $0.provider != .ollama }
+        XCTAssertEqual(Set(cloud.map { "\($0.provider.rawValue)/\($0.id)" }), Set(chat.keys), "a row for a model that is gone")
+    }
+
+    /// An ID the catalogue does not list is never charged at another model's rate.
+    func testAnUnlistedModelIsNotPricedUnlessItRunsOnTheMac() {
+        XCTAssertEqual(UsagePrices.speech(vendor: .groq, model: "whisper-next"), .notPriced)
+        XCTAssertEqual(UsagePrices.speech(vendor: .local, model: "some-local-model"), .free)
+        XCTAssertEqual(UsagePrices.chat(provider: "anthropic", model: "claude-next"), .notPriced)
+        XCTAssertEqual(UsagePrices.chat(provider: "ollama", model: "llama9:1b"), .free)
+        XCTAssertEqual(UsagePrices.chat(vendor: .ollama, model: "gemma4:12b"), .free)
+        XCTAssertEqual(UsagePrices.chat(provider: "not-a-provider", model: "x"), .notPriced)
+        XCTAssertEqual(UsagePrices.speech(provider: "not-an-engine", model: nil), .notPriced)
+        XCTAssertEqual(UsagePrices.speech(provider: "apple", model: nil), .free)
+    }
+
+    func testTheTableSaysWhenItWasChecked() {
+        XCTAssertEqual(UsagePrices.checkedText, "14 October 2026")
+        XCTAssertEqual(UsagePrices.disclaimer, "list prices as of 14 October 2026, not your bill")
     }
 }

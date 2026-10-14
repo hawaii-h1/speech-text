@@ -6,9 +6,9 @@ import Foundation
 // What the main window's Usage page says, worked out from History — pure, so the numbers,
 // the chart's buckets and the breakdowns are testable without a window. Counted as Home's
 // week counts (`HomeWeek`): words that ended up as text, time saved against typing, and
-// the providers' list prices (`UsagePrices`) for what they price — an AI pass at the tokens
-// its provider reported, estimated from its words only when it predates them
-// (`UsagePrices.Chat.cost(of:)`). History keeps what `HistoryRetention` lets it, so
+// the providers' list prices (`UsagePrices`) for what they price, as an estimate — an AI
+// pass at the tokens its provider reported, estimated from its words only when it
+// predates them (`ChatRates.cost(of:)`). History keeps what `HistoryRetention` lets it, so
 // "All" is what it holds. The page is UsageView.swift.
 
 /// The page's periods.
@@ -85,7 +85,7 @@ struct UsageSummary: Equatable {
         /// the rest were dictations it rewrote.
         var edits = 0
         var minutes: Double = 0
-        /// Nil when `UsagePrices` does not know its price.
+        /// Nil when the model has no list price (`ListPrice.notPriced`).
         var cost: Double? = 0
         var isLocal = false
 
@@ -247,12 +247,12 @@ struct UsageSummary: Equatable {
                 let s = engine(.speech, record.provider, provider: record.sttModel)
                 engines[s].uses += 1
                 engines[s].minutes += minutes
-                engines[s].isLocal = UsagePrices.speech(provider: record.provider) == 0
+                engines[s].isLocal = UsagePrices.speech(provider: record.provider, model: record.sttModel).isFree
                 if cost.unpricedSpeech.isEmpty {
                     engines[s].cost = engines[s].cost.map { $0 + speech }
                 } else {
                     engines[s].cost = nil
-                    unpriced += cost.unpricedSpeech.map(HistoryFormat.engine)
+                    unpriced += cost.unpricedSpeech
                 }
             }
 
@@ -268,7 +268,7 @@ struct UsageSummary: Equatable {
                 if edit { engines[a].edits += 1 }
                 if cost.unpricedChat.isEmpty {
                     engines[a].cost = engines[a].cost.map { $0 + ai }
-                    engines[a].isLocal = UsagePrices.chat(provider: refinement.provider, model: refinement.model)?.isFree == true
+                    engines[a].isLocal = UsagePrices.chat(provider: refinement.provider, model: refinement.model).isFree
                 } else {
                     engines[a].cost = nil
                 }

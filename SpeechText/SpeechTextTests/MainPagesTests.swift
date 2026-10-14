@@ -154,7 +154,8 @@ final class MainPagesTests: XCTestCase {
         XCTAssertEqual(week.kinds[.rewritten]?.count, 1)
         XCTAssertEqual(week.kinds[.edit]?.words, 0)
         XCTAssertGreaterThan(week.aiCost, 0)
-        XCTAssertEqual(week.speechCost, 4 * 3 / 60 * 0.04 / 60, accuracy: 1e-12)
+        XCTAssertEqual(week.speechCost, 0, "Groq's two models differ in price and these records name neither")
+        XCTAssertEqual(week.unpricedModels, ["Groq"])
 
         let all = UsageSummary(records: records, period: .all, now: now, calendar: calendar)
         XCTAssertEqual(all.dictations, 5)
@@ -179,7 +180,9 @@ final class MainPagesTests: XCTestCase {
         XCTAssertEqual(Set(speech.map(\.key)), ["local", "openai", "groq"])
         XCTAssertEqual(speech.first { $0.key == "local" }?.isLocal, true)
         XCTAssertNil(speech.first { $0.key == "openai" }?.cost)
-        XCTAssertEqual(summary.unpricedModels, ["OpenAI", "gpt-5.6-luna"])
+        XCTAssertEqual(summary.unpricedModels, ["OpenAI", "Groq", "gpt-5.6-luna"],
+                       "engines whose models differ in price, with no model recorded, and a model Anthropic does not list")
+        XCTAssertNil(summary.engines.first { $0.key == "gpt-5.6-luna" }?.cost)
         XCTAssertEqual(summary.apps.first?.app, "Slack")
         XCTAssertEqual(summary.apps.first?.dictations, 2)
     }
@@ -308,7 +311,7 @@ final class ChatUsageTests: XCTestCase {
     }
 
     func testAPassIsPricedAtItsTokensAndEstimatedOnlyWithoutThem() throws {
-        let price = UsagePrices.Chat(inputPerToken: 1 / 1e6, outputPerToken: 10 / 1e6)
+        let price = ChatRates(inputPerToken: 1 / 1e6, outputPerToken: 10 / 1e6)
         var pass = TranscriptionRecord.Refinement(inputText: "one two", outputText: "One, two.", presetName: nil,
                                                   provider: "groq", model: "m")
         XCTAssertTrue(price.isEstimate(pass))
@@ -318,7 +321,10 @@ final class ChatUsageTests: XCTestCase {
         XCTAssertFalse(price.isEstimate(pass))
         XCTAssertEqual(price.cost(of: pass), 3000 / 1e6 + 5000 / 1e6, accuracy: 1e-12,
                        "every input and output token, the cached and reasoning ones not counted twice")
-        XCTAssertFalse(UsagePrices.Chat(inputPerToken: 0, outputPerToken: 0).isEstimate(
+        let cached = ChatRates(inputPerToken: 1 / 1e6, cachedInputPerToken: 0.1 / 1e6, outputPerToken: 10 / 1e6)
+        XCTAssertEqual(cached.cost(of: pass), 2000 / 1e6 + 100 / 1e6 + 5000 / 1e6, accuracy: 1e-12,
+                       "the cached part of the input at the cached price, the rest at the input price")
+        XCTAssertFalse(ChatRates(inputPerToken: 0, outputPerToken: 0).isEstimate(
             TranscriptionRecord.Refinement(inputText: "a", outputText: "b", presetName: nil, provider: "ollama", model: "m")),
                        "a free model has nothing to estimate")
     }
@@ -340,7 +346,7 @@ final class ChatUsageTests: XCTestCase {
         XCTAssertEqual(week.aiCost, usage.aiCost, accuracy: 1e-12)
         XCTAssertEqual(week.estimatedAIPasses, 1)
         XCTAssertEqual(usage.estimatedAIPasses, 1)
-        let price = try XCTUnwrap(UsagePrices.chat(provider: "anthropic", model: "claude-sonnet-5"))
+        let price = try XCTUnwrap(UsagePrices.chat(provider: "anthropic", model: "claude-sonnet-5").listed)
         XCTAssertEqual(usage.aiCost, price.cost(ChatUsage(inputTokens: 2400, outputTokens: 30))
                        + price.cost(inputWords: 3, outputWords: 3), accuracy: 1e-12)
     }

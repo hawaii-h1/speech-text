@@ -967,9 +967,14 @@ final class UsageLedgerPricingTests: XCTestCase {
         return record
     }
 
-    private func speech(_ kind: UsageEvent.Kind, _ vendor: Provider, seconds: Double, billed: Double? = nil) -> UsageEvent {
-        UsageEvent(date: now, kind: kind, vendor: vendor, model: "m", succeeded: true,
-                   audioSeconds: seconds, billedSeconds: billed)
+    private func speech(_ kind: UsageEvent.Kind, _ vendor: Provider, model: String? = nil, seconds: Double,
+                        billed: Double? = nil, keyterms: Int? = nil) -> UsageEvent {
+        UsageEvent(date: now, kind: kind, vendor: vendor, model: model ?? vendor.defaultSpeechModel, succeeded: true,
+                   audioSeconds: seconds, billedSeconds: billed, keyterms: keyterms)
+    }
+
+    private func perMinute(_ vendor: Provider, _ model: String) throws -> Double {
+        try XCTUnwrap(UsagePrices.speech(vendor: vendor, model: model).listed?.perMinute)
     }
 
     /// History stores the vendor's and the kind's raw values; a rename is a migration.
@@ -995,16 +1000,38 @@ final class UsageLedgerPricingTests: XCTestCase {
     /// Every request is priced: the socket and the upload that replaced it, at the billed
     /// seconds where the vendor reported them.
     func testALedgerIsPricedFromItsEntriesAlone() throws {
-        let elevenLabs = try XCTUnwrap(UsagePrices.speech(vendor: .elevenLabs))
-        let groq = try XCTUnwrap(UsagePrices.speech(vendor: .groq))
-        let cost = RecordCost(record(events: [speech(.stream, .elevenLabs, seconds: 30),
+        let realtime = try perMinute(.elevenLabs, "scribe_v2_realtime")
+        let elevenLabs = try perMinute(.elevenLabs, "scribe_v2")
+        let groq = try perMinute(.groq, "whisper-large-v3-turbo")
+        XCTAssertNotEqual(realtime, elevenLabs, "each model at its own price")
+        let cost = RecordCost(record(events: [speech(.stream, .elevenLabs, model: "scribe_v2_realtime", seconds: 30),
                                               speech(.upload, .elevenLabs, seconds: 30, billed: 31),
                                               speech(.retry, .groq, seconds: 3, billed: 10)]))
-        XCTAssertEqual(cost.speech, 30 / 60 * elevenLabs + 31 / 60 * elevenLabs + 10 / 60 * groq, accuracy: 1e-12)
+        XCTAssertEqual(cost.speech, 30 / 60 * realtime + 31 / 60 * elevenLabs + 10 / 60 * groq, accuracy: 1e-12)
 
         XCTAssertEqual(RecordCost(record(events: [])).total, 0, "nothing sent, nothing spent — not the minute it lasted")
-        XCTAssertEqual(RecordCost(record(events: nil)).speech, elevenLabs, accuracy: 1e-12,
-                       "a record from before the ledger is priced by its length, as before")
+        var old = record(events: nil)
+        old.sttModel = "scribe_v2"
+        XCTAssertEqual(RecordCost(old).speech, elevenLabs, accuracy: 1e-12,
+                       "a record from before the ledger is priced by its length at its model's price")
+        let unnamed = RecordCost(record(events: nil))
+        XCTAssertEqual(unnamed.speech, 0, "Scribe's models differ, and this record names neither: not guessed")
+        XCTAssertEqual(unnamed.unpricedSpeech, ["ElevenLabs"])
+        XCTAssertEqual(RecordCost(record(provider: "local", events: nil)).unpricedSpeech, [], "every local model is free")
+    }
+
+    /// Scribe bills keyterm prompting per hour on top of the audio; OpenAI's keywords cost
+    /// nothing extra.
+    func testKeytermsAddTheirSurchargeWhereTheVendorBillsOne() throws {
+        let plain = RecordCost(record(events: [speech(.upload, .elevenLabs, seconds: 3600)])).speech
+        let withTerms = RecordCost(record(events: [speech(.upload, .elevenLabs, seconds: 3600, keyterms: 12)])).speech
+        XCTAssertEqual(plain, 0.22, accuracy: 1e-9)
+        XCTAssertEqual(withTerms, 0.22 + 0.05, accuracy: 1e-9)
+        let stream = RecordCost(record(events: [speech(.stream, .elevenLabs, model: "scribe_v2_realtime",
+                                                       seconds: 3600, keyterms: 3)])).speech
+        XCTAssertEqual(stream, 0.39 + 0.08, accuracy: 1e-9)
+        let openAI = RecordCost(record(provider: "openai", events: [speech(.upload, .openAI, seconds: 60, keyterms: 5)]))
+        XCTAssertEqual(openAI.speech, 0.0045, accuracy: 1e-12)
     }
 
     /// A retry clears the pass it replaced, not what the pass cost.
@@ -1017,7 +1044,7 @@ final class UsageLedgerPricingTests: XCTestCase {
         XCTAssertEqual(event.vendor, .anthropic)
         XCTAssertEqual(event.latency, 1.2)
 
-        let price = try XCTUnwrap(UsagePrices.chat(provider: "anthropic", model: "claude-sonnet-5"))
+        let price = try XCTUnwrap(UsagePrices.chat(provider: "anthropic", model: "claude-sonnet-5").listed)
         let cleared = RecordCost(record(provider: "apple", events: [event], refinement: nil))
         XCTAssertEqual(cleared.ai, price.cost(ChatUsage(inputTokens: 2000, outputTokens: 40)), accuracy: 1e-12)
         let withPass = RecordCost(record(provider: "apple", events: [event], refinement: pass))
@@ -1034,7 +1061,7 @@ final class UsageLedgerPricingTests: XCTestCase {
 
     /// A token-billed transcription is still speech: priced by its audio, never as a chat model.
     func testASpeechRequestIsPricedAsSpeechWhateverItsReplyCarried() throws {
-        let groq = try XCTUnwrap(UsagePrices.speech(vendor: .groq))
+        let groq = try perMinute(.groq, "whisper-large-v3-turbo")
         var upload = speech(.upload, .groq, seconds: 60)
         upload.tokens = ChatUsage(inputTokens: 900, outputTokens: 20)
         let cost = RecordCost(record(provider: "groq", events: [upload]))
@@ -1045,7 +1072,8 @@ final class UsageLedgerPricingTests: XCTestCase {
 
     /// A refused upload or retry was not billed; a socket was used whatever it answered.
     func testARefusedRequestCostsNothingAndAStreamCostsItsAudio() throws {
-        let elevenLabs = try XCTUnwrap(UsagePrices.speech(vendor: .elevenLabs))
+        let elevenLabs = try perMinute(.elevenLabs, "scribe_v2")
+        let realtime = try perMinute(.elevenLabs, "scribe_v2_realtime")
         let refused = UsageEvent(date: now, kind: .retry, vendor: .elevenLabs, model: "scribe_v2", succeeded: false,
                                  audioSeconds: 60)
         XCTAssertEqual(RecordCost(record(events: [refused, refused])).speech, 0)
@@ -1053,12 +1081,13 @@ final class UsageLedgerPricingTests: XCTestCase {
         let broken = UsageEvent(date: now, kind: .stream, vendor: .elevenLabs, model: "scribe_v2_realtime",
                                 succeeded: false, audioSeconds: 30)
         let cost = RecordCost(record(events: [broken, speech(.upload, .elevenLabs, seconds: 30)]))
-        XCTAssertEqual(cost.speech, elevenLabs, accuracy: 1e-12, "the broken socket and its upload, half a minute each")
+        XCTAssertEqual(cost.speech, (realtime + elevenLabs) / 2, accuracy: 1e-12,
+                       "the broken socket and its upload, half a minute each")
     }
 
     func testAnEnginesUnpricedRequestsAreNamedNotGuessed() {
-        let cost = RecordCost(record(events: [speech(.upload, .openAI, seconds: 60)]))
+        let cost = RecordCost(record(events: [speech(.upload, .openAI, model: "gpt-9-transcribe", seconds: 60)]))
         XCTAssertEqual(cost.speech, 0)
-        XCTAssertEqual(cost.unpricedSpeech, ["openai"], "named as the engine is everywhere else")
+        XCTAssertEqual(cost.unpricedSpeech, ["gpt-9-transcribe"], "an ID the catalogue does not list is named, not priced as another")
     }
 }

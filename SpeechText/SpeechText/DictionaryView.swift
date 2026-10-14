@@ -590,8 +590,8 @@ private struct DictionaryEffects: View {
             let title = provider == .apple ? "Apple's recogniser listens for them" : "\(vendor) is given them"
             var detail = Self.count(sent: CustomVocabulary.selected(terms, limits: limits).count,
                                     of: terms.count, model: model.displayName)
-            if model.vendor == .elevenLabs {
-                detail += " ElevenLabs charges 20% more for a transcription that carries them."
+            if let surcharge = model.price.listed?.keytermSurchargePerMinute, surcharge > 0 {
+                detail += " \(vendor) charges about \(HomeFormat.money(surcharge * 60)) an hour more for a transcription that carries them."
             }
             return (title, detail, true)
         }

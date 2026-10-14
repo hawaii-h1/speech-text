@@ -558,7 +558,7 @@ extension ElevenLabsTranscriber {
         }
 
         // A list field is the same name repeated, which is how the vendor's own SDK
-        // sends it. +20 % on the transcription's price, so nothing unless there are terms.
+        // sends it. Billed as a surcharge per hour (`SpeechRates.keytermSurchargePerMinute`), so nothing unless there are terms.
         for term in keyterms {
             body.appendMultipartField(boundary: boundary, name: "keyterms", value: term)
         }

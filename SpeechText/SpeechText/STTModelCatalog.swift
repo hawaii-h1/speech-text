@@ -40,6 +40,9 @@ struct STTModelDescriptor: Identifiable, Hashable {
     let batchUpload: BatchUpload
     /// What must be in place before the model can run.
     let requirement: Requirement
+    /// The vendor's list price, checked on `UsagePrices.checked`. Required, so a model
+    /// added without one fails to build rather than showing as free.
+    let price: ListPrice<SpeechRates>
     /// Whether the model takes the user's vocabulary, and within what limits. `var` with
     /// a default so a descriptor built without it — every model that takes none, and an
     /// unlisted ID — sends nothing.
@@ -150,6 +153,34 @@ extension TermListLimits {
                                                        maxWords: nil, forbidden: [])
 }
 
+// MARK: - List prices
+
+/// A model's list price: free (it runs on the Mac), the vendor's rates, or explicitly
+/// not priced — a vendor that publishes none, which Usage names instead of guessing.
+enum ListPrice<Rates: Hashable>: Hashable {
+    case free
+    case listed(Rates)
+    case notPriced
+}
+
+/// What a vendor charges for speech, a minute of audio at a time.
+struct SpeechRates: Hashable {
+    let perMinute: Double
+    /// Added for a request that carried the user's words (`UsageEvent.keyterms`) — Scribe's
+    /// keyterm prompting. Zero where sending them costs nothing extra.
+    var keytermSurchargePerMinute: Double = 0
+
+    init(perMinute: Double, keytermSurchargePerMinute: Double = 0) {
+        self.perMinute = perMinute
+        self.keytermSurchargePerMinute = keytermSurchargePerMinute
+    }
+
+    /// Groq and ElevenLabs list their speech prices by the hour.
+    init(perHour: Double, keytermSurchargePerHour: Double = 0) {
+        self.init(perMinute: perHour / 60, keytermSurchargePerMinute: keytermSurchargePerHour / 60)
+    }
+}
+
 /// Apple's recogniser in the catalogue. Never stored — `sttProvider == "apple"` selects
 /// it — so it only has to be unique among Apple's entries, of which it is the one.
 let appleSpeechModelID = "apple-speech"
@@ -157,6 +188,13 @@ let appleSpeechModelID = "apple-speech"
 /// Every speech model the app offers, grouped by vendor, each vendor's in picker order.
 /// The Settings pickers read it (`sttModels(of:)`), so a model and its capabilities are
 /// written down once.
+///
+/// Prices are the vendors' pay-as-you-go list prices as of `UsagePrices.checked`
+/// (docs/prices.md says how to refresh them): Groq's models page (by the hour, at least
+/// 10 s a request — the ledger already bills that minimum), ElevenLabs' API pricing page
+/// (by the hour; keyterm prompting is a separate line per model, $0.05/h on Scribe v2 and
+/// $0.08/h on Realtime — the page's figures, not the API reference's "+20 %"), and
+/// OpenAI's pricing page (its per-minute estimate, the only figure it gives for all three).
 let sttModelCatalog: [STTModelDescriptor] = {
     let groqKey = STTModelDescriptor.Requirement.apiKey(SettingsKeys.groqAPIKey)
     let elevenLabsKey = STTModelDescriptor.Requirement.apiKey(SettingsKeys.elevenLabsAPIKey)
@@ -167,16 +205,19 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: appleSpeechModelID, vendor: .apple, displayName: "Apple on-device",
             delivery: .systemRecognizer, language: .localeRequired,
             batchUpload: .selectedModel(of: .groq), requirement: .none,
+            price: .free,
             vocabulary: .termList(.appleContextualStrings)
         ),
 
         STTModelDescriptor(
             id: "whisper-large-v3-turbo", vendor: .groq, displayName: "Whisper Large V3 Turbo",
-            delivery: .upload, language: .single, batchUpload: .itself, requirement: groqKey
+            delivery: .upload, language: .single, batchUpload: .itself, requirement: groqKey,
+            price: .listed(SpeechRates(perHour: 0.04))
         ),
         STTModelDescriptor(
             id: "whisper-large-v3", vendor: .groq, displayName: "Whisper Large V3",
-            delivery: .upload, language: .single, batchUpload: .itself, requirement: groqKey
+            delivery: .upload, language: .single, batchUpload: .itself, requirement: groqKey,
+            price: .listed(SpeechRates(perHour: 0.111))
         ),
 
         // The batch (upload) model IDs are exactly what the API's `unsupported_model`
@@ -186,6 +227,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: "scribe_v2", vendor: .elevenLabs, displayName: "Scribe v2",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: elevenLabsKey,
+            price: .listed(SpeechRates(perHour: 0.22, keytermSurchargePerHour: 0.05)),
             vocabulary: .termList(.scribeUpload)
         ),
         // Scribe's `language_code` is one value, so the realtime query string carries it
@@ -194,6 +236,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: elevenLabsRealtimeModel, vendor: .elevenLabs, displayName: "Scribe v2 Realtime — live text",
             delivery: .realtime(.init(sampleRate: 16_000, transcripts: .cumulative, serverVAD: true)),
             language: .single, batchUpload: .model("scribe_v2"), requirement: elevenLabsKey,
+            price: .listed(SpeechRates(perHour: 0.39, keytermSurchargePerHour: 0.08)),
             vocabulary: .termList(.scribeRealtime),
             settingsNote: "Words appear on the overlay as you speak and are pasted when you stop. If the stream drops, Scribe v2 transcribes the recording instead. Billed per streamed minute."
         ),
@@ -212,18 +255,21 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: "gpt-transcribe", vendor: .openAI, displayName: "GPT Transcribe",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey,
+            price: .listed(SpeechRates(perMinute: 0.0045)),
             vocabulary: .termList(.openAIKeywords)
         ),
         // No vocabulary: `keywords` is documented for gpt-transcribe, and this model
         // takes only a free-text prompt.
         STTModelDescriptor(
             id: "gpt-4o-mini-transcribe", vendor: .openAI, displayName: "GPT-4o mini Transcribe — cheaper",
-            delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey
+            delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey,
+            price: .listed(SpeechRates(perMinute: 0.003))
         ),
         STTModelDescriptor(
             id: openAIRealtimeSTTModel, vendor: .openAI, displayName: "GPT Live Transcribe — live text",
             delivery: .realtime(.init(sampleRate: 24_000, transcripts: .incremental, serverVAD: false)),
             language: .set, batchUpload: .model("gpt-transcribe"), requirement: openAIKey,
+            price: .listed(SpeechRates(perMinute: 0.017)),
             vocabulary: .termList(.openAIKeywords),
             settingsNote: "Words appear on the overlay as you speak and are pasted when you stop. If the stream drops, GPT Transcribe transcribes the recording instead. Billed per streamed minute."
         ),
@@ -236,7 +282,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: model.id, vendor: .local, displayName: model.displayName,
             delivery: .onDevice(model.engine), language: .single,
-            batchUpload: .itself, requirement: .installedModel
+            batchUpload: .itself, requirement: .installedModel, price: .free
         )
     }
     return cloud + local
@@ -260,10 +306,12 @@ func sttModel(vendor: Provider, id: String) -> STTModelDescriptor {
     precondition(!models.isEmpty, "\(vendor) serves no speech")
     let template = models.first { !$0.isRealtime } ?? models[0]
     // No vocabulary, whatever the template takes: a parameter the model may not know
-    // can fail the whole request.
+    // can fail the whole request. No price either, unless it runs on the Mac: an ID
+    // nobody checked is named as unpriced, never charged at another model's rate.
     return STTModelDescriptor(
         id: id, vendor: vendor, displayName: id,
         delivery: template.delivery, language: template.language,
-        batchUpload: template.batchUpload, requirement: template.requirement
+        batchUpload: template.batchUpload, requirement: template.requirement,
+        price: template.price == .free ? .free : .notPriced
     )
 }

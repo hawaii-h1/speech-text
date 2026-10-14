@@ -377,14 +377,9 @@ private struct UsageNumbers: View {
                  label: "in \(HomeFormat.integer(summary.dictations)) \(summary.dictations == 1 ? "dictation" : "dictations")")
             tile(symbol: "clock", title: "Time saved", value: saved,
                  label: "vs typing at \(Int(summary.typingWordsPerMinute)) wpm")
-            if UsagePrices.shown {
-                tile(symbol: "creditcard", title: "Spent",
-                     value: summary.spent > 0 ? [.approx, .number(HomeFormat.money(summary.spent))] : [.number("$0")],
-                     label: spentLabel)
-            } else {
-                tile(symbol: "arrow.up.arrow.down", title: "Requests",
-                     value: [.number(HomeFormat.integer(requests))], label: requestsLabel)
-            }
+            tile(symbol: "creditcard", title: "Spent",
+                 value: summary.spent > 0 ? [.approx, .number(HomeFormat.money(summary.spent))] : [.number("$0")],
+                 label: spentLabel)
             tile(symbol: "sparkles", title: "Rewritten by AI",
                  value: [.number(HomeFormat.integer(summary.rewrites)), .unit(summary.rewrites == 1 ? "dictation" : "dictations")],
                  label: aiLabel)
@@ -400,23 +395,14 @@ private struct UsageNumbers: View {
         return parts
     }
 
-    /// Every request the ledger holds in the period.
-    private var requests: Int { summary.requests.reduce(0) { $0 + $1.requests } }
-
-    private var requestsLabel: String {
-        guard requests > 0 else {
-            return summary.dictations > 0 ? "Nothing sent to a provider" : "Nothing dictated yet"
-        }
-        let refused = summary.overhead.failedRequests
-        return "to providers" + (refused > 0 ? " · \(refused) refused" : "")
-    }
-
+    /// An estimate, always said so: the date of the list prices, and any model they do
+    /// not cover, by name.
     private var spentLabel: String {
         let unpriced = summary.unpricedModels.isEmpty ? ""
-            : "not counting \(summary.unpricedModels.map(UsageView.chatModelName).joined(separator: ", "))"
-        if summary.spent > 0, summary.dictations > 0 {
-            let each = "≈ \(UsageFormat.cents(summary.spent / Double(summary.dictations))) a dictation"
-            return unpriced.isEmpty ? each : each + " · " + unpriced
+            : "not counting \(summary.unpricedModels.joined(separator: ", "))"
+        if summary.spent > 0 {
+            let estimate = UsagePrices.disclaimer.prefix(1).uppercased() + UsagePrices.disclaimer.dropFirst()
+            return unpriced.isEmpty ? estimate : estimate + " · " + unpriced
         }
         if !unpriced.isEmpty { return unpriced.prefix(1).uppercased() + unpriced.dropFirst() }
         return summary.dictations > 0 ? "Models on this Mac cost nothing" : "Nothing dictated yet"
@@ -479,9 +465,7 @@ private struct UsageChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             MainSectionHeader(title, detail: detail) {
-                if UsagePrices.shown {
-                    MainSwitch(items: [(false, "Words"), (true, "Cost")], selection: $showsCost, height: 22)
-                }
+                MainSwitch(items: [(false, "Words"), (true, "Cost")], selection: $showsCost, height: 22)
             }
             MainPanel(padding: EdgeInsets(top: 22, leading: 22, bottom: 16, trailing: 22)) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -490,7 +474,7 @@ private struct UsageChart: View {
                         legendItem(MainColor.speech.opacity(0.7), showsCost ? "Speech to text" : "Dictated")
                         legendItem(MainColor.ai, showsCost ? "AI Rewrite" : "Rewritten by AI")
                         Spacer(minLength: 8)
-                        Text("Tallest: " + (showsCost ? HomeFormat.money(summary.mostCost)
+                        Text("Tallest: " + (showsCost ? HomeFormat.estimate(summary.mostCost)
                                                     : "\(HomeFormat.integer(summary.mostWords)) words"))
                             .font(.system(size: 11.5))
                             .foregroundStyle(MainColor.ink3)
@@ -512,9 +496,10 @@ private struct UsageChart: View {
         if let hovered, summary.buckets.indices.contains(hovered) {
             let bucket = summary.buckets[hovered]
             return UsageFormat.title(bucket.start, granularity: summary.granularity) + " · "
-                + (showsCost ? HomeFormat.money(bucket.cost) : "\(HomeFormat.integer(bucket.words)) words")
+                + (showsCost ? HomeFormat.estimate(bucket.cost) : "\(HomeFormat.integer(bucket.words)) words")
         }
-        let total = showsCost ? "\(HomeFormat.money(summary.spent)) in all" : "\(HomeFormat.integer(summary.words)) words in all"
+        let total = showsCost ? "\(HomeFormat.estimate(summary.spent)) in all · \(UsagePrices.disclaimer)"
+            : "\(HomeFormat.integer(summary.words)) words in all"
         guard let since = summary.chartSince else { return total }
         return total + " · since " + HistoryFormat.formatter("d MMM", calendar: .current).string(from: since) + ", when History starts"
     }
@@ -603,7 +588,7 @@ private struct UsageKinds: View {
     var body: some View {
         let mostWords = max(1, UsageSummary.Kind.allCases.map { summary.kinds[$0]?.words ?? 0 }.max() ?? 1)
         VStack(alignment: .leading, spacing: 12) {
-            MainSectionHeader("By kind", detail: UsagePrices.shown ? "words · cost" : nil)
+            MainSectionHeader("By kind", detail: "words · ≈ cost")
             MainTable {
                 ForEach(Array(UsageSummary.Kind.allCases.enumerated()), id: \.offset) { index, kind in
                     if index > 0 { MainRule() }
@@ -634,12 +619,10 @@ private struct UsageKinds: View {
                         .monospacedDigit()
                         .lineLimit(1)
                     Spacer(minLength: 6)
-                    if UsagePrices.shown {
-                        Text(use.cost > 0 ? HomeFormat.money(use.cost) : use.count > 0 ? "$0" : "—")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(MainColor.ink)
-                            .monospacedDigit()
-                    }
+                    Text(use.cost > 0 ? HomeFormat.money(use.cost) : use.count > 0 ? "$0" : "—")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(MainColor.ink)
+                        .monospacedDigit()
                 }
                 UsageBar(fraction: kind == .edit ? 0 : CGFloat(use.words) / CGFloat(mostWords),
                          color: ai ? MainColor.ai : MainColor.speech.opacity(0.7), minimum: use.count > 0 ? 5 : 0)
@@ -722,7 +705,7 @@ private struct UsageEngines: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MainSectionHeader("By engine", detail: UsagePrices.shown ? "list prices checked 28 September 2026" : nil)
+            MainSectionHeader("By engine", detail: "≈ " + UsagePrices.disclaimer)
             MainTable {
                 if summary.engines.isEmpty {
                     Text("Nothing dictated in this period.")
@@ -772,23 +755,20 @@ private struct UsageEngines: View {
                 .foregroundStyle(MainColor.ink2)
                 .monospacedDigit()
                 .frame(width: 140, alignment: .leading)
-            .padding(.trailing, UsagePrices.shown ? 0 : 16)
 
-            if UsagePrices.shown {
-                Group {
-                    if engine.isLocal {
-                        Text("$0").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
-                    } else if let cost = engine.cost {
-                        Text(HomeFormat.money(cost)).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
-                    } else {
-                        Text("Not priced").font(.system(size: 12.5)).foregroundStyle(MainColor.ink3)
-                            .help("SpeechText has no list price for this model, so it isn't counted in Spent.")
-                    }
+            Group {
+                if engine.isLocal {
+                    Text("$0").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
+                } else if let cost = engine.cost {
+                    Text(HomeFormat.money(cost)).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(MainColor.ink)
+                } else {
+                    Text("Not priced").font(.system(size: 12.5)).foregroundStyle(MainColor.ink3)
+                        .help("SpeechText has no list price for this model, so it isn't counted in Spent.")
                 }
-                .monospacedDigit()
-                .frame(width: 120, alignment: .trailing)
-                .padding(.trailing, 16)
             }
+            .monospacedDigit()
+            .frame(width: 120, alignment: .trailing)
+            .padding(.trailing, 16)
         }
         .frame(minHeight: 48)
         .fixedSize(horizontal: false, vertical: true)
@@ -1099,14 +1079,9 @@ private struct UsageCounting: View {
                                 UsageTypingSpeedEditor(storedTyping: $storedTyping)
                             }
                     }
-                    if UsagePrices.shown {
-                        note("creditcard", "Prices",
-                             "Each vendor's pay-as-you-go list price, AI Rewrite at the tokens the vendor reported. Free tiers and plans cost less; models on this Mac cost nothing."
-                             + estimatedNote) { EmptyView() }
-                    } else {
-                        note("number", "Units, not prices",
-                             "Minutes, tokens and requests as the providers' own replies count them. What they cost depends on your plan — see your provider's billing page.") { EmptyView() }
-                    }
+                    note("creditcard", "An estimate, not your bill",
+                         "Each vendor's pay-as-you-go list price as of \(UsagePrices.checkedText), applied to the minutes and tokens their replies reported. Free tiers, plans and price changes since then change what you pay — your provider's billing page has the real figure. Models on this Mac cost nothing."
+                         + estimatedNote) { EmptyView() }
                     note("lock", "On this Mac",
                          "Counted from \(HistoryRetention.stored(UserDefaults.standard.string(forKey: SettingsKeys.historyRetention)).phrase), as History keeps them"
                          + (summary.since.map { ", since " + HistoryFormat.formatter("d MMMM", calendar: .current).string(from: $0) } ?? "")

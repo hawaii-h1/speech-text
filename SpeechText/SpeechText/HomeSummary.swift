@@ -8,8 +8,9 @@ import Foundation
 
 // MARK: - The last 7 days
 
-/// Home's week: what was dictated, the time it saved against typing, and what the
-/// speaking cost at the providers' list prices — then each day's words, oldest first.
+/// Home's week: what was dictated, the time it saved against typing, and roughly what the
+/// speaking cost at the providers' list prices (`UsagePrices`) — then each day's words,
+/// oldest first.
 struct HomeWeek: Equatable {
     struct Day: Equatable {
         let date: Date
@@ -30,8 +31,8 @@ struct HomeWeek: Equatable {
     /// AI passes this week priced from their words, not their tokens: written before the
     /// provider's usage was kept.
     var estimatedAIPasses = 0
-    /// Cloud models used this week whose price `UsagePrices` does not know, so `spent`
-    /// leaves them out.
+    /// Cloud models used this week with no list price, by name, so `spent` leaves them
+    /// out.
     var unpricedModels: [String] = []
     var days: [Day] = []
 
@@ -89,92 +90,137 @@ func homeWordCount(_ text: String) -> Int {
     text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
 }
 
-/// Pay-as-you-go list prices, as the main window's design gives them (checked
-/// 28 September 2026). Only what the design priced is here: anything else is reported as
-/// unpriced rather than guessed. What runs on the Mac costs nothing.
+/// What Home and Usage price with: the list prices on the catalogues' descriptors
+/// (`STTModelDescriptor.price`, `ChatModelDescriptor.price`), checked against the vendors'
+/// pages on `checked` and refreshed by hand with a release (docs/prices.md). Every record
+/// is priced at today's table from the units its ledger keeps — no price history, so an
+/// update reprices everything — and every figure is shown as an estimate, never as the
+/// vendor's bill. A model with no price is named, not guessed; one on the Mac is free.
 enum UsagePrices {
-    /// Whether Home and Usage show any dollar figure. Off until it is decided how the
-    /// prices are kept current (#129): a list price that has moved since it was written
-    /// down misstates every total built on it, and the units — minutes, tokens, requests,
-    /// limits — are exact without one. The pricing below stays, tested, for when it is on.
-    static let shown = false
+    /// When the table was last checked against every vendor's page.
+    static let checked = DateComponents(calendar: Calendar(identifier: .gregorian), year: 2026, month: 10, day: 14)
 
-    struct Chat: Equatable {
-        let inputPerToken: Double
-        let outputPerToken: Double
-
-        var isFree: Bool { inputPerToken == 0 && outputPerToken == 0 }
-
-        /// What one LLM pass cost: the tokens the provider reported billing, else — for a
-        /// pass recorded before they were kept — the estimate from its words. Home and
-        /// Usage both price a pass through here, so they cannot disagree.
-        func cost(of refinement: TranscriptionRecord.Refinement) -> Double {
-            if let usage = refinement.usage { return cost(usage) }
-            return cost(inputWords: homeWordCount(refinement.inputText),
-                        outputWords: homeWordCount(refinement.outputText))
-        }
-
-        /// Every input token at the input price, cached ones included — a cache read is
-        /// cheaper, so this errs high until the catalogue carries cached prices (#129).
-        func cost(_ usage: ChatUsage) -> Double {
-            Double(usage.inputTokens) * inputPerToken + Double(usage.outputTokens) * outputPerToken
-        }
-
-        /// The design's estimate: the routing prompt (~1,100 tokens) plus the words sent,
-        /// and the words returned, at 1.4 tokens a word. Only for passes recorded before
-        /// the reply's usage was kept: it misses the presets, the context and vocabulary
-        /// blocks, any reasoning, and Cyrillic's heavier tokenisation.
-        func cost(inputWords: Int, outputWords: Int) -> Double {
-            (1_100 + Double(inputWords) * 1.4) * inputPerToken + Double(outputWords) * 1.4 * outputPerToken
-        }
-
-        /// Whether `cost(of:)` had to estimate this pass's price rather than count it.
-        func isEstimate(_ refinement: TranscriptionRecord.Refinement) -> Bool {
-            !isFree && refinement.usage == nil
-        }
+    /// "14 October 2026".
+    static var checkedText: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "d MMMM yyyy"
+        return checked.date.map(formatter.string(from:)) ?? ""
     }
 
-    /// Dollars per minute of speech from `vendor`, the one a ledger entry names.
-    static func speech(vendor: Provider) -> Double? {
-        STTProviderType.allCases.first { $0.vendor == vendor }.flatMap { speech(provider: $0.rawValue) }
+    /// The line beside every total: an estimate from dated list prices, not the bill.
+    static var disclaimer: String { "list prices as of \(checkedText), not your bill" }
+
+    /// The speech model a ledger entry names.
+    static func speech(vendor: Provider, model: String) -> ListPrice<SpeechRates> {
+        sttModel(vendor: vendor, id: model).price
     }
 
-    /// Dollars per minute of speech, by `STTProviderType` raw value; nil when not priced.
-    static func speech(provider: String) -> Double? {
-        switch STTProviderType(rawValue: provider) {
-        case .apple?, .local?: 0
-        case .groq?: 0.04 / 60
-        case .elevenlabs?: 0.40 / 60
-        case .openai?: nil // not priced yet (#129)
-        case nil: nil
-        }
+    /// A record from before the ledger: its stored speech model, else its engine's — but
+    /// only where every model of that engine costs the same, since which one ran is
+    /// unknown and a price is never guessed.
+    static func speech(provider: String, model: String?) -> ListPrice<SpeechRates> {
+        guard let engine = STTProviderType(rawValue: provider) else { return .notPriced }
+        if let model { return speech(vendor: engine.vendor, model: model) }
+        let prices = Set(sttModels(of: engine.vendor).map(\.price))
+        return prices.count == 1 ? prices.first! : .notPriced
     }
 
     /// A chat model's token prices, for the vendor a ledger entry names.
-    static func chat(vendor: Provider, model: String) -> Chat? {
-        chat(provider: vendor == .ollama ? LLMProviderType.ollama.rawValue : vendor.rawValue, model: model)
+    static func chat(vendor: Provider, model: String) -> ListPrice<ChatRates> {
+        guard let provider = LLMProviderType.allCases.first(where: { $0.vendor == vendor }) else { return .notPriced }
+        return chatModel(provider: provider, id: model).price
     }
 
     /// A chat model's token prices, by `LLMProviderType` raw value and model ID.
-    static func chat(provider: String, model: String) -> Chat? {
-        if provider == LLMProviderType.ollama.rawValue { return Chat(inputPerToken: 0, outputPerToken: 0) }
-        switch model {
-        case "claude-sonnet-5": return Chat(inputPerToken: 3 / 1e6, outputPerToken: 15 / 1e6)
-        case "openai/gpt-oss-120b": return Chat(inputPerToken: 0.15 / 1e6, outputPerToken: 0.75 / 1e6)
-        default: return nil
-        }
+    static func chat(provider: String, model: String) -> ListPrice<ChatRates> {
+        guard let provider = LLMProviderType(rawValue: provider) else { return .notPriced }
+        return chatModel(provider: provider, id: model).price
+    }
+
+    /// The name Home and Usage give a model they could not price.
+    static func speechName(vendor: Provider, model: String) -> String {
+        plainModelName(sttModel(vendor: vendor, id: model).displayName)
+    }
+
+    static func chatName(provider: String, model: String) -> String {
+        guard let provider = LLMProviderType(rawValue: provider) else { return model }
+        return plainModelName(chatModel(provider: provider, id: model).displayName)
+    }
+}
+
+/// A picker's model name without its note: "GPT-5.6 Luna — fastest" → "GPT-5.6 Luna",
+/// "GPT-OSS 20B (fastest)" → "GPT-OSS 20B".
+func plainModelName(_ name: String) -> String {
+    var name = name
+    if let dash = name.range(of: " — ") { name = String(name[..<dash.lowerBound]) }
+    if let paren = name.range(of: " (") { name = String(name[..<paren.lowerBound]) }
+    return name
+}
+
+extension ListPrice {
+    var isFree: Bool { self == .free }
+
+    /// The rates of a listed price; nil for a free model and an unpriced one.
+    var listed: Rates? {
+        if case .listed(let rates) = self { rates } else { nil }
+    }
+}
+
+extension SpeechRates {
+    /// `seconds` of audio, with the keyterm surcharge when the request carried terms.
+    func cost(seconds: Double, keyterms: Int?) -> Double {
+        seconds / 60 * (perMinute + ((keyterms ?? 0) > 0 ? keytermSurchargePerMinute : 0))
+    }
+}
+
+extension ChatRates {
+    var isFree: Bool { inputPerToken == 0 && outputPerToken == 0 }
+
+    /// Whether `cost(of:)` had to estimate this pass's price rather than count it.
+    func isEstimate(_ refinement: TranscriptionRecord.Refinement) -> Bool {
+        !isFree && refinement.usage == nil
+    }
+
+    /// What one LLM pass cost: the tokens the provider reported billing, else — for a
+    /// pass recorded before they were kept — the estimate from its words. Home and
+    /// Usage both price a pass through here, so they cannot disagree.
+    func cost(of refinement: TranscriptionRecord.Refinement) -> Double {
+        if let usage = refinement.usage { return cost(usage) }
+        return cost(inputWords: homeWordCount(refinement.inputText),
+                    outputWords: homeWordCount(refinement.outputText))
+    }
+
+    /// The cached input tokens at the cached price, the rest of the input and every
+    /// output token at theirs. Anthropic's cache writes are in `inputTokens` at the base
+    /// price, though billed at 1.25× — harmless only because no request sets
+    /// `cache_control`, so there are none.
+    func cost(_ usage: ChatUsage) -> Double {
+        let cached = min(usage.cachedInputTokens ?? 0, usage.inputTokens)
+        return Double(usage.inputTokens - cached) * inputPerToken + Double(cached) * cachedInputPerToken
+            + Double(usage.outputTokens) * outputPerToken
+    }
+
+    /// The design's estimate: the routing prompt (~1,100 tokens) plus the words sent,
+    /// and the words returned, at 1.4 tokens a word. Only for passes recorded before
+    /// the reply's usage was kept: it misses the presets, the context and vocabulary
+    /// blocks, any reasoning, and Cyrillic's heavier tokenisation.
+    func cost(inputWords: Int, outputWords: Int) -> Double {
+        (1_100 + Double(inputWords) * 1.4) * inputPerToken + Double(outputWords) * 1.4 * outputPerToken
     }
 }
 
 /// What one History record cost, worked out the one way Home and Usage both count it.
 /// A record with a ledger (`usageEvents`) is priced from its entries alone — every
 /// request it made, a fallback upload and a retry included, the vendor's billed seconds
-/// where it reported them. One from before the ledger is priced as it always was: its
-/// length at its engine's price, and its AI pass from `Chat.cost(of:)`.
+/// where it reported them, each at its own model's price. One from before the ledger is
+/// priced by its length at its speech model's price (`UsagePrices.speech(provider:model:)`),
+/// and its AI pass from `ChatRates.cost(of:)`.
 struct RecordCost: Equatable {
     var speech: Double = 0
     var ai: Double = 0
-    /// Engines (`STTProviderType` raw values) and chat models used here with no price.
+    /// Speech and chat models used here with no price, by the names the pages give them.
     var unpricedSpeech: [String] = []
     var unpricedChat: [String] = []
     /// AI passes priced from their words rather than their tokens.
@@ -184,28 +230,36 @@ struct RecordCost: Equatable {
 
     init(_ record: TranscriptionRecord) {
         guard let events = record.usageEvents else {
-            if !record.hasSpeech {
-                // An edit with no instruction: nothing was heard, nothing to price.
-            } else if let price = UsagePrices.speech(provider: record.provider) {
-                speech = record.duration / 60 * price
-            } else {
-                unpricedSpeech.append(record.provider)
+            if record.hasSpeech {
+                // An edit with no instruction heard nothing, so has nothing to price.
+                switch UsagePrices.speech(provider: record.provider, model: record.sttModel) {
+                case .free: break
+                case .listed(let rates): speech = rates.cost(seconds: record.duration, keyterms: nil)
+                case .notPriced:
+                    unpricedSpeech.append(record.sttModel.flatMap { model in
+                        STTProviderType(rawValue: record.provider).map { UsagePrices.speechName(vendor: $0.vendor, model: model) }
+                    } ?? HistoryFormat.engine(record.provider))
+                }
             }
             if let refinement = record.refinement { price(refinement) }
             return
         }
         for event in events {
             if !event.kind.isSpeech {
-                guard let price = UsagePrices.chat(vendor: event.vendor, model: event.model) else {
-                    unpricedChat.append(event.model)
+                let rates: ChatRates
+                switch UsagePrices.chat(vendor: event.vendor, model: event.model) {
+                case .free: continue
+                case .notPriced:
+                    unpricedChat.append(chatName(vendor: event.vendor, model: event.model))
                     continue
+                case .listed(let listed): rates = listed
                 }
                 if let tokens = event.tokens {
-                    ai += price.cost(tokens)
-                } else if event.succeeded, let refinement = record.refinement, !price.isFree {
+                    ai += rates.cost(tokens)
+                } else if event.succeeded, let refinement = record.refinement {
                     // Answered, but its provider reported no tokens: the words are all
                     // there is to go on.
-                    ai += price.cost(inputWords: homeWordCount(refinement.inputText),
+                    ai += rates.cost(inputWords: homeWordCount(refinement.inputText),
                                      outputWords: homeWordCount(refinement.outputText))
                     estimatedAIPasses += 1
                 }
@@ -213,23 +267,28 @@ struct RecordCost: Equatable {
                       // A refused upload is not taken as billed (`UsageMeter.event`); a
                       // socket was used whatever became of its answer.
                       event.succeeded || event.kind == .stream {
-                guard let price = UsagePrices.speech(vendor: event.vendor) else {
-                    unpricedSpeech.append(STTProviderType.allCases.first { $0.vendor == event.vendor }?.rawValue
-                                          ?? event.vendor.rawValue)
-                    continue
+                switch UsagePrices.speech(vendor: event.vendor, model: event.model) {
+                case .free: break
+                case .listed(let rates): speech += rates.cost(seconds: seconds, keyterms: event.keyterms)
+                case .notPriced: unpricedSpeech.append(UsagePrices.speechName(vendor: event.vendor, model: event.model))
                 }
-                speech += seconds / 60 * price
             }
         }
     }
 
+    private func chatName(vendor: Provider, model: String) -> String {
+        LLMProviderType.allCases.first { $0.vendor == vendor }
+            .map { UsagePrices.chatName(provider: $0.rawValue, model: model) } ?? model
+    }
+
     private mutating func price(_ refinement: TranscriptionRecord.Refinement) {
-        guard let price = UsagePrices.chat(provider: refinement.provider, model: refinement.model) else {
-            unpricedChat.append(refinement.model)
-            return
+        switch UsagePrices.chat(provider: refinement.provider, model: refinement.model) {
+        case .free: break
+        case .notPriced: unpricedChat.append(UsagePrices.chatName(provider: refinement.provider, model: refinement.model))
+        case .listed(let rates):
+            ai += rates.cost(of: refinement)
+            if rates.isEstimate(refinement) { estimatedAIPasses += 1 }
         }
-        ai += price.cost(of: refinement)
-        if price.isEstimate(refinement) { estimatedAIPasses += 1 }
     }
 }
 
@@ -261,6 +320,11 @@ enum HomeFormat {
         if value < 0.01 { return "<$0.01" }
         if value >= 100 { return "$" + integer(Int(value.rounded())) }
         return String(format: "$%.2f", value)
+    }
+
+    /// A cost said as the estimate it is: "≈ $1.20" — "$0" stays exact.
+    static func estimate(_ value: Double) -> String {
+        value > 0 ? "≈ " + money(value) : money(value)
     }
 }
 

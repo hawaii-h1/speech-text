@@ -96,6 +96,7 @@ check_anchors() {
         "SpeechText/SpeechText/STTModelCatalog.swift|enum BatchUpload" \
         "SpeechText/SpeechText/STTModelCatalog.swift|enum Requirement" \
         "SpeechText/SpeechText/STTModelCatalog.swift|enum Vocabulary" \
+        "SpeechText/SpeechText/STTModelCatalog.swift|enum ListPrice" \
         "SpeechText/SpeechText/ChatClients.swift|enum Dialect" \
         "SpeechText/SpeechText/ChatClients.swift|enum ReasoningOutput" \
         "SpeechText/SpeechText/Transcribers.swift|enum VocabularyField"; do
