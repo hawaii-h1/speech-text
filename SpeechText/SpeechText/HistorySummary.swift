@@ -119,58 +119,109 @@ struct HistoryNarrowing: Equatable {
 
 // MARK: - How long History keeps dictations
 
-/// How much History keeps: a number of the latest dictations, the ones from a span of
-/// time, or all of them — a single choice as Messages' "Keep messages" is. The audio of a
-/// failed dictation is kept a week whatever this says (`TranscriptionHistory.audioRetention`).
+/// How long something History holds is kept: not at all past this session, a span of
+/// days or months, or for good — one scale, as a cache-size slider is, used twice: for the
+/// dictations (`SettingsKeys.historyRetention`) and for the audio of a failed one, kept
+/// for a retry (`SettingsKeys.failedAudioRetention`).
+///
+/// *Don't keep* still keeps what this session made until the app quits: the record is
+/// what an AI pass attaches to, what the "No connection" notice's Retry and the offline
+/// drain read, and where a failed dictation's audio waits for them. It goes at quit, and
+/// at the next launch should the app not have quit cleanly.
 enum HistoryRetention: String, CaseIterable, Identifiable {
-    case last300 = "300"
-    case last1000 = "1000"
+    case session = "none"
+    case days7 = "7d"
     case days30 = "30d"
+    case months3 = "3m"
+    case months6 = "6m"
     case year = "1y"
     case forever
 
-    /// What History always kept before the choice existed.
-    static let `default` = HistoryRetention.last300
+    /// What History keeps on an install that never chose — and on one that chose a number
+    /// of dictations, before the choice became a span of time: nothing is deleted by an
+    /// update.
+    static let `default` = HistoryRetention.forever
+    /// What the audio of a failed dictation was always kept for.
+    static let defaultAudio = HistoryRetention.days7
 
     var id: String { rawValue }
 
-    /// A stored value; anything unknown is the default.
-    static func stored(_ raw: String?) -> HistoryRetention {
-        raw.flatMap(HistoryRetention.init(rawValue:)) ?? .default
+    /// A stored value; anything unknown (the old "300" and "1000" included) is `fallback`.
+    static func stored(_ raw: String?, default fallback: HistoryRetention = .default) -> HistoryRetention {
+        raw.flatMap(HistoryRetention.init(rawValue:)) ?? fallback
     }
 
+    /// The slider's label.
     var title: String {
         switch self {
-        case .last300: "300 dictations"
-        case .last1000: "1,000 dictations"
+        case .session: "Don't keep"
+        case .days7: "7 days"
         case .days30: "30 days"
+        case .months3: "3 months"
+        case .months6: "6 months"
         case .year: "1 year"
         case .forever: "Forever"
         }
     }
 
-    /// The end of "History keeps …".
+    /// The end of "History keeps …" / "Counted from …".
     var phrase: String {
         switch self {
-        case .last300: "your last 300 dictations"
-        case .last1000: "your last 1,000 dictations"
+        case .session: "this session's dictations"
+        case .days7: "the last 7 days of dictations"
         case .days30: "the last 30 days of dictations"
+        case .months3: "the last 3 months of dictations"
+        case .months6: "the last 6 months of dictations"
         case .year: "the last year of dictations"
         case .forever: "every dictation"
         }
     }
 
-    /// How many of `records` — newest first — it keeps: the rest are older than it allows.
-    func keptCount(of records: [TranscriptionRecord], now: Date = Date(), calendar: Calendar = .current) -> Int {
+    /// The span, on the calendar; nil for the two that are not one.
+    private var span: DateComponents? {
         switch self {
-        case .last300: return min(records.count, 300)
-        case .last1000: return min(records.count, 1000)
-        case .forever: return records.count
-        case .days30, .year:
-            let cutoff = calendar.date(byAdding: self == .days30 ? .day : .year, value: self == .days30 ? -30 : -1,
-                                       to: now) ?? now
-            return records.firstIndex { $0.date < cutoff } ?? records.count
+        case .session, .forever: nil
+        case .days7: DateComponents(day: 7)
+        case .days30: DateComponents(day: 30)
+        case .months3: DateComponents(month: 3)
+        case .months6: DateComponents(month: 6)
+        case .year: DateComponents(year: 1)
         }
+    }
+
+    /// The oldest date it keeps; nil keeps everything. `sessionStart` is when this run of
+    /// the app began — what *Don't keep* keeps from (`.distantFuture` at quit keeps nothing).
+    func cutoff(now: Date = Date(), sessionStart: Date, calendar: Calendar = .current) -> Date? {
+        switch self {
+        case .forever: return nil
+        case .session: return sessionStart
+        default:
+            var back = span!
+            back.day = back.day.map { -$0 }
+            back.month = back.month.map { -$0 }
+            back.year = back.year.map { -$0 }
+            return calendar.date(byAdding: back, to: now) ?? now
+        }
+    }
+
+    /// Until when something made at `date` is kept; nil for `forever` and `session`.
+    func keptUntil(_ date: Date, calendar: Calendar = .current) -> Date? {
+        span.flatMap { calendar.date(byAdding: $0, to: date) }
+    }
+
+    /// How many of `records` — newest first — it keeps: the rest are older than it allows.
+    func keptCount(of records: [TranscriptionRecord], now: Date = Date(), sessionStart: Date,
+                   calendar: Calendar = .current) -> Int {
+        guard let cutoff = cutoff(now: now, sessionStart: sessionStart, calendar: calendar) else { return records.count }
+        return records.firstIndex { $0.date < cutoff } ?? records.count
+    }
+
+    /// Whether audio kept this long is ever kept longer than History keeps its dictation —
+    /// the audio goes with the record, so the shorter of the two is what counts.
+    func outlasts(_ other: HistoryRetention) -> Bool {
+        guard let mine = Self.allCases.firstIndex(of: self),
+              let theirs = Self.allCases.firstIndex(of: other) else { return false }
+        return mine > theirs
     }
 }
 
@@ -271,10 +322,39 @@ enum HistoryFormat {
         return total < 60 ? "\(total) s" : String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    /// Until when a failed dictation's audio is kept for a retry: "Thursday 8 October".
-    static func audioKeptUntil(_ record: TranscriptionRecord, calendar: Calendar = .current) -> String {
-        let until = record.date.addingTimeInterval(TranscriptionHistory.audioRetention)
-        return formatter("EEEE d MMMM", calendar: calendar).string(from: until)
+    /// How long a failed dictation's audio is kept for a retry, as the end of "The audio is
+    /// kept …": "until Thursday 8 October", "until SpeechText quits". The shorter of the two
+    /// settings decides, since the audio goes with its record.
+    static func audioKept(_ record: TranscriptionRecord, audio: HistoryRetention, history: HistoryRetention,
+                          calendar: Calendar = .current) -> String {
+        let rule = audio.outlasts(history) ? history : audio
+        if rule == .session { return "until SpeechText quits" }
+        guard let until = rule.keptUntil(record.date, calendar: calendar) else { return "for as long as History keeps it" }
+        return "until " + formatter("EEEE d MMMM", calendar: calendar).string(from: until)
+    }
+
+    /// What History holds now, under its settings: "125 dictations since 14 September · 70 KB".
+    static func storageSummary(count: Int, since: Date?, bytes: Int64, calendar: Calendar = .current) -> String {
+        guard count > 0 else { return "No dictations kept yet." }
+        let dictations = count == 1 ? "1 dictation" : "\(HomeFormat.integer(count)) dictations"
+        let start = since.map { " since " + formatter("d MMMM", calendar: calendar).string(from: $0) } ?? ""
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return dictations + start + " · " + size
+    }
+
+    /// What History keeps, in a sentence or two — History's foot.
+    static func retentionSummary(history: HistoryRetention, audio: HistoryRetention) -> String {
+        let kept = history == .session
+            ? "History keeps this session's dictations, until SpeechText quits."
+            : "History keeps \(history.phrase) on this Mac."
+        let rule = audio.outlasts(history) ? history : audio
+        let audioKept: String = switch rule {
+        case .session: "until SpeechText quits"
+        case .forever: "as long as the dictation"
+        case .year: "for a year"
+        default: "for " + rule.title
+        }
+        return kept + " A failed one's audio is kept \(audioKept), for a retry."
     }
 
     /// The speech engine a record names, as a person would: "Groq", "On this Mac".

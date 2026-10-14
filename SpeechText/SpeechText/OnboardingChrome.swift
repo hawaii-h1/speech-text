@@ -757,8 +757,7 @@ struct SetupKeyBlock: View {
     }
 
     private func mask(_ value: String) -> String {
-        value.count > 12 ? value.prefix(4) + String(repeating: "•", count: 12) + value.suffix(4)
-            : String(repeating: "•", count: value.count)
+        APIKeyDisplay.masked(value, prefix: service.descriptor.apiKey?.prefix)
     }
 
     private enum Tone { case plain, ok, bad, warn }

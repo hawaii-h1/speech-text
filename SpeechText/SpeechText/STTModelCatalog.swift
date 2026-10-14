@@ -195,7 +195,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
             delivery: .realtime(.init(sampleRate: 16_000, transcripts: .cumulative, serverVAD: true)),
             language: .single, batchUpload: .model("scribe_v2"), requirement: elevenLabsKey,
             vocabulary: .termList(.scribeRealtime),
-            settingsNote: "Streams audio over a WebSocket, so words appear on the recording overlay as you say them — corrected as the sentence goes on — and are pasted in one go as soon as you stop. A 1 s pause ends a phrase. If the stream drops, the recording is uploaded to Scribe v2 instead. Realtime is billed per streamed minute — check your plan."
+            settingsNote: "Words appear on the overlay as you speak and are pasted when you stop. If the stream drops, Scribe v2 transcribes the recording instead. Billed per streamed minute."
         ),
 
         // Checked against `GET /v1/models` on 2026-09-21 rather than against the docs.
@@ -225,7 +225,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
             delivery: .realtime(.init(sampleRate: 24_000, transcripts: .incremental, serverVAD: false)),
             language: .set, batchUpload: .model("gpt-transcribe"), requirement: openAIKey,
             vocabulary: .termList(.openAIKeywords),
-            settingsNote: "Streams audio over a WebSocket, so words appear on the recording overlay as you say them, and are pasted in one go as soon as you stop. It transcribes the whole recording as one phrase — there is no pause detection — and if the stream drops, the recording is uploaded to GPT Transcribe instead. Realtime is billed per streamed minute — check your plan."
+            settingsNote: "Words appear on the overlay as you speak and are pasted when you stop. If the stream drops, GPT Transcribe transcribes the recording instead. Billed per streamed minute."
         ),
     ]
 

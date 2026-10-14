@@ -16,27 +16,11 @@ enum STTProviderType: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .apple: "Apple — on-device"
-        case .groq: "Groq Whisper — cloud"
-        case .elevenlabs: "ElevenLabs Scribe — cloud"
-        case .openai: "OpenAI — cloud"
-        case .local: "Local model — on your Mac"
-        }
-    }
-
-    /// One-line explanation shown under the engine picker in Settings.
-    var subtitle: String {
-        switch self {
-        case .apple:
-            "Runs on your Mac. Free, private, shows text live while you speak."
-        case .groq:
-            "Cloud Whisper. Usually more accurate, needs an API key, and text only appears once you stop speaking."
-        case .elevenlabs:
-            "Cloud Scribe. Strongest on accents and noisy audio, needs an API key. Scribe v2 Realtime shows text live while you speak; Scribe v2 only after you stop."
-        case .openai:
-            "Cloud GPT Transcribe. Needs an API key — the same one the AI rewrite uses. GPT Live Transcribe shows text live while you speak; the others only after you stop."
-        case .local:
-            "An open-source model — Parakeet or Whisper — downloaded to your Mac. Private, free, no key, works offline; text appears once you stop speaking."
+        case .apple: "Apple"
+        case .groq: "Groq Whisper"
+        case .elevenlabs: "ElevenLabs Scribe"
+        case .openai: "OpenAI"
+        case .local: "Local model"
         }
     }
 }

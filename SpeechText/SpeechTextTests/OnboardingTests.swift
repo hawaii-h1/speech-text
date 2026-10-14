@@ -211,3 +211,14 @@ final class SetupCardsTests: XCTestCase {
         }
     }
 }
+
+/// A stored key is shown by its ends, so two keys of one vendor can be told apart.
+final class APIKeyDisplayTests: XCTestCase {
+    func testAKeyShowsItsPrefixFourMoreAndItsEnd() {
+        XCTAssertEqual(APIKeyDisplay.masked("gsk_a1B2c3D4e5F6g7H8i9J0", prefix: "gsk_"), "gsk_a1B2…i9J0")
+        XCTAssertEqual(APIKeyDisplay.masked("sk-ant-api03-abcdefghijklmnop", prefix: "sk-ant-"), "sk-ant-api0…mnop")
+        XCTAssertEqual(APIKeyDisplay.masked("  abcdefghijklmnop  "), "abcd…mnop", "no prefix, and whitespace dropped")
+        XCTAssertEqual(APIKeyDisplay.masked("short-key", prefix: "gsk_"), "•••••••••", "too short to show any of it")
+        XCTAssertEqual(APIKeyDisplay.masked("gsk_abcdefg", prefix: "gsk_"), "•••••••••••")
+    }
+}

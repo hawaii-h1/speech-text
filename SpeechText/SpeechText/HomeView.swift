@@ -301,7 +301,7 @@ struct HomeIntroCard: View {
                         .environment(\.setupTint, .violet)
                         .pointingHandCursor()
                 } else {
-                    Button("Shortcuts") { actions.openSettings(.general) }
+                    Button("Shortcuts") { actions.openSettings(.dictation) }
                         .buttonStyle(SetupButtonStyle(kind: .secondary, height: 36))
                         .pointingHandCursor()
                 }
@@ -1185,7 +1185,7 @@ struct HomeWays: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HomeSectionHeader(title: "More ways to dictate", link: "Change shortcuts") { actions.openSettings(.general) }
+            HomeSectionHeader(title: "More ways to dictate", link: "Change shortcuts") { actions.openSettings(.dictation) }
             HStack(alignment: .top, spacing: 6) {
                 HomeWayTile(action: .ai, symbol: .sparkles, name: "Dictate with AI Rewrite",
                             description: "Just talk, or say what you want — AI pastes the finished text.",

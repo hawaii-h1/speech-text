@@ -54,6 +54,7 @@
 		C10000010000000000000091 /* LocalParakeetRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000091 /* LocalParakeetRuntime.swift */; };
 		C10000010000000000000008 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000008 /* UpdateChecker.swift */; };
 		C10000010000000000000006 /* LocalModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000006 /* LocalModelsView.swift */; };
+		C1000001000000000000E5E1 /* SettingsEngines.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001000000000000E5E1 /* SettingsEngines.swift */; };
 		C10000010000000000000007 /* DockIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000007 /* DockIcon.swift */; };
 		C10000010000000000000092 /* AppInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000092 /* AppInstaller.swift */; };
 		C40000010000000000000001 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = C60000010000000000000001 /* WhisperKit */; };
@@ -260,6 +261,7 @@
 		C20000010000000000000091 /* LocalParakeetRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalParakeetRuntime.swift; sourceTree = "<group>"; };
 		C20000010000000000000008 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		C20000010000000000000006 /* LocalModelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsView.swift; sourceTree = "<group>"; };
+		C2000001000000000000E5E1 /* SettingsEngines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsEngines.swift; sourceTree = "<group>"; };
 		C20000010000000000000007 /* DockIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockIcon.swift; sourceTree = "<group>"; };
 		C20000010000000000000092 /* AppInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInstaller.swift; sourceTree = "<group>"; };
 		A20000010000000000000001 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
@@ -431,6 +433,7 @@
 				C20000010000000000000091 /* LocalParakeetRuntime.swift */,
 				C20000010000000000000008 /* UpdateChecker.swift */,
 				C20000010000000000000006 /* LocalModelsView.swift */,
+				C2000001000000000000E5E1 /* SettingsEngines.swift */,
 				C20000010000000000000007 /* DockIcon.swift */,
 				C20000010000000000000092 /* AppInstaller.swift */,
 				A2000001000000000000002B /* InsertionLedger.swift */,
@@ -694,6 +697,7 @@
 				C10000010000000000000091 /* LocalParakeetRuntime.swift in Sources */,
 				C10000010000000000000008 /* UpdateChecker.swift in Sources */,
 				C10000010000000000000006 /* LocalModelsView.swift in Sources */,
+				C1000001000000000000E5E1 /* SettingsEngines.swift in Sources */,
 				C10000010000000000000007 /* DockIcon.swift in Sources */,
 				C10000010000000000000092 /* AppInstaller.swift in Sources */,
 				A10000010000000000000028 /* InsertionLedger.swift in Sources */,

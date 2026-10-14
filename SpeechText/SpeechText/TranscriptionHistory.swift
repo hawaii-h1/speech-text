@@ -148,13 +148,19 @@ final class TranscriptionHistory {
     /// Newest first.
     private(set) var records: [TranscriptionRecord] = []
 
-    /// How much History keeps (`SettingsKeys.historyRetention`): the latest 300 until
+    /// How long History keeps dictations (`SettingsKeys.historyRetention`): forever until
     /// the user chooses otherwise. Entries it lets go take their archived audio with them.
     var retention: HistoryRetention {
         HistoryRetention.stored(UserDefaults.standard.string(forKey: SettingsKeys.historyRetention))
     }
-    /// Archived audio is only useful for a retry; expire it so the disk doesn't grow forever.
-    static let audioRetention: TimeInterval = 7 * 24 * 60 * 60
+    /// How long a failed dictation's audio is kept for a retry (`SettingsKeys.failedAudioRetention`):
+    /// a week until the user chooses otherwise.
+    var audioRetention: HistoryRetention {
+        HistoryRetention.stored(UserDefaults.standard.string(forKey: SettingsKeys.failedAudioRetention),
+                                default: .defaultAudio)
+    }
+    /// When this run of the app began — what *Don't keep* keeps from.
+    let sessionStart = Date()
 
     private let ioQueue = DispatchQueue(label: "app.speech-text.SpeechText.history.io")
     /// The write scheduled by the last mutation, or nil when nothing is pending.
@@ -166,7 +172,6 @@ final class TranscriptionHistory {
     private init() {
         adoptPreRenameStore()
         load()
-        pruneExpiredAudio()
         // A span of time lets entries go as the days pass, not only when one is added.
         applyRetention()
     }
@@ -206,6 +211,18 @@ final class TranscriptionHistory {
 
     private var recordingsDirectory: URL {
         baseDirectory.appendingPathComponent("Recordings", isDirectory: true)
+    }
+
+    /// What History takes on disk: its file and the audio kept for retries.
+    func diskBytes() -> Int64 {
+        let fm = FileManager.default
+        func size(_ url: URL) -> Int64 {
+            (try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize).flatMap { $0 }
+                .map(Int64.init) ?? 0
+        }
+        let audio = (try? fm.contentsOfDirectory(at: recordingsDirectory, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]))
+            ?? []
+        return size(historyFileURL) + audio.reduce(0) { $0 + size($1) }
     }
 
     /// Full path of the archived audio for a record, if it still exists on disk.
@@ -392,18 +409,31 @@ final class TranscriptionHistory {
     /// How many entries `retention` would let go right now — what Settings asks about
     /// before a shorter choice deletes them.
     func droppedCount(under retention: HistoryRetention) -> Int {
-        records.count - retention.keptCount(of: records)
+        records.count - retention.keptCount(of: records, sessionStart: sessionStart)
     }
 
-    /// Lets go of what the stored choice no longer keeps; Settings calls it once the user
-    /// has agreed to a shorter one.
+    /// How many failed dictations' audio `audioRetention` would delete right now.
+    func droppedAudioCount(under audioRetention: HistoryRetention) -> Int {
+        expiredAudio(under: audioRetention, sessionStart: sessionStart).count
+    }
+
+    /// Lets go of what the stored choices no longer keep — at launch, and once the user has
+    /// agreed to a shorter one in Settings.
     func applyRetention() {
-        if trim(to: retention) { save() }
+        let trimmed = trim(to: retention)
+        if pruneExpiredAudio(sessionStart: sessionStart) || trimmed { save() }
+    }
+
+    /// At quit: what *Don't keep* kept for this session goes now.
+    func applyRetentionAtQuit() {
+        let quitting = Date.distantFuture
+        let trimmed = trim(to: retention, sessionStart: quitting)
+        if pruneExpiredAudio(sessionStart: quitting) || trimmed { save() }
     }
 
     @discardableResult
-    private func trim(to retention: HistoryRetention) -> Bool {
-        let kept = retention.keptCount(of: records)
+    private func trim(to retention: HistoryRetention, sessionStart: Date? = nil) -> Bool {
+        let kept = retention.keptCount(of: records, sessionStart: sessionStart ?? self.sessionStart)
         guard kept < records.count else { return false }
         records[kept...].forEach(deleteAudio)
         records.removeLast(records.count - kept)
@@ -452,16 +482,20 @@ final class TranscriptionHistory {
         }
     }
 
-    private func pruneExpiredAudio() {
-        let cutoff = Date().addingTimeInterval(-Self.audioRetention)
-        var changed = false
-        for index in records.indices where records[index].audioFileName != nil {
-            guard records[index].date < cutoff else { continue }
+    /// The records whose archived audio `audioRetention` no longer keeps.
+    private func expiredAudio(under audioRetention: HistoryRetention, sessionStart: Date) -> [Int] {
+        guard let cutoff = audioRetention.cutoff(sessionStart: sessionStart) else { return [] }
+        return records.indices.filter { records[$0].audioFileName != nil && records[$0].date < cutoff }
+    }
+
+    @discardableResult
+    private func pruneExpiredAudio(sessionStart: Date) -> Bool {
+        let expired = expiredAudio(under: audioRetention, sessionStart: sessionStart)
+        for index in expired {
             deleteAudio(records[index])
             records[index].audioFileName = nil
-            changed = true
         }
-        if changed { save() }
+        return !expired.isEmpty
     }
 
     // MARK: Persistence

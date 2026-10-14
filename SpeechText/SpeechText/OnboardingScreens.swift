@@ -470,30 +470,6 @@ private struct DemoStrip: View {
 
 // MARK: - ② Speech
 
-/// The Mac, briefly: "M1 Pro, 32 GB".
-private func macDescription(_ caps: SystemCapabilities) -> String {
-    let chip = caps.chipName.replacingOccurrences(of: "Apple ", with: "")
-    return "\(chip), \(Int(caps.memoryGB.rounded())) GB"
-}
-
-/// What each speech model is, in the words of someone choosing one — the catalogue's
-/// summaries are written for Settings, which can afford to explain more.
-private func speechModelLine(_ model: LocalSTTModel) -> String {
-    switch model.id {
-    case "openai_whisper-large-v3-v20240930": "As accurate as Turbo, about 30% slower. Needs 24 GB of memory."
-    case parakeetV3ModelID: "Great for English and Ukrainian, and the quickest to answer."
-    case "openai_whisper-large-v3-v20240930_turbo_632MB": "Great for English and Ukrainian. Slower to answer than Parakeet."
-    case "openai_whisper-small_216MB": "Great for English. Makes mistakes in Ukrainian."
-    case "openai_whisper-base": "Good for English. Makes mistakes in Ukrainian."
-    case "openai_whisper-tiny": "Many mistakes. Only for a quick test."
-    default: model.summary
-    }
-}
-
-private func speechModelName(_ model: LocalSTTModel) -> String {
-    model.id == "openai_whisper-large-v3-v20240930_turbo_632MB" ? "Whisper Turbo" : model.displayName
-}
-
 private struct SpeechScreen: View {
     @Bindable var model: OnboardingModel
 
@@ -535,6 +511,10 @@ private struct SpeechScreen: View {
                 ForEach(localSTTModels) { speech in
                     row(speech)
                 }
+                // macOS asks for Speech Recognition at the first Apple dictation — Try it, here.
+                SetupRow(title: "Apple Dictation", subtitle: "Built in",
+                         detail: appleDictationLine + " macOS asks to allow Speech Recognition the first time.",
+                         isSelected: model.speechUsesApple) { model.pickAppleDictation() }
                 if let pending = model.pendingSpeechSwitch, let target = localSTTModel(id: pending) {
                     switchConfirm(target)
                 }
@@ -567,7 +547,7 @@ private struct SpeechScreen: View {
             }
         }
         return SetupRow(title: speechModelName(speech), subtitle: speech.downloadSizeDescription, badge: badge,
-                        detail: speechModelLine(speech), isSelected: model.speechModelID == speech.id,
+                        detail: speechModelLine(speech), isSelected: !model.speechUsesApple && model.speechModelID == speech.id,
                         action: { model.pickSpeechModel(speech.id) }) {
             switch state {
             case .downloading(let f):
@@ -635,25 +615,6 @@ private extension Text {
 }
 
 // MARK: - ③ AI
-
-private func aiModelLine(_ model: LocalLLMModel, heavy: Bool) -> String {
-    let line = switch model.id {
-    case "gemma4:12b": "Clean text in 2–4 seconds."
-    case "qwen3.8:27b": "Writes best, but takes 5–14 seconds."
-    case "qwen3.5:9b": "A step behind Gemma 4 12B, a little lighter."
-    case "qwen3.5:4b": "Works, with some mistakes."
-    case "qwen3.5:2b": "Many mistakes in Ukrainian. Not recommended."
-    case "qwen3.5:0.8b": "Not recommended for Ukrainian."
-    case "gemma4:26b": "Fast and clean."
-    case "gemma4:31b": "Strong writing, slower."
-    case "qwen3.6:35b-a3b": "Big-model knowledge at small-model speed."
-    case "gpt-oss:120b": "OpenAI's open model."
-    case "qwen3.5:122b": "The largest model for a Mac."
-    default: model.summary
-    }
-    guard heavy else { return line }
-    return "\(line) Needs \(Int((Double(model.memoryFloorBytes) / 1_073_741_824).rounded())) GB of memory."
-}
 
 private struct AIScreen: View {
     @Bindable var model: OnboardingModel

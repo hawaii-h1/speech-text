@@ -73,15 +73,15 @@ extension Notification.Name {
 /// A group further down a Settings page that another window links straight to, so the
 /// setting it talks about is on screen when Settings opens — not below the fold.
 enum SettingsAnchor: String {
-    /// General › History, from the History page.
+    /// Privacy & Data › History, from the History page.
     case history
-    /// Speech › Microphone, from a dictation in which nothing was heard.
+    /// Dictation › Microphone, from a dictation in which nothing was heard.
     case microphone
 
     var category: SettingsCategory {
         switch self {
-        case .history: .general
-        case .microphone: .speech
+        case .history: .privacy
+        case .microphone: .dictation
         }
     }
 
@@ -94,28 +94,28 @@ enum SettingsAnchor: String {
 
 /// The sidebar's entries, in the order the sidebar lists them.
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case general, appearance, speech, formatting, ai, apiKeys, permissions
+    case general, appearance, dictation, speech, ai, privacy, apiKeys
 
     var id: String { rawValue }
 
-    /// Three runs in the sidebar: the app itself; what happens to a dictation, in the
-    /// order it happens; and what the app needs from the user and from macOS.
+    /// Three runs in the sidebar: the app itself; a dictation — how you give it, what
+    /// turns it into text, what rewrites it; and what is kept, sent and allowed.
     static let groups: [[SettingsCategory]] = [
         [.general, .appearance],
-        [.speech, .formatting, .ai],
-        [.apiKeys, .permissions],
+        [.dictation, .speech, .ai],
+        [.privacy, .apiKeys],
     ]
 
     var title: String {
         switch self {
         case .general: "General"
         case .appearance: "Appearance"
-        case .speech: "Speech"
-        case .formatting: "Formatting"
+        case .dictation: "Dictation"
+        case .speech: "Speech to text"
         // What the step does rather than what runs it: "AI" alone named the technology.
         case .ai: "AI Rewrite"
+        case .privacy: "Privacy & Data"
         case .apiKeys: "API Keys"
-        case .permissions: "Permissions"
         }
     }
 
@@ -123,24 +123,24 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .appearance: "paintpalette"
+        case .dictation: "mic"
         case .speech: "waveform"
-        case .formatting: "textformat"
         case .ai: "sparkles"
+        case .privacy: "hand.raised"
         case .apiKeys: "key"
-        case .permissions: "lock.shield"
         }
     }
 
     /// The line under the page's title.
     var lead: String {
         switch self {
-        case .general: "Your shortcuts, how SpeechText starts, and how it stays up to date."
+        case .general: "How SpeechText starts, and how it stays up to date."
         case .appearance: "How the recording overlay and the Record Window look."
-        case .speech: "Turns what you say into text. Runs for every dictation."
-        case .formatting: "Small fixes made to every transcript before it is pasted."
-        case .ai: "Optional. Turns what you dictate into finished text — say it as it comes, or say what you want (“a short reply, in English”). For the AI Rewrite and Edit shortcuts and the ✨ toggle in the Record Window: the model picks the matching prompt and does what else you asked."
-        case .apiKeys: "The keys your current choices use come first. Each key is tagged with what it can do: Speech, AI Rewrite, or both."
-        case .permissions: "What macOS lets SpeechText do."
+        case .dictation: "How you dictate: the shortcuts, the microphone, your languages and how the text is written."
+        case .speech: "What turns your voice into text — on this Mac or online."
+        case .ai: "Optional. Turns a dictation into finished text — an email, a list, a translation — or does what you ask (“a short reply, in English”)."
+        case .privacy: "What is kept on this Mac, what is sent, and what macOS allows."
+        case .apiKeys: "Every key SpeechText holds. The ones your choices use come first."
         }
     }
 }
@@ -299,6 +299,150 @@ extension SettingsRow where Control == EmptyView {
     }
 }
 
+/// A choice along a scale — how long History keeps things — drawn as a track with a stop
+/// per value, its name above it, as a cache-size slider is. Dragging moves the knob from
+/// stop to stop; the choice is made when it is let go (or a stop or its name is clicked),
+/// so a choice that has to ask first asks once.
+struct SettingsStepSlider<Value: Hashable>: View {
+    let values: [Value]
+    let selection: Value
+    let title: (Value) -> String
+    let onChoose: (Value) -> Void
+
+    /// Where the knob is while it is being dragged.
+    @State private var dragIndex: Int?
+    @Environment(\.setupTint) private var tint
+
+    private let knobWidth: CGFloat = 30
+    private let knobHeight: CGFloat = 20
+    private let trackHeight: CGFloat = 6
+
+    private var selectedIndex: Int { values.firstIndex(of: selection) ?? 0 }
+    private var shownIndex: Int { dragIndex ?? selectedIndex }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            VStack(spacing: 8) {
+                labels(width: width)
+                track(width: width)
+            }
+            // The window moves by its background, and a SwiftUI drag never wins against
+            // that: the press is taken by a view that tells AppKit it is not background.
+            .overlay(StepSliderTracking(
+                changed: { x in
+                    let index = nearest(x, width: width)
+                    if index != dragIndex {
+                        withAnimation(.easeOut(duration: 0.12)) { dragIndex = index }
+                    }
+                },
+                ended: { x in
+                    dragIndex = nil
+                    choose(nearest(x, width: width))
+                }))
+        }
+        .frame(height: 15 + 8 + knobHeight + 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityValue(title(values[shownIndex]))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: choose(min(selectedIndex + 1, values.count - 1))
+            case .decrement: choose(max(selectedIndex - 1, 0))
+            @unknown default: break
+            }
+        }
+    }
+
+    /// The x of stop `index`'s centre: the ends sit under the knob's ends, not off them.
+    private func x(_ index: Int, width: CGFloat) -> CGFloat {
+        guard values.count > 1 else { return width / 2 }
+        let usable = width - knobWidth
+        return knobWidth / 2 + usable * CGFloat(index) / CGFloat(values.count - 1)
+    }
+
+    private func nearest(_ location: CGFloat, width: CGFloat) -> Int {
+        guard values.count > 1 else { return 0 }
+        let fraction = (location - knobWidth / 2) / max(width - knobWidth, 1)
+        return min(max(Int((fraction * CGFloat(values.count - 1)).rounded()), 0), values.count - 1)
+    }
+
+    private func labels(width: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(values.indices, id: \.self) { index in
+                let isShown = index == shownIndex
+                Text(title(values[index]))
+                    .font(.system(size: 11.5, weight: isShown ? .semibold : .regular))
+                    .foregroundStyle(isShown ? SetupColor.label : SetupColor.label2)
+                    .fixedSize()
+                    .alignmentGuide(.leading) { d in
+                        // The first and last names are held inside the track's ends.
+                        if index == 0 { return -max(x(index, width: width) - knobWidth / 2, 0) }
+                        if index == values.count - 1 { return d.width - width }
+                        return d.width / 2 - x(index, width: width)
+                    }
+            }
+        }
+        .frame(width: width, height: 15, alignment: .topLeading)
+    }
+
+    private func track(width: CGFloat) -> some View {
+        let knobX = x(shownIndex, width: width)
+        return ZStack(alignment: .leading) {
+            Capsule().fill(SetupColor.separator)
+                .frame(height: trackHeight)
+            Capsule().fill(tint.primary)
+                .frame(width: knobX, height: trackHeight)
+            ForEach(values.indices, id: \.self) { index in
+                Circle()
+                    .fill(index <= shownIndex ? Color.white.opacity(0.75) : SetupColor.label3)
+                    .frame(width: 3, height: 3)
+                    .position(x: x(index, width: width), y: knobHeight / 2)
+            }
+            Capsule()
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+                .overlay(Capsule().strokeBorder(Color.black.opacity(0.06), lineWidth: 0.5))
+                .frame(width: knobWidth, height: knobHeight)
+                .position(x: knobX, y: knobHeight / 2)
+        }
+        .frame(width: width, height: knobHeight)
+        .animation(.easeOut(duration: 0.15), value: selectedIndex)
+    }
+
+    private func choose(_ index: Int) {
+        guard values.indices.contains(index), values[index] != selection else { return }
+        onChoose(values[index])
+    }
+}
+
+/// `SettingsStepSlider`'s mouse: a press, a drag and a release, reported as x in the
+/// slider's own space, on a view that never lets the press move the window.
+private struct StepSliderTracking: NSViewRepresentable {
+    let changed: (CGFloat) -> Void
+    let ended: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> TrackingView { TrackingView() }
+
+    func updateNSView(_ view: TrackingView, context: Context) {
+        view.changed = changed
+        view.ended = ended
+    }
+
+    final class TrackingView: NSView {
+        var changed: (CGFloat) -> Void = { _ in }
+        var ended: (CGFloat) -> Void = { _ in }
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        private func x(_ event: NSEvent) -> CGFloat { convert(event.locationInWindow, from: nil).x }
+
+        override func mouseDown(with event: NSEvent) { changed(x(event)) }
+        override func mouseDragged(with event: NSEvent) { changed(x(event)) }
+        override func mouseUp(with event: NSEvent) { ended(x(event)) }
+    }
+}
+
 /// A hairline between two rows of a group.
 struct SettingsDivider: View {
     var body: some View {
@@ -391,11 +535,14 @@ struct SettingsKeyRoleTag: View {
     }
 }
 
-/// An API key: which account it belongs to, where to get one, and the field — drawn like
-/// the setup window's key field, with the value hidden.
+/// An API key: which account it belongs to, where to get one, and the key itself — shown by
+/// its ends once stored (`APIKeyDisplay`), so the user can tell which key it is, with
+/// Change and Remove; a field while there is none or it is being changed. `showsHeader` is
+/// off where the key sits under its service's own row (Speech to text, AI Rewrite).
 struct SettingsKeyField: View {
     let service: Provider
     @Binding var value: String
+    var showsHeader = true
     /// Everything the key can be used for, in pipeline order.
     var roles: [SettingsKeyRole] = []
     /// The roles the current choices use it for.
@@ -403,44 +550,124 @@ struct SettingsKeyField: View {
     var uses: String?
     /// The current choices use this key: its row says whether it is filled in.
     var inUse = false
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var confirmingRemove = false
     @FocusState private var focused: Bool
     @Environment(\.setupTint) private var tint
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 9)
         VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(service.displayName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(inUse ? SetupColor.label : SetupColor.label2)
-                ForEach(roles, id: \.self) { role in
-                    SettingsKeyRoleTag(role: role, active: activeRoles.contains(role))
-                }
-                if inUse {
-                    SettingsStatus(text: hasValue ? "Added" : "Needed", ok: hasValue)
-                }
-                Spacer(minLength: 0)
-                Button(service.linkTitle) {
-                    if let page = service.descriptor.apiKey?.keysPage { NSWorkspace.shared.open(page) }
-                }
-                    .buttonStyle(SetupInlineLinkStyle())
-                    .pointingHandCursor()
+            if showsHeader { header }
+            if hasValue && !editing { stored } else { field }
+            if let uses {
+                SettingsNote(uses)
             }
-            SecureField("", text: $value, prompt: Text("Paste your key here").foregroundStyle(SetupColor.label3))
+        }
+        .padding(.vertical, showsHeader ? 12 : 0)
+        .confirmationDialog("Remove your \(service.displayName) key?", isPresented: $confirmingRemove) {
+            Button("Remove", role: .destructive) { value = "" }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(inUse ? "What uses it stops working until you add a key again." : "You can add it again at any time.")
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(service.displayName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(inUse ? SetupColor.label : SetupColor.label2)
+            ForEach(roles, id: \.self) { role in
+                SettingsKeyRoleTag(role: role, active: activeRoles.contains(role))
+            }
+            if inUse {
+                SettingsStatus(text: hasValue ? "Added" : "Needed", ok: hasValue)
+            }
+            Spacer(minLength: 0)
+            getKeyLink
+        }
+    }
+
+    private var getKeyLink: some View {
+        Button(service.linkTitle) {
+            if let page = service.descriptor.apiKey?.keysPage { NSWorkspace.shared.open(page) }
+        }
+        .buttonStyle(SetupInlineLinkStyle())
+        .pointingHandCursor()
+    }
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 9) }
+
+    /// The stored key, by its ends.
+    private var stored: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "key.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(SetupColor.label3)
+            Text(APIKeyDisplay.masked(value, prefix: service.descriptor.apiKey?.prefix))
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(SetupColor.label)
+                .textSelection(.disabled)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Change") {
+                draft = ""
+                editing = true
+                focused = true
+            }
+            .buttonStyle(SetupInlineLinkStyle())
+            Button("Remove") { confirmingRemove = true }
+                .buttonStyle(SetupInlineLinkStyle())
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(shape.fill(SetupColor.control))
+        .overlay(shape.strokeBorder(SettingsColor.panelBorder, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(service.displayName) key, ending \(String(value.suffix(4)))")
+    }
+
+    /// Typing or pasting a key. A new key replaces the stored one only once it is entered;
+    /// leaving the field empty keeps the old one.
+    private var field: some View {
+        HStack(spacing: 6) {
+            TextField("", text: $draft, prompt: Text("Paste your key here").foregroundStyle(SetupColor.label3))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, design: .monospaced))
                 .focused($focused)
+                // Only Return or Paste takes it: a key half typed when the user clicks
+                // away must not replace one that works.
+                .onSubmit(commit)
                 .accessibilityLabel("\(service.displayName) key")
                 .padding(.horizontal, 10)
                 .frame(height: 30)
                 .background(shape.fill(SetupColor.control))
                 .overlay(shape.strokeBorder(focused ? tint.accent : SettingsColor.panelBorder, lineWidth: focused ? 1.5 : 1))
                 .background(shape.fill(tint.glow.opacity(focused ? 0.25 : 0)).padding(-3))
-            if let uses {
-                SettingsNote(uses)
+            Button("Paste") {
+                if let text = NSPasteboard.general.string(forType: .string) {
+                    draft = text
+                    commit()
+                }
+            }
+            .buttonStyle(SetupButtonStyle(kind: .secondary, height: 30))
+            .font(.system(size: 12))
+            if editing {
+                Button("Cancel") { editing = false; draft = "" }
+                    .buttonStyle(SetupInlineLinkStyle())
+            } else if !showsHeader {
+                getKeyLink
             }
         }
-        .padding(.vertical, 12)
+    }
+
+    private func commit() {
+        let key = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        value = key
+        draft = ""
+        editing = false
     }
 
     private var hasValue: Bool {

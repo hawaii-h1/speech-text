@@ -65,7 +65,7 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
                 verification: KeyVerification(url: URL(string: "https://api.elevenlabs.io/v1/models")!,
                                               header: .named("xi-api-key"))),
                 speechModel: ModelSetting(settingsKey: SettingsKeys.elevenLabsModel, defaultID: "scribe_v2",
-                                          caption: "Sound tags like “(laughs)” are turned off, and fillers and false starts are dropped server-side."),
+                                          caption: "Leaves out fillers, false starts and sound tags like “(laughs)”."),
                 // Its own form (`ElevenLabsTranscriber`): `model_id`, `language_code`, `keyterms`.
                 chatModel: nil, speechUpload: nil)
         case .anthropic:

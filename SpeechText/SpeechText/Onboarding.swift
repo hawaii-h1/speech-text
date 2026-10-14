@@ -113,6 +113,9 @@ final class OnboardingModel {
     // ② Speech
     var speechPath = SpeechPath.local
     var speechModelID: String
+    /// On this Mac, Apple Dictation rather than a downloaded model: nothing to download,
+    /// and `speechModelID` keeps the model a switch back would pick.
+    var speechUsesApple = false
     var speechService = Provider.groq
     /// A model picked while another was still downloading, waiting for "Switch".
     var pendingSpeechSwitch: String?
@@ -164,6 +167,8 @@ final class OnboardingModel {
         } else if storedEngine == .local,
                   let stored = defaults.string(forKey: SettingsKeys.localSTTModel), localSTTModel(id: stored) != nil {
             speechModelID = stored
+        } else if storedEngine == .apple {
+            speechUsesApple = true
         }
 
         for service in Provider.allCases {
@@ -229,12 +234,19 @@ final class OnboardingModel {
     }
 
     func pickSpeechModel(_ id: String) {
+        speechUsesApple = false
         if let busy = speechDownloadID, busy != id, case .downloading = store.state(for: busy) {
             pendingSpeechSwitch = id
             return
         }
         pendingSpeechSwitch = nil
         speechModelID = id
+    }
+
+    /// Apple Dictation: nothing to download, so nothing pending is switched away from.
+    func pickAppleDictation() {
+        pendingSpeechSwitch = nil
+        speechUsesApple = true
     }
 
     func confirmSpeechSwitch() {
@@ -246,7 +258,7 @@ final class OnboardingModel {
     }
 
     var speechPrimaryTitle: String {
-        guard speechPath == .local else { return "Continue" }
+        guard speechPath == .local, !speechUsesApple else { return "Continue" }
         switch store.state(for: speechModelID) {
         case .notInstalled: return "Download and continue"
         case .failed: return "Retry and continue"
@@ -261,6 +273,8 @@ final class OnboardingModel {
     func continueFromSpeech() {
         let defaults = UserDefaults.standard
         switch speechPath {
+        case .local where speechUsesApple:
+            defaults.set(STTProviderType.apple.rawValue, forKey: SettingsKeys.sttProvider)
         case .local:
             let model = selectedSpeechModel
             if !store.state(for: model.id).isBusy && !store.isInstalled(model.id) {
@@ -278,7 +292,7 @@ final class OnboardingModel {
                 defaults.set(model, forKey: key)
             }
         }
-        dlog("Setup", "speech: \(speechPath == .local ? "local \(speechModelID)" : speechService.rawValue)")
+        dlog("Setup", "speech: \(speechPath == .online ? speechService.rawValue : speechUsesApple ? "apple" : "local \(speechModelID)")")
         go(.ai)
     }
 

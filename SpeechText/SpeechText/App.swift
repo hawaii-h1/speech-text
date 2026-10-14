@@ -266,7 +266,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A copy on the disk image that moved itself never opened History.
         guard !AppInstaller.isLeaving else { return }
         // History writes are coalesced; a record made in the last quarter second is
-        // still pending here.
+        // still pending here. What *Don't keep* kept for this session goes first.
+        TranscriptionHistory.shared.applyRetentionAtQuit()
         TranscriptionHistory.shared.flush()
     }
 
@@ -1916,7 +1917,7 @@ final class AppState {
                    detail: "So \(avoided.name) keeps playing at full quality.",
                    tint: .secondary, duration: 8,
                    action: StatusOverlayAction(title: "Change") {
-                       NotificationCenter.default.post(name: .openSettingsPage, object: SettingsCategory.speech)
+                       NotificationCenter.default.post(name: .openSettingsPage, object: SettingsCategory.dictation)
                    })
     }
 

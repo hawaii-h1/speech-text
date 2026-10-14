@@ -7,6 +7,8 @@ import Carbon.HIToolbox
 
 struct HotkeyRecorderView: View {
     let action: ShortcutAction
+    /// How the shortcut is used, under its name, where that is not obvious.
+    var detail: String?
 
     @State private var keyCode: Int
     @State private var modifierFlags: Int
@@ -20,8 +22,9 @@ struct HotkeyRecorderView: View {
 
     private let registration = HotkeyRegistrationStatus.shared
 
-    init(action: ShortcutAction) {
+    init(action: ShortcutAction, detail: String? = nil) {
         self.action = action
+        self.detail = detail
         let stored = action.stored(in: .standard)
         _keyCode = State(initialValue: Int(stored.keyCode))
         _modifierFlags = State(initialValue: Int(stored.modifiers.rawValue))
@@ -30,8 +33,16 @@ struct HotkeyRecorderView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(action.title)
-                Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(action.title)
+                    if let detail {
+                        Text(detail)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(SetupColor.label2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 12)
                 Button(action: toggleRecording) {
                     if isRecording {
                         Text("Press shortcut...")

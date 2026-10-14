@@ -16,6 +16,7 @@ struct HistoryView: View {
     @State private var filter: HistoryFilter = .all
     @State private var narrowing = HistoryNarrowing()
     @AppStorage(SettingsKeys.historyRetention) private var retentionRaw = HistoryRetention.default.rawValue
+    @AppStorage(SettingsKeys.failedAudioRetention) private var audioRetentionRaw = HistoryRetention.defaultAudio.rawValue
     @State private var expanded: UUID?
     /// The days opened past their first `HistoryDaySection.shown` dictations.
     @State private var openDays: Set<Date> = []
@@ -194,7 +195,8 @@ struct HistoryView: View {
 
     private var footer: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("History keeps \(HistoryRetention.stored(retentionRaw).phrase) on this Mac. The audio of one that failed is kept for 7 days, for a retry.")
+            Text(HistoryFormat.retentionSummary(history: HistoryRetention.stored(retentionRaw),
+                                                audio: HistoryRetention.stored(audioRetentionRaw, default: .defaultAudio)))
                 .font(.system(size: 12.5))
                 .foregroundStyle(MainColor.ink3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -994,7 +996,7 @@ private struct HistoryDetail: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(record.isRetryable
-                     ? "The audio is kept until \(HistoryFormat.audioKeptUntil(record)), for a retry with the settings you have now."
+                     ? "The audio is kept \(HistoryFormat.audioKept(record, audio: TranscriptionHistory.shared.audioRetention, history: TranscriptionHistory.shared.retention)), for a retry with the settings you have now."
                      : "The audio is no longer kept, so this one can't be retried.")
                     .font(.system(size: 12))
                     .foregroundStyle(MainColor.ink3)

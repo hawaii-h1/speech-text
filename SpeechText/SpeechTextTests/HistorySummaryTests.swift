@@ -60,19 +60,54 @@ final class HistorySummaryTests: XCTestCase {
 
     // MARK: How long History keeps dictations
 
-    func testHistoryKeepsANumberASpanOfTimeOrEverything() {
+    func testHistoryKeepsASpanOfTimeThisSessionOrEverything() {
         let records = (0..<1200).map { record(hoursAgo: $0 * 12) }
-        XCTAssertEqual(HistoryRetention.default, .last300, "what History always kept")
-        XCTAssertEqual(HistoryRetention.last300.keptCount(of: records, now: now, calendar: calendar), 300)
-        XCTAssertEqual(HistoryRetention.last1000.keptCount(of: records, now: now, calendar: calendar), 1000)
-        XCTAssertEqual(HistoryRetention.forever.keptCount(of: records, now: now, calendar: calendar), 1200)
-        XCTAssertEqual(HistoryRetention.days30.keptCount(of: records, now: now, calendar: calendar), 61,
-                       "two a day for thirty days, and the one right on the line")
-        XCTAssertEqual(HistoryRetention.year.keptCount(of: records, now: now, calendar: calendar), 731)
-        XCTAssertEqual(HistoryRetention.last300.keptCount(of: Array(records.prefix(10)), now: now, calendar: calendar), 10)
-        XCTAssertEqual(HistoryRetention.stored("nonsense"), .last300)
-        XCTAssertEqual(HistoryRetention.stored(nil), .last300)
+        let launch = calendar.date(byAdding: .hour, value: -30, to: now)!
+        func kept(_ retention: HistoryRetention) -> Int {
+            retention.keptCount(of: records, now: now, sessionStart: launch, calendar: calendar)
+        }
+        XCTAssertEqual(kept(.forever), 1200)
+        XCTAssertEqual(kept(.days7), 15, "two a day for seven days, and the one right on the line")
+        XCTAssertEqual(kept(.days30), 61)
+        XCTAssertEqual(kept(.months3), 185, "back to 30 June: 92 days, on the calendar")
+        XCTAssertEqual(kept(.months6), 369, "back to 30 March: 184 days")
+        XCTAssertEqual(kept(.year), 731)
+        XCTAssertEqual(kept(.session), 3, "what this run of the app made: 0, 12 and 24 hours ago")
+        XCTAssertEqual(HistoryRetention.session.keptCount(of: records, now: now, sessionStart: .distantFuture,
+                                                          calendar: calendar), 0, "nothing past quit")
+    }
+
+    func testAnUpdateDeletesNothing() {
+        XCTAssertEqual(HistoryRetention.default, .forever)
+        XCTAssertEqual(HistoryRetention.stored(nil), .forever)
+        XCTAssertEqual(HistoryRetention.stored("300"), .forever, "the count History once kept by")
+        XCTAssertEqual(HistoryRetention.stored("1000"), .forever)
         XCTAssertEqual(HistoryRetention.stored("1y"), .year)
+        XCTAssertEqual(HistoryRetention.defaultAudio, .days7, "what a failed dictation's audio always got")
+        XCTAssertEqual(HistoryRetention.stored(nil, default: .defaultAudio), .days7)
+        XCTAssertEqual(HistoryRetention.stored("none", default: .defaultAudio), .session)
+    }
+
+    func testAFailedDictationsAudioGoesWithItsRecord() {
+        let failed = record()
+        XCTAssertEqual(HistoryFormat.audioKept(failed, audio: .days7, history: .forever, calendar: calendar),
+                       "until Wednesday 7 October")
+        XCTAssertEqual(HistoryFormat.audioKept(failed, audio: .forever, history: .days30, calendar: calendar),
+                       "until Friday 30 October", "History's shorter span decides")
+        XCTAssertEqual(HistoryFormat.audioKept(failed, audio: .days7, history: .session, calendar: calendar),
+                       "until SpeechText quits")
+        XCTAssertEqual(HistoryFormat.audioKept(failed, audio: .forever, history: .forever, calendar: calendar),
+                       "for as long as History keeps it")
+        XCTAssertEqual(HistoryFormat.storageSummary(count: 125, since: calendar.date(byAdding: .day, value: -16, to: now),
+                                                    bytes: 0, calendar: calendar).prefix(35),
+                       "125 dictations since 14 September ·")
+        XCTAssertEqual(HistoryFormat.storageSummary(count: 0, since: nil, bytes: 0), "No dictations kept yet.")
+        XCTAssertEqual(HistoryFormat.retentionSummary(history: .forever, audio: .days7),
+                       "History keeps every dictation on this Mac. A failed one's audio is kept for 7 days, for a retry.")
+        XCTAssertEqual(HistoryFormat.retentionSummary(history: .days30, audio: .year),
+                       "History keeps the last 30 days of dictations on this Mac. A failed one's audio is kept for 30 days, for a retry.")
+        XCTAssertEqual(HistoryFormat.retentionSummary(history: .session, audio: .days7),
+                       "History keeps this session's dictations, until SpeechText quits. A failed one's audio is kept until SpeechText quits, for a retry.")
     }
 
     // MARK: Days
@@ -164,7 +199,6 @@ final class HistorySummaryTests: XCTestCase {
         XCTAssertEqual(HistoryFormat.length(8.4), "8 s")
         XCTAssertEqual(HistoryFormat.length(65), "1:05")
         XCTAssertNil(HistoryFormat.length(0))
-        XCTAssertEqual(HistoryFormat.audioKeptUntil(record(), calendar: calendar), "Wednesday 7 October")
         XCTAssertEqual(HistoryFormat.engine("local"), "On this Mac")
         XCTAssertEqual(HistoryFormat.engine("elevenlabs"), "ElevenLabs")
         XCTAssertEqual(HistoryFormat.language("uk"), "Ukrainian")

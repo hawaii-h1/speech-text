@@ -203,3 +203,18 @@ enum InstallLocation: Equatable {
         return .installed
     }
 }
+
+// MARK: - A key, shown
+
+/// How a stored API key is shown: enough of each end to tell two keys apart, never the
+/// middle. The vendor's prefix ("gsk_", "sk-ant-") is the same for every key it issues,
+/// so four characters after it and the last four are what tells one key from another.
+enum APIKeyDisplay {
+    static func masked(_ key: String, prefix: String? = nil) -> String {
+        let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lead = prefix.flatMap { key.hasPrefix($0) ? $0.count : nil } ?? 0
+        // Less than eight characters past the prefix would show most of the key.
+        guard key.count >= lead + 12 else { return String(repeating: "•", count: min(key.count, 12)) }
+        return String(key.prefix(lead + 4)) + "…" + String(key.suffix(4))
+    }
+}

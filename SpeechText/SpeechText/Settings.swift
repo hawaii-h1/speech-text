@@ -115,9 +115,13 @@ enum SettingsKeys {
     /// The Prompts page has its card on how AI Rewrite picks a prompt hidden, from
     /// Settings › Appearance. Machine-local, like Home's.
     static let promptsIntroHidden = "promptsIntroHidden"
-    /// How much History keeps, `HistoryRetention.rawValue`; absent means the latest 300,
-    /// as it always kept. Machine-local like History itself, so not in `portable`.
+    /// How long History keeps dictations, `HistoryRetention.rawValue`; absent — or the
+    /// "300" / "1000" of the count it once was — means forever, so an update deletes
+    /// nothing. Machine-local like History itself, so not in `portable`.
     static let historyRetention = "historyRetention"
+    /// How long a failed dictation's audio is kept for a retry, `HistoryRetention.rawValue`;
+    /// absent means 7 days, as it always was. Machine-local.
+    static let failedAudioRetention = "failedAudioRetention"
     /// The main window's Dictionary: JSON-encoded `[VocabularyEntry]`. In `portable`, like
     /// every setting the user builds up; written only by the page and by the one-time
     /// move of `customVocabulary`.
