@@ -649,21 +649,19 @@ enum AppIcons {
     /// again on every frame of a scroll. No mark is drawn larger than about 40 pt.
     private static func small(_ icon: NSImage) -> NSImage {
         let side: CGFloat = 48
-        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(side * 2), pixelsHigh: Int(side * 2),
-                                            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return icon }
-        // The size first: a context takes its points from the rep as it is when it is made,
-        // and made at 96 pt it drew the icon into the bottom-left quarter.
-        bitmap.size = NSSize(width: side, height: side)
-        guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return icon }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        context.imageInterpolation = .high
-        icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
-        NSGraphicsContext.restoreGraphicsState()
-        let image = NSImage(size: bitmap.size)
-        image.addRepresentation(bitmap)
-        return image
+        let pixels = Int(side * 2)
+        // Drawn in pixels into a plain CGContext: an NSGraphicsContext made on a bitmap rep
+        // takes its points from the rep, and however the rep's size was set it drew the icon
+        // into the bottom-left quarter — a mark half its size and off its centre.
+        var proposed = NSRect(x: 0, y: 0, width: pixels, height: pixels)
+        guard let source = icon.cgImage(forProposedRect: &proposed, context: nil, hints: nil),
+              let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return icon }
+        context.interpolationQuality = .high
+        context.draw(source, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
+        guard let drawn = context.makeImage() else { return icon }
+        return NSImage(cgImage: drawn, size: NSSize(width: side, height: side))
     }
 
     private static func lookUp(_ name: String) -> NSImage? {
