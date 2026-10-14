@@ -36,7 +36,7 @@ struct HistoryView: View {
                             .padding(.top, 26)
                     }
                     ForEach(days) { day in
-                        HistoryDaySection(day: day, expanded: $expanded, actions: actions,
+                        HistoryDaySection(day: day, expanded: $expanded,
                                           showsAll: Binding(get: { openDays.contains(day.id) },
                                                             set: { if $0 { openDays.insert(day.id) } else { openDays.remove(day.id) } }))
                             .padding(.top, 26)
@@ -102,7 +102,7 @@ struct HistoryView: View {
             HistorySearchField(query: $query, focused: $searchFocused)
                 .frame(minWidth: 150, maxWidth: 300)
             HistoryAppMenu(app: $narrowing.app, apps: HistoryNarrowing.apps(in: records))
-            HistoryDatesMenu(dates: $narrowing.dates)
+            HistoryDatesMenu(dates: $narrowing.dates, records: records)
         }
         let filters = HistoryFilterSwitch(filter: $filter, counts: counts(records))
         // On one line while it fits; in a narrow window the filters go under the search.
@@ -339,7 +339,7 @@ private struct HistoryAppMenu: View {
                     ForEach(apps, id: \.app) { item in
                         HistoryChoiceRow(title: item.app, count: item.count, selected: app == item.app,
                                          action: { app = item.app; dismiss() }) {
-                            HomeAppMark(app: item.app == "Not pasted" ? nil : item.app, size: 20, radius: 6)
+                            HomeAppMark(app: item.app, size: 20, radius: 6)
                         }
                     }
                 }
@@ -355,7 +355,7 @@ private struct HistoryAppMenu: View {
 /// A range of days, or one day picked on a calendar.
 private struct HistoryDatesMenu: View {
     @Binding var dates: HistoryDates
-    @State private var day = Date()
+    let records: [TranscriptionRecord]
 
     var body: some View {
         HistoryNarrowButton(symbol: "calendar", title: dates == .anyTime ? "Date" : dates.title,
@@ -367,20 +367,181 @@ private struct HistoryDatesMenu: View {
                     }
                 }
                 Rectangle().fill(MainColor.separator).frame(height: 1).padding(.vertical, 5)
-                Text("On a day")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(MainColor.ink3)
-                    .padding(.horizontal, 10)
-                DatePicker("On a day", selection: Binding(get: { day }, set: { day = $0; dates = .day($0) }),
-                           in: ...Date(), displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .labelsHidden()
-                    .padding(.horizontal, 4)
+                HistoryCalendar(selected: selectedDay, records: records) { day in
+                    dates = .day(day)
+                    dismiss()
+                }
+                .padding(.horizontal, 4)
+                .padding(.bottom, 4)
             }
             .padding(6)
             .frame(width: 250)
-            .onAppear { if case .day(let chosen) = dates { day = chosen } }
         }
+    }
+
+    private var selectedDay: Date? {
+        if case .day(let day) = dates { return day }
+        return nil
+    }
+}
+
+/// One month as History draws it, in place of the system's calendar: the month and its
+/// arrows, the weekdays in the user's order, and the days as round cells — the one picked
+/// lit as a pressed key is, today ringed, a day with dictations marked by a dot under it, and the days
+/// still to come (and the months after this one) out of reach.
+private struct HistoryCalendar: View {
+    let selected: Date?
+    let records: [TranscriptionRecord]
+    let pick: (Date) -> Void
+    @State private var month: Date?
+
+    private static let cell: CGFloat = 30
+    private var calendar: Calendar { .current }
+
+    var body: some View {
+        let shown = month ?? calendar.startOfMonth(selected ?? Date())
+        let thisMonth = calendar.startOfMonth(Date())
+        let days = Set(records.map { calendar.startOfDay(for: $0.date) })
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 2) {
+                Text(HistoryFormat.formatter("LLLL yyyy", calendar: calendar).string(from: shown))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MainColor.ink)
+                    .padding(.leading, 6)
+                Spacer(minLength: 8)
+                arrow("chevron.left", label: "Previous month", enabled: true) { move(shown, by: -1) }
+                arrow("chevron.right", label: "Next month", enabled: shown < thisMonth) { move(shown, by: 1) }
+            }
+            .frame(height: 26)
+            grid(month: shown, days: days)
+        }
+    }
+
+    private func move(_ shown: Date, by months: Int) {
+        month = calendar.date(byAdding: .month, value: months, to: shown)
+    }
+
+    private func arrow(_ symbol: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        HistoryCalendarArrow(symbol: symbol, enabled: enabled, action: action)
+            .accessibilityLabel(label)
+    }
+
+    private func grid(month: Date, days: Set<Date>) -> some View {
+        // In English, as the rest of History, two letters each: "Mo Tu We".
+        var english = calendar
+        english.locale = Locale(identifier: "en_GB")
+        let symbols = english.shortStandaloneWeekdaySymbols.map { String($0.prefix(2)) }
+        let first = calendar.firstWeekday - 1
+        let weekdays = Array(symbols[first...] + symbols[..<first])
+        let lead = (calendar.component(.weekday, from: month) - calendar.firstWeekday + 7) % 7
+        let count = calendar.range(of: .day, in: .month, for: month)?.count ?? 30
+        let slots: [Date?] = Array(repeating: nil, count: lead)
+            + (0..<count).map { calendar.date(byAdding: .day, value: $0, to: month) }
+        let weeks = stride(from: 0, to: slots.count, by: 7).map { Array(slots[$0..<min($0 + 7, slots.count)]) }
+        let today = calendar.startOfDay(for: Date())
+        return VStack(spacing: 2) {
+            HStack(spacing: 2) {
+                ForEach(Array(weekdays.enumerated()), id: \.offset) { _, symbol in
+                    Text(symbol)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(MainColor.ink3)
+                        .frame(width: Self.cell, height: 20)
+                }
+            }
+            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                HStack(spacing: 2) {
+                    ForEach(0..<7, id: \.self) { index in
+                        if index < week.count, let day = week[index] {
+                            HistoryCalendarDay(
+                                number: calendar.component(.day, from: day),
+                                isSelected: selected.map { calendar.isDate($0, inSameDayAs: day) } ?? false,
+                                isToday: day == today,
+                                hasDictations: days.contains(day),
+                                isFuture: day > today,
+                                size: Self.cell) { pick(day) }
+                        } else {
+                            Color.clear.frame(width: Self.cell, height: Self.cell)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct HistoryCalendarArrow: View {
+    let symbol: String
+    let enabled: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(enabled ? MainColor.ink2 : MainColor.ink3.opacity(0.5))
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(hovering && enabled ? MainColor.panel : .clear))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .onHover { hovering = $0 }
+    }
+}
+
+private struct HistoryCalendarDay: View {
+    let number: Int
+    let isSelected: Bool
+    let isToday: Bool
+    let hasDictations: Bool
+    let isFuture: Bool
+    let size: CGFloat
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text("\(number)")
+                .font(.system(size: 12.5, weight: isSelected || isToday ? .semibold : .regular))
+                .monospacedDigit()
+                .foregroundStyle(ink)
+                .frame(width: size, height: size)
+                .background {
+                    if isSelected {
+                        Circle().fill(SetupColor.phosphor)
+                    } else if hovering && !isFuture {
+                        Circle().fill(MainColor.panel)
+                    }
+                }
+                .overlay {
+                    if isToday && !isSelected { Circle().strokeBorder(MainColor.okInk.opacity(0.55), lineWidth: 1) }
+                }
+                .overlay(alignment: .bottom) {
+                    if hasDictations {
+                        Circle().fill(isSelected ? SetupColor.screen.opacity(0.7) : MainColor.speech)
+                            .frame(width: 3.5, height: 3.5)
+                            .padding(.bottom, 3.5)
+                    }
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isFuture)
+        .onHover { hovering = $0 }
+    }
+
+    private var ink: Color {
+        if isSelected { return SetupColor.screen }
+        if isFuture { return MainColor.ink3.opacity(0.5) }
+        if isToday { return MainColor.okInk }
+        return hasDictations ? MainColor.ink : MainColor.ink3
+    }
+}
+
+private extension Calendar {
+    func startOfMonth(_ date: Date) -> Date {
+        self.date(from: dateComponents([.year, .month], from: date)) ?? startOfDay(for: date)
     }
 }
 
@@ -458,7 +619,6 @@ private struct HistoryFilterSwitch: View {
 private struct HistoryDaySection: View {
     let day: HistoryDay
     @Binding var expanded: UUID?
-    let actions: MainWindowActions
     @Binding var showsAll: Bool
 
     /// Enough for a morning's dictations, and about a screen.
@@ -493,7 +653,7 @@ private struct HistoryDaySection: View {
             VStack(spacing: 0) {
                 ForEach(Array(records.enumerated()), id: \.element.id) { index, record in
                     if index > 0 { Rectangle().fill(MainColor.separator).frame(height: 1) }
-                    HistoryRow(record: record, isExpanded: expanded == record.id, actions: actions) {
+                    HistoryRow(record: record, isExpanded: expanded == record.id) {
                         withAnimation(.easeOut(duration: 0.2)) {
                             expanded = expanded == record.id ? nil : record.id
                         }
@@ -553,7 +713,6 @@ private struct HistoryShowAllRow: View {
 private struct HistoryRow: View {
     let record: TranscriptionRecord
     let isExpanded: Bool
-    let actions: MainWindowActions
     let toggle: () -> Void
     /// Worked out once per row, not on every redraw of it.
     private let entry: HomeRecentEntry
@@ -562,10 +721,9 @@ private struct HistoryRow: View {
     @State private var fullTextHeight: CGFloat = 0
     @State private var twoLineHeight: CGFloat = 0
 
-    init(record: TranscriptionRecord, isExpanded: Bool, actions: MainWindowActions, toggle: @escaping () -> Void) {
+    init(record: TranscriptionRecord, isExpanded: Bool, toggle: @escaping () -> Void) {
         self.record = record
         self.isExpanded = isExpanded
-        self.actions = actions
         self.toggle = toggle
         entry = HomeRecentEntry(record)
     }
@@ -647,7 +805,7 @@ private struct HistoryRow: View {
             .padding(.vertical, 14)
 
             if isOpen {
-                HistoryDetail(record: record, actions: actions)
+                HistoryDetail(record: record)
                     .transition(.opacity)
             }
         }
@@ -761,7 +919,6 @@ enum HistoryClipboard {
 /// what went wrong and the way to retry; where it went, what heard it, and the actions.
 private struct HistoryDetail: View {
     let record: TranscriptionRecord
-    let actions: MainWindowActions
     @State private var copiedSaid = false
 
     var body: some View {
@@ -769,7 +926,7 @@ private struct HistoryDetail: View {
             switch record.status {
             case .failed: problem(record.errorMessage ?? "Transcription failed.", danger: true)
             case .empty: problem("Nothing was heard in this recording — a muted microphone, or the shortcut pressed with nothing said.",
-                                 danger: false, microphoneLink: true)
+                                 danger: false)
             case .success: texts
             }
             facts
@@ -828,7 +985,7 @@ private struct HistoryDetail: View {
 
     // MARK: A failure
 
-    private func problem(_ message: String, danger: Bool, microphoneLink: Bool = false) -> some View {
+    private func problem(_ message: String, danger: Bool) -> some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(message)
@@ -842,11 +999,6 @@ private struct HistoryDetail: View {
                     .font(.system(size: 12))
                     .foregroundStyle(MainColor.ink3)
                     .fixedSize(horizontal: false, vertical: true)
-                if microphoneLink {
-                    // Which microphone recorded is the one setting behind "nothing heard".
-                    HomeLink(title: "Microphone settings") { actions.openSettingsAt(.microphone) }
-                        .padding(.leading, -8)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if record.isRetryable {

@@ -615,11 +615,10 @@ private struct PromptRecentCard: View {
 /// Dictionary's words, spelled as written.
 private struct PromptsToldCard: View {
     let go: (MainPage) -> Void
-    @State private var width: CGFloat = 0
 
     /// Under this the two tiles side by side squeeze their words into a narrow column, so
     /// they stack, each keeping its picture beside its words.
-    private static let sideBySideWidth: CGFloat = 940
+    private static let sideBySideWidth: CGFloat = 860
 
     var body: some View {
         let words = Vocabulary.hints(Vocabulary.load())
@@ -637,18 +636,12 @@ private struct PromptsToldCard: View {
         }
         VStack(alignment: .leading, spacing: 12) {
             MainSectionHeader("What else AI Rewrite is told", detail: "besides the prompt, with every AI dictation")
-            Group {
-                if width == 0 || width >= Self.sideBySideWidth {
-                    MainTray { tiles }
-                } else {
-                    VStack(spacing: 6) { tiles }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(6)
-                        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(MainColor.panel))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
+            // Decided by the width the tray is offered as it is laid out, not by a width
+            // measured into state afterwards: that one stayed side by side in a narrow window.
+            PromptsToldLayout(sideBySideWidth: Self.sideBySideWidth - 12, spacing: 6) { tiles }
+                .padding(6)
+                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(MainColor.panel))
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -673,6 +666,47 @@ private struct PromptsToldCard: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// The tiles side by side, as tall as the taller, from `sideBySideWidth`; one under the
+/// other below it.
+private struct PromptsToldLayout: Layout {
+    let sideBySideWidth: CGFloat
+    let spacing: CGFloat
+
+    private func sideBySide(_ width: CGFloat) -> Bool { width >= sideBySideWidth }
+
+    private func tileWidth(_ width: CGFloat, count: Int) -> CGFloat {
+        (width - spacing * CGFloat(max(0, count - 1))) / CGFloat(max(1, count))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? sideBySideWidth
+        if sideBySide(width) {
+            let each = tileWidth(width, count: subviews.count)
+            let height = subviews.map { $0.sizeThatFits(ProposedViewSize(width: each, height: nil)).height }.max() ?? 0
+            return CGSize(width: width, height: height)
+        }
+        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        return CGSize(width: width, height: heights.reduce(0, +) + spacing * CGFloat(max(0, subviews.count - 1)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        if sideBySide(bounds.width) {
+            let each = tileWidth(bounds.width, count: subviews.count)
+            for (index, subview) in subviews.enumerated() {
+                subview.place(at: CGPoint(x: bounds.minX + CGFloat(index) * (each + spacing), y: bounds.minY),
+                              proposal: ProposedViewSize(width: each, height: bounds.height))
+            }
+        } else {
+            var y = bounds.minY
+            for subview in subviews {
+                let height = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height
+                subview.place(at: CGPoint(x: bounds.minX, y: y), proposal: ProposedViewSize(width: bounds.width, height: height))
+                y += height + spacing
             }
         }
     }

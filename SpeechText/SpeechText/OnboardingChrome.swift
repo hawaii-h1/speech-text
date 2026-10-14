@@ -349,6 +349,9 @@ struct SetupButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary }
     var kind: Kind
     var height: CGFloat = 36
+    /// The pointer is over it — passed by a button that tracks its own hover (History's
+    /// Copy and Retry); everywhere else the style draws no hover, as before.
+    var hovered = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.setupTint) private var tint
 
@@ -371,12 +374,14 @@ struct SetupButtonStyle: ButtonStyle {
                         .background(shape.fill(tint.glow.opacity(isEnabled ? 0.42 : 0.18)).padding(height > 30 ? -3.5 : -2.5))
                 } else {
                     shape.fill(SetupColor.control)
-                        .overlay(shape.strokeBorder(.black.opacity(0.18), lineWidth: 0.5))
+                        .overlay(shape.fill(Color.primary.opacity(hovered && isEnabled ? 0.06 : 0)))
+                        .overlay(shape.strokeBorder(.black.opacity(hovered && isEnabled ? 0.26 : 0.18), lineWidth: 0.5))
                         .shadow(color: .black.opacity(0.06), radius: 0.5, y: 1)
                 }
             }
             .brightness(configuration.isPressed ? -0.08 : 0)
             .opacity(isEnabled ? 1 : 0.4)
+            .animation(.easeOut(duration: 0.12), value: hovered)
             .contentShape(shape)
     }
 }

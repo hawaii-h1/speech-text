@@ -422,12 +422,15 @@ private struct UsageNumbers: View {
         return summary.dictations > 0 ? "Models on this Mac cost nothing" : "Nothing dictated yet"
     }
 
+    /// The words AI Rewrite delivered, and the selections edited — what it did, rather than
+    /// a share of every dictation, which reads as a verdict.
     private var aiLabel: String {
-        guard summary.dictations > 0 else { return "Nothing rewritten yet" }
-        let share = Int((Double(summary.rewrites) / Double(summary.dictations) * 100).rounded())
+        let words = summary.kinds[.rewritten]?.words ?? 0
         let edits = summary.edits > 0
-            ? ", and \(summary.edits) \(summary.edits == 1 ? "selection" : "selections") edited" : ""
-        return "\(share)% of all dictations" + edits
+            ? "\(HomeFormat.integer(summary.edits)) \(summary.edits == 1 ? "selection" : "selections") edited" : nil
+        guard summary.rewrites > 0 else { return edits.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Nothing rewritten yet" }
+        let written = "\(HomeFormat.integer(words)) \(words == 1 ? "word" : "words") written"
+        return edits.map { written + ", and \($0)" } ?? written
     }
 
     private func tile(symbol: String, title: String, value: [HomeStat.Part], label: String) -> some View {
@@ -687,7 +690,7 @@ private struct UsageApps: View {
                 ForEach(Array(shown.enumerated()), id: \.element.id) { index, app in
                     if index > 0 { MainRule() }
                     HStack(spacing: 12) {
-                        HomeAppMark(app: app.app == "Not pasted" ? nil : app.app, size: 24, radius: 7)
+                        HomeAppMark(app: app.app, size: 24, radius: 7)
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(app.app).font(.system(size: 13.5, weight: .medium)).foregroundStyle(MainColor.ink)

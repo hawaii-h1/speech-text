@@ -242,10 +242,11 @@ struct HomeIntroCard: View {
 
     // MARK: The picture behind
 
-    /// Our glow with the display's dots over it, fading into the white under the words;
-    /// a violet tint on the AI tab — the approved AI Rewrite gradient.
+    /// Our glow with the display's dots over it, fading into the white under the words:
+    /// green on Dictate, the approved AI Rewrite gradient — a violet glow over the green —
+    /// on Edit, and on AI Rewrite the green itself turned violet.
     private func art(isAI: Bool) -> some View {
-        MainAIGlow(ai: isAI, fade: roomy
+        MainAIGlow(ai: isAI, violet: tab == .ai, fade: roomy
                    ? .init(dotsFrom: 300, dotsTo: 600, white: (330, 430, 540), whiteOpacity: 0.72, background: Self.introBackground)
                    : .init(dotsFrom: 250, dotsTo: 520, white: (300, 360, 450), whiteOpacity: 0.6, background: Self.introBackground))
     }
@@ -269,7 +270,7 @@ struct HomeIntroCard: View {
             aiConfigured ? "Just talk, or say what you want — “a polite reply, in English” — and AI Rewrite pastes the finished text."
                 : "Needs an AI provider — a key, or a model on this Mac. Until then the shortcut dictates plain text."
         case .edit:
-            aiConfigured ? "Select text in any app and tell AI how to improve it — “shorter”, “friendlier”, “in English”. Say nothing, and it just polishes."
+            aiConfigured ? "Select text in any app and tell AI how to improve it — “shorter”, “friendlier”, “in Spanish”."
                 : "Needs an AI provider — a key, or a model on this Mac — to rewrite the text you select."
         }
     }
@@ -580,7 +581,8 @@ private struct HomeTalkDisplay: View {
 // MARK: - App marks and tags
 
 /// An app, as the Dock marks it: its own icon when it is on this Mac; otherwise Slack's
-/// mark on white, or its first letter on its colour. History keeps an app's name, not its
+/// mark on white, or its first letter on its colour. "Not pasted" — History's place for a
+/// dictation that went nowhere — is a grey tile, never the Record Window's mark. History keeps an app's name, not its
 /// icon, so the icon is looked up by that name (`AppIcons`).
 struct HomeAppMark: View {
     let app: String?
@@ -594,7 +596,9 @@ struct HomeAppMark: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         Group {
-            if let app, app != "Record Window", let icon = AppIcons.icon(named: app) {
+            if app == "Not pasted" {
+                NotPastedMark(size: size, radius: radius)
+            } else if let app, app != "Record Window", let icon = AppIcons.icon(named: app) {
                 // An app icon keeps a margin round its tile; drawn a little larger, the tile
                 // itself is the mark's size.
                 Image(nsImage: icon)
@@ -647,9 +651,11 @@ enum AppIcons {
         let side: CGFloat = 48
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(side * 2), pixelsHigh: Int(side * 2),
                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return icon }
+                                            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return icon }
+        // The size first: a context takes its points from the rep as it is when it is made,
+        // and made at 96 pt it drew the icon into the bottom-left quarter.
         bitmap.size = NSSize(width: side, height: side)
+        guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return icon }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         context.imageInterpolation = .high
@@ -1421,20 +1427,33 @@ struct HomeEntryMark: View {
 
     var body: some View {
         if entry.app == nil && entry.status != .success {
-            RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-                .fill(MainColor.panel)
-                .overlay(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-                    .strokeBorder(MainColor.panelBorder, lineWidth: 1))
-                .overlay {
-                    Image(systemName: entry.status == .failed ? "exclamationmark" : "waveform.slash")
-                        .font(.system(size: size * 0.4, weight: .semibold))
-                        .foregroundStyle(entry.status == .failed ? MainColor.problem : MainColor.ink3)
-                }
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
+            NotPastedMark(symbol: entry.status == .failed ? "exclamationmark" : "waveform.slash",
+                          tint: entry.status == .failed ? MainColor.problem : MainColor.ink3, size: size)
         } else {
             HomeAppMark(app: entry.app, size: size, radius: size * 0.27)
         }
+    }
+}
+
+/// Nothing pasted: a grey tile with a symbol on it — a row's why, or, where dictations
+/// are counted by app, "Not pasted" itself.
+struct NotPastedMark: View {
+    var symbol = "text.badge.xmark"
+    var tint = MainColor.ink3
+    var size: CGFloat = 30
+    var radius: CGFloat?
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: radius ?? size * 0.27, style: .continuous)
+        shape.fill(MainColor.panel)
+            .overlay(shape.strokeBorder(MainColor.panelBorder, lineWidth: 1))
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.4, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
 
@@ -1461,6 +1480,7 @@ struct HomeRetryButton: View {
     let id: UUID
     var title = "Retry"
     var height: CGFloat = 28
+    @State private var hovering = false
 
     var body: some View {
         let running = HistoryRetry.shared.inFlight.contains(id)
@@ -1473,7 +1493,8 @@ struct HomeRetryButton: View {
             }
             .font(.system(size: 11.5, weight: .medium))
         }
-        .buttonStyle(SetupButtonStyle(kind: .secondary, height: height))
+        .buttonStyle(SetupButtonStyle(kind: .secondary, height: height, hovered: hovering))
+        .onHover { hovering = $0 }
         .disabled(running)
         .help("Transcribe the saved audio again, with the settings you have now")
     }
@@ -1485,6 +1506,7 @@ struct HomeCopyButton: View {
     var title: String?
     @Binding var copied: Bool
     var height: CGFloat = 28
+    @State private var hovering = false
 
     var body: some View {
         Button {
@@ -1502,7 +1524,8 @@ struct HomeCopyButton: View {
             .foregroundStyle(copied ? MainColor.okInk : MainColor.ink)
             .frame(minWidth: 14)
         }
-        .buttonStyle(SetupButtonStyle(kind: .secondary, height: height))
+        .buttonStyle(SetupButtonStyle(kind: .secondary, height: height, hovered: hovering))
+        .onHover { hovering = $0 }
         .help(title ?? "Copy")
         .disabled(text.isEmpty)
     }

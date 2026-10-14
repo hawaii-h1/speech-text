@@ -383,6 +383,9 @@ struct MainAIGlow: View {
     }
 
     var ai = true
+    /// The green itself turned violet as well, not only glowed over — the intro card's AI
+    /// Rewrite tab, set apart from Edit, which keeps the green under its violet.
+    var violet = false
     var fade: Fade?
     var dotOpacity = 0.55
 
@@ -390,12 +393,17 @@ struct MainAIGlow: View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
             ZStack {
-                Color.setup(0xB9DCC7, dark: 0x0E2419)
-                // The design's glow is drawn on a swirl 1.7 times the frame, its blobs sized
-                // against that, not against the frame.
-                SetupAura()
-                    .frame(width: proxy.size.width * 1.7, height: proxy.size.height * 1.7)
-                    .frame(width: proxy.size.width, height: proxy.size.height)
+                ZStack {
+                    Color.setup(0xB9DCC7, dark: 0x0E2419)
+                    // The design's glow is drawn on a swirl 1.7 times the frame, its blobs sized
+                    // against that, not against the frame.
+                    SetupAura()
+                        .frame(width: proxy.size.width * 1.7, height: proxy.size.height * 1.7)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+                // 120° takes the green's hue (about 145°) onto `MainColor.ai`'s (252°).
+                .hueRotation(.degrees(violet ? 120 : 0))
+                .animation(.easeInOut(duration: 0.4), value: violet)
                 ZStack {
                     RadialGradient(colors: [Color(red: 150 / 255, green: 132 / 255, blue: 230 / 255).opacity(0.95), .clear],
                                    center: UnitPoint(x: 0.8, y: 0.32), startRadius: 0, endRadius: width * 0.36)
