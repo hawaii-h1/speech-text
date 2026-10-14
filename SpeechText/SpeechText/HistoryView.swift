@@ -720,8 +720,10 @@ private struct HistoryRow: View {
     private let entry: HomeRecentEntry
     @State private var hovering = false
     @State private var copied = false
+    /// The row's text as it is laid out, and the whole text measured unseen beside it —
+    /// only until `HistoryRowFit` knows the answer for this width.
+    @State private var textSize: CGSize = .zero
     @State private var fullTextHeight: CGFloat = 0
-    @State private var twoLineHeight: CGFloat = 0
 
     init(record: TranscriptionRecord, isExpanded: Bool, toggle: @escaping () -> Void) {
         self.record = record
@@ -732,7 +734,8 @@ private struct HistoryRow: View {
 
     /// A plain dictation that fits the row's two lines has nothing more to show, so it
     /// does not open at all; one cut short opens to its whole text.
-    private var canExpand: Bool { !showsWholeText || fullTextHeight > twoLineHeight + 1 }
+    private var canExpand: Bool { !showsWholeText || HistoryRowFit.known[fitKey] == false }
+    private var fitKey: HistoryRowFit.Key { HistoryRowFit.Key(id: record.id, width: Int(textSize.width.rounded())) }
     private var isOpen: Bool { isExpanded && canExpand }
 
     /// A dictation pasted as it was heard: AI Rewrite and the Edit shortcut have two texts
@@ -760,10 +763,18 @@ private struct HistoryRow: View {
                                 .fixedSize(horizontal: false, vertical: isOpen && showsWholeText)
                                 .multilineTextAlignment(.leading)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                                    textSize = size
+                                    settleFit()
+                                }
                                 .background(alignment: .topLeading) {
                                     // Only a plain dictation needs to know whether it is cut
-                                    // short; anything else always opens.
-                                    if showsWholeText { textMeasure(entry) }
+                                    // short; anything else always opens. Measured once per
+                                    // width, and only while closed, when the text is the two lines.
+                                    if showsWholeText, !isOpen, textSize.width > 0,
+                                       HistoryRowFit.known[fitKey] == nil {
+                                        textMeasure(entry)
+                                    }
                                 }
                             HStack(spacing: 6) {
                                 Text(entry.place).fontWeight(.medium).foregroundStyle(MainColor.ink)
@@ -784,13 +795,20 @@ private struct HistoryRow: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(canExpand ? "" : facts)
+                .modifier(HistoryFactsTip(facts: canExpand ? nil : { facts }))
                 .accessibilityHint(canExpand ? (isOpen ? "Hides the details" : "Shows the details") : "")
 
                 HStack(spacing: 6) {
                     quickAction(entry)
-                    HistoryDeleteButton(record: record)
-                        .opacity(hovering || isOpen ? 1 : 0)
+                    // Built only while it can be seen — a button with its own hover and
+                    // tooltip in every row cost the scroll — and its place held meanwhile,
+                    // so the text beside it never reflows.
+                    if hovering || isOpen {
+                        HistoryDeleteButton(record: record)
+                            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { HistoryRowFit.deleteWidth = $0 }
+                    } else {
+                        Color.clear.frame(width: HistoryRowFit.deleteWidth, height: 28)
+                    }
                 }
                 .fixedSize()
                 // Kept in place when the row cannot open, so every row's buttons line up.
@@ -817,6 +835,9 @@ private struct HistoryRow: View {
             Rectangle().fill(hovering || isOpen ? MainColor.panel : .clear)
                 .animation(.easeOut(duration: 0.12), value: hovering)
         }
+        // The whole row is the hover's, its empty right side and the places held for
+        // Copy and Delete included — they draw nothing, so nothing would take the pointer.
+        .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .contextMenu {
             if !record.deliveredText.isEmpty {
@@ -837,20 +858,24 @@ private struct HistoryRow: View {
 
     private var textFont: Font { .system(size: entry.status == .success ? 14 : 13) }
 
-    /// The text measured twice, unseen — whole as the open row shows it, and the preview
-    /// cut to the closed row's two lines — so the row knows whether opening it would show
-    /// anything more.
+    /// The whole text measured unseen, as the open row shows it, beside the closed row's
+    /// two lines — so the row knows whether opening it would show anything more.
     private func textMeasure(_ entry: HomeRecentEntry) -> some View {
-        ZStack(alignment: .topLeading) {
-            Text(entry.text).font(textFont)
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { fullTextHeight = $0 }
-            Text(entry.preview).font(textFont).lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { twoLineHeight = $0 }
-        }
-        .hidden()
-        .accessibilityHidden(true)
+        Text(entry.text).font(textFont)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                fullTextHeight = height
+                settleFit()
+            }
+            .hidden()
+            .accessibilityHidden(true)
+    }
+
+    /// Writes down whether the whole text fits the closed row, once both heights are in.
+    private func settleFit() {
+        guard showsWholeText, !isOpen, textSize.width > 0, fullTextHeight > 0,
+              HistoryRowFit.known[fitKey] == nil else { return }
+        HistoryRowFit.known[fitKey] = fullTextHeight <= textSize.height + 1
     }
 
     /// For a row that cannot open: the facts it would have shown, as its tooltip.
@@ -873,13 +898,47 @@ private struct HistoryRow: View {
         if entry.status != .success {
             if entry.canRetry && !isOpen { HomeRetryButton(id: record.id) }
         } else {
-            HomeCopyButton(text: record.deliveredText, copied: $copied)
-                .opacity(hovering || isOpen || copied ? 1 : 0)
+            if hovering || isOpen || copied {
+                HomeCopyButton(text: record.deliveredText, copied: $copied)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                        if !copied { HistoryRowFit.copyWidth = width }
+                    }
+            } else {
+                Color.clear.frame(width: HistoryRowFit.copyWidth, height: 28)
+            }
         }
     }
 }
 
-/// Delete as a compact button beside Copy, drawn like it, warning only on hover.
+/// What History has learnt about its rows' layout, kept past the rows themselves: a lazy
+/// list drops a row's state when it scrolls away, and measuring every row again each time
+/// it came back cost the scroll.
+@MainActor
+enum HistoryRowFit {
+    struct Key: Hashable {
+        let id: UUID
+        let width: Int
+    }
+
+    /// Whether a plain dictation's whole text fits its closed row, at a width of text.
+    static var known: [Key: Bool] = [:]
+    /// The widths of the Copy and Delete buttons, whose places a row holds while they are
+    /// not built; measured whenever one is shown.
+    static var copyWidth: CGFloat = 47
+    static var deleteWidth: CGFloat = 46
+}
+
+/// A row that cannot open carries its facts as a tooltip; a row that can carries none —
+/// and so no tooltip to track — and its facts are not worked out at all.
+private struct HistoryFactsTip: ViewModifier {
+    let facts: (() -> String)?
+
+    func body(content: Content) -> some View {
+        if let facts { content.help(facts()) } else { content }
+    }
+}
+
+/// Delete as a compact button beside Copy, drawn and hovered like it.
 private struct HistoryDeleteButton: View {
     let record: TranscriptionRecord
     @State private var hovering = false
@@ -890,10 +949,10 @@ private struct HistoryDeleteButton: View {
         } label: {
             Image(systemName: "trash")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(hovering ? MainColor.problem : MainColor.ink)
+                .foregroundStyle(MainColor.ink)
                 .frame(minWidth: 14)
         }
-        .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
+        .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28, hovered: hovering))
         .onHover { hovering = $0 }
         .help("Delete")
         .accessibilityLabel("Delete")
