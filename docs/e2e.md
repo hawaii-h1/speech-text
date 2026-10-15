@@ -30,6 +30,19 @@ This builds the debug app and launches it once. Then:
 
 Quit the e2e build from its menu-bar icon when done.
 
+System Settings may list the e2e build and the installed app as one "SpeechText" row,
+since both carry that name: switching the row (or adding the e2e build with "+") can turn
+the installed app's grant off. `/tmp` is cleared on restart, and the rebuilt e2e app needs
+the grant again. The grants themselves can be read without opening anything:
+
+```sh
+sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+  "select client, auth_value from access where service = 'kTCCServiceAccessibility' and client like 'app.speech-text%'"
+```
+
+`2` is allowed and `0` is off. Both `app.speech-text.SpeechText` (yours) and
+`app.speech-text.SpeechText.e2e` should read `2`.
+
 ## A run
 
 ```sh
@@ -45,7 +58,9 @@ A full run takes about five minutes per engine. Results go to `/tmp/speechtext-e
 - `summary.md`: one row per scenario.
 - For each scenario, the Debug Log (`<scenario>.log`), the document as read back
   (`<scenario>.txt`) and History (`<scenario>.history.json`).
-- `Traces/`, when `--traces` is set.
+- `Traces/`, when `--traces` is set. Each one is named `<engine>-<scenario>-<date>.json`;
+  `scripts/import-trace.sh NAME FILE` copies one into the private traces folder, where
+  `scripts/replay-traces.sh` replays it. Traces never go into this repository (#51).
 
 The exit status is non-zero when a scenario failed.
 
@@ -76,6 +91,13 @@ These decisions were made on #82.
   through `FileCapture` in real time, in the clip's own 48 kHz format, followed by silence.
   The microphone is never opened and never asked for.
 
+- **A dropped stream without touching the network.** `-SPTCloseStreamAfter <seconds>`
+  (the `stream-drop` scenario): once per launch, that long after the first stream's first
+  partial, the socket is closed and the session is told the connection was lost
+  (`URLError(.networkConnectionLost)`), so the reconnect and the upload fallback run as
+  after a Wi-Fi drop. The socket really closes; the error is made up. The Mac's network,
+  which other work on it may be using, is never switched off.
+
 None of this is compiled into a Release build.
 
 ## Scenarios
@@ -86,10 +108,13 @@ None of this is compiled into a Release build.
 | `hold` | Hold to talk: ⌃⇧Q held for the clip | pasted once |
 | `double-tap` | Hold to talk: two taps lock it on, a press stops it | pasted once; `→ lock` logged |
 | `tap-cancels` | Hold to talk: one lone tap | nothing pasted; the tap cancel logged |
+| `ai` | ⌃⇧A, the clip, ⌃⇧A | pasted once; History has the AI Rewrite |
 | `switch-to-ai` | ⌃⇧Q, then ⌃⇧A halfway through, stopped by ⌃⇧A | pasted once; History has the AI Rewrite |
+| `switch-to-plain` | ⌃⇧A, then ⌃⇧Q halfway through, stopped by ⌃⇧Q | pasted once; History has no AI Rewrite |
 | `esc-cancel` | Esc cancels on; ⎋ while recording | nothing pasted; the ⎋ cancel logged |
 | `two-in-a-row` | two dictations into one document (two clips) | two pastes, each ending in a space |
 | `switch-app` | started in TextEdit, stopped in Script Editor | pasted once, into Script Editor; TextEdit empty |
+| `stream-drop` | a realtime engine only (skipped on the others): ⌃⇧Q, the 19 s `uk-plain`, the socket closed 4 s after the first partial (`-SPTCloseStreamAfter 4`), ⌃⇧Q | pasted once; the Debug Log has the close, the reconnect and the upload fallback |
 | `edit` | text selected, ⌃⇧E, “Translate this into English.” (made with `say`), ⌃⇧E | the selection replaced; History has the edit |
 | `smoke-plain-text` | `plain` into a plain-text TextEdit document | pasted once |
 | `smoke-script-editor` | `plain` into Script Editor | pasted once |

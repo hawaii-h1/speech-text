@@ -21,7 +21,13 @@ func makeRecognitionSession(configuration: RecordingConfiguration,
         let batch = BatchRecognitionSession(provider: makeBatchTranscriber(configuration: configuration),
                                             writer: writer, language: configuration.cloudLanguage,
                                             languages: configuration.languages)
-        if let streamer = makeStreamingTranscriber(configuration: configuration) {
+        if let made = makeStreamingTranscriber(configuration: configuration) {
+            #if DEBUG
+            // scripts/e2e.sh's stream-drop scenario (-SPTCloseStreamAfter); a no-op otherwise.
+            let streamer = E2EMode.closingOnce(made)
+            #else
+            let streamer = made
+            #endif
             // A reconnect makes the same provider again, from the same snapshot of the
             // settings — a dropped stream never comes back as a different engine.
             return StreamingRecognitionSession(provider: streamer, writer: writer,

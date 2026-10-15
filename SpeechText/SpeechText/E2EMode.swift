@@ -17,6 +17,10 @@ import Foundation
 ///   its build: its own preferences domain and its own data folder
 ///   (`Application Support/SpeechText-e2e`), so a run never reaches the user's settings,
 ///   History or traces, and no rename migration copies anything into it.
+/// - `-SPTCloseStreamAfter <seconds>` — once per launch, that long after the first
+///   stream's first partial, its socket is closed and the session told the network went
+///   away (`StreamCloser`), so the reconnect runs as after a Wi-Fi drop (OA4, #51)
+///   without switching the Mac's network off.
 enum E2EMode {
     static let bundleIdentifier = "app.speech-text.SpeechText.e2e"
 
@@ -58,6 +62,26 @@ enum E2EMode {
     static let keysFile: URL? = UserDefaults.standard.string(forKey: "SPTKeysFile")
         .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
 
+    /// `-SPTCloseStreamAfter`'s seconds; nil when the argument is absent or not positive.
+    static let closeStreamAfter: TimeInterval? = {
+        let seconds = UserDefaults.standard.double(forKey: "SPTCloseStreamAfter")
+        return seconds > 0 ? seconds : nil
+    }()
+
+    private static var streamCloserUsed = false
+
+    /// `provider`, or — the first time in an e2e launch with `-SPTCloseStreamAfter` — the
+    /// same provider behind a `StreamCloser`. Only the first: the reconnect builds its
+    /// transcriber straight from `makeStreamingTranscriber`, so it is never closed again.
+    static func closingOnce(_ provider: StreamingTranscriber) -> StreamingTranscriber {
+        guard isActive, let seconds = closeStreamAfter else { return provider }
+        let first = lock.withLock { () -> Bool in
+            defer { streamCloserUsed = true }
+            return !streamCloserUsed
+        }
+        return first ? StreamCloser(provider, after: seconds) : provider
+    }
+
     private static let lock = NSLock()
     private static var playedInputs = 0
 
@@ -72,6 +96,7 @@ enum E2EMode {
     }
     #else
     static let isActive = false
+    static let closeStreamAfter: TimeInterval? = nil
     static let audioInputs: [URL]? = nil
     static let keysFile: URL? = nil
     #endif
@@ -80,3 +105,78 @@ enum E2EMode {
     /// traces in.
     static var supportFolderName: String { isActive ? "SpeechText-e2e" : "SpeechText" }
 }
+
+#if DEBUG
+/// A stream that loses its connection mid-dictation, for `-SPTCloseStreamAfter`. It
+/// passes everything through to the real transcriber until `seconds` after the first
+/// partial, then reports `.failed(URLError(.networkConnectionLost))` — the error a Wi-Fi
+/// drop gives, which `StreamReconnectPolicy` reopens — and cancels the real one, which
+/// closes its socket. The socket really closes; the error is ours. After that it sends
+/// nothing and reports nothing more, as a dead socket would.
+final class StreamCloser: StreamingTranscriber {
+    private let inner: StreamingTranscriber
+    private let seconds: TimeInterval
+    private let lock = NSLock()
+    private var closed = false
+    private var armed = false
+    private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
+    let events: AsyncStream<StreamingSTTEvent>
+    var sampleRate: Double { inner.sampleRate }
+
+    init(_ inner: StreamingTranscriber, after seconds: TimeInterval) {
+        self.inner = inner
+        self.seconds = seconds
+        (events, continuation) = AsyncStream<StreamingSTTEvent>.makeStream()
+    }
+
+    func connect(languages: [String]) {
+        inner.connect(languages: languages)
+        Task { [weak self, inner] in
+            for await event in inner.events {
+                guard let self else { return }
+                guard !self.lock.withLock({ self.closed }) else { return }
+                if case .partial = event { self.arm() }
+                self.continuation.yield(event)
+            }
+            self?.continuation.finish()
+        }
+    }
+
+    private func arm() {
+        let first = lock.withLock { () -> Bool in
+            defer { armed = true }
+            return !armed
+        }
+        guard first else { return }
+        dlog("E2E", "closing the stream in \(seconds) s (-SPTCloseStreamAfter)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in self?.close() }
+    }
+
+    private func close() {
+        guard lock.withLock({ () -> Bool in
+            defer { closed = true }
+            return !closed
+        }) else { return }
+        dlog("E2E", "closing the stream's socket now (-SPTCloseStreamAfter)")
+        continuation.yield(.failed(URLError(.networkConnectionLost)))
+        continuation.finish()
+        inner.cancel()
+    }
+
+    func send(pcm16: Data) {
+        guard !lock.withLock({ closed }) else { return }
+        inner.send(pcm16: pcm16)
+    }
+
+    func finish() async {
+        guard !lock.withLock({ closed }) else { return }
+        await inner.finish()
+    }
+
+    func cancel() {
+        lock.withLock { closed = true }
+        continuation.finish()
+        inner.cancel()
+    }
+}
+#endif

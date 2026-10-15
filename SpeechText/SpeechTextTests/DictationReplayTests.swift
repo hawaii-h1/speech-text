@@ -518,22 +518,27 @@ final class AIReplayTests: XCTestCase {
 
 // MARK: - Recorded traces
 
-/// Every trace in `SpeechTextTests/Traces/`, recorded by the app with Debug Log › Record
-/// traces on and copied here by `scripts/import-trace.sh`. Each one must still paste what
-/// the app pasted when it was recorded — or, once someone has reviewed it and written
-/// `expectedDocument`, leave the document holding exactly that.
+/// Every trace in the folder `SPEECHTEXT_TRACES` names, recorded by the app with Debug Log ›
+/// Record traces on (or by `scripts/e2e.sh --traces`) and copied there by
+/// `scripts/import-trace.sh`. Each one must still paste what the app pasted when it was
+/// recorded — or, once someone has reviewed it and written `expectedDocument`, leave the
+/// document holding exactly that.
+///
+/// The traces hold dictated words in plain text, so they stay out of the repository, in
+/// `speech-text-private/traces/` (#51, the owner's call); without the variable the test is
+/// skipped. `scripts/replay-traces.sh` runs it. An unhosted test bundle does not inherit the
+/// shell's environment: `xcodebuild` passes `TEST_RUNNER_SPEECHTEXT_TRACES` through.
 @MainActor
 final class RecordedTraceTests: XCTestCase {
 
-    private static var tracesDirectory: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Traces")
-    }
-
     func testEveryRecordedTraceStillReplaysAsRecorded() async throws {
-        let files = (try? FileManager.default.contentsOfDirectory(at: Self.tracesDirectory,
-                                                                  includingPropertiesForKeys: nil)) ?? []
+        guard let path = ProcessInfo.processInfo.environment["SPEECHTEXT_TRACES"], !path.isEmpty else {
+            throw XCTSkip("set SPEECHTEXT_TRACES (scripts/replay-traces.sh) to replay the recorded traces")
+        }
+        let folder = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
         let traces = files.filter { $0.pathExtension == "json" }.sorted { $0.path < $1.path }
-        try XCTSkipIf(traces.isEmpty, "no recorded traces in \(Self.tracesDirectory.path)")
+        XCTAssertFalse(traces.isEmpty, "no traces in \(folder.path)")
 
         for file in traces {
             let trace = try DictationTrace.decode(Data(contentsOf: file))

@@ -8,7 +8,7 @@ once, after the stop, into the document the script opened; a cancel left it empt
 edit replaced the selection. WER against the clip's `expected` is reported, never judged.
 
     python3 check.py --name NAME --doc FILE --log FILE --history FILE \
-        [--expected TEXT] [--original TEXT] [--pastes N] [--empty] [--refined] [--edit]
+        [--expected TEXT] [--original TEXT] [--pastes N] [--empty] [--refined | --not-refined] [--edit]
 
 Prints one Markdown table row and exits 1 when a check failed.
 """
@@ -48,6 +48,7 @@ def main():
     p.add_argument("--pastes", type=int)
     p.add_argument("--empty", action="store_true")
     p.add_argument("--refined", action="store_true")
+    p.add_argument("--not-refined", action="store_true", help="pasted as said: History has no AI Rewrite")
     p.add_argument("--edit", action="store_true")
     p.add_argument("--app", default="", help="the app the paste must go to")
     p.add_argument("--untouched", default="", help="another document's text file, which must still be empty")
@@ -91,6 +92,8 @@ def main():
         problems.append(f"{pastes} pastes, expected {a.pastes}")
     if a.refined and not (refinement.get("outputText") and not refinement.get("errorMessage")):
         problems.append("History has no AI Rewrite for it" + (f" ({refinement['errorMessage']})" if refinement.get("errorMessage") else ""))
+    if a.not_refined and refinement:
+        problems.append("History has an AI Rewrite for it — the switch back to plain was lost")
     if a.untouched and open(a.untouched, encoding="utf-8").read().strip():
         problems.append("text also landed in the document the dictation started in")
     if a.spaced:

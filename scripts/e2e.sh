@@ -47,7 +47,7 @@ DATA="$HOME/Library/Application Support/SpeechText-e2e"
 OUT="${SPT_E2E_OUT:-/tmp/speechtext-e2e/$(date +%Y-%m-%d_%H-%M-%S)}"
 KEYS="$WORK/keys"
 
-ALL_SCENARIOS="plain hold double-tap tap-cancels switch-to-ai esc-cancel two-in-a-row switch-app edit smoke-plain-text smoke-script-editor"
+ALL_SCENARIOS="plain hold double-tap tap-cancels ai switch-to-ai switch-to-plain esc-cancel two-in-a-row switch-app stream-drop edit smoke-plain-text smoke-script-editor"
 
 ENGINE="groq"; ONLY=""; TRACES=0; BUILD=1; SETUP=0; KEEP=0
 while [ $# -gt 0 ]; do
@@ -216,6 +216,7 @@ languages_for() {
     esac
 }
 
+LAUNCH_ARGS=()   # extra launch arguments for the next launch only
 launch() {  # launch <scenario> <clip>[,<clip>…]
     local name="$1" inputs="" clip
     for clip in ${2//,/ }; do inputs="${inputs:+$inputs,}$(clip_path "$clip")"; done
@@ -224,7 +225,8 @@ launch() {  # launch <scenario> <clip>[,<clip>…]
     LOG_PID=$!
     sleep 1
     # Through `open`, so launchd starts it and TCC asks about the app, not this shell.
-    open -n "$APP" --args -SPTAudioInput "$inputs" -SPTKeysFile "$KEYS_FILE"
+    open -n "$APP" --args -SPTAudioInput "$inputs" -SPTKeysFile "$KEYS_FILE" ${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}
+    LAUNCH_ARGS=()
     for _ in $(seq 30); do [ -n "$(e2e_pids)" ] && break; sleep 0.2; done
     [ -n "$(e2e_pids)" ] || die "the e2e build did not start"
     # The hotkeys are registered during launch; the Debug Log says when it finished.
@@ -388,6 +390,51 @@ scenario_switch_app() {
     doc_text "$origin" > "$OUT/switch-app.origin.txt"
     verdict switch-app "$doc" --expected "$(clip_field $clip expected)" --pastes 1 \
         --untouched "$OUT/switch-app.origin.txt" --logged "paste target: Script Editor (started in TextEdit)"
+}
+
+# AI Rewrite from the start: ⌃⇧A, the clip, ⌃⇧A — the rewrite is the one paste.
+scenario_ai() {
+    local clip=uk-pause dur doc
+    dur="$(clip_seconds $clip)"
+    begin ai $clip
+    doc="$(new_doc textedit)"; OPEN_DOCS+=("$doc")
+    "$KEYS" tap:ctrl+shift+a "sleep:$(echo "$dur + 1" | bc)" tap:ctrl+shift+a
+    wait_for_change "$doc" "" 60
+    verdict ai "$doc" --expected "$(clip_field $clip expected)" --pastes 1 --refined
+}
+
+# Started in AI Rewrite, switched back to plain half-way, stopped by the plain shortcut:
+# the dictation is pasted as said, with no rewrite.
+scenario_switch_to_plain() {
+    local clip=uk-pause dur half doc
+    dur="$(clip_seconds $clip)"; half="$(echo "$dur / 2" | bc -l)"
+    begin switch-to-plain $clip
+    doc="$(new_doc textedit)"; OPEN_DOCS+=("$doc")
+    "$KEYS" tap:ctrl+shift+a "sleep:$half" tap:ctrl+shift+q "sleep:$(echo "$dur - $half + 1" | bc -l)" tap:ctrl+shift+q
+    wait_for_change "$doc" "" 40
+    verdict switch-to-plain "$doc" --expected "$(clip_field $clip expected)" --pastes 1 --not-refined \
+        --logged "switchTo(ai: false)"
+}
+
+# The stream's socket closed 4 s into the speech (-SPTCloseStreamAfter, debug builds
+# only) and reopened by StreamReconnectPolicy; the segment that had the outage is
+# pasted from the upload. A realtime engine only: the others have no stream to close.
+scenario_stream_drop() {
+    local clip=uk-plain dur doc
+    case "$ENGINE" in
+        scribe-realtime|gpt-live) ;;
+        *) local row="| stream-drop | skipped | | | no stream on $ENGINE | |"
+           echo "$row"; RESULTS+=("$row"); return 0 ;;
+    esac
+    dur="$(clip_seconds $clip)"
+    LAUNCH_ARGS=(-SPTCloseStreamAfter 4)
+    begin stream-drop $clip
+    doc="$(new_doc textedit)"; OPEN_DOCS+=("$doc")
+    "$KEYS" tap:ctrl+shift+q "sleep:$(echo "$dur + 1" | bc)" tap:ctrl+shift+q
+    wait_for_change "$doc" "" 60
+    verdict stream-drop "$doc" --expected "$(clip_field $clip expected)" --pastes 1 \
+        --logged "closing the stream's socket now" --logged "reconnecting in" \
+        --logged "stream dropped during the segment"
 }
 
 # Started plain, switched to AI Rewrite half-way by the other shortcut, stopped by it.

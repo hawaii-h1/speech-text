@@ -2,7 +2,7 @@
 
 Real recordings played through every speech engine, so that a change to recognition,
 or a vendor's model update, shows up as numbers rather than as a feeling after a manual
-pass. Traces (`SpeechTextTests/Traces/`) replay what a provider *said*; the corpus
+pass. Traces (`speech-text-private/traces/`, `scripts/replay-traces.sh`) replay what a provider *said*; the corpus
 produces that from audio.
 
 ## What is where
@@ -144,8 +144,9 @@ the reader of the run, as the rest of the summary is. `maxWER` stays the one bou
 fails, for a clip that needs an absolute one.
 
 A streaming run also writes its `DictationTrace` to `traces/`: a
-regression found live becomes an offline test by copying that file into
-`SpeechTextTests/Traces/` and setting `expectedDocument`.
+regression found live becomes an offline test by copying that file into the
+private traces folder (`scripts/import-trace.sh NAME FILE`) and setting
+`expectedDocument`.
 
 ## Recording a clip
 
