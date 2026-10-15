@@ -28,8 +28,14 @@ line, and the account holder is the one Apple holds responsible for what is sign
 
 ### The decision, taken 2026-09-22
 
-**The first release is signed by the owner's individual Apple Developer account**, with
-a migration to an organization account planned later.
+**The first release is signed by an individual Apple Developer account**, with a
+migration to an organization account planned later. The certificate is
+*Developer ID Application: Alona Sheiko (7F9975AM6N)*, and that name is public: macOS
+shows it in the *Background Items Added* notice when the app registers itself as a login
+item, in System Settings › General › Login Items, and in any signature check. Confirmed
+on 2026-10-15, before the first public release, with the account holder's consent; an
+organization account would put the company's legal name there instead and keep the team
+ID.
 
 That is only safe because of what the migration does *not* change. Apple's path from an
 individual membership to an organization keeps the same team, so the team ID — and with

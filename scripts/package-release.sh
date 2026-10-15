@@ -283,6 +283,18 @@ rm -f "$DMG"
     "$APP_NAME $VERSION" "$DMG" > "$WORK/dmgbuild.log" 2>&1 ||
     { cat "$WORK/dmgbuild.log" >&2; die "dmgbuild could not create the disk image"; }
 
+# The app inside the image is the copy people install, so that copy is the one checked:
+# dmgbuild writes Finder attributes onto what it copies, and an extended attribute on the
+# bundle fails a strict check the app it was copied from passed.
+MOUNT="$(mktemp -d "$WORK/mount.XXXXXX")"
+hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" "$DMG" > /dev/null ||
+    die "could not mount the disk image to check it"
+if ! codesign --verify --deep --strict "$MOUNT/$APP_NAME.app"; then
+    hdiutil detach -quiet "$MOUNT"
+    die "the app inside the disk image does not pass a strict signature check"
+fi
+hdiutil detach -quiet "$MOUNT"
+
 if [ "$DISTRIBUTABLE" -eq 1 ]; then
     codesign --force --timestamp --sign "$IDENTITY" "$DMG"
     step "Notarizing the disk image"

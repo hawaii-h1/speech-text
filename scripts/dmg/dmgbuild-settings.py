@@ -17,7 +17,9 @@ app_name = os.path.basename(app)
 
 files = [app]
 symlinks = {"Applications": "/Applications"}
-hide_extensions = [app_name]
+# No hide_extensions: it writes the Finder's hide-extension flag (com.apple.FinderInfo)
+# onto the signed bundle, which then fails `codesign --verify --strict`; the Finder
+# hides ".app" by default anyway.
 
 icon = defines.get("icon") or None  # noqa: F821
 background = defines["background"]  # noqa: F821 — its @2x sibling is found and combined
