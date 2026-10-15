@@ -6,8 +6,9 @@
 #
 # GitHub reports a merge as successful whether or not main ever sees it: a pull
 # request based on another branch merges into *that* branch, and if the branch
-# has already landed, the work is merged, green, and gone. That is #43 — PR #41
-# merged into a branch main had stopped following seven minutes earlier.
+# has already landed, the work is merged, green, and gone. That is
+# yavno/speech-text-archive#43 — PR #41 there merged into a branch main had stopped
+# following seven minutes earlier.
 #
 # CI cannot see it, because CI runs on the pull request's own range and the range
 # is fine. So the check is made afterwards, over every merged pull request there
@@ -48,9 +49,10 @@ command -v gh > /dev/null || { echo "The GitHub CLI (gh) is not installed." >&2;
 # from now on, and a check that always fails is a check nobody reads.
 #
 # One entry per pull request: the number, whitespace, and where the work landed.
-# Add one only when that has actually happened.
+# Add one only when that has actually happened. The one settled miss before the
+# history rewrite (PR #41) belongs to yavno/speech-text-archive, whose numbers this
+# repository does not share, so the list starts empty here.
 accounted_for=(
-  "41  came back as an equivalent commit in #62 — see issue #43"
 )
 
 # The comparison is against the remote's main, not a local branch that may be days
