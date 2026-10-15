@@ -63,7 +63,7 @@ Short on purpose. Anything a machine can refuse for you is not on it:
 - One concern per PR. Don't mix an unrelated fix into a feature.
 - A new app file the tests need is in **both** targets' Sources phases (see [docs/development.md](docs/development.md)). CI does catch this, but as `cannot find 'X' in scope` in a test file — which reads like a missing import, not like a project file that was never told about your file.
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
-- The description says what changed and why.
+- The description says what changed and why, and under *Needs a real-app run* what only a person can check in the running app (or "None").
 
 Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, fails when docs/adding-a-provider.md no longer matches the provider code, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, except the provider guide, and add the sign-off itself.
 

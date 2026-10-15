@@ -35,7 +35,7 @@ A description:
   run**).
 - Every clip runs with Auto. `forcedLanguages` adds a pass per language, as if the user
   had named exactly that one. A pass forced to another language than the clip's (English
-  forced to Ukrainian) is reported only — the checklist's L4, "note what comes out".
+  forced to Ukrainian) is reported only: what comes out (a translation, a transliteration or the English) is the finding.
 - `vocabulary` (optional) lists the words a user would put in the Dictionary. A clip
   that has one gets one more pass, `auto + dictionary`, with those words as the
   Dictionary: sent to every engine that takes them, as the app sends them (Groq's
@@ -86,7 +86,7 @@ over the threshold` in *Every result*): the margin between noise and speech is r
 every run, not only whether a clip was sent.
 
 Apple's recogniser is not in the matrix: its permission prompt would hang a headless
-run, so T9 stays manual.
+run. `scripts/e2e.sh --engine apple` runs it in the app (docs/e2e.md).
 
 ## What a run does with a clip
 

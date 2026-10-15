@@ -193,7 +193,12 @@ on 2026-09-28 expires in 2044.
    never run SpeechText: it should open without any Gatekeeper dialog, show the drag
    window (the app, the arrow, Applications), and on first launch from Applications open
    the setup window — not permission alerts. Opened straight from the image instead, it should offer to move
-   itself to Applications. The rows are in docs/manual-testing.md › Встановлення з DMG.
+   itself to Applications. A fresh user account is the clean test. On a Mac that has run
+   SpeechText, first remove the keys in Settings › API Keys — a signed build keeps them in
+   the keychain, out of `defaults`' reach, and a stored key makes setup take the install
+   for an old one — then `defaults delete app.speech-text.SpeechText`, which also clears
+   `onboardingCompleted` (left set, it keeps setup from opening at all). History and
+   downloaded models stay.
    Check the image and the installed app with the commands in
    [Checking a signed build](#checking-a-signed-build). Then publish the draft.
 6. Check that the release it replaces can reach it: on a Mac running the *previous*
@@ -296,8 +301,58 @@ This is how the update from 0.9.0 to the build after it was checked on 2026-09-2
    defaults delete app.speech-text.SpeechText SUFeedURL
    ```
 
-docs/manual-testing.md › Оновлення uses the same override for the update window's own
-cases (an unreachable feed, a fake newer version).
+### The update windows themselves
+
+The same override checks Sparkle's windows rather than an install (#92: an alert opened
+behind other apps, and its modal session disabled the whole status menu, Quit included).
+Use a `rebuild.sh` install — a ⌘R build starts no updater and has no Check for Updates…
+— quit and reopen SpeechText after every `defaults write`, and delete `SUFeedURL` at the
+end as in step 6.
+
+- **An unreachable feed** — nothing listens on port 9:
+
+  ```bash
+  defaults write app.speech-text.SpeechText SUFeedURL http://127.0.0.1:9/appcast.xml
+  ```
+
+  With TextEdit in front and Settings closed, Check for Updates… shows "Update Error!"
+  *over* TextEdit, with a Dock icon while it is open; after Cancel the status menu works
+  and Quit is enabled. The Debug Log (Update) says `modal alert ordered front`. Again
+  with Settings open behind TextEdit: the Dock icon is already there, and Sparkle does
+  not activate the app by itself.
+- **A newer version** — a feed with one item whose `sparkle:version` is above the
+  menu's build number (equal to it for "You're up to date!"). The signature can be
+  fake: the window appears before anything is verified, so never press Install Update.
+
+  ```bash
+  mkdir -p /tmp/feed && cat > /tmp/feed/appcast.xml <<'EOF'
+  <?xml version="1.0" encoding="utf-8"?>
+  <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+      <item>
+        <title>9.9.9</title>
+        <sparkle:version>9999</sparkle:version>
+        <sparkle:shortVersionString>9.9.9</sparkle:shortVersionString>
+        <enclosure url="http://127.0.0.1:8000/SpeechText.dmg" length="1"
+                   type="application/octet-stream" sparkle:edSignature="AAAA"/>
+      </item>
+    </channel>
+  </rss>
+  EOF
+  cd /tmp/feed && python3 -m http.server --bind 127.0.0.1 8000
+  ```
+
+  "A new version of SpeechText is available!" opens over the app in front; the Debug Log
+  says `update 9.9.9 window ordered front`.
+- **A scheduled check that fails** — the unreachable feed, automatic checks on, and the
+  last check moved into the past:
+
+  ```bash
+  defaults write app.speech-text.SpeechText SULastCheckTime -date "2020-01-01 00:00:00 +0000"
+  ```
+
+  Reopened, the app shows nothing and the menu works; the error is only in
+  `log show --last 5m --predicate 'subsystem BEGINSWITH "org.sparkle-project"'`.
 
 ## How an installed copy learns about a new version
 

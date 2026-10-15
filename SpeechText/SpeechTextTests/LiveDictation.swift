@@ -337,8 +337,8 @@ enum LiveDictation {
         result.wordErrorRate = clip.expectsNothing ? nil
             : CorpusMeasure.wordErrorRate(expected: clip.expected, actual: result.pasted ?? "")
         result.substitutions = CorpusMeasure.substitutions(expected: clip.expected, actual: result.pasted ?? "")
-        // English forced to Ukrainian is the checklist's L4, "note what comes out": a
-        // translation there is the finding, not a failure.
+        // English forced to Ukrainian is reported, not judged: what comes out of it (a
+        // translation, a transliteration) is the finding, not a failure.
         let judged = language == nil || language == clip.language || clip.language == "mixed"
         result.failures = judged ? CorpusChecks.failures(clip: clip, clipSeconds: audio.duration,
                                                          pasted: result.pasted, error: result.error) : []

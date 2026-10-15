@@ -5,8 +5,8 @@ import AppKit
 import XCTest
 
 // Whole dictations replayed through `DictationReplay`: what lands in the document, once,
-// where. Where a test is named after a row of docs/manual-testing.md, the row still exists
-// for what a replay cannot show — whether the real app takes the paste.
+// where. What a replay cannot show — whether a real app takes the paste — is the e2e
+// harness's (docs/e2e.md), or a pull request's Needs a real-app run.
 
 /// The document a dictation leaves: `text`, followed by the trailing space
 /// `AppState.deliver` adds so a dictation continued into the same field does not start
@@ -119,9 +119,9 @@ final class PasteOnceReplayTests: XCTestCase {
         XCTAssertNil(run.stop)
     }
 
-    /// T11: a second dictation straight after the first, with nothing typed between. The
+    /// A second dictation straight after the first, with nothing typed between. The
     /// first one's trailing space separates them.
-    func testT11_ASecondDictationIsSeparatedFromTheFirst() async {
+    func testASecondDictationIsSeparatedFromTheFirst() async {
         let app = FakeApp()
         _ = await DictationReplay.run(in: app, [.committed("Треба це виправити.")])
         _ = await DictationReplay.run(in: app, [.committed("Роблю це зараз.")])
@@ -129,8 +129,8 @@ final class PasteOnceReplayTests: XCTestCase {
         assertDocument(app.document, "Треба це виправити. Роблю це зараз.")
     }
 
-    /// T12: Scribe closed a segment inside a word ("база дани" | "х, звідки").
-    func testT12_AWordCutByTheStreamIsGluedBack() async {
+    /// Scribe closed a segment inside a word ("база дани" | "х, звідки").
+    func testAWordCutByTheStreamIsGluedBack() async {
         TranscriptJoin.isWord = { ["даних", "база", "звідки"].contains($0.lowercased()) }
         let run = await DictationReplay.run(in: FakeApp(), [
             .committed("Ось нова база дани"),
@@ -1084,7 +1084,7 @@ final class SelectionEditTests: XCTestCase {
                        .unchanged(selection("quick")))
     }
 
-    /// Row E9: another word selected while the instruction was spoken — that word is
+    /// Another word selected while the instruction was spoken — that word is
     /// what gets rewritten, not the one read at the first press.
     func testOtherTextSelectedAtTheSendIsWhatGetsEdited() {
         let read = selection("quick brown", at: 4)

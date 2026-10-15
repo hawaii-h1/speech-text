@@ -32,7 +32,7 @@ struct CorpusClip: Codable, Equatable {
     /// judging it: a bound is set from a baseline run on the real recording, not guessed.
     var maxWER: Double?
     /// Languages to force on the engines as extra passes, beside the Auto pass every
-    /// clip gets (`["uk"]` — the L3/L4 rows of the manual checklist).
+    /// clip gets (`["uk"]`: Ukrainian named, and English forced to it).
     var forcedLanguages: [String]?
     var note: String?
     /// Another recording this clip is cut from, and how much of its start — so the

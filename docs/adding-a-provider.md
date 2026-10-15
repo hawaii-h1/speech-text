@@ -197,7 +197,9 @@ Read CLAUDE.md's streaming sections first. The rules:
 - Tests: new files go in **both** targets in `project.pbxproj`. Test request builders and
   parsers as pure functions; realtime vendors get a `DictationReplay` script with a drop.
 - Docs: README (engine table and **privacy list**), SECURITY.md, CLAUDE.md (component
-  bullet, Settings Keys table), CHANGELOG, manual-testing rows.
+  bullet, Settings Keys table), CHANGELOG. What only a person can check — a live socket
+  from a microphone, a real key against the service — goes under *Needs a real-app run*
+  in the pull request.
 
 ## 9. Keeping this guide true
 
@@ -248,10 +250,8 @@ key      | SpeechText/SpeechText/Settings.swift                  | enum Settings
 key      | SpeechText/SpeechText/ProviderRegistry.swift          | var descriptor: ProviderDescriptor            | compiler    | the Provider case and its ProviderDescriptor: name, roles, and the APIKeyDescriptor (key page, create note, prefix, sample, verification)
 key      | SpeechText/SpeechText/SetupServices.swift             | enum SetupCards                               | review      | a setup card on the Speech and AI steps, if the maintainer wants one; SetupCardsTests checks what it saves
 key      | docs/development.md                                   | ## API keys                                   | manual      | the list of keys
-key      | docs/manual-testing.md                                | Відкритого тексту не лишилось                 | manual      | the key in the loop that checks no plain-text copy is left
 docs     | README.md                                             | ## Privacy: where your audio goes             | manual      | the privacy list (and the engine table or AI sentence above it)
 docs     | SECURITY.md                                           | The privacy practices of                      | manual:file | add the vendor
 docs     | CLAUDE.md                                             | ## Settings Keys Reference                    | manual      | the new keys, and the provider file's Architecture bullet
 docs     | CHANGELOG.md                                          | ## [Unreleased]                               | manual:file | an Added entry
-docs     | docs/manual-testing.md                                | ## Журнал прогонів                            | manual:file | rows for the vendor, in a section above the run log
 ```

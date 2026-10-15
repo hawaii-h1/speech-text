@@ -220,7 +220,7 @@ SpeechText/
 docs/
   development.md       this file
   specs/               design documents for larger features
-  testing-runs/        results of full passes of manual-testing.md
+  testing-runs/        audio corpus runs written by scripts/evaluate.sh
 scripts/               rebuild, packaging, keychain profile, appcast, trace import
 .githooks/             the sign-off and pre-commit hooks (see Hooks)
 .github/workflows/     CI and the tag-triggered release
