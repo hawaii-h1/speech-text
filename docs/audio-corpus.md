@@ -11,8 +11,7 @@ produces that from audio.
 |---|---|---|
 | Clip descriptions: expected text, language, tags, bounds | `SpeechText/SpeechTextTests/Audio/<clip>.json` | yes |
 | The recordings, `<clip>.wav` and `<clip>@<variant>.wav` | a folder of your own, passed as `<corpus-dir>` | **no** — it is someone's voice |
-| A run: `summary.md`, `results-*.json`, `traces/` | `docs/testing-runs/<date>/` | yes |
-| The run's `xcodebuild` logs | the same folder | no (`.gitignore`) |
+| A run: `summary.md`, `results-*.json`, `traces/`, the `xcodebuild` logs | `$SPEECHTEXT_RUNS/<date>/`, a folder of your own outside the repository | **no** — it holds what the engines heard in someone's voice |
 
 A description:
 
@@ -55,14 +54,15 @@ One description may have several recordings. `<clip>@<variant>.wav` is played ag
 ## Running
 
 ```sh
-ELEVENLABS_API_KEY=… OPENAI_API_KEY=… GROQ_API_KEY=… scripts/evaluate.sh ~/path/to/corpus
+SPEECHTEXT_RUNS=~/path/to/runs ELEVENLABS_API_KEY=… OPENAI_API_KEY=… GROQ_API_KEY=… \
+  scripts/evaluate.sh ~/path/to/corpus
 ```
 
 Keys come from the environment only, never from the app's settings, and may be other
 keys than the app's; an engine without its key is a `no key` row. `--cloud` or `--local`
 runs one half; `SPEECHTEXT_ENGINES=openAI/gpt-live-transcribe,local/parakeet-tdt-0.6b-v3`
 and `SPEECHTEXT_CLIPS=uk-pause,uk-names` narrow it. The cloud half costs cents.
-`SPEECHTEXT_RUN_DIR=docs/testing-runs/<date>` adds to an earlier run instead of starting
+`SPEECHTEXT_RUNS` is required and refused inside the checkout. `SPEECHTEXT_RUN_DIR=<runs>/<date>` adds to an earlier run instead of starting
 a new one: the clips run now replace their own rows and every other row stays, so a clip
 recorded — or re-recorded — after a run needs no second full run.
 
@@ -123,8 +123,8 @@ streaming engine whose upload answered instead (the stream broke or came back em
 
 `maxWER` is one bound for every engine, so it is either loose for the strong ones or
 red forever for the weak ones; a run is instead judged against the one before it. The
-previous run is the last one committed under `docs/testing-runs/` (a folder with a
-`results-*.json` that git tracks) other than the run being written — and, when that run
+previous run is the latest one under `SPEECHTEXT_RUNS` (a folder with a
+`results-*.json`) other than the run being written — and, when that run
 is itself one of them (`SPEECHTEXT_RUN_DIR` adding to an earlier run), the last one
 named before it. `summary.md` then opens with **Since `<that run>`**: each cell (clip ×
 engine × pass) against the same cell there, listed per engine —

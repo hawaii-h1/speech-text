@@ -8,7 +8,7 @@ import Foundation
 /// The same clips, the same `LiveDictation` run and the same checks as
 /// `LiveProviderTests`, written into the same run folder, so `summary.md` holds one table.
 ///
-///     SpeechTextEvaluation --corpus <dir> [--run-dir <dir>] [--engines a,b] [--clips a,b] [--cloud] [--no-local]
+///     SpeechTextEvaluation --corpus <dir> --runs <dir> [--run-dir <dir>] [--engines a,b] [--clips a,b] [--cloud] [--no-local]
 ///
 /// `--cloud` adds the cloud engines, with keys from the environment only; `--no-local`
 /// leaves the local ones out. A model that is not on this Mac is a `not installed` row.
@@ -31,6 +31,7 @@ struct SpeechTextEvaluation {
     struct Options {
         var corpus: URL?
         var runDirectory: URL?
+        var runs: URL?
         var engines: [String] = []
         var clips: [String] = []
         var cloud = false
@@ -46,6 +47,7 @@ struct SpeechTextEvaluation {
                 switch argument {
                 case "--corpus": corpus = URL(fileURLWithPath: try value(argument))
                 case "--run-dir": runDirectory = URL(fileURLWithPath: try value(argument))
+                case "--runs": runs = URL(fileURLWithPath: try value(argument))
                 case "--engines": engines = try value(argument).split(separator: ",").map(String.init)
                 case "--clips": clips = try value(argument).split(separator: ",").map(String.init)
                 case "--cloud": cloud = true
@@ -60,12 +62,12 @@ struct SpeechTextEvaluation {
         let message: String
         init(_ message: String) { self.message = message }
         var errorDescription: String? {
-            message + "\nusage: SpeechTextEvaluation --corpus <dir> [--run-dir <dir>] [--engines vendor/model,…] [--clips a,…] [--cloud] [--no-local]"
+            message + "\nusage: SpeechTextEvaluation --corpus <dir> --runs <dir> [--run-dir <dir>] [--engines vendor/model,…] [--clips a,…] [--cloud] [--no-local]"
         }
     }
 
-    /// The checkout this tool was built from: the clip descriptions are committed there,
-    /// and the run folder goes under its `docs/testing-runs/`.
+    /// The checkout this tool was built from: the clip descriptions are committed there.
+    /// Runs are not: they go under `--runs`, outside the repository.
     static let repository = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
@@ -85,8 +87,11 @@ struct SpeechTextEvaluation {
             .filter { $0.isSelected(by: options.clips) }
         let engines = CorpusEngine.all
             .filter { ($0.isLocal ? options.local : options.cloud) && (options.engines.isEmpty || options.engines.contains($0.id)) }
-        var folder = options.runDirectory.map { CorpusRunFolder(url: $0) } ?? CorpusRunFolder.new(in: repository)
-        folder.baseline = CorpusRunFolder.previous(in: repository, before: folder.url)?.url
+        guard let runs = options.runs ?? options.runDirectory?.deletingLastPathComponent() else {
+            throw UsageError("--runs is required: the folder runs are kept in, outside the repository")
+        }
+        var folder = options.runDirectory.map { CorpusRunFolder(url: $0) } ?? CorpusRunFolder.new(in: runs)
+        folder.baseline = CorpusRunFolder.previous(in: runs, before: folder.url)?.url
         let keys = ProviderKeys.fromEnvironment()
         // One results file per kind of engine, whichever of them ran: a folder never holds
         // the same cell twice under two runners' names.

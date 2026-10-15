@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Runs the audio corpus (#80) through every speech engine and writes one run folder,
-# docs/testing-runs/<date>/: summary.md (the engine × clip table), results-*.json and
-# the streaming engines' traces.
+# $SPEECHTEXT_RUNS/<date>/: summary.md (the engine × clip table), results-*.json and
+# the streaming engines' traces. SPEECHTEXT_RUNS must be outside the repository: a run
+# holds what the engines heard in someone's voice, so it is never committed.
 #
-#   ELEVENLABS_API_KEY=… OPENAI_API_KEY=… GROQ_API_KEY=… \
+#   SPEECHTEXT_RUNS=<runs-dir> ELEVENLABS_API_KEY=… OPENAI_API_KEY=… GROQ_API_KEY=… \
 #     scripts/evaluate.sh <corpus-dir>            every engine, cloud and local
 #   scripts/evaluate.sh <corpus-dir> --cloud      cloud engines only
 #   scripts/evaluate.sh <corpus-dir> --local      local engines only (no keys needed)
@@ -24,7 +25,7 @@
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
-  sed -n '5,23p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '5,24p' "$0" | sed 's/^# \{0,1\}//'
   exit 64
 fi
 
@@ -33,7 +34,20 @@ mode="${2:-all}"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 # SPEECHTEXT_RUN_DIR=<an earlier run> adds to it: the clips run now replace their own
 # rows, every other row stays — a clip recorded after a run needs no second full run.
-run_dir="${SPEECHTEXT_RUN_DIR:-$repo/docs/testing-runs/$(date +%Y-%m-%d_%H-%M)}"
+if [ -n "${SPEECHTEXT_RUN_DIR:-}" ]; then
+  runs="$(dirname "$SPEECHTEXT_RUN_DIR")"
+elif [ -n "${SPEECHTEXT_RUNS:-}" ]; then
+  runs="$SPEECHTEXT_RUNS"
+else
+  echo "SPEECHTEXT_RUNS must name the folder runs are kept in, outside the repository" >&2
+  exit 64
+fi
+mkdir -p "$runs"
+runs="$(cd "$runs" && pwd)"
+case "$runs/" in
+  "$repo/"*) echo "SPEECHTEXT_RUNS is inside the repository: a run holds someone's voice as text" >&2; exit 64 ;;
+esac
+run_dir="${SPEECHTEXT_RUN_DIR:-$runs/$(date +%Y-%m-%d_%H-%M)}"
 mkdir -p "$run_dir"
 run_dir="$(cd "$run_dir" && pwd)"
 derived=/tmp/st-dd-evaluation
@@ -48,7 +62,7 @@ echo "▸ Building SpeechTextEvaluation…"
 xcodebuild build -project "$project" -scheme SpeechTextEvaluation -configuration Release \
   -destination 'platform=macOS' -derivedDataPath "$derived" >"$run_dir/evaluation-build.log" 2>&1 \
   || { echo "build failed — see $run_dir/evaluation-build.log" >&2; exit 1; }
-args=(--corpus "$corpus" --run-dir "$run_dir")
+args=(--corpus "$corpus" --runs "$runs" --run-dir "$run_dir")
 case "$mode" in
   --cloud) args+=(--cloud --no-local) ;;
   --local) ;;
@@ -60,5 +74,5 @@ echo "▸ Engines…"
 "$derived/Build/Products/Release/SpeechTextEvaluation" "${args[@]}" | tee "$run_dir/evaluation.log" || status=1
 
 echo
-echo "Summary: ${run_dir#"$repo/"}/summary.md"
+echo "Summary: $run_dir/summary.md"
 exit $status

@@ -14,7 +14,10 @@ import XCTest
 ///                                    settings; an engine without its key is a "no key" row
 ///     SPEECHTEXT_ENGINES=openAI/gpt-live-transcribe,…   optional subset (vendor/model)
 ///     SPEECHTEXT_CLIPS=pause-uk,…    optional subset
-///     SPEECHTEXT_RUN_DIR=<dir>       optional; a new docs/testing-runs/<date> otherwise
+///     SPEECHTEXT_RUNS=<dir>          where runs are kept, outside the repository: a run
+///                                    holds what the engines heard in someone's voice
+///     SPEECHTEXT_RUN_DIR=<dir>       optional; an earlier run to add to, instead of a new
+///                                    <date> folder under SPEECHTEXT_RUNS
 ///
 /// An unhosted test bundle does not inherit the shell's environment: `xcodebuild` passes
 /// `TEST_RUNNER_<NAME>` through as `<NAME>`, which `scripts/evaluate.sh` does. The local
@@ -37,9 +40,11 @@ final class LiveProviderTests: XCTestCase {
                 let names = Self.names(environment["SPEECHTEXT_ENGINES"])
                 return !engine.isLocal && (names.isEmpty || names.contains(engine.id))
             }
+        let runs = try XCTUnwrap(CorpusRunFolder.runs(environment: environment),
+                                 "SPEECHTEXT_RUNS names the folder runs are kept in, outside the repository")
         var folder = environment["SPEECHTEXT_RUN_DIR"].map { CorpusRunFolder(url: URL(fileURLWithPath: $0)) }
-            ?? CorpusRunFolder.new(in: repository)
-        folder.baseline = CorpusRunFolder.previous(in: repository, before: folder.url)?.url
+            ?? CorpusRunFolder.new(in: runs)
+        folder.baseline = CorpusRunFolder.previous(in: runs, before: folder.url)?.url
         let keys = ProviderKeys.fromEnvironment(environment)
         XCTAssertFalse(clips.isEmpty, "no clip descriptions selected")
         // What the app registers at launch: without it no word cut in two is glued back.
@@ -285,23 +290,22 @@ final class CorpusMeasureTests: XCTestCase {
     }
 
     func testThePreviousRunIsTheLastOneBeforeThisRun() throws {
-        let repository = FileManager.default.temporaryDirectory.appendingPathComponent("runs-\(UUID().uuidString)")
-        let runs = repository.appendingPathComponent("docs/testing-runs")
-        defer { try? FileManager.default.removeItem(at: repository) }
+        let runs = FileManager.default.temporaryDirectory.appendingPathComponent("runs-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: runs) }
         for (name, results) in [("2026-10-10_21-15", true), ("2026-10-11_11-47", true), ("2026-10-12_09-00", false)] {
             let folder = runs.appendingPathComponent(name)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             FileManager.default.createFile(atPath: folder.appendingPathComponent(results ? "results-cloud.json" : "summary.md").path,
                                            contents: Data("[]".utf8))
         }
-        // Not a git checkout, so every folder with results counts.
-        XCTAssertEqual(CorpusRunFolder.previous(in: repository, before: URL(fileURLWithPath: "/tmp/st-corpus/now"))?
+        // Every folder with results counts; one with none is not a run.
+        XCTAssertEqual(CorpusRunFolder.previous(in: runs, before: URL(fileURLWithPath: "/tmp/st-corpus/now"))?
             .url.lastPathComponent, "2026-10-11_11-47")
-        XCTAssertEqual(CorpusRunFolder.previous(in: repository, before: runs.appendingPathComponent("2026-10-12_09-00"))?
+        XCTAssertEqual(CorpusRunFolder.previous(in: runs, before: runs.appendingPathComponent("2026-10-12_09-00"))?
             .url.lastPathComponent, "2026-10-11_11-47")
-        XCTAssertEqual(CorpusRunFolder.previous(in: repository, before: runs.appendingPathComponent("2026-10-11_11-47"))?
+        XCTAssertEqual(CorpusRunFolder.previous(in: runs, before: runs.appendingPathComponent("2026-10-11_11-47"))?
             .url.lastPathComponent, "2026-10-10_21-15")
-        XCTAssertNil(CorpusRunFolder.previous(in: repository, before: runs.appendingPathComponent("2026-10-10_21-15")))
+        XCTAssertNil(CorpusRunFolder.previous(in: runs, before: runs.appendingPathComponent("2026-10-10_21-15")))
     }
 
     func testTheSummarySaysWhatChangedSinceThePreviousRun() {

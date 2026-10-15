@@ -398,10 +398,11 @@ enum CorpusChecks {
 
 // MARK: - The run's files
 
-/// A run's folder under `docs/testing-runs/`: each runner's results as JSON, the traces
-/// the streaming engines produced, and `summary.md` rendered from every result present —
-/// so the cloud half and the local half of one run end in one table, whichever finished
-/// last.
+/// A run's folder, outside the repository — under the folder `SPEECHTEXT_RUNS` names:
+/// each runner's results as JSON, the traces the streaming engines produced, and
+/// `summary.md` rendered from every result present — so the cloud half and the local
+/// half of one run end in one table, whichever finished last. A run holds what the
+/// engines heard in someone's voice, so it is never committed.
 struct CorpusRunFolder {
     let url: URL
     /// The run this one is compared with (`previous(in:before:)`); nil compares nothing.
@@ -414,13 +415,24 @@ struct CorpusRunFolder {
 
     var traces: URL { url.appendingPathComponent("traces", isDirectory: true) }
 
-    /// A new folder named for now, under `docs/testing-runs/`.
-    static func new(in repository: URL, now: Date = Date()) -> CorpusRunFolder {
+    /// Where runs are kept: `SPEECHTEXT_RUNS`, else the folder holding the run that
+    /// `SPEECHTEXT_RUN_DIR` adds to; nil when neither is set.
+    static func runs(environment: [String: String]) -> URL? {
+        if let runs = environment["SPEECHTEXT_RUNS"], !runs.isEmpty {
+            return URL(fileURLWithPath: runs, isDirectory: true)
+        }
+        if let run = environment["SPEECHTEXT_RUN_DIR"], !run.isEmpty {
+            return URL(fileURLWithPath: run, isDirectory: true).deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    /// A new folder named for now, under `runs`.
+    static func new(in runs: URL, now: Date = Date()) -> CorpusRunFolder {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd_HH-mm"
-        return CorpusRunFolder(url: repository.appendingPathComponent("docs/testing-runs", isDirectory: true)
-            .appendingPathComponent(formatter.string(from: now), isDirectory: true))
+        return CorpusRunFolder(url: runs.appendingPathComponent(formatter.string(from: now), isDirectory: true))
     }
 
     /// Writes one runner's results (`results-cloud.json`, `results-local.json`) and
@@ -438,14 +450,12 @@ struct CorpusRunFolder {
             .write(to: url.appendingPathComponent("summary.md"), atomically: true, encoding: .utf8)
     }
 
-    /// The last run committed under the repository's `docs/testing-runs/` — a folder with
-    /// results, tracked by git — other than `current`, and, when `current` is itself one
-    /// of them (a run added to with `SPEECHTEXT_RUN_DIR`), one named before it: the run
-    /// a new one is judged against. Without git, every folder with results counts.
-    static func previous(in repository: URL, before current: URL) -> CorpusRunFolder? {
-        let runs = repository.appendingPathComponent("docs/testing-runs", isDirectory: true)
+    /// The latest run in `runs` — a folder with results — other than `current`, and,
+    /// when `current` is itself one of them (a run added to with `SPEECHTEXT_RUN_DIR`),
+    /// one named before it: the run a new one is judged against.
+    static func previous(in runs: URL, before current: URL) -> CorpusRunFolder? {
         let current = current.resolvingSymlinksInPath()
-        let names = committedRuns(in: repository) ?? ((try? FileManager.default.contentsOfDirectory(atPath: runs.path)) ?? [])
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: runs.path)) ?? [])
             .filter { name in
                 let files = (try? FileManager.default.contentsOfDirectory(atPath: runs.appendingPathComponent(name).path)) ?? []
                 return files.contains { $0.hasPrefix("results-") && $0.hasSuffix(".json") }
@@ -456,25 +466,6 @@ struct CorpusRunFolder {
             .sorted()
             .last
             .map { CorpusRunFolder(url: runs.appendingPathComponent($0, isDirectory: true)) }
-    }
-
-    /// The run folders with a results file that git tracks; nil when git cannot say.
-    private static func committedRuns(in repository: URL) -> [String]? {
-        let git = Process()
-        git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        git.arguments = ["-C", repository.path, "ls-files", "--", "docs/testing-runs"]
-        let output = Pipe()
-        git.standardOutput = output
-        git.standardError = FileHandle.nullDevice
-        guard (try? git.run()) != nil else { return nil }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        git.waitUntilExit()
-        guard git.terminationStatus == 0 else { return nil }
-        return Array(Set(String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line -> String? in
-            let parts = line.split(separator: "/")
-            guard parts.count == 4, parts[3].hasPrefix("results-"), parts[3].hasSuffix(".json") else { return nil }
-            return String(parts[2])
-        }))
     }
 
     /// What this runner already wrote here, less the rows of the clips about to run
