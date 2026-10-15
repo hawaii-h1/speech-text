@@ -13,8 +13,8 @@ import AppKit
 /// affordance is a cancel button, kept beside the display rather than over it.
 ///
 /// The transcript is why this exists as more than a meter: a streaming provider closes a
-/// sentence on a short pause and reopens it a moment later ("…зробимо. Потім" →
-/// "…зробимо, потім"), and only a surface we own can show that correction happening.
+/// sentence on a short pause and reopens it a moment later ("…почнемо. Потім" →
+/// "…почнемо, потім"), and only a surface we own can show that correction happening.
 /// The text is pasted once, at the stop, in its final form.
 ///
 /// Both skins live here rather than in separate files: they show the same states

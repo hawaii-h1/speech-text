@@ -4,19 +4,18 @@
 #
 # Replays every recorded dictation trace through the app's own recognition and delivery
 # code (RecordedTraceTests). The traces hold dictated words, so they live outside this
-# repository (#51), in SPEECHTEXT_TRACES — by default speech-text-private/traces beside
-# it. Without them the test is skipped, which is what CI does.
+# repository (#51), in the folder SPEECHTEXT_TRACES names. Without it the test is
+# skipped, which is what CI does.
 #
-#   scripts/replay-traces.sh
-#   SPEECHTEXT_TRACES=~/elsewhere scripts/replay-traces.sh
+#   SPEECHTEXT_TRACES=<traces-dir> scripts/replay-traces.sh
 #
 # SPT_DERIVED_DATA picks the build folder (default /tmp/st-dd-traces).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TRACES="${SPEECHTEXT_TRACES:-$(cd "$REPO_ROOT/.." && pwd)/speech-text-private/traces}"
-[ -d "$TRACES" ] || [ -n "${SPEECHTEXT_TRACES:-}" ] ||
-  TRACES="$HOME/speech-text-data/traces"
+[ -n "${SPEECHTEXT_TRACES:-}" ] ||
+  { echo "SPEECHTEXT_TRACES must name the folder the traces are kept in" >&2; exit 64; }
+TRACES="$SPEECHTEXT_TRACES"
 [ -d "$TRACES" ] || { echo "no traces folder at $TRACES — set SPEECHTEXT_TRACES" >&2; exit 1; }
 TRACES="$(cd "$TRACES" && pwd)"
 echo "Replaying $(ls "$TRACES"/*.json 2>/dev/null | wc -l | tr -d ' ') trace(s) from $TRACES"

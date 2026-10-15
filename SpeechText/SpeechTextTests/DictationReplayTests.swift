@@ -73,14 +73,14 @@ final class PasteOnceReplayTests: XCTestCase {
     func testAPauseMidSentenceIsPastedInItsFinalForm() async {
         let app = FakeApp("Terminal")
         let run = await DictationReplay.run(in: app, [
-            .partial("Я думаю, що ми зробимо"),
-            .committed("Я думаю, що ми зробимо."),
-            .partial("Я думаю, що ми зробимо, потім"),
-            .committed("Я думаю, що ми зробимо, потім перевіримо."),
+            .partial("Я думаю, що ми почнемо"),
+            .committed("Я думаю, що ми почнемо."),
+            .partial("Я думаю, що ми почнемо, потім"),
+            .committed("Я думаю, що ми почнемо, потім перевіримо."),
         ])
 
-        XCTAssertTrue(run.overlay.contains { $0.settled == "Я думаю, що ми зробимо." })
-        assertDocument(run.document, "Я думаю, що ми зробимо, потім перевіримо.")
+        XCTAssertTrue(run.overlay.contains { $0.settled == "Я думаю, що ми почнемо." })
+        assertDocument(run.document, "Я думаю, що ми почнемо, потім перевіримо.")
         XCTAssertEqual(app.pastes.count, 1)
     }
 
@@ -525,7 +525,7 @@ final class AIReplayTests: XCTestCase {
 /// document holding exactly that.
 ///
 /// The traces hold dictated words in plain text, so they stay out of the repository, in
-/// `speech-text-private/traces/` (#51, the owner's call); without the variable the test is
+/// the folder `SPEECHTEXT_TRACES` names (#51); without the variable the test is
 /// skipped. `scripts/replay-traces.sh` runs it. An unhosted test bundle does not inherit the
 /// shell's environment: `xcodebuild` passes `TEST_RUNNER_SPEECHTEXT_TRACES` through.
 @MainActor

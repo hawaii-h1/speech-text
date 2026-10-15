@@ -66,7 +66,7 @@ The exit status is non-zero when a scenario failed.
 
 | Variable | Default |
 |---|---|
-| `SPEECHTEXT_CORPUS` | `speech-text-private/audio-corpus` beside the repository |
+| `SPEECHTEXT_CORPUS` | none — required: the folder of corpus WAVs, outside the repository |
 | `SPT_E2E_KEYS` | `~/.config/speech-text/test-keys.env` (`GROQ_API_KEY=…`, `OPENAI_API_KEY=…`, `ELEVENLABS_API_KEY=…`) |
 | `SPT_E2E_DERIVED_DATA` | `/tmp/st-dd-e2e` |
 | `SPT_SIGN_IDENTITY` | the first `Developer ID Application` certificate in the keychain |

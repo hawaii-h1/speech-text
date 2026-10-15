@@ -11,15 +11,20 @@
 #   scripts/import-trace.sh NAME FILE.json  a specific trace (an e2e run's, for one)
 #
 # A trace holds the words that were dictated, in plain text, so it never goes into this
-# repository (#51): the folder is SPEECHTEXT_TRACES, by default
-# speech-text-private/traces beside the repository.
+# repository (#51): SPEECHTEXT_TRACES names the folder, which must be outside it.
+#
+#   SPEECHTEXT_TRACES=<traces-dir> scripts/import-trace.sh
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE_DIR="$HOME/Library/Application Support/SpeechText/Traces"
-DEST_DIR="${SPEECHTEXT_TRACES:-$(cd "$REPO_ROOT/.." && pwd)/speech-text-private/traces}"
-[ -d "$DEST_DIR" ] || [ -n "${SPEECHTEXT_TRACES:-}" ] ||
-  DEST_DIR="$HOME/speech-text-data/traces"
+[ -n "${SPEECHTEXT_TRACES:-}" ] ||
+  { echo "SPEECHTEXT_TRACES must name the folder traces are kept in, outside the repository" >&2; exit 64; }
+mkdir -p "$SPEECHTEXT_TRACES"
+DEST_DIR="$(cd "$SPEECHTEXT_TRACES" && pwd)"
+case "$DEST_DIR/" in
+  "$REPO_ROOT/"*) echo "SPEECHTEXT_TRACES is inside the repository: a trace holds dictated words" >&2; exit 64 ;;
+esac
 
 if [ $# -ge 2 ]; then
   source="$2"

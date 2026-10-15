@@ -78,7 +78,7 @@ struct InsertionLedger {
     // MARK: Reading
 
     /// Where this span's text is in `document` *right now*, or nil if it is not there
-    /// untouched. Three steps, in the order the chunking spec asks for them: the recorded
+    /// untouched. Three steps, in order: the recorded
     /// range if the substring still matches exactly; otherwise the last occurrence of
     /// that text anywhere in the document (it moved — the user typed above it);
     /// otherwise nothing at all, and the caller must leave the document alone.

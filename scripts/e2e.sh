@@ -15,8 +15,8 @@
 #          (Debug Log › Record traces on, for #51)  --no-build  --keep (leave the
 #          documents open)
 #
-# Environment: SPEECHTEXT_CORPUS (the WAVs; default ../speech-text-private/audio-corpus
-# beside the repository), SPT_E2E_KEYS (default ~/.config/speech-text/test-keys.env),
+# Environment: SPEECHTEXT_CORPUS (the folder of corpus WAVs, outside the repository;
+# required), SPT_E2E_KEYS (default ~/.config/speech-text/test-keys.env),
 # SPT_E2E_DERIVED_DATA (default /tmp/st-dd-e2e), SPT_E2E_OUT (default
 # /tmp/speechtext-e2e/<time>), SPT_SIGN_IDENTITY (default: the Developer ID certificate).
 #
@@ -40,8 +40,7 @@ DD="${SPT_E2E_DERIVED_DATA:-/tmp/st-dd-e2e}"
 WORK="$DD/e2e"
 APP="$WORK/SpeechText.app"
 KEYS_FILE="${SPT_E2E_KEYS:-$HOME/.config/speech-text/test-keys.env}"
-CORPUS="${SPEECHTEXT_CORPUS:-$(cd "$REPO_ROOT/.." && pwd)/speech-text-private/audio-corpus}"
-[ -d "$CORPUS" ] || CORPUS="$HOME/speech-text-data/audio-corpus"
+CORPUS="${SPEECHTEXT_CORPUS:-}"
 CLIPS_JSON="$REPO_ROOT/SpeechText/SpeechTextTests/Audio"
 DATA="$HOME/Library/Application Support/SpeechText-e2e"
 OUT="${SPT_E2E_OUT:-/tmp/speechtext-e2e/$(date +%Y-%m-%d_%H-%M-%S)}"
@@ -71,6 +70,7 @@ case "$ENGINE" in
     *) die "unknown engine $ENGINE (groq, scribe-realtime, gpt-live, apple)" ;;
 esac
 [ -f "$KEYS_FILE" ] || die "no key file at $KEYS_FILE (GROQ_API_KEY=…, OPENAI_API_KEY=…, ELEVENLABS_API_KEY=…)"
+[ -n "$CORPUS" ] || die "SPEECHTEXT_CORPUS must name the folder of corpus WAVs"
 [ -d "$CORPUS" ] || die "no corpus at $CORPUS — set SPEECHTEXT_CORPUS"
 
 mkdir -p "$WORK" "$OUT"

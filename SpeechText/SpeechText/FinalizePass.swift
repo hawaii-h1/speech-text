@@ -12,7 +12,7 @@ struct TextReplacement: Equatable {
 /// Replacing text a sink already holds by *one* write — or not touching it at all.
 ///
 /// The name is the stop's: this was the pass that brought text pasted into another app
-/// while the user spoke in line with the authoritative text (D12). Nothing is pasted into
+/// while the user spoke in line with the authoritative text. Nothing is pasted into
 /// another app before the stop any more, so the inline stop has nothing to correct; what
 /// is left is the plan, which the Record Window's ✨ uses to write a refined segment over
 /// the one it came from.

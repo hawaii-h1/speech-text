@@ -106,7 +106,7 @@ final class CorpusMeasureTests: XCTestCase {
         let said = "Так, треба перевірити шорткати, де їх немає. Можливо, FN+Q, A, W, E."
         let pasted = said + " Так, треба перевірити шорткати, де їх немає. Можливо, FN плюс Q, A, W."
         XCTAssertTrue(CorpusMeasure.repeatedPhrases(expected: said, actual: pasted)
-            .contains("так потрібно змінити шорткати"))
+            .contains("так треба перевірити шорткати"))
         XCTAssertEqual(CorpusMeasure.repeatedPhrases(expected: said, actual: said), [])
     }
 

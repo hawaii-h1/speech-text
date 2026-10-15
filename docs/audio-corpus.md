@@ -2,7 +2,7 @@
 
 Real recordings played through every speech engine, so that a change to recognition,
 or a vendor's model update, shows up as numbers rather than as a feeling after a manual
-pass. Traces (`speech-text-private/traces/`, `scripts/replay-traces.sh`) replay what a provider *said*; the corpus
+pass. Traces (`$SPEECHTEXT_TRACES`, `scripts/replay-traces.sh`) replay what a provider *said*; the corpus
 produces that from audio.
 
 ## What is where

@@ -50,7 +50,7 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
         }
     }
 
-    /// The spec's decision tree, in order: our own surface needs no probing, and a
+    /// The decision, in order: our own surface needs no probing, and a
     /// foreign app is Tier A only if it proved it.
     static func resolve(isOwnSurface: Bool, probe: AXTextProbe) -> DeliveryTier {
         if isOwnSurface { return .a }

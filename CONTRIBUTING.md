@@ -69,7 +69,7 @@ Everything else is checked for you. CI runs the test suite (which compiles the a
 
 ## Language
 
-Everything in the repository is written in English: code, comments, commit messages, pull requests, issues and documentation — the same language as the app's UI. Words in other languages appear only as data, such as a Ukrainian transcript a test or an explanation quotes. A few older documents predate this rule; one kept as a historical record says so at its top.
+Everything in the repository is written in English: code, comments, commit messages, pull requests, issues and documentation — the same language as the app's UI. Words in other languages appear only as data, such as a Ukrainian transcript a test or an explanation quotes.
 
 ## Setting up
 
