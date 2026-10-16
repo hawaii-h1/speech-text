@@ -75,7 +75,7 @@ Local speech models are third-party weights: Whisper is MIT, and Parakeet v3 is 
 1. Download `SpeechText-<version>.dmg` from the [latest release](https://github.com/yavno/speech-text/releases/latest).
 2. Open the image and drag **SpeechText** into your **Applications** folder.
 3. Open it from Applications. Because it came from the Internet, macOS checks it before the first launch and asks *"SpeechText is an app downloaded from the Internet. Are you sure you want to open it?"*, naming the developer — click **Open**. One question, and the app opens: that is what signing and notarization are for. Every release is signed with an Apple Developer ID certificate and notarized by Apple before it is published, and until the project's Apple account becomes an organization, the developer macOS names is Vladyslav Husakov, the author. If your Mac says something stronger than that — an unidentified developer, or a trip through System Settings › Privacy & Security to open it at all — then that download did not pass the check, and we would like to know: please [open an issue](https://github.com/yavno/speech-text/issues).
-4. SpeechText lives in the menu bar — look for its S mark at the top right; *Open SpeechText* there opens its main window. A setup window opens on the first run and walks through the rest: which speech engine to use, an optional AI provider, the keys those need, the permissions below, and a dictation to try before you rely on it.
+4. SpeechText lives in the menu bar — look for its ST mark at the top right; *Open SpeechText* there opens its main window. A setup window opens on the first run and walks through the rest: which speech engine to use, an optional AI provider, the keys those need, the permissions below, and a dictation to try before you rely on it.
 
 After that, SpeechText keeps itself up to date: it checks once a day, shows you what changed, and installs the update when you agree. *Check for Updates…* in the menu asks straight away.
 
@@ -151,5 +151,7 @@ SpeechText is free software: you can redistribute it and/or modify it under the 
 In short: you can use, study, modify and redistribute SpeechText freely. If you distribute a modified version, you must publish your source under the same license.
 
 Every source file carries an [SPDX](https://spdx.dev) header (`GPL-3.0-or-later`), so a file stays identifiable if it is ever copied out of the repository.
+
+The name SpeechText and its icon are not covered by the GPL: a modified version you distribute needs a name of its own — see [TRADEMARKS.md](TRADEMARKS.md). SpeechText is not affiliated with SpeechText.AI.
 
 SpeechText will stay open source. There is no CLA, contributors keep the copyright to their work, and no future version will be relicensed under closed terms.
