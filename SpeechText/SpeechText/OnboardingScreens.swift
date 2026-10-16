@@ -845,7 +845,6 @@ private struct AIScreen: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(SetupCards.ai, id: \.service) { card in
                     SetupRow(title: card.title, subtitle: card.subtitle,
-                             badge: card.recommended ? SetupBadge(text: "Recommended", kind: .recommended) : nil,
                              isSelected: model.aiService == card.service, compact: true) { model.aiService = card.service }
                 }
                 // A key from the Speech step (Groq's, OpenAI's) is reused as it is.

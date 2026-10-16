@@ -596,7 +596,7 @@ struct AIEngineSettings: View {
             ForEach(LLMProviderType.allCases.filter { $0.needsAPIKey }) { pick in
                 serviceRow(SetupCards.ai.first { $0.pick == pick }
                     ?? AIServiceCard(service: pick.vendor, pick: pick, title: pick.vendor.displayName,
-                                     subtitle: "", recommended: false))
+                                     subtitle: ""))
             }
         }
     }

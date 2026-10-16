@@ -80,7 +80,6 @@ struct AIServiceCard {
     let pick: LLMProviderType
     let title: String
     let subtitle: String
-    let recommended: Bool
 }
 
 /// Which online services get a card in setup — the maintainer's choice, not every
@@ -99,10 +98,9 @@ enum SetupCards {
     ]
 
     static let ai: [AIServiceCard] = [
-        AIServiceCard(service: .groq, pick: .groq, title: "Groq", subtitle: "Free plan", recommended: true),
-        AIServiceCard(service: .anthropic, pick: .anthropic, title: "Claude", subtitle: "Anthropic · Paid",
-                      recommended: false),
-        AIServiceCard(service: .openAI, pick: .openai, title: "ChatGPT", subtitle: "OpenAI · Paid", recommended: false),
+        AIServiceCard(service: .groq, pick: .groq, title: "Groq", subtitle: "Free plan"),
+        AIServiceCard(service: .anthropic, pick: .anthropic, title: "Claude", subtitle: "Anthropic · Paid"),
+        AIServiceCard(service: .openAI, pick: .openai, title: "ChatGPT", subtitle: "OpenAI · Paid"),
     ]
 
     /// The Speech card for a service, else the first.

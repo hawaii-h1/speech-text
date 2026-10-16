@@ -177,7 +177,6 @@ final class SetupCardsTests: XCTestCase {
             XCTAssertEqual(card.pick.vendor, card.service, card.title)
             XCTAssertNotNil(card.service.descriptor.apiKey, card.title)
         }
-        XCTAssertEqual(SetupCards.ai.filter(\.recommended).map(\.service), [.groq])
     }
 
     /// Setup run again opens on the card of the stored engine; an engine with no card
