@@ -292,6 +292,6 @@ final class ListPriceTests: XCTestCase {
 
     func testTheTableSaysWhenItWasChecked() {
         XCTAssertEqual(UsagePrices.checkedText, "14 October 2026")
-        XCTAssertEqual(UsagePrices.disclaimer, "list prices as of 14 October 2026, not your bill")
+        XCTAssertEqual(UsagePrices.disclaimer, "estimated from known prices")
     }
 }

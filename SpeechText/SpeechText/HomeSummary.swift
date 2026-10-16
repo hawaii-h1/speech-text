@@ -109,8 +109,9 @@ enum UsagePrices {
         return checked.date.map(formatter.string(from:)) ?? ""
     }
 
-    /// The line beside every total: an estimate from dated list prices, not the bill.
-    static var disclaimer: String { "list prices as of \(checkedText), not your bill" }
+    /// The line beside every total: an estimate from the list prices the app knows, not the bill.
+    /// The date they were checked is on Usage's How this is counted.
+    static var disclaimer: String { "estimated from known prices" }
 
     /// The speech model a ledger entry names.
     static func speech(vendor: Provider, model: String) -> ListPrice<SpeechRates> {
