@@ -136,6 +136,8 @@ final class HomeSummaryTests: XCTestCase {
     func testThePictureHearsThenPastesOnce() {
         let words = HomeTalk.dictate.said.count
         XCTAssertEqual(HomeTalk(tick: 0, mode: .dictate, holdToTalk: false).phase, .idle)
+        XCTAssertEqual(HomeTalk(tick: 0, mode: .dictate, holdToTalk: false).caption, .hidden,
+                       "no glass before the first word — the overlay says no Listening…")
         let hearing = HomeTalk(tick: 8 + 4 * 5, mode: .dictate, holdToTalk: false)
         XCTAssertEqual(hearing.phase, .hear)
         XCTAssertEqual(hearing.heard, 6)
@@ -153,7 +155,7 @@ final class HomeSummaryTests: XCTestCase {
         let words = HomeTalk.ai.said.count
         let work = HomeTalk(tick: 8 + 4 * words + 5, mode: .ai, holdToTalk: false)
         XCTAssertEqual(work.phase, .work)
-        XCTAssertEqual(work.caption, .rewriting)
+        XCTAssertEqual(work.caption, .words, "the words stay while AI works; the comet says it is busy")
         XCTAssertEqual(work.display, .busy)
         XCTAssertEqual(HomeTalk(tick: 8 + 4 * words + 14, mode: .ai, holdToTalk: false).phase, .done)
     }
@@ -192,7 +194,7 @@ final class HomeSummaryTests: XCTestCase {
         XCTAssertTrue(hearing.isAI && hearing.isEdit)
         XCTAssertEqual(hearing.message, .selection(HomeTalk.edit.selection!), "the selection stays while the instruction is spoken")
         let work = HomeTalk(tick: 8 + 4 * words + 5, mode: .edit, holdToTalk: false)
-        XCTAssertEqual(work.caption, .rewriting)
+        XCTAssertEqual(work.caption, .words)
         XCTAssertEqual(work.message, .caret, "cut once the instruction is over")
         let done = HomeTalk(tick: 8 + 4 * words + 14, mode: .edit, holdToTalk: false)
         XCTAssertEqual(done.message, .pasted)

@@ -426,7 +426,7 @@ struct HomeRecentEntry: Equatable, Identifiable {
 /// The intro card's picture, as a function of time: one dictation playing out on a loop —
 /// the overlay hears it word by word, then the stop pastes it, once, into a message
 /// (rewritten first on the AI tab; on the Edit tab a selection is replaced by what the
-/// instruction asked for). Its phases, Rewriting… while AI works and the one paste at the
+/// instruction asked for). Its phases, the comet while AI works and the one paste at the
 /// stop are the design's approved animation. The keys press one after another, quickly,
 /// and with hold to talk the modifiers are let go while the letter stays down — changed at
 /// the owner's call on 2026-10-12, so the card teaches what the hold tip does.
@@ -533,14 +533,16 @@ struct HomeTalk: Equatable {
         return words.suffix(from: max(0, words.count - 2)).joined(separator: " ")
     }
 
-    /// What the glass says instead of words.
-    enum Caption: Equatable { case listening, words, rewriting, pasted }
+    /// What the transcript glass holds: nothing before the first word (it has no height
+    /// until then, as the overlay's has none), the words — kept while AI Rewrite works,
+    /// with the comet on the display saying it is busy — and, once the text has landed,
+    /// where it went, as the overlay says it for a few seconds after the paste.
+    enum Caption: Equatable { case hidden, words, pasted }
 
     var caption: Caption {
         switch phase {
-        case .idle: .listening
-        case .hear: .words
-        case .work: isAI ? .rewriting : .words
+        case .idle: .hidden
+        case .hear, .work: .words
         case .done: .pasted
         }
     }

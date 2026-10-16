@@ -629,6 +629,12 @@ final class AppState {
     }
 
     private var overlayPanel: RecordingOverlayPanel?
+    /// The overlay of a dictation or an edit that has ended, kept up to say where its text
+    /// went — see `beginOverlayConfirmation`. Apart from `overlayPanel`, so ⎋ is let go and
+    /// the next dictation opens a panel of its own.
+    private var confirmationPanel: RecordingOverlayPanel?
+    private var confirmation: OverlayConfirmation?
+    private var confirmationDismissal: DispatchWorkItem?
     private var statusPanel: StatusOverlayPanel?
     private var statusDismissItem: DispatchWorkItem?
     private var directRecordingPanel: DirectRecordingPanelWindow?
@@ -997,7 +1003,7 @@ final class AppState {
             )
 
         case .paste(let text):
-            hideOverlay()
+            beginOverlayConfirmation()
             recordApps()
             deliver(text)
 
@@ -1076,8 +1082,10 @@ final class AppState {
         refinementTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var output = aiInput
+            var rewritten = false
             do {
                 let result = try await TextRefinementService.refine(aiInput, context: context)
+                rewritten = true
                 if Task.isCancelled { return }
                 output = result.text
                 DictationTraceRecorder.record(.refinement, text: result.text)
@@ -1119,7 +1127,12 @@ final class AppState {
             }
             self.isRefining = false
             self.refinementTask = nil
-            self.hideOverlay()
+            // A rewrite that failed has its notice; only one that worked says where it went.
+            if rewritten && !isTest {
+                self.beginOverlayConfirmation()
+            } else {
+                self.hideOverlay()
+            }
             if isTest {
                 self.dictationTest.rewritten(said: aiInput, result: .success(output))
                 self.finishTrace()
@@ -1142,6 +1155,7 @@ final class AppState {
         DictationTraceRecorder.record(.stopPaste, text: text)
         if !PasteService.isAccessibilityGranted {
             dlog("App", "deliver: no accessibility, showing record panel")
+            dismissOverlayConfirmation()
             PasteService.promptAccessibility()
             showDirectRecordingPanel(withText: text)
             return
@@ -1151,6 +1165,7 @@ final class AppState {
         // its own, which does not pass through `stopRecording`.
         guard let app = pasteDestination ?? previousApp else {
             dlog("App", "deliver: no destination, showing record panel")
+            dismissOverlayConfirmation()
             showDirectRecordingPanel(withText: text)
             return
         }
@@ -1162,7 +1177,9 @@ final class AppState {
         let tryPaste = { [weak self] in
             if PasteService.canLikelyPasteText(in: app) {
                 PasteService.pasteAtCursor(text)
+                self?.confirmOverlay(app.localizedName.map { "Pasted into \($0)" } ?? "Pasted")
             } else {
+                self?.dismissOverlayConfirmation()
                 self?.showDirectRecordingPanel(withText: text)
             }
         }
@@ -1582,6 +1599,7 @@ final class AppState {
                 let removal = self.editRemoval
                 let app = self.previousApp
                 self.refinementTask = nil
+                self.beginOverlayConfirmation()
                 self.finishEdit()
                 self.writeEdit(result.text, over: selection, removal: removal, in: app)
             } catch {
@@ -1605,17 +1623,23 @@ final class AppState {
         switch removal {
         case .removed(let original, let cutText):
             guard SelectionEdit.changes(selection.text, to: output) else {
+                dismissOverlayConfirmation()
                 putBack(original, in: app)
                 showStatus(icon: "checkmark", title: "Nothing to change",
                            detail: "The AI left the selected text as it was.", tint: .secondary)
                 return
             }
             let text = SelectionEdit.preservingEdges(of: cutText, output)
-            deliverToEditTarget(app, fallback: { PasteService.copyToClipboard(text) }) {
+            deliverToEditTarget(app, fallback: { [weak self] in
+                self?.dismissOverlayConfirmation()
+                PasteService.copyToClipboard(text)
+            }) { [weak self] in
                 dlog("Edit", "pasting the rewrite where the selection was")
                 PasteService.pasteAtCursor(text)
+                self?.confirmOverlay("Selection replaced")
             }
         case .notRemovable, .inPlace, .removing:
+            dismissOverlayConfirmation()
             guard SelectionEdit.changes(selection.text, to: output) else {
                 showStatus(icon: "checkmark", title: "Nothing to change",
                            detail: "The AI left the selected text as it was.", tint: .secondary)
@@ -1713,6 +1737,7 @@ final class AppState {
     private func showOverlay() {
         // Close any existing panel first to prevent orphaned overlays
         hideOverlay()
+        dismissOverlayConfirmation(animated: false)
 
         let panel = RecordingOverlayPanel(showsTranscript: showsLiveTranscript)
         panel.host(ObservedOverlay(speechEngine: speechEngine, appState: self, layout: panel.layout,
@@ -1752,6 +1777,63 @@ final class AppState {
         overlayPanel?.close()
         overlayPanel = nil
         updateEscapeShortcut()
+    }
+
+    // MARK: - Saying where the text went
+
+    /// How long the overlay says where the text went before it fades.
+    private static let confirmationSeconds: TimeInterval = 1
+    /// The longest the ended overlay waits for the paste to report back — an app brought to
+    /// the front takes 0.5 s — before it goes anyway.
+    private static let confirmationWaitSeconds: TimeInterval = 3
+
+    /// The dictation or the edit is over and its text is about to be pasted: the overlay
+    /// stops being the recording's — ⎋ and its ✕ no longer cancel anything — and stays
+    /// up, still, with the words it showed and the comet, until `confirmOverlay` says where
+    /// the text went or `dismissOverlayConfirmation` takes it down.
+    private func beginOverlayConfirmation() {
+        guard let panel = overlayPanel else { return }
+        endHoldTip()
+        overlayPanel = nil
+        updateEscapeShortcut()
+        dismissOverlayConfirmation(animated: false)
+
+        let state = OverlayConfirmation()
+        panel.showTranscriptArea()
+        panel.host(ConfirmationOverlay(
+            state: state, layout: panel.layout,
+            barLevels: speechEngine.barLevels.map { _ in 0 },
+            isAIMode: isAIMode, isEditMode: isEditMode,
+            settledText: showsLiveTranscript ? speechEngine.spanLayer.stableText : "",
+            onTranscriptHeight: { [weak panel] in panel?.setTranscriptHeight($0) },
+            onCancel: { [weak self] in self?.dismissOverlayConfirmation() }))
+        confirmationPanel = panel
+        confirmation = state
+        scheduleConfirmationDismissal(after: Self.confirmationWaitSeconds)
+    }
+
+    /// The text landed: the overlay says where, for a second.
+    private func confirmOverlay(_ text: String) {
+        guard let state = confirmation else { return }
+        state.text = text
+        scheduleConfirmationDismissal(after: Self.confirmationSeconds)
+    }
+
+    private func scheduleConfirmationDismissal(after seconds: TimeInterval) {
+        confirmationDismissal?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.dismissOverlayConfirmation() }
+        confirmationDismissal = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    /// Takes the ended overlay down — faded, unless a new one is about to take its place.
+    private func dismissOverlayConfirmation(animated: Bool = true) {
+        confirmationDismissal?.cancel()
+        confirmationDismissal = nil
+        confirmation = nil
+        guard let panel = confirmationPanel else { return }
+        confirmationPanel = nil
+        if animated { panel.fadeOutAndClose() } else { panel.close() }
     }
 
     // MARK: - Hold tip (#79)
@@ -1927,7 +2009,7 @@ final class AppState {
                     action: StatusOverlayAction? = nil) {
         hideStatus()
 
-        let panel = StatusOverlayPanel(above: overlayPanel.flatMap { $0.isVisible ? $0.frame : nil })
+        let panel = StatusOverlayPanel(above: (overlayPanel ?? confirmationPanel).flatMap { $0.isVisible ? $0.frame : nil })
         panel.contentView = NSHostingView(rootView: StatusOverlayView(
             icon: icon,
             title: title,
@@ -2083,6 +2165,42 @@ final class AppState {
             NotificationCenter.default.removeObserver(observer)
             directRecordingCloseObserver = nil
         }
+    }
+}
+
+/// Where an ended dictation's text went, once the paste says — nil while it is on its way.
+@Observable
+final class OverlayConfirmation {
+    var text: String?
+}
+
+/// The overlay once its dictation or edit has ended: no longer the engine's, so nothing on
+/// it moves but the comet until the paste, then the line saying where the text went.
+struct ConfirmationOverlay: View {
+    let state: OverlayConfirmation
+    let layout: OverlayLayout
+    let barLevels: [CGFloat]
+    let isAIMode: Bool
+    let isEditMode: Bool
+    let settledText: String
+    let onTranscriptHeight: (CGFloat) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        RecordingOverlayView(
+            barLevels: barLevels,
+            isLoading: state.text == nil,
+            isPreparing: false,
+            isAIMode: isAIMode,
+            isEditMode: isEditMode,
+            showsTranscript: true,
+            growsDown: layout.growsDown,
+            transcriptHeight: layout.transcriptHeight,
+            settledText: settledText,
+            confirmation: state.text,
+            onTranscriptHeight: onTranscriptHeight,
+            onCancel: onCancel
+        )
     }
 }
 

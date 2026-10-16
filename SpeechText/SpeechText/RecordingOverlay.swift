@@ -41,6 +41,9 @@ struct RecordingOverlayView: View {
     var settledText: String = ""
     /// The partial it may still take back — drawn dimmer, after the settled text.
     var movingText: String = ""
+    /// Where the text went ("Pasted into Slack"), drawn with a tick in place of the
+    /// transcript for the second the overlay stays up after a paste.
+    var confirmation: String? = nil
     /// The height the transcript would like: its text and padding, 0 before the first word.
     var onTranscriptHeight: (CGFloat) -> Void = { _ in }
     let onCancel: () -> Void
@@ -61,7 +64,7 @@ struct RecordingOverlayView: View {
         isEditMode ? "Cancel (the selected text is left as it was)" : "Cancel (nothing is pasted)"
     }
     private var isBusy: Bool { isLoading || isPreparing }
-    private var hasText: Bool { !settledText.isEmpty || !movingText.isEmpty }
+    private var hasText: Bool { !settledText.isEmpty || !movingText.isEmpty || confirmation != nil }
 
     var body: some View {
         // Always laid out at the panel's largest size, with the strip pinned to its corner:
@@ -89,6 +92,11 @@ struct RecordingOverlayView: View {
     /// The settled text, then the partial, at two brightnesses — the same boundary the
     /// Record Window's glass draws.
     private func transcriptText(base: Color) -> Text {
+        if let confirmation {
+            return Text(Image(systemName: "checkmark")).font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(base)
+                + Text(verbatim: "  " + confirmation).foregroundStyle(base.opacity(0.9))
+        }
         var text = Text(verbatim: "")
         if !settledText.isEmpty {
             text = text + Text(verbatim: settledText).foregroundStyle(base.opacity(0.9))
@@ -574,6 +582,7 @@ final class RecordingOverlayPanel: NSPanel {
 
     /// The overlay's view, hosted at the panel's largest size — see the type's comment.
     func host<Content: View>(_ root: Content) {
+        self.hosting?.removeFromSuperview()
         let hosting = NSHostingView(rootView: root)
         // The size is ours to decide; by default the hosting view would push the SwiftUI
         // content's ideal size onto the window.
@@ -593,6 +602,25 @@ final class RecordingOverlayPanel: NSPanel {
                            y: placement.growth == .down ? bounds.height - full.height : 0,
                            width: full.width, height: full.height)
         if hosting.frame != frame { hosting.frame = frame }
+    }
+
+    /// Makes room for the transcript glass in a panel opened without it — the paste's
+    /// confirmation is drawn there whatever the engine.
+    func showTranscriptArea() {
+        guard !geometry.showsTranscript else { return }
+        geometry = AppSkin.current.overlayGeometry(showsTranscript: true)
+        placeAtSavedSpot()
+    }
+
+    /// Fades the panel out, then closes it.
+    func fadeOutAndClose() {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.3
+            animator().alphaValue = 0
+        }, completionHandler: {
+            // Held until it closes: nothing else keeps it once AppState has let it go.
+            self.close()
+        })
     }
 
     // MARK: Placing

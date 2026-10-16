@@ -485,23 +485,25 @@ struct HomeTalkPicture: View {
     /// glass growing up out of the strip, as tall as its text — nothing faded or cut off.
     private var overlay: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            transcript
-                .contentTransition(.identity)
-                .font(.system(size: 12, design: .monospaced))
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .frame(width: Self.overlayWidth)
-                .background(Self.transcriptGlass.fill(talk.isEdit ? TechnoSkin.editScreen : Self.palette.screen))
-                .overlay {
-                    InnerShadow(shape: Self.transcriptGlass, width: 6.6, blur: 3.3)
-                    InnerShadow(shape: Self.transcriptGlass, width: 4, blur: 2, offset: CGSize(width: 0, height: -1))
-                }
-                .clipShape(Self.transcriptGlass)
-            .animation(.spring(response: 0.35, dampingFraction: 0.9), value: talk.heard)
-            .animation(.spring(response: 0.35, dampingFraction: 0.9), value: talk.caption)
+            // No glass before the first word, as the overlay has none.
+            if talk.caption != .hidden {
+                transcript
+                    .contentTransition(.identity)
+                    .font(.system(size: 12, design: .monospaced))
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .frame(width: Self.overlayWidth)
+                    .background(Self.transcriptGlass.fill(talk.isEdit ? TechnoSkin.editScreen : Self.palette.screen))
+                    .overlay {
+                        InnerShadow(shape: Self.transcriptGlass, width: 6.6, blur: 3.3)
+                        InnerShadow(shape: Self.transcriptGlass, width: 4, blur: 2, offset: CGSize(width: 0, height: -1))
+                    }
+                    .clipShape(Self.transcriptGlass)
+                    .transition(.opacity)
+            }
 
             HStack(spacing: 6) {
                 ZStack {
@@ -526,6 +528,8 @@ struct HomeTalkPicture: View {
             }
             .frame(height: 56)
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: talk.heard)
+        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: talk.caption)
         .environment(\.technoPalette, Self.palette)
         .opacity(talk.phase == .done ? 0.9 : 1)
         .animation(.easeInOut(duration: 0.4), value: talk.phase == .done)
@@ -537,15 +541,10 @@ struct HomeTalkPicture: View {
     private var transcript: some View {
         let ink = talk.isAI ? TechnoSkin.aiText : Self.palette.phosphorText
         switch talk.caption {
-        case .listening:
-            Text("Listening…").foregroundStyle(ink.opacity(0.45))
-        case .words:
+        case .hidden, .words:
             let partial = talk.partial.isEmpty ? Text(verbatim: "")
                 : Text(verbatim: (talk.settled.isEmpty ? "" : " ") + talk.partial).foregroundStyle(ink.opacity(0.45))
             Text(verbatim: talk.settled).foregroundStyle(ink.opacity(0.9)) + partial
-        case .rewriting:
-            Text("Rewriting…").foregroundStyle(ink)
-                .opacity(0.75 + 0.25 * cos(Double(tick) * 0.1 * 2 * .pi / 1.2))
         case .pasted:
             Text(Image(systemName: "checkmark")).font(.system(size: 10, weight: .semibold)).foregroundStyle(ink)
                 + Text(verbatim: talk.isEdit ? "  Selection replaced" : "  Pasted into \(talk.script.app)")
