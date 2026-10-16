@@ -194,6 +194,20 @@ final class SetupCardsTests: XCTestCase {
         }
     }
 
+    /// Setup run again opens the AI step on the card of the stored pick; Ollama has none.
+    func testEveryAIPickReopensOnItsOwnCardOrNone() {
+        for pick in LLMProviderType.allCases {
+            let card = SetupCards.aiCard(reopening: pick)
+            switch pick {
+            case .groq, .anthropic, .openai:
+                XCTAssertEqual(card?.pick, pick)
+                XCTAssertEqual(SetupCards.ai(for: card!.service).pick, pick)
+            case .ollama:
+                XCTAssertNil(card, pick.rawValue)
+            }
+        }
+    }
+
     /// A service with no card falls back to the first, Groq, as it always did.
     func testAServiceWithNoCardFallsBackToTheFirst() {
         XCTAssertEqual(SetupCards.speech(for: .anthropic).engine, .groq)

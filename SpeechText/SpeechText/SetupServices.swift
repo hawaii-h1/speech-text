@@ -118,6 +118,12 @@ enum SetupCards {
     static func speechCard(reopening engine: STTProviderType) -> SpeechServiceCard? {
         speech.first { $0.engine == engine }
     }
+
+    /// The AI card setup opens on when run again with this AI Rewrite pick stored; nil for
+    /// a pick with no card (Ollama, which opens on the Mac's card instead).
+    static func aiCard(reopening pick: LLMProviderType) -> AIServiceCard? {
+        ai.first { $0.pick == pick }
+    }
 }
 
 /// The order Settings › API Keys lists the providers with a key in: the speech step's

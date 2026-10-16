@@ -171,6 +171,19 @@ final class OnboardingModel {
             speechUsesApple = true
         }
 
+        // The AI step, likewise — but only a pick that works: `llmProvider` reads as Groq
+        // when nothing was stored, and a Groq card with no key is no choice at all.
+        if LLMConfiguration.isConfigured {
+            let pick = LLMConfiguration.providerType
+            if let card = SetupCards.aiCard(reopening: pick) {
+                aiPath = .online
+                aiService = card.service
+            } else if pick == .ollama {
+                aiPath = .local
+                aiModelID = LLMConfiguration.model(for: .ollama)
+            }
+        }
+
         for service in Provider.allCases {
             guard let apiKey = service.descriptor.apiKey else { continue }
             let stored = APIKeyStore.shared.value(for: apiKey.settingsKey).trimmingCharacters(in: .whitespacesAndNewlines)
