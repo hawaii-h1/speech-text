@@ -1510,6 +1510,8 @@ private struct DoneScreen: View {
                 Rectangle().fill(.white.opacity(0.1)).frame(height: 1)
                 shortcut(.ai, model.aiIsSetUp ? "Dictate with AI" : "Dictate with AI · off", on: model.aiIsSetUp)
                 Rectangle().fill(.white.opacity(0.1)).frame(height: 1)
+                shortcut(.edit, model.aiIsSetUp ? "Edit selection" : "Edit selection · off", on: model.aiIsSetUp)
+                Rectangle().fill(.white.opacity(0.1)).frame(height: 1)
                 shortcut(.recordWindow, "Dictation window", on: true)
             }
             .padding(.vertical, 8)
