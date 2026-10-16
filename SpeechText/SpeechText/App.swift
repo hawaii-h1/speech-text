@@ -18,6 +18,9 @@ struct SpeechTextApp: App {
             EmptyView()
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About SpeechText") { appDelegate.showAbout() }
+            }
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { appDelegate.showSettings() }
                     .keyboardShortcut(",", modifiers: .command)
@@ -61,6 +64,53 @@ enum AppVersion {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
         return trimmed
+    }
+}
+
+/// The About panel's credits: the update status, then the links. Centred, small, in
+/// the label colours so Dark Mode reads.
+enum AboutCredits {
+    static func make() -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.paragraphSpacing = 6
+        let base: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph,
+        ]
+        let text = NSMutableAttributedString(string: updateStatus + "\n", attributes: base)
+        let links: [(String, URL?)] = [
+            ("speech-text.app", URL(string: "https://speech-text.app")),
+            ("Report a problem", URL(string: "https://github.com/yavno/speech-text/issues")),
+            ("Acknowledgements", Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt")),
+        ]
+        for (index, (title, url)) in links.enumerated() where url != nil {
+            if index > 0 { text.append(NSAttributedString(string: "  ·  ", attributes: base)) }
+            var attributes = base
+            attributes[.link] = url
+            text.append(NSAttributedString(string: title, attributes: attributes))
+        }
+        return text
+    }
+
+    /// Whether this copy updates itself, and when it last looked.
+    static var updateStatus: String {
+        let updater = UpdateChecker.shared
+        guard updater.isConfigured else {
+            return UpdateChecker.isDevelopmentBuild
+                ? "Development build — it does not update itself."
+                : "This build does not update itself."
+        }
+        let schedule = updater.checksAutomatically
+            ? "Checks for updates once a day."
+            : "Automatic update checks are off."
+        guard let last = updater.lastCheckDate else { return schedule + " Not checked yet." }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return schedule + " Last checked " + formatter.string(from: last) + "."
     }
 }
 
@@ -472,6 +522,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// main window asked for — with every status read afresh.
     func showSettings(category: SettingsCategory? = nil) {
         MainActor.assumeIsolated { presentSettings(category: category) }
+    }
+
+    /// The app menu's About SpeechText: the standard panel, given what it cannot find on
+    /// its own — the whole build line the status menu shows (commit and date included,
+    /// for a bug report), whether this copy updates itself, and where to go next. The
+    /// copyright is `NSHumanReadableCopyright` in Info.plist. Built on every opening, so
+    /// the last update check is never stale.
+    func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationVersion: AppVersion.displayString,
+            // Empty hides the panel's own "(CFBundleVersion)", which the line above has.
+            .version: "",
+            .credits: AboutCredits.make(),
+        ])
     }
 
     /// Settings on the page that holds `anchor`, scrolled to it.
