@@ -629,9 +629,9 @@ struct HomeAppMark: View {
     }
 }
 
-/// An app's icon by its name, as History records it: the running app of that name, or the
-/// bundle of that name where apps are installed. Looked up once per name, and nothing
-/// found is remembered too, so a list of rows costs a few file checks at most.
+/// An app's icon by its name, as History records it — found as `lookUp` says. Looked up
+/// once per name, and nothing found is remembered too, so a list of rows costs a few file
+/// checks at most.
 @MainActor
 enum AppIcons {
     private static var cache: [String: NSImage?] = [:]
@@ -663,16 +663,33 @@ enum AppIcons {
         return NSImage(cgImage: drawn, size: NSSize(width: side, height: side))
     }
 
+    private static let folders = ["/Applications", "/System/Applications", "/System/Applications/Utilities",
+                                  "/Applications/Utilities", NSHomeDirectory() + "/Applications"]
+
+    /// The running app of that name, else the app History recorded under that name by its
+    /// bundle identifier (found wherever it is installed, and under a new name), else the
+    /// bundle of that name, else another channel of it — "T3 Code (Beta)" for a record of
+    /// "T3 Code (Alpha)" once Alpha was replaced (`AppIdentity`).
     private static func lookUp(_ name: String) -> NSImage? {
-        if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }),
+        let workspace = NSWorkspace.shared
+        if let running = workspace.runningApplications.first(where: { $0.localizedName == name }),
            let url = running.bundleURL {
-            return NSWorkspace.shared.icon(forFile: url.path)
+            return workspace.icon(forFile: url.path)
         }
-        let folders = ["/Applications", "/System/Applications", "/System/Applications/Utilities",
-                       "/Applications/Utilities", NSHomeDirectory() + "/Applications"]
+        if let id = AppIdentity.bundleID(forAppNamed: name, in: TranscriptionHistory.shared.records),
+           let url = workspace.urlForApplication(withBundleIdentifier: id) {
+            return workspace.icon(forFile: url.path)
+        }
         for folder in folders {
             let path = "\(folder)/\(name).app"
-            if FileManager.default.fileExists(atPath: path) { return NSWorkspace.shared.icon(forFile: path) }
+            if FileManager.default.fileExists(atPath: path) { return workspace.icon(forFile: path) }
+        }
+        for folder in folders {
+            let apps = (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
+            let names = apps.filter { $0.hasSuffix(".app") }.map { String($0.dropLast(4)) }
+            if let sibling = AppIdentity.sibling(of: name, among: names) {
+                return workspace.icon(forFile: "\(folder)/\(sibling).app")
+            }
         }
         return nil
     }

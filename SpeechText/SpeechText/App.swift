@@ -1021,7 +1021,9 @@ final class AppState {
     private func recordApps() {
         guard !isTestDictation, let id = speechEngine.lastRecordID else { return }
         TranscriptionHistory.shared.recordApps(id: id, origin: previousApp?.localizedName,
-                                               destination: pasteDestination?.localizedName)
+                                               originBundleID: previousApp?.bundleIdentifier,
+                                               destination: pasteDestination?.localizedName,
+                                               destinationBundleID: pasteDestination?.bundleIdentifier)
     }
 
     /// Hands a test dictation's result to setup instead of pasting it or raising a notice:

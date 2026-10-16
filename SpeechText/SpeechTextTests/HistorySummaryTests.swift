@@ -32,6 +32,41 @@ final class HistorySummaryTests: XCTestCase {
                                        errorMessage: failed ? "HTTP 529" : nil, editsSelection: edit)
     }
 
+    // MARK: App icons
+
+    func testAnAppIsFoundByTheBundleIDRecordedWithItsName() {
+        var older = record(daysAgo: 1, app: "T3 Code (Alpha)")
+        older.destinationBundleID = "com.t3tools.t3code.old"
+        var newer = record(app: "T3 Code (Alpha)")
+        newer.destinationBundleID = "com.t3tools.t3code"
+        var started = record(app: "Mail")
+        started.originApp = "Notes"
+        started.originBundleID = "com.apple.Notes"
+        var edit = record(refinement: refinement(edit: true))
+        edit.refinement?.context = FocusContext(appName: "Slack", bundleID: "com.tinyspeck.slackmacgap")
+        let records = [newer, older, started, edit, record(app: "Pages")]
+
+        XCTAssertEqual(AppIdentity.bundleID(forAppNamed: "T3 Code (Alpha)", in: records), "com.t3tools.t3code")
+        XCTAssertEqual(AppIdentity.bundleID(forAppNamed: "Notes", in: records), "com.apple.Notes")
+        XCTAssertEqual(AppIdentity.bundleID(forAppNamed: "Slack", in: records), "com.tinyspeck.slackmacgap")
+        XCTAssertNil(AppIdentity.bundleID(forAppNamed: "Pages", in: records), "written before bundle IDs were kept")
+        XCTAssertNil(AppIdentity.bundleID(forAppNamed: "Mail", in: records))
+    }
+
+    func testAnAppThatIsGoneIsDrawnWithAnotherChannelOfIt() {
+        XCTAssertEqual(AppIdentity.baseName("T3 Code (Alpha)"), "T3 Code")
+        XCTAssertEqual(AppIdentity.baseName("Visual Studio Code"), "Visual Studio Code")
+        XCTAssertEqual(AppIdentity.baseName("(Beta)"), "(Beta)")
+
+        let installed = ["Mail", "T3 Code (Nightly)", "T3 Code (Beta)", "Xcode"]
+        XCTAssertEqual(AppIdentity.sibling(of: "T3 Code (Alpha)", among: installed), "T3 Code (Beta)")
+        XCTAssertEqual(AppIdentity.sibling(of: "T3 Code (Alpha)", among: installed + ["T3 Code"]), "T3 Code",
+                       "the plain name before any channel")
+        XCTAssertEqual(AppIdentity.sibling(of: "Cursor", among: ["Cursor (Nightly)"]), "Cursor (Nightly)")
+        XCTAssertNil(AppIdentity.sibling(of: "T3 Code (Alpha)", among: ["Mail", "T3"]))
+        XCTAssertNil(AppIdentity.sibling(of: "Mail", among: ["Mail", "Mailbird"]), "only another channel, never itself")
+    }
+
     // MARK: App and date
 
     func testHistoryIsNarrowedToAnAppAsItsRowNamesIt() {

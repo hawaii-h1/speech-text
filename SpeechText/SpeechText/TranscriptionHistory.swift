@@ -74,6 +74,11 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     /// written before the ledger was kept, which Usage prices the old way; empty for one
     /// that sent nothing anywhere — Apple, a model on this Mac, or a silent segment.
     var usageEvents: [UsageEvent]?
+    /// The bundle identifiers of `originApp` and `destinationApp`, so an app's icon is
+    /// still found after it is renamed or moved (`AppIdentity`). Nil for entries written
+    /// before they were kept, which are looked up by name alone.
+    var originBundleID: String?
+    var destinationBundleID: String?
 
     var isRetryable: Bool { audioFileName != nil && status != .success }
 
@@ -251,10 +256,13 @@ final class TranscriptionHistory {
     }
 
     /// Where an inline dictation started and where it was pasted.
-    func recordApps(id: UUID, origin: String?, destination: String?) {
+    func recordApps(id: UUID, origin: String?, originBundleID: String? = nil,
+                    destination: String?, destinationBundleID: String? = nil) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].originApp = origin
         records[index].destinationApp = destination
+        records[index].originBundleID = originBundleID
+        records[index].destinationBundleID = destinationBundleID
         save()
     }
 

@@ -117,6 +117,41 @@ struct HistoryNarrowing: Equatable {
     }
 }
 
+/// Which app on this Mac a name History kept stands for, so its row can carry the app's
+/// icon (`AppIcons`, HomeView.swift) after the app was renamed, moved or replaced.
+enum AppIdentity {
+    /// The bundle identifier recorded with that name, newest record first — from where the
+    /// dictation started or went, or from an AI pass's focus context, which kept it before
+    /// the records did.
+    static func bundleID(forAppNamed name: String, in records: [TranscriptionRecord]) -> String? {
+        for record in records {
+            if record.destinationApp == name, let id = record.destinationBundleID { return id }
+            if record.originApp == name, let id = record.originBundleID { return id }
+            if let context = record.refinement?.context, context.appName == name, let id = context.bundleID {
+                return id
+            }
+        }
+        return nil
+    }
+
+    /// The name without a trailing parenthesised channel: "T3 Code (Alpha)" → "T3 Code".
+    static func baseName(_ name: String) -> String {
+        guard name.hasSuffix(")"), let open = name.range(of: " (", options: .backwards) else { return name }
+        let base = name[..<open.lowerBound].trimmingCharacters(in: .whitespaces)
+        return base.isEmpty ? name : base
+    }
+
+    /// An installed app that is another channel of the same one, when the app itself is
+    /// gone — "T3 Code (Alpha)" drawn with "T3 Code (Beta)"'s icon once Alpha was replaced.
+    /// The plain name is preferred, then the first in order; nil when nothing shares it.
+    static func sibling(of name: String, among installed: [String]) -> String? {
+        let base = baseName(name)
+        let matches = installed.filter { $0 != name && baseName($0) == base }
+        if matches.contains(base) { return base }
+        return matches.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.first
+    }
+}
+
 // MARK: - How long History keeps dictations
 
 /// How long something History holds is kept: not at all past this session, a span of
