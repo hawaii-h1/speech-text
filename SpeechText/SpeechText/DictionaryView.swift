@@ -162,12 +162,14 @@ struct DictionaryView: View {
         newSpellings.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
-    /// The word's own split into halves is the usual mishearing of a compound.
+    /// The word's own split into halves is the usual mishearing of a compound. Any other word has
+    /// no mishearing to guess, and an invented one ("Man" → "mans") would be a real word replaced
+    /// everywhere if copied, so the field only says what goes in it.
     private var example: String {
         let term = newTerm.trimmingCharacters(in: .whitespaces)
         guard !term.isEmpty else { return "e.g. speech text, спіч текст" }
         let split = term.replacingOccurrences(of: #"(?<=\p{Ll})(?=\p{Lu})"#, with: " ", options: .regularExpression)
-        return split != term ? "e.g. " + split.lowercased() : "e.g. " + term.lowercased() + "s — commas between"
+        return split != term ? "e.g. " + split.lowercased() : "how it comes out wrong — commas between"
     }
 
     private func add(term raw: String? = nil) {
