@@ -56,6 +56,11 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     var provider: String
     let locale: String?
     let duration: TimeInterval
+    /// The speech within `duration`, from the first word to the last — the silence before
+    /// and after left out, a pause between words kept (`VoiceActivityReading.voicedSpanSeconds`).
+    /// What Usage divides the words by; nil for a record from before it was kept, and
+    /// whenever the voice detector could not read the segment, which then counts whole.
+    var speakingDuration: TimeInterval? = nil
     /// Filename (not a full path — the container may move) of the archived audio kept
     /// so a failed transcription can be retried instead of being lost.
     var audioFileName: String?
@@ -247,12 +252,21 @@ final class TranscriptionHistory {
     /// Returns the new record's id so a later LLM pass can be attached to this entry.
     @discardableResult
     func recordSuccess(text: String, provider: String, model: String? = nil, locale: String?,
-                       duration: TimeInterval, usage: [UsageEvent] = []) -> UUID {
+                       duration: TimeInterval, speakingDuration: TimeInterval? = nil,
+                       usage: [UsageEvent] = []) -> UUID {
         let id = UUID()
         add(TranscriptionRecord(id: id, date: Date(), text: text, status: .success,
                                 errorMessage: nil, provider: provider, locale: locale,
-                                duration: duration, audioFileName: nil, sttModel: model, usageEvents: usage))
+                                duration: duration, speakingDuration: speakingDuration,
+                                audioFileName: nil, sttModel: model, usageEvents: usage))
         return id
+    }
+
+    /// The speech in a record the detector read after it was written (an Apple segment).
+    func recordSpeakingDuration(id: UUID, _ seconds: TimeInterval) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records[index].speakingDuration = seconds
+        save()
     }
 
     /// Where an inline dictation started and where it was pasted.

@@ -305,6 +305,35 @@ final class VoiceActivityTests: XCTestCase {
         XCTAssertEqual(reading.windowsOverThreshold, 2)
     }
 
+    /// Usage's speaking time: the silence before the first word and after the last is
+    /// left out, a window either side kept, a pause between words kept.
+    func testTheVoicedSpanRunsFromTheFirstWordToTheLast() {
+        // Ten windows of 0.5 s: silence, words at 3–4 and 6, a pause at 5, silence.
+        let speech: [Float] = [0.01, 0.02, 0.1, 0.95, 0.99, 0.3, 0.9, 0.2, 0.01, 0.01]
+        XCTAssertEqual(VoiceActivityReading(probabilities: speech, segmentSeconds: 5).voicedSpanSeconds ?? 0,
+                       3, accuracy: 0.0001, "windows 2 to 7")
+        let edges: [Float] = [0.9, 0.1, 0.1, 0.9]
+        XCTAssertEqual(VoiceActivityReading(probabilities: edges, segmentSeconds: 2).voicedSpanSeconds ?? 0,
+                       2, accuracy: 0.0001, "the margin is held inside the segment")
+        XCTAssertNil(VoiceActivityReading(probabilities: [0.1, 0.6, 0.2], segmentSeconds: 1).voicedSpanSeconds)
+        XCTAssertNil(VoiceActivityReading(probabilities: [], segmentSeconds: 0).voicedSpanSeconds)
+    }
+
+    func testAnUploadCarriesItsSpeakingTime() async {
+        let outcome = await withDetector(FakeVoiceDetector([0.1, 0.1, 0.99, 0.99, 0.1, 0.1])) {
+            await BatchRecognitionSession(provider: UnreachableBatchTranscriber(), writer: writer(seconds: 3),
+                                          language: nil, languages: []).finish()
+        }
+        outcome.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
+        XCTAssertEqual(outcome.speakingSeconds ?? 0, 2, accuracy: 0.0001, "windows 1 to 4 of six in 3 s")
+        let unread = await withDetector(nil) {
+            await BatchRecognitionSession(provider: UnreachableBatchTranscriber(), writer: writer(seconds: 3),
+                                          language: nil, languages: []).finish()
+        }
+        unread.audioFileURL.map(AudioBufferWriter.cleanup(fileURL:))
+        XCTAssertNil(unread.speakingSeconds, "no detector: Usage counts the whole segment")
+    }
+
     func testAnUploadWithNoVoiceIsNeverSentAndKeepsItsAudio() async {
         let detector = FakeVoiceDetector([0.1, 0.6, 0.2])
         let transcriber = UnreachableBatchTranscriber()

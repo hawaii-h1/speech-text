@@ -172,6 +172,37 @@ final class MainPagesTests: XCTestCase {
         XCTAssertNil(UsageSummary(records: [], period: .week, now: now, calendar: calendar).speedup)
     }
 
+    /// Silence before the first word and after the last is not speaking; a record from
+    /// before it was measured counts whole. A rewrite's speed is what was said, its time
+    /// saved what was delivered.
+    func testSpeakingIsTimedFromTheFirstWordAndARewriteBySaidWords() {
+        let text = Array(repeating: "word", count: 150).joined(separator: " ")
+        var trimmed = record(text: text, duration: 90)
+        trimmed.speakingDuration = 60
+        let summary = UsageSummary(records: [trimmed, record(text: text, duration: 60)], period: .week,
+                                   typingWordsPerMinute: 50, now: now, calendar: calendar)
+        XCTAssertEqual(summary.speakingMinutes, 2, accuracy: 0.0001)
+        XCTAssertEqual(summary.speakingWordsPerMinute ?? 0, 150, accuracy: 0.01)
+        XCTAssertEqual(HomeWeek(records: [trimmed], typingSpeed: 50, now: now, calendar: calendar).savedMinutes,
+                       2, accuracy: 0.01)
+
+        let rewritten = record(text: text, duration: 60,
+                               refinement: refinement(output: Array(repeating: "word", count: 30).joined(separator: " ")))
+        let rewrite = UsageSummary(records: [rewritten], period: .week, typingWordsPerMinute: 50, now: now, calendar: calendar)
+        XCTAssertEqual(rewrite.speakingWordsPerMinute ?? 0, 150, accuracy: 0.01, "what was said, not the summary")
+        XCTAssertEqual(rewrite.words, 30)
+        XCTAssertEqual(rewrite.savedMinutes, 0, accuracy: 0.01, "typing 30 words takes less than saying 150")
+    }
+
+    func testARecordFromBeforeSpeakingTimeWasKeptStillDecodes() throws {
+        let record = try JSONDecoder().decode(TranscriptionRecord.self, from: Data("""
+            {"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","date":0,"text":"hello","status":"success",
+             "provider":"groq","locale":"uk","duration":3}
+            """.utf8))
+        XCTAssertNil(record.speakingDuration)
+        XCTAssertEqual(record.duration, 3)
+    }
+
     func testEnginesAndAppsAreBrokenDownAndAnUnknownPriceIsNamed() {
         let records = [record(provider: "local", app: "Mail"), record(provider: "openai"),
                        record(refinement: refinement(model: "gpt-5.6-luna"))]

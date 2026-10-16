@@ -69,7 +69,8 @@ final class BatchRecognitionSession: RecognitionSession {
         }
         // Audible, but no voice in it — keyboard, a fan, the street (#172): not sent, so
         // not billed, and kept like a silent segment.
-        if let reading = await VoiceActivity.read(writer), !reading.holdsSpeech {
+        let reading = await VoiceActivity.read(writer)
+        if let reading, !reading.holdsSpeech {
             dlog("Engine", "BatchRecognitionSession.finish: no voice in the segment — not uploaded")
             return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: Task.isCancelled)
         }
@@ -90,7 +91,8 @@ final class BatchRecognitionSession: RecognitionSession {
                 dlog("Engine", "BatchRecognitionSession.finish: the whole result of a \(String(format: "%.1f", duration))s segment is \(rejection) — dropped, audio kept")
                 return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: false, usage: usage)
             }
-            return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false, usage: usage)
+            return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false, usage: usage,
+                                      speakingSeconds: reading?.voicedSpanSeconds)
         } catch {
             dlog("Engine", "BatchRecognitionSession.finish: error: \(error.localizedDescription)")
             if Task.isCancelled {

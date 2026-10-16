@@ -98,6 +98,10 @@ struct RecognitionOutcome {
     /// Every request the segment cost (`UsageEvent`) — on an empty or failed outcome too,
     /// since a request the vendor answered was billed whatever the answer held.
     var usage: [UsageEvent] = []
+    /// The segment's speech from its first word to its last
+    /// (`VoiceActivityReading.voicedSpanSeconds`), when the detector read it; nil leaves
+    /// the engine to read it itself (Apple), or Usage to count the whole segment.
+    var speakingSeconds: Double? = nil
 
     static let cancelled = RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: true)
 

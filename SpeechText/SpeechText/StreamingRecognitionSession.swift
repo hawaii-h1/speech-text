@@ -340,14 +340,15 @@ final class StreamingRecognitionSession: RecognitionSession {
         }
 
         if failure == nil, !hadOutage, !tooLong, !text.isEmpty {
-            if var dropped = await guardedStreamResult(text) {
+            let (guarded, reading) = await guardedStreamResult(text)
+            if var dropped = guarded {
                 // A segment too short to be speech leaves no row to carry an entry.
                 if !dropped.cancelled { dropped.usage = streamEvent(answered: true) }
                 return dropped
             }
             dlog("Engine", "StreamingRecognitionSession.finish: stream done, \(text.count) chars")
             return RecognitionOutcome(text: text, error: nil, audioFileURL: nil, cancelled: false,
-                                      usage: streamEvent(answered: true))
+                                      usage: streamEvent(answered: true), speakingSeconds: reading?.voicedSpanSeconds)
         }
 
         let reason = failure ?? (hadOutage ? "dropped during the segment"
@@ -373,34 +374,39 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// `HallucinationFilter` rejects come back
     /// as they would from `BatchRecognitionSession`, not as text to paste. A stream is
     /// answered by the server's model whatever the microphone heard, so without these it
-    /// pasted "Evet." for a shortcut pressed and let go. nil lets the text through.
+    /// pasted "Evet." for a shortcut pressed and let go. nil lets the text through, with
+    /// the detector's reading when it judged the segment — Usage's speaking time.
     ///
     /// The silent and hallucinated segments are an empty result with no file: the engine
     /// archives the writer's audio for a History retry itself (`recordOutcome`). A writer
     /// that holds nothing measured nothing, and only the phrase test applies.
-    private func guardedStreamResult(_ text: String) async -> RecognitionOutcome? {
+    private func guardedStreamResult(_ text: String) async -> (RecognitionOutcome?, VoiceActivityReading?) {
         let duration = writer.bufferedDuration
         let empty = RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: false)
         var dropped: RecognitionOutcome?
+        var reading: VoiceActivityReading?
         if duration > 0, duration < STTTuning.minimumSegmentSeconds {
             dlog("Engine", "StreamingRecognitionSession.finish: \(String(format: "%.2f", duration))s is too short to be speech — dropped")
             dropped = .discarded
         } else if duration > 0, !writer.hasAudibleSignal {
             dlog("Engine", "StreamingRecognitionSession.finish: the segment is silent — its text dropped")
             dropped = empty
-        } else if duration > 0, let reading = await VoiceActivity.read(writer), !reading.holdsSpeech {
-            // The audio has already gone up the socket; what the server made of a
-            // keyboard or a fan is still not pasted (#172).
-            dlog("Engine", "StreamingRecognitionSession.finish: no voice in the segment — its text dropped")
-            dropped = empty
-        } else if let rejection = HallucinationFilter.rejection(text, segmentSeconds: duration, languages: languages) {
-            dlog("Engine", "StreamingRecognitionSession.finish: the whole result of a \(String(format: "%.1f", duration))s segment is \(rejection) — dropped")
-            dropped = empty
+        } else {
+            if duration > 0 { reading = await VoiceActivity.read(writer) }
+            if let reading, !reading.holdsSpeech {
+                // The audio has already gone up the socket; what the server made of a
+                // keyboard or a fan is still not pasted (#172).
+                dlog("Engine", "StreamingRecognitionSession.finish: no voice in the segment — its text dropped")
+                dropped = empty
+            } else if let rejection = HallucinationFilter.rejection(text, segmentSeconds: duration, languages: languages) {
+                dlog("Engine", "StreamingRecognitionSession.finish: the whole result of a \(String(format: "%.1f", duration))s segment is \(rejection) — dropped")
+                dropped = empty
+            }
         }
-        guard let dropped else { return nil }
+        guard let dropped else { return (nil, reading) }
         // The overlay may still show what the stream said; it is not what the stop pastes.
         await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
-        return dropped
+        return (dropped, reading)
     }
 
     func cancel() {

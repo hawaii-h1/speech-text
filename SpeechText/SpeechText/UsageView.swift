@@ -1070,8 +1070,9 @@ private struct UsageCounting: View {
                     : AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
                 layout {
                     note("keyboard", "Your typing speed",
-                         storedTyping >= 10 ? "\(Int(storedTyping)) wpm. Time saved is typing the words less saying them."
-                         : "40 wpm, an average. Measure yours for a fair comparison.") {
+                         (storedTyping >= 10 ? "\(Int(storedTyping)) wpm. Time saved is typing the words less saying them."
+                          : "40 wpm, an average. Measure yours for a fair comparison.")
+                         + " Speaking is timed from your first word to your last; a pause to think counts.") {
                         Button(storedTyping >= 10 ? "Measure again…" : "Measure…") { editing = true }
                             .buttonStyle(SetupInlineLinkStyle(size: 12.5))
                             .pointingHandCursor()

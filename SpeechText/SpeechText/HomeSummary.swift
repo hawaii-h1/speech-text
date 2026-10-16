@@ -22,7 +22,7 @@ struct HomeWeek: Equatable {
     /// failed or empty dictation produced none.
     var words = 0
     var dictations = 0
-    /// Minutes of speech behind those words.
+    /// Minutes of speech behind those words — first word to last, as Usage counts them.
     var speakingMinutes: Double = 0
     /// Typing the same words at `typingWordsPerMinute`, less the time spent saying them.
     var savedMinutes: Double = 0
@@ -52,7 +52,6 @@ struct HomeWeek: Equatable {
         for record in records where record.date >= start && record.date <= now {
             dictations += 1
             let edit = record.refinement?.isSelectionEdit == true
-            let minutes = record.duration / 60
             let cost = RecordCost(record)
             speechCost += cost.speech
             aiCost += cost.ai
@@ -62,8 +61,9 @@ struct HomeWeek: Equatable {
             guard !edit, record.status == .success else { continue }
             let count = homeWordCount(record.deliveredText)
             words += count
-            speakingMinutes += minutes
-            savedMinutes += max(0, Double(count) / typingSpeed - minutes)
+            let speaking = (record.speakingDuration ?? record.duration) / 60
+            speakingMinutes += speaking
+            savedMinutes += max(0, Double(count) / typingSpeed - speaking)
             let day = calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: record.date)).day ?? 0
             if (0..<7).contains(day) { perDay[day] += count }
         }

@@ -146,8 +146,12 @@ struct UsageSummary: Equatable {
     var rewrites = 0
     var edits = 0
     var failed = 0
-    /// Minutes of speech behind `words`.
+    /// Minutes of speech behind `words` — first word to last, where the record kept it
+    /// (`TranscriptionRecord.speakingDuration`), else the whole recording.
     var speakingMinutes: Double = 0
+    /// The words said in those minutes: the transcript, before AI Rewrite made it longer,
+    /// shorter or another language. `words` is what was delivered.
+    var spokenWords = 0
     var savedMinutes: Double = 0
     var speechCost: Double = 0
     var aiCost: Double = 0
@@ -176,8 +180,8 @@ struct UsageSummary: Equatable {
 
     /// Words a minute while speaking; nil before there is a minute's worth to divide.
     var speakingWordsPerMinute: Double? {
-        guard speakingMinutes >= 0.5, words > 0 else { return nil }
-        return Double(words) / speakingMinutes
+        guard speakingMinutes >= 0.5, spokenWords > 0 else { return nil }
+        return Double(spokenWords) / speakingMinutes
     }
 
     /// How many times faster speaking was than typing.
@@ -285,8 +289,10 @@ struct UsageSummary: Equatable {
                 let count = homeWordCount(record.deliveredText)
                 words += count
                 use.words += count
-                speakingMinutes += minutes
-                savedMinutes += max(0, Double(count) / typingWordsPerMinute - minutes)
+                let speaking = (record.speakingDuration ?? record.duration) / 60
+                speakingMinutes += speaking
+                spokenWords += homeWordCount(record.text)
+                savedMinutes += max(0, Double(count) / typingWordsPerMinute - speaking)
                 if let bucket {
                     if kind == .rewritten { buckets[bucket].rewrittenWords += count } else { buckets[bucket].dictatedWords += count }
                 }

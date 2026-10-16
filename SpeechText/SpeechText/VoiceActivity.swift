@@ -25,11 +25,28 @@ struct VoiceActivityReading: Equatable {
     var windowsOverThreshold: Int
     /// How long the segment was.
     var segmentSeconds: Double
+    /// From the first window with a voice in it to the last, each widened by one window
+    /// (an onset or a trailing-off word often scores under the threshold), within the
+    /// segment; nil when no window held a voice. What Usage counts as time spent
+    /// speaking: the silence before the first word and after the last is the shortcut's,
+    /// not the speaker's, while a pause between words stays — it is the thinking a typist
+    /// does too.
+    var voicedSpanSeconds: Double?
 
     init(probabilities: [Float], segmentSeconds: Double) {
         maxProbability = probabilities.max() ?? 0
         windowsOverThreshold = probabilities.filter { $0 > STTTuning.voiceProbabilityThreshold }.count
         self.segmentSeconds = segmentSeconds
+        // The window's length from the segment rather than the model's constant, so a
+        // detector with other windows — or a last window padded out — measures alike.
+        if let first = probabilities.firstIndex(where: { $0 > STTTuning.voiceProbabilityThreshold }),
+           let last = probabilities.lastIndex(where: { $0 > STTTuning.voiceProbabilityThreshold }),
+           segmentSeconds > 0 {
+            let window = segmentSeconds / Double(probabilities.count)
+            let start = max(0, Double(first - 1) * window)
+            let end = min(segmentSeconds, Double(last + 2) * window)
+            voicedSpanSeconds = end - start
+        }
     }
 
     /// How many windows this segment needs: one for a short segment — a one-word
@@ -53,7 +70,14 @@ enum VoiceActivity {
     /// unmeasured and counts as speech, as it does for the silence guard), or a detector
     /// that failed. nil never drops anything.
     static func read(_ writer: AudioBufferWriter) async -> VoiceActivityReading? {
-        guard let detector, let samples = writer.convertedSamples, !samples.isEmpty else { return nil }
+        guard let samples = writer.convertedSamples else { return nil }
+        return await read(samples)
+    }
+
+    /// The same for samples already taken from a writer — the engine's, for a segment
+    /// Apple recognised, read after the writer itself has been reset.
+    static func read(_ samples: [Float]) async -> VoiceActivityReading? {
+        guard let detector, !samples.isEmpty else { return nil }
         let start = Date()
         do {
             let reading = VoiceActivityReading(probabilities: try await detector.speechProbabilities(samples),

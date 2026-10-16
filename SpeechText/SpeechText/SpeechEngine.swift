@@ -764,8 +764,19 @@ final class SpeechEngine {
         }
         if !outcome.text.isEmpty {
             if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
-            lastRecordID = history.recordSuccess(text: outcome.text, provider: provider, model: model,
-                                                 locale: locale, duration: duration, usage: outcome.usage)
+            let id = history.recordSuccess(text: outcome.text, provider: provider, model: model, locale: locale,
+                                           duration: duration, speakingDuration: outcome.speakingSeconds,
+                                           usage: outcome.usage)
+            lastRecordID = id
+            // Apple's tier never asks the detector, so it is asked here — from the samples
+            // taken now, since `cleanup()` resets the writer, and after the row is written,
+            // so the stop's paste does not wait for it.
+            if outcome.speakingSeconds == nil, VoiceActivity.detector != nil, let samples = writer?.convertedSamples {
+                Task.detached(priority: .utility) {
+                    guard let seconds = await VoiceActivity.read(samples)?.voicedSpanSeconds else { return }
+                    await MainActor.run { TranscriptionHistory.shared.recordSpeakingDuration(id: id, seconds) }
+                }
+            }
             return
         }
         if failure == nil, !recordsEmptyOutcomes {
