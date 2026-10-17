@@ -508,7 +508,7 @@ private struct SpeechScreen: View {
                     .foregroundStyle(SetupColor.label2)
                     .padding(.leading, 10)
                     .padding(.bottom, 2)
-                ForEach(localSTTModels) { speech in
+                ForEach(offeredLocalSTTModels(for: model.capabilities)) { speech in
                     row(speech)
                 }
                 // macOS asks for Speech Recognition at the first Apple dictation — Try it, here.

@@ -134,18 +134,27 @@ extension CatalogueExport {
 
     /// Where each local engine's models come from: WhisperKit's are folders of
     /// `argmaxinc/whisperkit-coreml` named by the catalogue ID (`LocalWhisperRuntime.swift`),
-    /// Parakeet v3 is FluidAudio's `FluidInference/parakeet-tdt-0.6b-v3-coreml`
-    /// (`LocalParakeetRuntime.swift`). A Parakeet model added without a repository here
-    /// exports none, and the script says so rather than checking the wrong one.
+    /// each Parakeet build is FluidAudio's repository for its `ParakeetVersion`
+    /// (`ParakeetBuild`, `LocalParakeetRuntime.swift`). A Parakeet model added without a
+    /// repository here exports none, and the script says so rather than checking the wrong one.
     static func source(of id: String, engine: LocalSTTEngine) -> Source? {
         switch engine {
         case .whisperKit:
             Source(huggingFace: "argmaxinc/whisperkit-coreml", path: id, requiredFiles: [])
         case .parakeet:
-            id == parakeetV3ModelID
-                ? Source(huggingFace: "FluidInference/parakeet-tdt-0.6b-v3-coreml", path: nil,
-                         requiredFiles: parakeetRequiredBundles)
-                : nil
+            parakeetRepository(localSTTModel(id: id)?.parakeetVersion).map {
+                Source(huggingFace: $0, path: nil, requiredFiles: parakeetRequiredBundles)
+            }
+        }
+    }
+
+    static func parakeetRepository(_ version: ParakeetVersion?) -> String? {
+        switch version {
+        case .v3: "FluidInference/parakeet-tdt-0.6b-v3-coreml"
+        case .ultra: "FluidInference/parakeet-ultra-coreml"
+        case .redux: "FluidInference/parakeet-redux-coreml"
+        case .phonon2: "FluidInference/phonon-2-coreml"
+        case nil: nil
         }
     }
 

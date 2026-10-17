@@ -47,6 +47,11 @@ final class CatalogueExportTests: XCTestCase {
             XCTAssertEqual(whisper.source, CatalogueExport.Source(huggingFace: "argmaxinc/whisperkit-coreml",
                                                                   path: whisper.id, requiredFiles: []))
         }
+        for (id, repository) in [(parakeetUltraModelID, "FluidInference/parakeet-ultra-coreml"),
+                                 ("parakeet-redux", "FluidInference/parakeet-redux-coreml"),
+                                 ("phonon-2", "FluidInference/phonon-2-coreml")] {
+            XCTAssertEqual(export.speech.first { $0.id == id }?.source?.huggingFace, repository, id)
+        }
         // Every local model has a source, or the script cannot check it.
         XCTAssertTrue(export.speech.filter { $0.vendor == "local" }.allSatisfy { $0.source != nil })
     }

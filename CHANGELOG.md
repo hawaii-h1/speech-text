@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The recommended local model follows the languages you speak.** If you speak only English, it is Phonon-2; if one of your languages is one Parakeet does not know (Japanese, Turkish, Arabic and others), it is Whisper Large v3 Turbo; and when the disk is nearly full it is Parakeet Redux rather than Whisper Small. Everyone else is still recommended Parakeet v3.
+- **Three more Parakeet models on this Mac**, in Settings › Speech to text and setup: **Parakeet Ultra**, Parakeet v3 trained further — the same 25 languages, Ukrainian among them, as accurate as v3 in our tests; **Parakeet Redux**, the same languages in less than half the download, with more mistakes in Ukrainian and a slower answer; and **Phonon-2**, for **English only**. Redux and Phonon-2 need macOS 15 and are not offered on macOS 14.
 - **Acknowledgements** in Settings › General: the open-source code SpeechText is built on — WhisperKit, FluidAudio and Sparkle, and the code each carries inside it — with the full text of every licence.
 - **A new Settings window**, laid out like the setup window and split into categories: General, Appearance, Speech, Formatting, AI Rewrite, API Keys and Permissions. Each skin shows a preview of its overlay, in the colours you picked.
 - **API Keys lists every key.** The ones your current choices need come first, marked *Added* or *Needed*. Each key is tagged with what it can serve, *Speech*, *AI Rewrite* or both, so a key can be entered before you pick the engine that needs it.

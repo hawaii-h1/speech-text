@@ -62,7 +62,7 @@ Three Swift packages, resolved by Xcode on the first build: [WhisperKit](https:/
 
 The voice activity detector is [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.1 (MIT), in [FluidInference's Core ML conversion](https://huggingface.co/FluidInference/silero-vad-coreml) (MIT), shipped inside the app; its notice is in the same file, from `scripts/notices/silero-vad.txt`.
 
-Local speech models are third-party weights: Whisper is MIT, and Parakeet v3 is [NVIDIA's `parakeet-tdt-0.6b-v3`](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) under CC-BY-4.0, run through FluidAudio's Core ML conversion.
+Local speech models are third-party weights, downloaded when you choose one: Whisper is MIT, and the Parakeet models are each under CC-BY-4.0, run through FluidAudio's Core ML conversions — Parakeet v3 is [NVIDIA's `parakeet-tdt-0.6b-v3`](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), Parakeet Ultra and Parakeet Redux are moondream's [`parakeet-ultra`](https://huggingface.co/moondream/parakeet-ultra) and [`parakeet-redux`](https://huggingface.co/moondream/parakeet-redux), and Phonon-2 is Fermion Research's [`Phonon-2`](https://huggingface.co/FermionResearch/Phonon-2).
 
 ---
 

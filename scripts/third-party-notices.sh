@@ -42,6 +42,7 @@ package() { # identity, display name, url, files relative to the checkout…
     printf '%s %s — %s\n' "$identity" "$v" "$url"
     for file in "$@"; do
       for path in "$dir"/$file; do
+        [ -d "$path" ] && continue # a folder's files are named by a pattern of their own
         [ -f "$path" ] || { echo "missing $path" >&2; exit 1; }
         printf '\n--- %s ---\n\n' "${path#"$dir/"}"
         cat "$path"
@@ -62,7 +63,7 @@ packages pinned in Package.resolved; swift-argument-parser, which one of them pu
 in, is not linked into the app and is not listed.
 HEADER
   package argmax-oss-swift "WhisperKit" "https://github.com/argmaxinc/argmax-oss-swift" LICENSE NOTICES
-  package fluidaudio "FluidAudio" "https://github.com/FluidInference/FluidAudio" LICENSE "ThirdPartyLicenses/*"
+  package fluidaudio "FluidAudio" "https://github.com/FluidInference/FluidAudio" LICENSE "ThirdPartyLicenses/*" "ThirdPartyLicenses/*/*"
   package sparkle "Sparkle" "https://github.com/sparkle-project/Sparkle" LICENSE
   for notice in "$repo"/scripts/notices/*.txt; do
     [ -f "$notice" ] || continue

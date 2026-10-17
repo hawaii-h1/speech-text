@@ -7,10 +7,10 @@ private let gb: UInt64 = 1_073_741_824
 
 /// Hardware is constructed, never read: `SystemCapabilities.current()` would make every
 /// assertion here a statement about the machine the tests happen to run on.
-private func mac(ram: UInt64, disk: UInt64 = 2000, appleSilicon: Bool = true) -> SystemCapabilities {
+private func mac(ram: UInt64, disk: UInt64 = 2000, appleSilicon: Bool = true, macOS: Int = 26) -> SystemCapabilities {
     SystemCapabilities(chipName: appleSilicon ? "Apple M5" : "Intel Core i7",
                        isAppleSilicon: appleSilicon, cores: 10,
-                       memoryBytes: ram * gb, freeDiskBytes: disk * gb)
+                       memoryBytes: ram * gb, freeDiskBytes: disk * gb, systemMajorVersion: macOS)
 }
 
 // MARK: - Tiers
@@ -91,22 +91,55 @@ final class LocalSTTRecommendationTests: XCTestCase {
         // 1.5 GB free leaves 0.5 GB usable: too little for the 646 MB turbo model, but
         // Parakeet is 483 MB and still fits — which is the point of putting it first.
         let snug = SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
-                                      memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 2)
+                                      memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 2, systemMajorVersion: 26)
         XCTAssertEqual(recommendedLocalSTTModel(for: snug)?.id, parakeetV3ModelID)
-        // 1.25 GB free leaves 0.25 GB usable, and now even Parakeet has to step down.
+        // 1.25 GB free leaves 0.25 GB usable, and now v3 has to step down: to Redux
+        // (220 MB) where macOS can run it, to Whisper Small on macOS 14.
         let tight = SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
-                                       memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 4)
-        XCTAssertEqual(recommendedLocalSTTModel(for: tight)?.id, "openai_whisper-small_216MB")
+                                       memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 4, systemMajorVersion: 26)
+        XCTAssertEqual(recommendedLocalSTTModel(for: tight)?.id, "parakeet-redux")
+        let tightSonoma = SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
+                                             memoryBytes: 32 * gb, freeDiskBytes: gb + gb / 4, systemMajorVersion: 14)
+        XCTAssertEqual(recommendedLocalSTTModel(for: tightSonoma)?.id, "openai_whisper-small_216MB")
     }
 
     /// Both engines are actually reachable from the catalogue. A Parakeet entry whose
     /// `engine` was left at the Whisper default would be handed to WhisperKit, which
     /// would fail on a model folder it cannot read.
     func testCatalogueCoversBothEngines() {
-        XCTAssertEqual(localSTTModel(id: parakeetV3ModelID)?.engine, .parakeet)
-        for model in localSTTModels where model.id != parakeetV3ModelID {
+        let parakeets = [parakeetV3ModelID, parakeetUltraModelID, "parakeet-redux", "phonon-2"]
+        for id in parakeets {
+            XCTAssertEqual(localSTTModel(id: id)?.engine, .parakeet, id)
+        }
+        for model in localSTTModels where !parakeets.contains(model.id) {
             XCTAssertEqual(model.engine, .whisperKit, model.id)
         }
+    }
+
+    /// The runtime loads the build the entry names, so every Parakeet entry names one, a
+    /// different one each — two IDs on one build would load the same weights under two
+    /// names — and no Whisper entry names any.
+    func testEveryParakeetEntryNamesItsOwnBuild() {
+        let versions = localSTTModels.filter { $0.engine == .parakeet }.map(\.parakeetVersion)
+        XCTAssertFalse(versions.contains(nil))
+        XCTAssertEqual(Set(versions.compactMap { $0 }), [.v3, .ultra, .redux, .phonon2])
+        for model in localSTTModels where model.engine == .whisperKit {
+            XCTAssertNil(model.parakeetVersion, model.id)
+        }
+    }
+
+    /// A model that knows only English is picked only for someone who said they speak
+    /// English alone — anyone else would be recommended confident nonsense. And its
+    /// summary has to say so before anything else.
+    func testAnEnglishOnlyModelIsPickedOnlyForEnglishAlone() {
+        for ram: UInt64 in [8, 16, 32, 64, 128, 512] {
+            for languages in [[], ["uk"], ["uk", "en"], ["en", "de"], ["ja"]] {
+                let caps = mac(ram: ram)
+                XCTAssertNotEqual(recommendedLocalSTTModel(for: caps, languages: languages)?.id, "phonon-2", "\(ram) GB, \(languages)")
+                XCTAssertNotEqual(bestQualityLocalSTTModel(for: caps, languages: languages)?.id, "phonon-2", "\(ram) GB, \(languages)")
+            }
+        }
+        XCTAssertTrue(localSTTModel(id: "phonon-2")?.summary.hasPrefix("English only") ?? false)
     }
 
 }
@@ -161,6 +194,78 @@ final class LocalModelInstalledTests: XCTestCase {
 
         try put(["JointDecisionv3.mlmodelc"], under: parakeetV3ModelID)
         XCTAssertTrue(isLocalModelInstalled(parakeetV3ModelID, in: root))
+    }
+
+    /// Ultra, Redux and Phonon-2 install the same four bundles as v3 (seen in real installs
+    /// on 2026-10-16 — Phonon-2's alternative encoders are not fetched), so each is held
+    /// to all four too, in its own folder.
+    func testEveryParakeetBuildNeedsItsFourBundles() throws {
+        for id in [parakeetUltraModelID, "parakeet-redux", "phonon-2"] {
+            try put(["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc"], under: id)
+            XCTAssertFalse(isLocalModelInstalled(id, in: root), id)
+            try put(["JointDecisionv3.mlmodelc"], under: id)
+            XCTAssertTrue(isLocalModelInstalled(id, in: root), id)
+        }
+        // A model's bundles never stand in for another's.
+        XCTAssertFalse(isLocalModelInstalled(parakeetV3ModelID, in: root))
+    }
+}
+
+// MARK: - Minimum system version
+
+/// Parakeet Redux and Phonon-2 compress their encoders with Core ML ops macOS 14 lacks,
+/// and FluidAudio refuses them there; macOS 14 is the app's own minimum.
+final class LocalModelSystemVersionTests: XCTestCase {
+
+    func testOnlyReduxAndPhononNeedMacOS15() {
+        let newer = localSTTModels.filter { $0.minimumSystemVersion > 14 }.map(\.id)
+        XCTAssertEqual(Set(newer), ["parakeet-redux", "phonon-2"])
+        XCTAssertTrue(localSTTModels.allSatisfy { $0.minimumSystemVersion >= 14 })
+    }
+
+    func testMacOS14IsNotOfferedWhatItCannotRun() {
+        let sonoma = offeredLocalSTTModels(for: mac(ram: 32, macOS: 14)).map(\.id)
+        XCTAssertFalse(sonoma.contains("parakeet-redux"))
+        XCTAssertFalse(sonoma.contains("phonon-2"))
+        XCTAssertTrue(sonoma.contains(parakeetUltraModelID))
+        XCTAssertTrue(sonoma.contains(parakeetV3ModelID))
+    }
+
+    /// The one offered filter takes the vendor's fact and the Mac's together (#19, #18):
+    /// a superseded model is still offered, a switched-off one is not on any macOS, and a
+    /// current one is not on a macOS it cannot run on.
+    func testTheOfferedFilterJoinsLifecycleAndSystemVersion() {
+        let base = localSTTModel(id: "parakeet-redux")!
+        func with(_ lifecycle: ModelLifecycle) -> LocalSTTModel {
+            var model = base
+            model.lifecycle = lifecycle
+            return model
+        }
+        let sequoia = mac(ram: 16, macOS: 15), sonoma = mac(ram: 16, macOS: 14)
+        XCTAssertTrue(with(.current).isOffered(on: sequoia))
+        XCTAssertFalse(with(.current).isOffered(on: sonoma))
+        XCTAssertTrue(with(.superseded(by: parakeetV3ModelID)).isOffered(on: sequoia))
+        XCTAssertFalse(with(.deprecated(.archived(replacement: parakeetV3ModelID))).isOffered(on: sequoia))
+    }
+
+    func testMacOS15AndLaterAreOfferedEverything() {
+        for version in [15, 26] {
+            XCTAssertEqual(offeredLocalSTTModels(for: mac(ram: 32, macOS: version)).map(\.id),
+                           localSTTModels.map(\.id), "macOS \(version)")
+        }
+    }
+
+    /// Whatever the tables say, a recommendation is taken from what is offered: on
+    /// macOS 14 no tier, memory or disk can land on a model that would not load.
+    func testMacOS14IsNeverRecommendedWhatItCannotRun() {
+        for ram: UInt64 in [8, 16, 24, 36, 96, 256] {
+            for disk: UInt64 in [2, 2000] {
+                let sonoma = mac(ram: ram, disk: disk, macOS: 14)
+                for pick in [recommendedLocalSTTModel(for: sonoma), bestQualityLocalSTTModel(for: sonoma)] {
+                    if let pick { XCTAssertTrue(pick.isOffered(on: sonoma), "\(ram) GB, \(disk) GB free: \(pick.id)") }
+                }
+            }
+        }
     }
 }
 
@@ -354,6 +459,93 @@ final class LocalRecordingConfigurationTests: XCTestCase {
             XCTFail("expected the unregistered local tier to throw")
         } catch {
             XCTAssertTrue(error is LocalModelError)
+        }
+    }
+}
+
+// MARK: - Languages and the pick matrix (#25)
+
+final class LocalModelLanguageTests: XCTestCase {
+
+    /// Ultra and Redux are re-trainings of v3 and keep its 25 languages; Phonon-2 knows
+    /// English alone; a Whisper model knows every language the app lists.
+    func testEachModelKnowsTheLanguagesItWasTrainedOn() {
+        XCTAssertEqual(parakeetV3Languages.count, 25)
+        for id in [parakeetV3ModelID, parakeetUltraModelID, "parakeet-redux"] {
+            XCTAssertEqual(localSTTModel(id: id)?.languages, parakeetV3Languages, id)
+        }
+        XCTAssertEqual(localSTTModel(id: "phonon-2")?.languages, ["en"])
+        for model in localSTTModels where model.engine == .whisperKit {
+            XCTAssertNil(model.languages, model.id)
+        }
+    }
+
+    /// A model is picked only for languages it knows — all of them, not some — and a
+    /// model that knows only some languages is not picked for someone who stated none.
+    func testAModelKnowsAPersonOnlyWhenItKnowsEveryLanguageTheySpeak() {
+        let phonon = localSTTModel(id: "phonon-2")!, v3 = localSTTModel(id: parakeetV3ModelID)!
+        let whisper = localSTTModel(id: "openai_whisper-base")!
+        XCTAssertTrue(phonon.knows(["en"]))
+        XCTAssertFalse(phonon.knows(["en", "uk"]))
+        XCTAssertFalse(phonon.knows([]))
+        XCTAssertTrue(v3.knows(["uk", "en"]))
+        XCTAssertFalse(v3.knows(["uk", "ja"]))
+        XCTAssertTrue(v3.knows([]))
+        XCTAssertTrue(whisper.knows(["ja", "tr"]))
+    }
+
+    func testTheReasonSaysWhenParakeetDoesNotKnowALanguage() {
+        XCTAssertTrue(localSTTRecommendationReason(for: mac(ram: 16), languages: ["uk", "ja"]).contains("Parakeet does not know"))
+        XCTAssertFalse(localSTTRecommendationReason(for: mac(ram: 16), languages: ["uk"]).contains("Parakeet does not know"))
+    }
+}
+
+/// Who gets which model, written out: Mac profiles across the facts that decide a pick —
+/// chip, macOS, disk — times the languages a person may state. A catalogue or tier
+/// change shows here as a diff of picks, which is what the owner approves (#25).
+final class LocalModelPickMatrixTests: XCTestCase {
+
+    private static let v3 = parakeetV3ModelID, turbo = "openai_whisper-large-v3-v20240930_turbo_632MB"
+    private static let small = "openai_whisper-small_216MB", base = "openai_whisper-base"
+
+    /// (profile, Mac, [languages: (recommended, best quality)])
+    private static let matrix: [(String, SystemCapabilities, [[String]: (String?, String?)])] = [
+        ("16 GB, macOS 26", mac(ram: 16), [
+            []: (v3, v3), ["uk"]: (v3, v3), ["uk", "en"]: (v3, v3), ["en"]: ("phonon-2", v3),
+            ["ja"]: (turbo, turbo), ["uk", "ja"]: (turbo, turbo),
+        ]),
+        ("8 GB, macOS 26", mac(ram: 8), [
+            []: (v3, v3), ["en"]: ("phonon-2", v3), ["ja"]: (turbo, turbo),
+        ]),
+        ("16 GB, macOS 14", mac(ram: 16, macOS: 14), [
+            []: (v3, v3), ["uk"]: (v3, v3), ["en"]: (v3, v3), ["ja"]: (turbo, turbo),
+        ]),
+        // 1.4 GB free: 0.4 GB usable after the headroom — v3 and Turbo no longer fit.
+        ("16 GB, macOS 26, 1.4 GB free", SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
+                                                           memoryBytes: 16 * gb, freeDiskBytes: gb + gb * 2 / 5,
+                                                           systemMajorVersion: 26), [
+            []: ("parakeet-redux", "parakeet-redux"), ["uk"]: ("parakeet-redux", "parakeet-redux"),
+            ["en"]: ("phonon-2", "parakeet-redux"), ["ja"]: (small, small),
+        ]),
+        ("16 GB, macOS 14, 1.4 GB free", SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
+                                                           memoryBytes: 16 * gb, freeDiskBytes: gb + gb * 2 / 5,
+                                                           systemMajorVersion: 14), [
+            []: (small, small), ["uk"]: (small, small), ["en"]: (small, small),
+        ]),
+        ("Intel, 64 GB", mac(ram: 64, appleSilicon: false), [
+            []: (base, small), ["uk"]: (base, small), ["en"]: (base, small), ["ja"]: (base, small),
+        ]),
+    ]
+
+    func testThePicksForEveryProfileAndLanguageSet() {
+        for (profile, capabilities, rows) in Self.matrix {
+            for (languages, expected) in rows {
+                let label = "\(profile), speaks \(languages.isEmpty ? "nothing stated" : languages.joined(separator: "+"))"
+                XCTAssertEqual(recommendedLocalSTTModel(for: capabilities, languages: languages)?.id, expected.0,
+                               "recommended — \(label)")
+                XCTAssertEqual(bestQualityLocalSTTModel(for: capabilities, languages: languages)?.id, expected.1,
+                               "best quality — \(label)")
+            }
         }
     }
 }

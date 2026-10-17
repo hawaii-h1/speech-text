@@ -156,7 +156,8 @@ final class OnboardingModel {
         let saved = defaults.string(forKey: SettingsKeys.onboardingStep).flatMap(OnboardingStep.init) ?? .welcome
         step = saved == .done ? .tryIt : saved
 
-        speechModelID = recommendedLocalSTTModel(for: caps)?.id ?? Provider.local.defaultSpeechModel
+        speechModelID = recommendedLocalSTTModel(for: caps, languages: storedSpokenLanguages())?.id
+            ?? Provider.local.defaultSpeechModel
         aiModelID = recommendedLocalLLMModel(for: caps)?.id ?? "qwen3.5:4b"
 
         // Setup run again: open on what is set up now.
@@ -238,12 +239,16 @@ final class OnboardingModel {
 
     // MARK: ② Speech
 
-    var recommendedSpeechModel: LocalSTTModel? { recommendedLocalSTTModel(for: capabilities) }
-    var bestSpeechModel: LocalSTTModel? { bestQualityLocalSTTModel(for: capabilities) }
+    var recommendedSpeechModel: LocalSTTModel? {
+        recommendedLocalSTTModel(for: capabilities, languages: storedSpokenLanguages())
+    }
+    var bestSpeechModel: LocalSTTModel? {
+        bestQualityLocalSTTModel(for: capabilities, languages: storedSpokenLanguages())
+    }
 
     /// The model the Continue button would install: the pick, unless a switch is pending.
     var selectedSpeechModel: LocalSTTModel {
-        localSTTModel(id: speechModelID) ?? localSTTModels[1]
+        localSTTModel(id: speechModelID) ?? recommendedSpeechModel ?? localSTTModel(id: parakeetV3ModelID)!
     }
 
     func pickSpeechModel(_ id: String) {

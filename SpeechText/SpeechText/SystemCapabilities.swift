@@ -25,6 +25,9 @@ struct SystemCapabilities: Equatable {
     /// Free space on the volume the model store writes to — a download that fills the
     /// disk is the one failure the user cannot undo from inside the app.
     let freeDiskBytes: UInt64
+    /// The running macOS's major version (14 for Sonoma, 15 for Sequoia, 26 for Tahoe):
+    /// some local models need a newer Core ML than the app's own minimum (`isOffered(on:)`).
+    let systemMajorVersion: Int
 
     var memoryGB: Double { Double(memoryBytes) / 1_073_741_824 }
 
@@ -56,7 +59,8 @@ struct SystemCapabilities: Equatable {
             isAppleSilicon: arm,
             cores: cores,
             memoryBytes: sysctlUInt64("hw.memsize") ?? 0,
-            freeDiskBytes: freeSpace(at: storageURL)
+            freeDiskBytes: freeSpace(at: storageURL),
+            systemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         )
     }
 

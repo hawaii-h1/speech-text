@@ -44,10 +44,67 @@ struct LocalSTTModel: Identifiable, Hashable {
     /// local model would point it at files nobody downloaded. A newer local model is
     /// offered, and only downloaded once the user takes it.
     var lifecycle: ModelLifecycle = .current
+    /// Which Parakeet build FluidAudio loads for it — nil for a Whisper model. Mirrors
+    /// FluidAudio's own `AsrModelVersion` cases; `LocalParakeetRuntime.swift` maps one onto
+    /// the other, so this file stays free of the framework.
+    var parakeetVersion: ParakeetVersion? = nil
+    /// The oldest macOS (major version) the model runs on — what Apple calls a *minimum
+    /// system version*. A property of the Mac, not of the vendor: Parakeet Redux and
+    /// Phonon-2 compress their encoders with Core ML ops macOS 14 does not have, and
+    /// FluidAudio refuses them there before downloading anything. A model above the
+    /// running macOS is not offered (`isOffered(on:)`).
+    var minimumSystemVersion = 14
+    /// The languages the model was trained to transcribe, as ISO-639-1 codes — what it
+    /// *knows*, not how well: how well is a measurement, not a fact. nil means every
+    /// language the app lists (Whisper's ~99 include all of `spokenLanguageCatalog`).
+    var languages: Set<String>? = nil
+
+    /// Whether the model knows every language the user said they speak. With none stated
+    /// the app does not know what will be dictated, so a model that knows only some
+    /// languages is not picked for them.
+    func knows(_ stated: [String]) -> Bool {
+        guard let languages else { return true }
+        return stated.isEmpty ? languages.count > 1 : Set(stated).isSubset(of: languages)
+    }
 
     var downloadSizeDescription: String {
         ByteCountFormatter.string(fromByteCount: downloadBytes, countStyle: .file)
     }
+
+    /// Whether Settings and setup list the model and the recommendations may pick it: the
+    /// one *offered* filter, fed by two separate facts — the vendor's (`lifecycle`, #19)
+    /// and this Mac's (`minimumSystemVersion`). Only the offering: the catalogue itself —
+    /// normalisation, pricing, History's names — keeps every entry whatever the Mac.
+    func isOffered(on capabilities: SystemCapabilities) -> Bool {
+        lifecycle.isOffered && capabilities.systemMajorVersion >= minimumSystemVersion
+    }
+}
+
+/// The Parakeet TDT 0.6B v3 family FluidAudio runs: v3 itself and three re-trainings of
+/// it with the same tokenizer, window and decoder contract, so one runtime runs them all.
+/// Named as FluidAudio names them (`AsrModelVersion`).
+enum ParakeetVersion: Hashable, Sendable {
+    /// NVIDIA's `parakeet-tdt-0.6b-v3`.
+    case v3
+    /// moondream's post-training of v3: the same 25 languages, more accurate on FLEURS by
+    /// FluidAudio's measure (level with v3 on our own corpus).
+    case ultra
+    /// moondream's ternary re-training of v3: the same 25 languages in half the download.
+    case redux
+    /// Fermion Research's quantisation-aware re-training of v3, English only.
+    case phonon2
+}
+
+/// The 25 languages of NVIDIA's Parakeet TDT 0.6B v3, from its model card, which Ultra
+/// and Redux keep.
+let parakeetV3Languages: Set<String> = [
+    "bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it",
+    "lt", "lv", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
+]
+
+/// The local models a Mac is offered, in catalogue order.
+func offeredLocalSTTModels(for capabilities: SystemCapabilities) -> [LocalSTTModel] {
+    localSTTModels.filter { $0.isOffered(on: capabilities) }
 }
 
 private let gigabyte: UInt64 = 1_073_741_824
@@ -58,10 +115,19 @@ private let gigabyte: UInt64 = 1_073_741_824
 /// `LocalParakeetRuntime.swift`.
 let parakeetV3ModelID = "parakeet-tdt-0.6b-v3"
 
+/// Parakeet Ultra's catalogue ID — FluidAudio's folder name for
+/// `FluidInference/parakeet-ultra-coreml`, as v3's is for its repo.
+let parakeetUltraModelID = "parakeet-ultra"
+
 /// Every local speech model on offer, **heaviest first**. Sizes were read from the
-/// HuggingFace tree API on 2026-09-16 (Parakeet measured from an install on 2026-09-21);
-/// every entry is multilingual — the `.en` builds are left out because dictating
-/// Ukrainian into one produces confident nonsense.
+/// HuggingFace tree API on 2026-09-16 (each Parakeet measured from an install: v3 on
+/// 2026-09-21, Ultra, Redux and Phonon-2 on 2026-10-16).
+///
+/// A model may know only some languages — Phonon-2 knows English alone — as long as its
+/// summary says so in its first words: dictating Ukrainian into an English model produces
+/// confident nonsense, and the user has to know that before choosing it (the owner's
+/// call, 2026-10-16, which dropped the rule that every entry be multilingual). Such a
+/// model is never among the tier picks while they ignore "Languages I speak".
 ///
 /// The ladder stops at 1.6 GB, and that is not an oversight. Speech models do not scale
 /// with the Mac the way chat models do: there is no larger open model with Ukrainian and a
@@ -87,6 +153,18 @@ let localSTTModels: [LocalSTTModel] = [
         summary: "Near-full accuracy at a fraction of the wait. The right choice on almost every Apple Silicon Mac."
     ),
     LocalSTTModel(
+        id: parakeetUltraModelID,
+        engine: .parakeet,
+        displayName: "Parakeet Ultra",
+        // Measured from an install on 2026-10-16, as v3 was: its four bundles and the
+        // vocabulary.
+        downloadBytes: 632_314_500,
+        memoryFloorBytes: 8 * gigabyte,
+        summary: "Parakeet v3 trained further by moondream: the same 25 European languages, Ukrainian among them, at the same speed. On our recordings it was as accurate as v3 overall — better on whispered speech and technical terms, once worse on a single word.",
+        parakeetVersion: .ultra,
+        languages: parakeetV3Languages
+    ),
+    LocalSTTModel(
         id: parakeetV3ModelID,
         engine: .parakeet,
         displayName: "Parakeet v3",
@@ -95,7 +173,35 @@ let localSTTModels: [LocalSTTModel] = [
         // int8 rebuild, neither of which is downloaded.
         downloadBytes: 483_257_242,
         memoryFloorBytes: 8 * gigabyte,
-        summary: "NVIDIA's Parakeet, 25 European languages. On our Ukrainian test it matched the best cloud engine word for word, in a third of a second — and it is smaller than Turbo."
+        summary: "NVIDIA's Parakeet, 25 European languages. On our Ukrainian test it matched the best cloud engine word for word, in a third of a second — and it is smaller than Turbo.",
+        parakeetVersion: .v3,
+        languages: parakeetV3Languages
+    ),
+    LocalSTTModel(
+        id: "phonon-2",
+        engine: .parakeet,
+        displayName: "Phonon-2",
+        // Measured from an install on 2026-10-16. Only `Encoder.mlmodelc` is fetched — the
+        // repo's alternative encoders (`Encoder_lut3` and others) are for the GPU, where
+        // this one is expanded again on every load.
+        downloadBytes: 378_228_114,
+        memoryFloorBytes: 8 * gigabyte,
+        summary: "English only — Ukrainian and every other language come out wrong. Fermion Research's compressed Parakeet v3, as accurate as v3 on our English recordings.",
+        parakeetVersion: .phonon2,
+        minimumSystemVersion: 15,
+        languages: ["en"]
+    ),
+    LocalSTTModel(
+        id: "parakeet-redux",
+        engine: .parakeet,
+        displayName: "Parakeet Redux",
+        // Measured from an install on 2026-10-16.
+        downloadBytes: 220_455_773,
+        memoryFloorBytes: 8 * gigabyte,
+        summary: "Parakeet v3 in less than half the download, from moondream: the same 25 languages, but on our Ukrainian recordings it made more mistakes than v3 and took about a second to answer where v3 takes a quarter. For a full disk.",
+        parakeetVersion: .redux,
+        minimumSystemVersion: 15,
+        languages: parakeetV3Languages
     ),
     LocalSTTModel(
         id: "openai_whisper-small_216MB",
@@ -167,8 +273,18 @@ func localSTTPicks(for tier: MacTier) -> TierPicks {
         // Turbo now sits behind Parakeet — so promoting either would recommend worse text.
         // Both lists fall back through Whisper, so a Mac that cannot fit Parakeet or has
         // the ladder half-installed still gets an answer.
-        return TierPicks(recommended: [parakeetV3ModelID, turbo] + sttFallback,
-                         bestQuality: [parakeetV3ModelID, turbo] + sttFallback)
+        //
+        // Since 2026-10-17 (#25) the lists are read through the filters in
+        // `pickable(for:languages:)`: the languages the user speaks, macOS, memory and disk. So
+        // a list names every model that may be picked here, best first, and the filters
+        // decide which of them a particular Mac and person gets — Phonon-2 first only for
+        // someone who speaks English alone (as accurate as v3 on our English recordings,
+        // smaller and quicker), Redux after v3 for a disk v3 no longer fits on (it is far
+        // better in Ukrainian than Whisper Small, the next step down), and Whisper Turbo
+        // for a language Parakeet does not know. `LocalModelPickMatrixTests` writes out
+        // who gets what.
+        return TierPicks(recommended: ["phonon-2", parakeetV3ModelID, "parakeet-redux", turbo] + sttFallback,
+                         bestQuality: [parakeetV3ModelID, "parakeet-redux", turbo] + sttFallback)
     }
 }
 
@@ -185,13 +301,21 @@ func firstFitting<Model>(_ candidates: [String], in catalog: [Model],
     return nil
 }
 
-func recommendedLocalSTTModel(for capabilities: SystemCapabilities) -> LocalSTTModel? {
-    firstFitting(localSTTPicks(for: MacTier(capabilities)).recommended, in: localSTTModels,
+/// The models a pick may land on: offered on this Mac, and knowing every language the
+/// user speaks. Memory and disk are `firstFitting`'s.
+private func pickable(for capabilities: SystemCapabilities, languages: [String]) -> [LocalSTTModel] {
+    offeredLocalSTTModels(for: capabilities).filter { $0.knows(languages) }
+}
+
+/// `languages` is "Languages I speak" (`storedSpokenLanguages()`), passed in so the
+/// pick stays a pure function of the Mac and the person.
+func recommendedLocalSTTModel(for capabilities: SystemCapabilities, languages: [String] = []) -> LocalSTTModel? {
+    firstFitting(localSTTPicks(for: MacTier(capabilities)).recommended, in: pickable(for: capabilities, languages: languages),
                  id: \.id, floor: \.memoryFloorBytes, bytes: \.downloadBytes, capabilities: capabilities)
 }
 
-func bestQualityLocalSTTModel(for capabilities: SystemCapabilities) -> LocalSTTModel? {
-    firstFitting(localSTTPicks(for: MacTier(capabilities)).bestQuality, in: localSTTModels,
+func bestQualityLocalSTTModel(for capabilities: SystemCapabilities, languages: [String] = []) -> LocalSTTModel? {
+    firstFitting(localSTTPicks(for: MacTier(capabilities)).bestQuality, in: pickable(for: capabilities, languages: languages),
                  id: \.id, floor: \.memoryFloorBytes, bytes: \.downloadBytes, capabilities: capabilities)
 }
 
@@ -203,13 +327,16 @@ func localModelFitsMemory(_ floorBytes: UInt64, _ capabilities: SystemCapabiliti
 
 /// Why the recommendation landed where it did, in one sentence, for the Settings row.
 /// A recommendation the user cannot interrogate is one they have to take on faith.
-func localSTTRecommendationReason(for capabilities: SystemCapabilities) -> String {
-    guard let model = recommendedLocalSTTModel(for: capabilities) else {
+func localSTTRecommendationReason(for capabilities: SystemCapabilities, languages: [String] = []) -> String {
+    guard let model = recommendedLocalSTTModel(for: capabilities, languages: languages) else {
         return "Not enough free disk space to install any local model."
     }
     let tier = MacTier(capabilities)
     if tier == .intel {
         return "\(model.displayName) — Intel Macs have no Neural Engine, so the larger models run too slowly for dictation."
+    }
+    if model.engine == .whisperKit, localSTTModel(id: parakeetV3ModelID)?.knows(languages) == false, !languages.isEmpty {
+        return "\(model.displayName) — Parakeet does not know every language you speak."
     }
     return "\(model.displayName) for a \(tier.displayName) Mac."
 }
@@ -281,10 +408,22 @@ func localModelFolder(for modelID: String) -> URL {
 /// It matters because Parakeet's download is four separate fetches: an install
 /// interrupted after the 433 MB encoder leaves a folder that a "contains a `.mlmodelc`"
 /// test calls installed, and the first dictation then fails on a missing decoder
-/// instead of the model simply not being there.
+/// instead of the model simply not being there. Ultra, Redux and Phonon-2 install the
+/// same four names (seen in real installs on 2026-10-16); Phonon-2's alternative encoders
+/// in its repo are not fetched.
 let parakeetRequiredBundles = [
     "Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc",
 ]
+
+/// Whether a downloaded Parakeet folder holds every bundle the loader opens — the same
+/// test as below, for a folder that is not in our layout yet (the runtime's staging).
+/// The vocabulary is asked for too: `AsrModels.download` fetched it on its own (FluidAudio
+/// #748), while the files-only fetch gets it only as one of the repo's `.json` files, and
+/// without it the model fails at its first load rather than at the install.
+func isParakeetFolderComplete(_ folder: URL) -> Bool {
+    let contents = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+    return (parakeetRequiredBundles + ["parakeet_vocab.json"]).allSatisfy(contents.contains)
+}
 
 /// Whether a model is ready to transcribe with.
 ///

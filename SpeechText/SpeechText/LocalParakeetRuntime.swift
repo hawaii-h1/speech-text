@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+@preconcurrency import CoreML
 import Foundation
 import FluidAudio
 
-/// **The only file in the app that imports FluidAudio**, as `LocalWhisperRuntime.swift`
+/// **The only file in the app that runs Parakeet through FluidAudio** (the voice activity
+/// detector has its own, `VoiceActivityRuntime.swift`), as `LocalWhisperRuntime.swift`
 /// is the only one that imports WhisperKit.
 ///
 /// Parakeet TDT 0.6B v3 is NVIDIA's multilingual speech model; FluidAudio is the Swift
@@ -20,8 +22,15 @@ import FluidAudio
 /// framework exists. That is what keeps the standalone test bundle building, and it
 /// means a third engine later is one more conforming type.
 ///
-/// Weights: `FluidInference/parakeet-tdt-0.6b-v3-coreml`, converted from
-/// `nvidia/parakeet-tdt-0.6b-v3` — CC-BY-4.0, credited in README.
+/// One runtime runs the whole v3 family (`ParakeetVersion`): v3 and its three
+/// re-trainings share the tokenizer, the 15 s window and the decoder contract, and differ
+/// only in their weights and which repo they come from.
+///
+/// Weights, each CC-BY-4.0 and credited in README:
+/// - v3: `FluidInference/parakeet-tdt-0.6b-v3-coreml`, from `nvidia/parakeet-tdt-0.6b-v3`;
+/// - Ultra: `FluidInference/parakeet-ultra-coreml`, from `moondream/parakeet-ultra`;
+/// - Redux: `FluidInference/parakeet-redux-coreml`, from `moondream/parakeet-redux`;
+/// - Phonon-2: `FluidInference/phonon-2-coreml`, from `FermionResearch/Phonon-2`.
 struct ParakeetRuntime: LocalSTTRuntime {
     /// FluidAudio writes into `<parent of the directory you pass>/<its own folder name>`
     /// and hands back the path you gave it, so passing a folder named anything else
@@ -30,13 +39,22 @@ struct ParakeetRuntime: LocalSTTRuntime {
     /// the repo, and `LocalModelStore` renames it to the catalogue ID on the way in —
     /// which here are the same string, but the store's move is what guarantees it.
     func download(variant: String, into base: URL, progress: @escaping (Double) -> Void) async throws -> URL {
-        let target = base.appendingPathComponent(Repo.parakeetV3.folderName, isDirectory: true)
-        return try await AsrModels.download(
-            to: target,
-            version: .v3,
-            encoderPrecision: Self.encoderPrecision,
-            progressHandler: { progress($0.fractionCompleted) }
-        )
+        let build = try ParakeetBuild(modelID: variant)
+        // `ModelHub.download`, not `AsrModels.download`: the latter also *loads* every
+        // bundle on the Neural Engine as it fetches it, whatever compute units the model
+        // will run on — for Redux on an M1 Pro that was a 12-minute compile that failed
+        // (2026-10-16). Fetching the files alone leaves the one-time load to `prewarm`,
+        // where the store shows it as "optimizing" and it uses the build's own units.
+        // The fetch reports 0…0.5 (FluidAudio keeps the other half for a compile it does
+        // not do here), hence the doubling.
+        try await ModelHub.download(build.repo, to: base, variant: build.downloadVariant,
+                                    progressHandler: { progress(min($0.fractionCompleted * 2, 1)) })
+        let folder = base.appendingPathComponent(build.repo.folderName, isDirectory: true)
+        // Nothing to move on to unless every bundle the loader opens arrived.
+        guard isParakeetFolderComplete(folder) else {
+            throw LocalModelError.downloadFailed("the download of \(variant) is incomplete")
+        }
+        return folder
     }
 
     func transcribe(audioFileURL: URL, modelFolder: URL, language: String?) async throws -> String {
@@ -60,7 +78,9 @@ struct ParakeetRuntime: LocalSTTRuntime {
     /// loader opens the file this names, so a download of one and a load of the other is
     /// a missing-file error. `.int8` is FluidAudio's default and is what was measured;
     /// `.int8V2` is a 577 MB rebuild that avoids a token-corruption bug (their issue
-    /// #760) we have not seen, and `.int4` a 298 MB one we have not tested.
+    /// #760) we have not seen, and `.int4` a 298 MB one we have not tested. It names a
+    /// file for v3 only: Ultra, Redux and Phonon-2 each ship one encoder, which FluidAudio
+    /// fetches and opens whatever this says.
     fileprivate static let encoderPrecision: ParakeetEncoderPrecision = .int8
 
     /// Turns our stored language into Parakeet's hint, which on v3 filters the decoder's
@@ -74,6 +94,49 @@ struct ParakeetRuntime: LocalSTTRuntime {
     private static func hint(for language: String?) -> Language? {
         guard let language else { return nil }
         return Language(rawValue: String(language.prefix(2)).lowercased())
+    }
+}
+
+/// What FluidAudio needs to know about one of our Parakeet models: its `AsrModelVersion`,
+/// the repo it comes from (whose folder name `AsrModels.download(to:)` writes into — the
+/// version's own `repo` is not public, so it is named here) and where its encoder runs.
+/// Built from the catalogue entry; an ID that is not a Parakeet one throws rather than
+/// quietly loading v3 from a folder that holds something else.
+struct ParakeetBuild {
+    let version: AsrModelVersion
+    let repo: Repo
+    /// nil keeps FluidAudio's default, the Neural Engine. See `init`.
+    let encoderComputeUnits: MLComputeUnits?
+
+    /// The repo variant FluidAudio picks files by: v3's encoder precision, nothing for the
+    /// builds that ship a single encoder.
+    var downloadVariant: String? {
+        version == .v3 ? ParakeetRuntime.encoderPrecision.rawValue : nil
+    }
+
+    init(modelID: String) throws {
+        guard let model = localSTTModel(id: modelID), let parakeet = model.parakeetVersion else {
+            throw LocalModelError.notInstalled(modelID)
+        }
+        switch parakeet {
+        case .v3:
+            (version, repo, encoderComputeUnits) = (.v3, .parakeetV3, nil)
+        case .ultra:
+            (version, repo, encoderComputeUnits) = (.ultra, .parakeetUltra, nil)
+        case .redux:
+            // The GPU, measured on 2026-10-16 (M1 Pro, macOS 26): on the Neural Engine its
+            // 2-bit encoder failed to compile (`ANECCompile() FAILED`) after 652 s — on
+            // every launch, since a failed compile is not cached — and then ran on the
+            // fallback anyway. On the GPU it loaded in 0.6–1.2 s. The price is speed: on the
+            // corpus it answered in 0.97 s at the median (p90 2.0 s) against v3's 0.25 s on
+            // the Neural Engine. A Mac whose ANE does compile it (FluidAudio measured
+            // 45–52 ms a window there, M-series) might do better — not measured here.
+            (version, repo, encoderComputeUnits) = (.redux, .parakeetRedux, .cpuAndGPU)
+        case .phonon2:
+            // The Neural Engine, never the GPU: there Phonon-2's sparse encoder is expanded
+            // on every load (~150 s of CPU, FluidAudio measured), and Core ML never caches it.
+            (version, repo, encoderComputeUnits) = (.phonon2, .phonon2, nil)
+        }
     }
 }
 
@@ -117,7 +180,8 @@ actor ParakeetPipelineCache {
             // network's state forward, which is what a *continuing* stream wants; a
             // segment here is a finished recording, and seeding it with the tail of the
             // previous one would let a stale dictation colour the next one's first words.
-            var state = try TdtDecoderState(decoderLayers: AsrModelVersion.v3.decoderLayers)
+            var state = try TdtDecoderState(decoderLayers: try ParakeetBuild(modelID: modelFolder.lastPathComponent)
+                .version.decoderLayers)
             let result = try await manager.transcribe(audioFileURL, decoderState: &state, language: language)
             return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -133,8 +197,11 @@ actor ParakeetPipelineCache {
         // `load` re-derives a repo path from the parent and would not find a model in a
         // folder named after our catalogue ID. Nothing here reaches the network — a
         // dictation must never turn into a model fetch because a file went missing.
-        let models = try AsrModels.loadLocal(from: modelFolder, version: .v3,
-                                             encoderPrecision: ParakeetRuntime.encoderPrecision)
+        // The folder is named for its catalogue ID, which says which build is in it.
+        let build = try ParakeetBuild(modelID: modelFolder.lastPathComponent)
+        let models = try AsrModels.loadLocal(from: modelFolder, version: build.version,
+                                             encoderPrecision: ParakeetRuntime.encoderPrecision,
+                                             encoderComputeUnits: build.encoderComputeUnits)
         let manager = AsrManager()
         try await manager.loadModels(models)
         self.manager = manager

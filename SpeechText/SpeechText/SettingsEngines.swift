@@ -69,7 +69,10 @@ func macDescription(_ caps: SystemCapabilities) -> String {
 func speechModelLine(_ model: LocalSTTModel) -> String {
     switch model.id {
     case "openai_whisper-large-v3-v20240930": "As accurate as Turbo, about 30% slower. Needs 24 GB of memory."
+    case parakeetUltraModelID: "Parakeet v3 trained further: the same languages, as accurate on our tests."
     case parakeetV3ModelID: "Great for English and Ukrainian, and the quickest to answer."
+    case "parakeet-redux": "Less than half the download of v3. More mistakes in Ukrainian, slower to answer."
+    case "phonon-2": "English only. Ukrainian comes out wrong."
     case "openai_whisper-large-v3-v20240930_turbo_632MB": "Great for English and Ukrainian. Slower to answer than Parakeet."
     case "openai_whisper-small_216MB": "Great for English. Makes mistakes in Ukrainian."
     case "openai_whisper-base": "Good for English. Makes mistakes in Ukrainian."
@@ -213,15 +216,20 @@ struct SpeechEngineSettings: View {
 
     // MARK: On this Mac
 
-    private var recommended: LocalSTTModel? { recommendedLocalSTTModel(for: capabilities) }
-    private var bestQuality: LocalSTTModel? { bestQualityLocalSTTModel(for: capabilities) }
+    @AppStorage(SettingsKeys.spokenLanguages) private var spokenLanguages = ""
+    private var recommended: LocalSTTModel? {
+        recommendedLocalSTTModel(for: capabilities, languages: parseSpokenLanguages(spokenLanguages))
+    }
+    private var bestQuality: LocalSTTModel? {
+        bestQualityLocalSTTModel(for: capabilities, languages: parseSpokenLanguages(spokenLanguages))
+    }
 
     private var thisMac: some View {
         SettingsGroup(title: "Models on this Mac", trailing: AnyView(
             Text("For your \(macDescription(capabilities))")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SetupColor.label2)), inset: 5) {
-            ForEach(localSTTModels) { model in
+            ForEach(offeredLocalSTTModels(for: capabilities)) { model in
                 localRow(model)
             }
             SetupRow(title: "Apple Dictation", subtitle: "Built in", detail: appleDictationLine,
