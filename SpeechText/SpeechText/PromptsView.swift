@@ -23,14 +23,14 @@ struct PromptsView: View {
     @State private var confirmingRestore = false
     @State private var saveTask: Task<Void, Never>?
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+    @AppStorage(SettingsKeys.localLLMModel) private var localLLMModel = Provider.local.defaultChatModel
     @AppStorage(SettingsKeys.promptsIntroHidden) private var introHidden = false
 
     private var history: TranscriptionHistory { .shared }
     private static let top = "top"
 
     private var aiReady: Bool {
-        _ = (llmProvider, ollamaModel)
+        _ = (llmProvider, localLLMModel)
         return LLMConfiguration.isConfigured
     }
 

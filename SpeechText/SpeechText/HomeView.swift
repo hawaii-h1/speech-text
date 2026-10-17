@@ -171,7 +171,7 @@ struct HomeIntroCard: View {
     @State private var ready = HomeReadiness.current()
     @AppStorage(SettingsKeys.holdToTalk) private var holdToTalk = false
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+    @AppStorage(SettingsKeys.localLLMModel) private var localLLMModel = Provider.local.defaultChatModel
 
     /// The white under the words has a breath of the green in it; in Dark Mode, the card.
     private static let introBackground = Color.setup(0xF6FCF8, dark: 0x232624)
@@ -191,7 +191,7 @@ struct HomeIntroCard: View {
     }
 
     private var aiConfigured: Bool {
-        _ = llmProvider; _ = ollamaModel
+        _ = llmProvider; _ = localLLMModel
         return LLMConfiguration.isConfigured
     }
 
@@ -837,7 +837,7 @@ struct HomeEngines: View {
     @AppStorage(SettingsKeys.groqLLMModel) private var groqLLMModel = Provider.groq.defaultChatModel
     @AppStorage(SettingsKeys.anthropicModel) private var anthropicModel = Provider.anthropic.defaultChatModel
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = Provider.openAI.defaultChatModel
-    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+    @AppStorage(SettingsKeys.localLLMModel) private var localLLMModel = Provider.local.defaultChatModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -880,7 +880,7 @@ struct HomeEngines: View {
 
     private var aiEngine: Text {
         let type = LLMProviderType(rawValue: llmProvider) ?? .groq
-        _ = (groqLLMModel, anthropicModel, openAIModel, ollamaModel)
+        _ = (groqLLMModel, anthropicModel, openAIModel, localLLMModel)
         guard LLMConfiguration.isConfigured else {
             return Text("Off").foregroundStyle(MainColor.ink2).fontWeight(.regular)
                 + Text(" · ").foregroundStyle(MainColor.ink2).fontWeight(.regular)
@@ -892,7 +892,7 @@ struct HomeEngines: View {
         case .anthropic: ("Claude", Self.plainName(listed).replacingOccurrences(of: "Claude ", with: ""))
         case .groq: ("Groq", Self.plainName(listed))
         case .openai: ("OpenAI", Self.plainName(listed))
-        case .ollama: ("On this Mac", listed)
+        case .local: ("On this Mac", listed)
         }
         return Text("\(vendor) · \(name)")
     }
@@ -1169,14 +1169,14 @@ private struct HomeWeekDays: View {
 struct HomeWays: View {
     let actions: MainWindowActions
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+    @AppStorage(SettingsKeys.localLLMModel) private var localLLMModel = Provider.local.defaultChatModel
     // The stored combinations, so a change in Settings redraws the keys.
     @AppStorage(SettingsKeys.aiHotkeyKeyCode) private var aiKey = -1
     @AppStorage(SettingsKeys.editHotkeyKeyCode) private var editKey = -1
     @AppStorage(SettingsKeys.recordWindowHotkeyKeyCode) private var recordKey = -1
 
     private var aiReady: Bool {
-        _ = (llmProvider, ollamaModel)
+        _ = (llmProvider, localLLMModel)
         return LLMConfiguration.isConfigured
     }
 

@@ -9,7 +9,8 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
     case groq = "groq"
     case anthropic = "anthropic"
     case openai = "openai"
-    case ollama = "ollama"
+    /// Built in: a GGUF model run by llama.cpp in the SpeechTextLLM service.
+    case local = "local"
 
     var id: String { rawValue }
 
@@ -18,7 +19,7 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
         case .groq: "Groq"
         case .anthropic: "Anthropic (Claude)"
         case .openai: "OpenAI"
-        case .ollama: "Ollama — local"
+        case .local: "On this Mac"
         }
     }
 
@@ -28,13 +29,13 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
         case .groq: .groq
         case .anthropic: .anthropic
         case .openai: .openAI
-        case .ollama: .ollama
+        case .local: .local
         }
     }
 
-    /// Local providers run on this Mac and have no key; `LLMConfiguration.isConfigured`
-    /// then means "a model is chosen", and a daemon that is not running surfaces as the
-    /// request's own error, through the same raw-transcript fallback as any other failure.
+    /// The Mac has no key; `LLMConfiguration.isConfigured` then means "a model is chosen",
+    /// and one not downloaded surfaces as the request's own error, through the same
+    /// raw-transcript fallback as any other failure — which says what to do.
     var needsAPIKey: Bool { vendor.descriptor.apiKey != nil }
 }
 
@@ -55,7 +56,7 @@ enum ReasoningOutput: Equatable {
 /// switches measured for it. Which switches a model accepts is exactly what goes wrong —
 /// the wrong one is an HTTP 400 and the whole rewrite lost — so they are written down per
 /// model here, and no request is built from a check on the model's name. The local
-/// entries are derived from `localLLMModels`, so each model is written down once.
+/// entries are derived from `localChatModels`, so each model is written down once.
 struct ChatModelDescriptor: Equatable {
     let provider: LLMProviderType
     let id: String
@@ -68,8 +69,8 @@ struct ChatModelDescriptor: Equatable {
     /// The vendor's list price, checked on `UsagePrices.checked`. Required, so a model
     /// added without one fails to build rather than showing as free.
     let price: ListPrice<ChatRates>
-    /// Where the model is in its vendor's life (`ModelLifecycle`). Ollama's entries are
-    /// always current: the daemon's models are the user's, and never normalised.
+    /// Where the model is in its vendor's life (`ModelLifecycle`). A model on this Mac is
+    /// current while the catalogue lists it.
     var lifecycle: ModelLifecycle = .current
 }
 
@@ -158,9 +159,10 @@ let chatModelCatalog: [ChatModelDescriptor] = [
     ChatModelDescriptor(provider: .openai, id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol — flagship",
                         reasoningEffort: "none", reasoningOutput: .unchanged, refusalFallbacks: false,
                         price: .listed(.perMillion(input: 4, cachedInput: 0.40, output: 20))),
-] + localLLMModels.map { local in
-    ChatModelDescriptor(provider: .ollama, id: local.id, displayName: local.displayName,
-                        reasoningEffort: local.reasoningEffort, reasoningOutput: .unchanged, refusalFallbacks: false,
+] + localChatModels.map { local in
+    // No switches: reasoning is the template's business (`ChatTemplates`), not a request's.
+    ChatModelDescriptor(provider: .local, id: local.id, displayName: local.displayName,
+                        reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false,
                         price: .free)
 }
 
@@ -177,8 +179,8 @@ func knownChatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
 }
 
 /// What a chat model picker lists: the offered models, and the selected one after them
-/// when it is not offered, so the picker never renders blank. An empty selection (an
-/// Ollama pick not made yet) adds nothing.
+/// when it is not offered, so the picker never renders blank. An empty selection (a
+/// choice the launch cleared) adds nothing.
 func pickerChatModels(of provider: LLMProviderType, selected: String) -> [ChatModelDescriptor] {
     let offered = offeredChatModels(of: provider)
     if selected.isEmpty || offered.contains(where: { $0.id == selected }) { return offered }
@@ -213,16 +215,10 @@ func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
                                    reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false,
                                    price: archived?.price ?? .notPriced,
                                    lifecycle: archived.map { .deprecated(.archived(replacement: $0.replacement)) } ?? .current)
-    case .ollama:
-        // Ollama runs any tag the daemon has. A tag takes the effort of the catalogue
-        // family its name begins with (any gpt-oss build takes `gpt-oss:20b`'s `low`), and
-        // `none` otherwise — which Qwen honours and a model with no thinking mode accepts.
-        let family = knownChatModels(of: .ollama)
-            .map { (name: String($0.id.prefix { $0 != ":" }), model: $0) }
-            .filter { id.hasPrefix($0.name) }
-            .max { $0.name.count < $1.name.count }
-        return ChatModelDescriptor(provider: .ollama, id: id, displayName: id,
-                                   reasoningEffort: family?.model.reasoningEffort ?? "none",
+    case .local:
+        // Only a catalogue model can run (the client finds its file by the entry), so an
+        // unlisted ID is named and free, and the request fails as not downloaded.
+        return ChatModelDescriptor(provider: .local, id: id, displayName: id, reasoningEffort: nil,
                                    reasoningOutput: .unchanged, refusalFallbacks: false, price: .free)
     }
 }
@@ -275,7 +271,7 @@ enum LLMError: LocalizedError {
         case .httpError(let code, let body): "LLM API error HTTP \(code): \(body)"
         case .refused(let why): "The model declined the request\(why.map { ": \($0)" } ?? "")"
         case .emptyResponse: "The model returned an empty response"
-        case .noLocalModel: "No Ollama model selected — pick or download one in Settings"
+        case .noLocalModel: "No model on this Mac is ready — choose or download one in Settings › AI Rewrite"
         case .noModelChosen(let p): "No model chosen for \(p.displayName) — choose one in Settings"
         }
     }
@@ -372,14 +368,14 @@ struct OpenAICompatibleChatClient: ChatClient {
 }
 
 /// The `/chat/completions` reply shape, shared by every provider that speaks the
-/// OpenAI-compatible dialect: Groq, OpenAI and Ollama.
+/// OpenAI-compatible dialect: Groq and OpenAI.
 struct ChatCompletionResponse: Decodable {
     struct Choice: Decodable {
         struct Message: Decodable { let content: String? }
         let message: Message
     }
     /// `prompt_tokens` includes the cached ones and `completion_tokens` the reasoning
-    /// ones; the details are parts of them. Groq and Ollama send the totals alone.
+    /// ones; the details are parts of them. Groq sends the totals alone.
     struct Usage: Decodable {
         struct PromptDetails: Decodable { let cached_tokens: Int? }
         struct CompletionDetails: Decodable { let reasoning_tokens: Int? }
@@ -512,6 +508,14 @@ struct AnthropicChatClient: ChatClient {
 // MARK: - Factory
 
 enum LLMConfiguration {
+    /// When AI Rewrite runs on this Mac, gets its model ready while the user speaks: the
+    /// first rewrite after the service went idle otherwise pays the load and the system
+    /// prompt at the stop. Nothing for a cloud provider.
+    static func prewarmIfLocal() {
+        guard providerType == .local, let model = localChatModel(id: model(for: .local)) else { return }
+        LocalChat.prewarm(model)
+    }
+
     static var providerType: LLMProviderType {
         let raw = UserDefaults.standard.string(forKey: SettingsKeys.llmProvider) ?? LLMProviderType.groq.rawValue
         return LLMProviderType(rawValue: raw) ?? .groq
@@ -529,19 +533,19 @@ enum LLMConfiguration {
     }
 
     /// True when the selected provider can be called: a non-empty API key for the cloud
-    /// providers, a chosen model for Ollama.
+    /// providers, a chosen model on this Mac.
     static var isConfigured: Bool {
         let type = providerType
+        if type == .local { return localChatModel(id: model(for: type)) != nil }
         let value = type.needsAPIKey ? apiKey(for: type) : model(for: type)
         return !value.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     static func makeChatClient() throws -> ChatClient {
         let type = providerType
-        if type == .ollama {
-            let model = model(for: type)
-            guard !model.isEmpty else { throw LLMError.noLocalModel }
-            return OllamaChatClient(model: chatModel(provider: .ollama, id: model))
+        if type == .local {
+            guard let model = localChatModel(id: model(for: type)) else { throw LLMError.noLocalModel }
+            return LocalChat.clientFactory(model)
         }
         let key = apiKey(for: type).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw LLMError.missingAPIKey(type) }
@@ -564,8 +568,8 @@ enum LLMConfiguration {
             )
         case .anthropic:
             return AnthropicChatClient(apiKey: key, model: model)
-        case .ollama:
-            preconditionFailure("handled above — Ollama has no key to check")
+        case .local:
+            preconditionFailure("handled above — a model on this Mac has no key to check")
         }
     }
 }

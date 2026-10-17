@@ -69,7 +69,7 @@ final class ModelLifecycleTests: XCTestCase {
         for model in localSTTModels {
             XCTAssertNil(model.lifecycle.deprecation, model.id)
         }
-        for model in knownChatModels(of: .ollama) {
+        for model in knownChatModels(of: .local) {
             XCTAssertEqual(model.lifecycle, .current, model.id)
         }
     }
@@ -172,7 +172,7 @@ final class ModelLifecycleTests: XCTestCase {
         XCTAssertEqual(pickerSTTModels(of: .openAI, selected: "whisper-9").last?.id, "whisper-9")
         XCTAssertEqual(pickerChatModels(of: .openai, selected: "gpt-4.1").map(\.id),
                        offeredChatModels(of: .openai).map(\.id) + ["gpt-4.1"])
-        XCTAssertEqual(pickerChatModels(of: .ollama, selected: "").map(\.id), offeredChatModels(of: .ollama).map(\.id))
+        XCTAssertEqual(pickerChatModels(of: .local, selected: "").map(\.id), offeredChatModels(of: .local).map(\.id))
     }
 
     // MARK: Following a chain
@@ -312,7 +312,7 @@ final class ModelLifecycleTests: XCTestCase {
         XCTAssertNil(defaults.string(forKey: SettingsKeys.openAISTTModel))
         XCTAssertNil(defaults.string(forKey: SettingsKeys.groqLLMModel))
         XCTAssertNil(defaults.string(forKey: SettingsKeys.localSTTModel), "nothing on disk to keep")
-        XCTAssertNil(defaults.string(forKey: SettingsKeys.ollamaModel))
+        XCTAssertNil(defaults.string(forKey: SettingsKeys.localLLMModel))
         XCTAssertTrue(storedModelMigrations(in: defaults).isEmpty)
     }
 

@@ -1,0 +1,172 @@
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import XCTest
+
+private let gb: UInt64 = 1_073_741_824
+
+private func mac(ram: UInt64, disk: UInt64 = 2000, appleSilicon: Bool = true) -> SystemCapabilities {
+    SystemCapabilities(chipName: appleSilicon ? "Apple M5" : "Intel Core i7",
+                       isAppleSilicon: appleSilicon, cores: 10,
+                       memoryBytes: ram * gb, freeDiskBytes: disk * gb, systemMajorVersion: 26)
+}
+
+// MARK: - Templates
+
+/// Each family's prompt written out whole. These strings are what the rewrite evaluation
+/// compared, token for token, with the model's own Jinja template in `llama-server --jinja`
+/// (b11696, 2026-10-16); a change here is a change to what the model reads, and needs
+/// that comparison run again.
+final class ChatTemplateTests: XCTestCase {
+
+    func testQwenIsChatmlWithThinkingSwitchedOffAndItsTextTrimmed() {
+        XCTAssertEqual(
+            ChatTemplates.render(.qwen, system: "Rules.\n", user: "\n<transcript>\nпривіт\n</transcript>\n"),
+            "<|im_start|>system\nRules.<|im_end|>\n"
+                + "<|im_start|>user\n<transcript>\nпривіт\n</transcript><|im_end|>\n"
+                + "<|im_start|>assistant\n<think>\n\n</think>\n\n")
+    }
+
+    func testGemma4CarriesItsOwnBOSAndAnEmptyThoughtChannel() {
+        XCTAssertEqual(
+            ChatTemplates.render(.gemma4, system: " Rules. ", user: "Hi"),
+            "<bos><|turn>system\nRules.<turn|>\n<|turn>user\nHi<turn|>\n<|turn>model\n<|channel>thought\n<channel|>")
+    }
+
+    func testHarmonyPutsOurPromptInTheDeveloperMessageAtLowReasoning() {
+        let date = ISO8601DateFormatter().date(from: "2026-10-16T12:00:00Z")!
+        XCTAssertEqual(
+            ChatTemplates.render(.harmony, system: "Rules.", user: " Hi ", date: date),
+            "<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.\n"
+                + "Knowledge cutoff: 2024-06\nCurrent date: 2026-10-16\n\nReasoning: low\n\n"
+                + "# Valid channels: analysis, commentary, final. Channel must be included for every message.<|end|>"
+                + "<|start|>developer<|message|># Instructions\n\nRules.\n\n<|end|>"
+                + "<|start|>user<|message|> Hi <|end|>"
+                + "<|start|>assistant")
+    }
+
+    func testEachFamilyKnowsWhereItsReplyEnds() {
+        XCTAssertFalse(ChatTemplates.isComplete("<<mode:Clean-up>>\nТекст", family: .qwen))
+        XCTAssertTrue(ChatTemplates.isComplete("Текст<|im_end|>", family: .qwen))
+        XCTAssertTrue(ChatTemplates.isComplete("Текст<turn|>", family: .gemma4))
+    }
+
+    /// Harmony's analysis message ends in `<|end|>` too — which llama.cpp reports as the
+    /// end of generation — and the reply has not even started there.
+    func testHarmonyIsNotCompleteAtTheEndOfItsAnalysis() {
+        let analysis = "<|channel|>analysis<|message|>User wants clean-up.<|end|>"
+        XCTAssertFalse(ChatTemplates.isComplete(analysis, family: .harmony))
+        XCTAssertFalse(ChatTemplates.isComplete(analysis + "<|start|>assistant<|channel|>final<|message|>Текст",
+                                                family: .harmony))
+        XCTAssertTrue(ChatTemplates.isComplete(analysis + "<|start|>assistant<|channel|>final<|message|>Текст<|return|>",
+                                               family: .harmony))
+        XCTAssertTrue(ChatTemplates.isComplete(analysis + "<|start|>assistant<|channel|>final<|message|>Текст<|end|>",
+                                               family: .harmony))
+    }
+
+    func testHarmonyReplyIsTheFinalChannelOnly() {
+        let generated = "<|channel|>analysis<|message|>Mode: Clean-up. Output text.<|end|>"
+            + "<|start|>assistant<|channel|>final<|message|><<mode:Clean-up>>\nЗавтра зустріч.<|return|>"
+        XCTAssertEqual(ChatTemplates.reply(from: generated, family: .harmony), "<<mode:Clean-up>>\nЗавтра зустріч.")
+    }
+
+    /// Both header shapes gpt-oss 20B was measured writing besides the plain one.
+    func testHarmonyFinalChannelIsReadWhateverItsHeader() {
+        let constrained = "<|channel|>analysis<|message|>Clean-up.<|end|><|start|>assistant<|channel|>final "
+            + "<|constrain|><<mode:Clean-up>><|message|>The build is green.<|return|>"
+        XCTAssertTrue(ChatTemplates.isComplete(constrained, family: .harmony))
+        XCTAssertEqual(ChatTemplates.reply(from: constrained, family: .harmony), "<<mode:Clean-up>>The build is green.")
+        let noMessage = "<|channel|>analysis<|message|>A message.<|end|><|start|>assistant<|channel|>final "
+            + "<|constrain|><<mode:Message>> так, давай<|end|>"
+        XCTAssertTrue(ChatTemplates.isComplete(noMessage, family: .harmony))
+        XCTAssertEqual(ChatTemplates.reply(from: noMessage, family: .harmony), "<<mode:Message>> так, давай")
+    }
+
+    /// Cut off by the token budget inside its analysis: no reply, rather than the
+    /// model's reasoning pasted as if it were the rewrite.
+    func testHarmonyCutOffBeforeItsFinalChannelHasNoReply() {
+        XCTAssertEqual(ChatTemplates.reply(from: "<|channel|>analysis<|message|>The user wants", family: .harmony), "")
+    }
+
+    func testQwenReplyLosesItsEndMarkerAndAnyReasoningBlock() {
+        XCTAssertEqual(ChatTemplates.reply(from: "<<mode:Clean-up>>\nТекст.<|im_end|>", family: .qwen),
+                       "<<mode:Clean-up>>\nТекст.")
+        XCTAssertEqual(ChatTemplates.reply(from: "<think>\nhmm\n</think>\n\nТекст.<|im_end|>", family: .qwen), "Текст.")
+    }
+
+    func testGemmaReplyLosesAThoughtChannelItOpenedAnyway() {
+        XCTAssertEqual(ChatTemplates.reply(from: "Текст.<turn|>", family: .gemma4), "Текст.")
+        XCTAssertEqual(ChatTemplates.reply(from: "<|channel>thought\nhmm<channel|>Текст.<turn|>", family: .gemma4), "Текст.")
+        XCTAssertEqual(ChatTemplates.reply(from: "Текст.<|channel>thought\nunfinished", family: .gemma4), "Текст.")
+    }
+
+    func testOnlyHarmonyIsGivenRoomToReason() {
+        XCTAssertEqual(ChatTemplates.reasoningAllowance(.qwen), 0)
+        XCTAssertEqual(ChatTemplates.reasoningAllowance(.gemma4), 0)
+        XCTAssertGreaterThan(ChatTemplates.reasoningAllowance(.harmony), 0)
+    }
+}
+
+// MARK: - Catalogue
+
+final class LocalChatCatalogTests: XCTestCase {
+
+    func testCatalogueIsHeaviestFirstWithUniqueIDs() {
+        let sizes = localChatModels.map(\.downloadBytes)
+        XCTAssertEqual(sizes, sizes.sorted(by: >))
+        XCTAssertEqual(Set(localChatModels.map(\.id)).count, localChatModels.count)
+    }
+
+    /// The download is checked against `sha256` and fetched from a pinned commit, so the
+    /// bytes cannot change under the hash; the id is the file name, as the folder is.
+    func testEveryModelIsPinnedAndHashed() {
+        for model in localChatModels {
+            XCTAssertEqual(model.sha256.count, 64, model.id)
+            XCTAssertTrue(model.sha256.allSatisfy { $0.isHexDigit && !$0.isUppercase }, model.id)
+            XCTAssertEqual(model.revision.count, 40, model.id)
+            XCTAssertEqual(model.file, model.id + ".gguf")
+            XCTAssertEqual(model.downloadURL.absoluteString,
+                           "https://huggingface.co/\(model.repository)/resolve/\(model.revision)/\(model.file)")
+            XCTAssertGreaterThan(model.memoryFloorBytes, UInt64(model.downloadBytes), model.id)
+        }
+    }
+
+    func testEveryPickIsInTheCatalogue() {
+        for tier in MacTier.allCases {
+            let picks = localChatPicks(for: tier)
+            XCTAssertFalse(picks.recommended.isEmpty, "\(tier)")
+            for id in picks.recommended + picks.bestQuality {
+                XCTAssertNotNil(localChatModel(id: id), "\(tier): \(id)")
+            }
+        }
+    }
+
+    func testEachTierGetsItsPair() {
+        XCTAssertEqual(recommendedLocalChatModel(for: mac(ram: 8))?.id, "Qwen3.5-4B-Q4_K_M")
+        XCTAssertEqual(recommendedLocalChatModel(for: mac(ram: 16))?.id, "gemma-4-12b-it-qat-q4_0")
+        XCTAssertEqual(recommendedLocalChatModel(for: mac(ram: 32))?.id, "gemma-4-12b-it-qat-q4_0")
+        XCTAssertEqual(bestQualityLocalChatModel(for: mac(ram: 24))?.id, "gpt-oss-20b-MXFP4")
+        XCTAssertEqual(bestQualityLocalChatModel(for: mac(ram: 32))?.id, "gpt-oss-20b-MXFP4")
+        XCTAssertEqual(bestQualityLocalChatModel(for: mac(ram: 64))?.id, "gpt-oss-20b-MXFP4")
+    }
+
+    /// A Mac without the disk for gpt-oss 20B (12.1 GB) steps down rather than overfilling.
+    func testBottomOfATierStepsDown() {
+        XCTAssertEqual(bestQualityLocalChatModel(for: mac(ram: 32, disk: 12))?.id, "gemma-4-12b-it-qat-q4_0")
+    }
+
+    func testIntelIsOfferedTheSmallModelFirst() {
+        XCTAssertEqual(recommendedLocalChatModel(for: mac(ram: 32, appleSilicon: false))?.id, "Qwen3.5-4B-Q4_K_M")
+    }
+
+    func testDiskSpaceStepsDown() {
+        XCTAssertEqual(recommendedLocalChatModel(for: mac(ram: 32, disk: 7))?.id, "Qwen3.5-9B-Q4_K_M")
+        XCTAssertNil(recommendedLocalChatModel(for: mac(ram: 32, disk: 2)))
+    }
+
+    func testModelsLiveUnderTheirOwnFolderInModelsLLM() {
+        let model = localChatModels[0]
+        let path = localChatModelFile(for: model).path
+        XCTAssertTrue(path.hasSuffix("/SpeechText/Models/llm/\(model.id)/\(model.file)"), path)
+    }
+}

@@ -7,6 +7,26 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F90000000000000000000014 /* LocalChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000013 /* LocalChatStore.swift */; };
+		FA0000000000000000000020 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000002 /* main.swift */; };
+		FA0000000000000000000021 /* LocalChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000003 /* LocalChatService.swift */; };
+		FA0000000000000000000022 /* ChatTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ChatTemplates.swift */; };
+		FA0000000000000000000023 /* LocalLlamaRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000009 /* LocalLlamaRuntime.swift */; };
+		FA0000000000000000000024 /* LocalChatXPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000000000000000000000F /* LocalChatXPC.swift */; };
+		FA000000000000000000002F /* LlamaBinary in Frameworks */ = {isa = PBXBuildFile; productRef = FA0000000000000000000013 /* LlamaBinary */; };
+		FA0000000000000000000041 /* SpeechTextLLM.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000005 /* SpeechTextLLM.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F90000000000000000000012 /* LocalChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000011 /* LocalChatClient.swift */; };
+		F90000000000000000000010 /* LocalChatXPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000000000000000000000F /* LocalChatXPC.swift */; };
+		F9000000000000000000000E /* LocalChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000000000000000000000D /* LocalChatTests.swift */; };
+		F9000000000000000000000C /* RewriteEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000000000000000000000B /* RewriteEvaluation.swift */; };
+		F9000000000000000000000A /* LocalLlamaRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000009 /* LocalLlamaRuntime.swift */; };
+		F90000000000000000000008 /* LocalChatCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000005 /* LocalChatCatalog.swift */; };
+		F90000000000000000000007 /* LocalChatCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000005 /* LocalChatCatalog.swift */; };
+		F90000000000000000000006 /* LocalChatCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000005 /* LocalChatCatalog.swift */; };
+		F90000000000000000000004 /* ChatTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ChatTemplates.swift */; };
+		F90000000000000000000003 /* ChatTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ChatTemplates.swift */; };
+		F90000000000000000000002 /* ChatTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000001 /* ChatTemplates.swift */; };
+		D8000004000000000000A003 /* LlamaBinary in Frameworks */ = {isa = PBXBuildFile; productRef = D8000005000000000000A003 /* LlamaBinary */; };
 		F7A002000000000000000001 /* HomeSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000001 /* HomeSummary.swift */; };
 		F7A003000000000000000001 /* HomeSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000001 /* HomeSummary.swift */; };
 		F7A002000000000000000002 /* MainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000002 /* MainWindow.swift */; };
@@ -49,13 +69,10 @@
 		C30000010000000000000001 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
 		C10000010000000000000002 /* LocalModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000002 /* LocalModelCatalog.swift */; };
 		C30000010000000000000002 /* LocalModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000002 /* LocalModelCatalog.swift */; };
-		C10000010000000000000003 /* Ollama.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000003 /* Ollama.swift */; };
-		C30000010000000000000003 /* Ollama.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000003 /* Ollama.swift */; };
 		C10000010000000000000004 /* LocalModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000004 /* LocalModelStore.swift */; };
 		C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000005 /* LocalWhisperRuntime.swift */; };
 		C10000010000000000000091 /* LocalParakeetRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000091 /* LocalParakeetRuntime.swift */; };
 		C10000010000000000000008 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000008 /* UpdateChecker.swift */; };
-		C10000010000000000000006 /* LocalModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000006 /* LocalModelsView.swift */; };
 		C1000001000000000000E5E1 /* SettingsEngines.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001000000000000E5E1 /* SettingsEngines.swift */; };
 		C10000010000000000000007 /* DockIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000007 /* DockIcon.swift */; };
 		C10000010000000000000092 /* AppInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000092 /* AppInstaller.swift */; };
@@ -192,7 +209,6 @@
 		D80000030000000000000012 /* STTModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000C054 /* STTModelCatalog.swift */; };
 		D80000030000000000000013 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
 		D80000030000000000000014 /* LocalModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000002 /* LocalModelCatalog.swift */; };
-		D80000030000000000000015 /* Ollama.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000003 /* OllamaProvider.swift */; };
 		D80000030000000000000016 /* InsertionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002B /* InsertionLedger.swift */; };
 		D80000030000000000000017 /* DeliveryTier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002C /* DeliveryTier.swift */; };
 		D80000030000000000000018 /* FinalizePass.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002F /* FinalizePass.swift */; };
@@ -238,6 +254,18 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F90000000000000000000013 /* LocalChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatStore.swift; sourceTree = "<group>"; };
+		FA0000000000000000000002 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		FA0000000000000000000003 /* LocalChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatService.swift; sourceTree = "<group>"; };
+		FA0000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		FA0000000000000000000005 /* SpeechTextLLM.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = SpeechTextLLM.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
+		F90000000000000000000011 /* LocalChatClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatClient.swift; sourceTree = "<group>"; };
+		F9000000000000000000000F /* LocalChatXPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatXPC.swift; sourceTree = "<group>"; };
+		F9000000000000000000000D /* LocalChatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatTests.swift; sourceTree = "<group>"; };
+		F9000000000000000000000B /* RewriteEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteEvaluation.swift; sourceTree = "<group>"; };
+		F90000000000000000000009 /* LocalLlamaRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLlamaRuntime.swift; sourceTree = "<group>"; };
+		F90000000000000000000005 /* LocalChatCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatCatalog.swift; sourceTree = "<group>"; };
+		F90000000000000000000001 /* ChatTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTemplates.swift; sourceTree = "<group>"; };
 		F7A001000000000000000001 /* HomeSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSummary.swift; sourceTree = "<group>"; };
 		F7A001000000000000000002 /* MainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindow.swift; sourceTree = "<group>"; };
 		F7A001000000000000000003 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
@@ -263,12 +291,10 @@
 		C20000010000000000000100 /* LocalModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsTests.swift; sourceTree = "<group>"; };
 		C20000010000000000000001 /* SystemCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCapabilities.swift; sourceTree = "<group>"; };
 		C20000010000000000000002 /* LocalModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelCatalog.swift; sourceTree = "<group>"; };
-		C20000010000000000000003 /* Ollama.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Ollama.swift; sourceTree = "<group>"; };
 		C20000010000000000000004 /* LocalModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelStore.swift; sourceTree = "<group>"; };
 		C20000010000000000000005 /* LocalWhisperRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperRuntime.swift; sourceTree = "<group>"; };
 		C20000010000000000000091 /* LocalParakeetRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalParakeetRuntime.swift; sourceTree = "<group>"; };
 		C20000010000000000000008 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
-		C20000010000000000000006 /* LocalModelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsView.swift; sourceTree = "<group>"; };
 		C2000001000000000000E5E1 /* SettingsEngines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsEngines.swift; sourceTree = "<group>"; };
 		C20000010000000000000007 /* DockIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockIcon.swift; sourceTree = "<group>"; };
 		C20000010000000000000092 /* AppInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInstaller.swift; sourceTree = "<group>"; };
@@ -359,6 +385,30 @@
 		A20000010000000000000200 /* SpellCheckedJoins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpellCheckedJoins.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		FA0000000000000000000040 /* Embed XPC Services */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (
+				FA0000000000000000000041 /* SpeechTextLLM.xpc in Embed XPC Services */,
+			);
+			name = "Embed XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		FA0000000000000000000043 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A80000010000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FA0000000000000000000010;
+			remoteInfo = SpeechTextLLM;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		A30000010000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
@@ -383,6 +433,15 @@
 			files = (
 				D8000004000000000000A001 /* WhisperKit in Frameworks */,
 				D8000004000000000000A002 /* FluidAudio in Frameworks */,
+				D8000004000000000000A003 /* LlamaBinary in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FA0000000000000000000012 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FA000000000000000000002F /* LlamaBinary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -396,6 +455,7 @@
 				A40000010000000000000002 /* SpeechText */,
 				B40000010000000000000001 /* SpeechTextTests */,
 				A40000010000000000000003 /* Products */,
+				FA0000000000000000000001 /* SpeechTextLLM */,
 			);
 			sourceTree = "<group>";
 		};
@@ -439,12 +499,10 @@
 				A2000001000000000000C054 /* STTModelCatalog.swift */,
 				C20000010000000000000001 /* SystemCapabilities.swift */,
 				C20000010000000000000002 /* LocalModelCatalog.swift */,
-				C20000010000000000000003 /* Ollama.swift */,
 				C20000010000000000000004 /* LocalModelStore.swift */,
 				C20000010000000000000005 /* LocalWhisperRuntime.swift */,
 				C20000010000000000000091 /* LocalParakeetRuntime.swift */,
 				C20000010000000000000008 /* UpdateChecker.swift */,
-				C20000010000000000000006 /* LocalModelsView.swift */,
 				C2000001000000000000E5E1 /* SettingsEngines.swift */,
 				C20000010000000000000007 /* DockIcon.swift */,
 				C20000010000000000000092 /* AppInstaller.swift */,
@@ -500,6 +558,12 @@
 				A20000010000000000000011 /* Assets.xcassets */,
 				A2000001000000000000000A /* Info.plist */,
 				A2000001000000000000000B /* SpeechText.entitlements */,
+				F90000000000000000000001 /* ChatTemplates.swift */,
+				F90000000000000000000005 /* LocalChatCatalog.swift */,
+				F90000000000000000000009 /* LocalLlamaRuntime.swift */,
+				F9000000000000000000000F /* LocalChatXPC.swift */,
+				F90000000000000000000011 /* LocalChatClient.swift */,
+				F90000000000000000000013 /* LocalChatStore.swift */,
 			);
 			path = SpeechText;
 			sourceTree = "<group>";
@@ -510,6 +574,7 @@
 				A2000001000000000000000C /* SpeechText.app */,
 				B2000001000000000000000C /* SpeechTextTests.xctest */,
 				D8000001000000000000A011 /* SpeechTextEvaluation */,
+				FA0000000000000000000005 /* SpeechTextLLM.xpc */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -534,6 +599,7 @@
 				B20000010000000000000002 /* AudioPipelineTests.swift */,
 				D20000010000000000000003 /* DictationReplay.swift */,
 				D20000010000000000000004 /* DictationReplayTests.swift */,
+				F9000000000000000000000D /* LocalChatTests.swift */,
 			);
 			path = SpeechTextTests;
 			sourceTree = "<group>";
@@ -542,8 +608,19 @@
 			isa = PBXGroup;
 			children = (
 				D8000001000000000000A010 /* SpeechTextEvaluation.swift */,
+				F9000000000000000000000B /* RewriteEvaluation.swift */,
 			);
 			path = SpeechTextEvaluation;
+			sourceTree = "<group>";
+		};
+		FA0000000000000000000001 /* SpeechTextLLM */ = {
+			isa = PBXGroup;
+			children = (
+				FA0000000000000000000002 /* main.swift */,
+				FA0000000000000000000003 /* LocalChatService.swift */,
+				FA0000000000000000000004 /* Info.plist */,
+			);
+			path = SpeechTextLLM;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -556,10 +633,12 @@
 				A60000010000000000000001 /* Sources */,
 				A30000010000000000000001 /* Frameworks */,
 				A30000010000000000000002 /* Resources */,
+				FA0000000000000000000040 /* Embed XPC Services */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				FA0000000000000000000042 /* PBXTargetDependency */,
 			);
 			name = SpeechText;
 			packageProductDependencies = (
@@ -602,10 +681,30 @@
 			packageProductDependencies = (
 				D8000005000000000000A001 /* WhisperKit */,
 				D8000005000000000000A002 /* FluidAudio */,
+				D8000005000000000000A003 /* LlamaBinary */,
 			);
 			productName = SpeechTextEvaluation;
 			productReference = D8000001000000000000A011 /* SpeechTextEvaluation */;
 			productType = "com.apple.product-type.tool";
+		};
+		FA0000000000000000000010 /* SpeechTextLLM */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FA0000000000000000000030 /* Build configuration list for PBXNativeTarget "SpeechTextLLM" */;
+			buildPhases = (
+				FA0000000000000000000011 /* Sources */,
+				FA0000000000000000000012 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SpeechTextLLM;
+			packageProductDependencies = (
+				FA0000000000000000000013 /* LlamaBinary */,
+			);
+			productName = SpeechTextLLM;
+			productReference = FA0000000000000000000005 /* SpeechTextLLM.xpc */;
+			productType = "com.apple.product-type.xpc-service";
 		};
 /* End PBXNativeTarget section */
 
@@ -630,6 +729,7 @@
 				C50000010000000000000001 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				C50000010000000000000002 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				C50000010000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				C50000010000000000000004 /* XCLocalSwiftPackageReference "../Packages/LlamaBinary" */,
 			);
 			productRefGroup = A40000010000000000000003 /* Products */;
 			projectDirPath = "";
@@ -638,6 +738,7 @@
 				A50000010000000000000001 /* SpeechText */,
 				B50000010000000000000001 /* SpeechTextTests */,
 				D8000008000000000000A001 /* SpeechTextEvaluation */,
+				FA0000000000000000000010 /* SpeechTextLLM */,
 			);
 		};
 /* End PBXProject section */
@@ -707,12 +808,10 @@
 				A1000001000000000000C054 /* STTModelCatalog.swift in Sources */,
 				C10000010000000000000001 /* SystemCapabilities.swift in Sources */,
 				C10000010000000000000002 /* LocalModelCatalog.swift in Sources */,
-				C10000010000000000000003 /* Ollama.swift in Sources */,
 				C10000010000000000000004 /* LocalModelStore.swift in Sources */,
 				C10000010000000000000005 /* LocalWhisperRuntime.swift in Sources */,
 				C10000010000000000000091 /* LocalParakeetRuntime.swift in Sources */,
 				C10000010000000000000008 /* UpdateChecker.swift in Sources */,
-				C10000010000000000000006 /* LocalModelsView.swift in Sources */,
 				C1000001000000000000E5E1 /* SettingsEngines.swift in Sources */,
 				C10000010000000000000007 /* DockIcon.swift in Sources */,
 				C10000010000000000000092 /* AppInstaller.swift in Sources */,
@@ -753,6 +852,11 @@
 				F79002000000000000000002 /* KeychainSecretStorage.swift in Sources */,
 				D10000010000000000000002 /* RecognitionSessionFactory.swift in Sources */,
 				D10000010000000000000005 /* DictationTrace.swift in Sources */,
+				F90000000000000000000002 /* ChatTemplates.swift in Sources */,
+				F90000000000000000000006 /* LocalChatCatalog.swift in Sources */,
+				F90000000000000000000010 /* LocalChatXPC.swift in Sources */,
+				F90000000000000000000012 /* LocalChatClient.swift in Sources */,
+				F90000000000000000000014 /* LocalChatStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -792,7 +896,6 @@
 				C30000010000000000000100 /* LocalModelsTests.swift in Sources */,
 				C30000010000000000000001 /* SystemCapabilities.swift in Sources */,
 				C30000010000000000000002 /* LocalModelCatalog.swift in Sources */,
-				C30000010000000000000003 /* Ollama.swift in Sources */,
 				B1000001000000000000001C /* InsertionLedger.swift in Sources */,
 				B1000001000000000000001D /* DeliveryTier.swift in Sources */,
 				B10000010000000000000020 /* FinalizePass.swift in Sources */,
@@ -828,6 +931,9 @@
 				D30000010000000000000006 /* DictationReplay.swift in Sources */,
 				D30000010000000000000007 /* DictationReplayTests.swift in Sources */,
 				D30000010000000000000008 /* DictationTrace.swift in Sources */,
+				F90000000000000000000003 /* ChatTemplates.swift in Sources */,
+				F90000000000000000000007 /* LocalChatCatalog.swift in Sources */,
+				F9000000000000000000000E /* LocalChatTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -858,7 +964,6 @@
 				D80000030000000000000012 /* STTModelCatalog.swift in Sources */,
 				D80000030000000000000013 /* SystemCapabilities.swift in Sources */,
 				D80000030000000000000014 /* LocalModelCatalog.swift in Sources */,
-				D80000030000000000000015 /* Ollama.swift in Sources */,
 				D80000030000000000000016 /* InsertionLedger.swift in Sources */,
 				D80000030000000000000017 /* DeliveryTier.swift in Sources */,
 				D80000030000000000000018 /* FinalizePass.swift in Sources */,
@@ -894,10 +999,34 @@
 				D80000030000000000000102 /* ProviderRegistry.swift in Sources */,
 				D80000030000000000000103 /* RateLimits.swift in Sources */,
 				D80000030000000000000104 /* TextReplacements.swift in Sources */,
+				F90000000000000000000004 /* ChatTemplates.swift in Sources */,
+				F90000000000000000000008 /* LocalChatCatalog.swift in Sources */,
+				F9000000000000000000000A /* LocalLlamaRuntime.swift in Sources */,
+				F9000000000000000000000C /* RewriteEvaluation.swift in Sources */,
 );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FA0000000000000000000011 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FA0000000000000000000020 /* main.swift in Sources */,
+				FA0000000000000000000021 /* LocalChatService.swift in Sources */,
+				FA0000000000000000000022 /* ChatTemplates.swift in Sources */,
+				FA0000000000000000000023 /* LocalLlamaRuntime.swift in Sources */,
+				FA0000000000000000000024 /* LocalChatXPC.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FA0000000000000000000042 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FA0000000000000000000010 /* SpeechTextLLM */;
+			targetProxy = FA0000000000000000000043 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A90000010000000000000001 /* Debug */ = {
@@ -1100,6 +1229,7 @@
 				CODE_SIGN_STYLE = Manual;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -1113,8 +1243,57 @@
 				CODE_SIGN_STYLE = Manual;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		FA0000000000000000000031 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SpeechTextLLM/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SpeechTextLLM;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.9.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.speech-text.SpeechText.LLM";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		FA0000000000000000000032 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SpeechTextLLM/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = SpeechTextLLM;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.9.1;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.speech-text.SpeechText.LLM";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -1158,6 +1337,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		FA0000000000000000000030 /* Build configuration list for PBXNativeTarget "SpeechTextLLM" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FA0000000000000000000031 /* Debug */,
+				FA0000000000000000000032 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1187,6 +1375,13 @@
 		};
 /* End XCRemoteSwiftPackageReference section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		C50000010000000000000004 /* XCLocalSwiftPackageReference "../Packages/LlamaBinary" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/LlamaBinary;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		C60000010000000000000001 /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1212,6 +1407,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C50000010000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		D8000005000000000000A003 /* LlamaBinary */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C50000010000000000000004 /* XCLocalSwiftPackageReference "../Packages/LlamaBinary" */;
+			productName = LlamaBinary;
+		};
+		FA0000000000000000000013 /* LlamaBinary */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C50000010000000000000004 /* XCLocalSwiftPackageReference "../Packages/LlamaBinary" */;
+			productName = LlamaBinary;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

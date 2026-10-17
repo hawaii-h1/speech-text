@@ -145,25 +145,22 @@ func onlineAIServiceLine(_ service: Provider) -> String {
     }
 }
 
-/// What each local chat model is, in a line.
-func aiModelLine(_ model: LocalLLMModel, heavy: Bool) -> String {
+/// What each local chat model is, in a line — from the rewrite evaluation on an M1 Pro.
+func aiModelLine(_ model: LocalChatModel, heavy: Bool) -> String {
     let line = switch model.id {
-    case "gemma4:12b": "Clean text in 2–4 seconds."
-    case "qwen3.8:27b": "Writes best, but takes 5–14 seconds."
-    case "qwen3.5:9b": "A step behind Gemma 4 12B, a little lighter."
-    case "qwen3.5:4b": "Works, with some mistakes."
-    case "qwen3.5:2b": "Many mistakes in Ukrainian. Not recommended."
-    case "qwen3.5:0.8b": "Not recommended for Ukrainian."
-    case "gemma4:26b": "Fast and clean."
-    case "gemma4:31b": "Strong writing, slower."
-    case "qwen3.6:35b-a3b": "Big-model knowledge at small-model speed."
-    case "gpt-oss:120b": "OpenAI's open model."
-    case "qwen3.5:122b": "The largest model for a Mac."
+    case "gemma-4-12b-it-qat-q4_0": "The best in our Ukrainian test. Clean text in 2–4 seconds."
+    case "Qwen3.5-9B-Q4_K_M": "A step behind Gemma 4 12B, a little lighter."
+    case "Qwen3.5-4B-Q4_K_M": "Works, with some mistakes."
+    case "gpt-oss-20b-MXFP4": "OpenAI's open model. Close behind Gemma, and the fastest here."
+    case "Qwen3.8-27B-Q4_K_M": "The largest. About 8 seconds a dictation on an M1 Pro."
     default: model.summary
     }
     guard heavy else { return line }
     return "\(line) Needs \(Int((Double(model.memoryFloorBytes) / 1_073_741_824).rounded())) GB of memory."
 }
+
+/// Under the models on an Intel Mac, which has no GPU llama.cpp can use well.
+let intelChatWarning = "This Mac has an Intel processor: a model runs on it alone, and a rewrite can take a minute or more. An online service is much faster."
 
 /// Apple's recogniser, as a row beside the downloaded models.
 let appleDictationLine = "Built into macOS, nothing to download. Words appear as you speak, but not every language works on-device — Ukrainian among them."
@@ -471,29 +468,35 @@ struct SpeechEngineSettings: View {
 
 struct AIEngineSettings: View {
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+    @AppStorage(SettingsKeys.localLLMModel) private var localModelID = Provider.local.defaultChatModel
     @AppStorage(SettingsKeys.groqLLMModel) private var groqModel = Provider.groq.defaultChatModel
     @AppStorage(SettingsKeys.anthropicModel) private var anthropicModel = Provider.anthropic.defaultChatModel
     @AppStorage(SettingsKeys.openAIModel) private var openAIModel = Provider.openAI.defaultChatModel
-    @AppStorage(SettingsKeys.ollamaBaseURL) private var baseURL = ""
 
     @State private var place: EnginePlace
     @State private var opened: Provider?
-    @State private var manager = OllamaModelManager.shared
+    @State private var store = LocalChatStore.shared
     @State private var capabilities = SystemCapabilities.current()
     @State private var showHeavyModels = false
+    /// A model being downloaded to be used: AI Rewrite switches to it once it is on this
+    /// Mac, never before — a rewrite meanwhile would fall back to the transcript.
+    @State private var waitingFor: String?
+    /// The model in use, about to be removed — asked first.
+    @State private var removing: LocalChatModel?
 
     init() {
         let stored = LLMProviderType(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.llmProvider) ?? "") ?? .groq
-        _place = State(initialValue: stored == .ollama ? .thisMac : .online)
+        _place = State(initialValue: stored == .local ? .thisMac : .online)
     }
 
     private var pick: LLMProviderType { LLMProviderType(rawValue: llmProvider) ?? .groq }
 
     var body: some View {
         EnginePlaceCards(
-            place: $place, inUse: pick == .ollama ? .thisMac : .online,
-            macFacts: "Private and free, through Ollama — a free app you install once.",
+            place: $place, inUse: pick == .local ? .thisMac : .online,
+            macFacts: capabilities.isAppleSilicon
+                ? "Private and free. Your text stays on your Mac, and works offline."
+                : "Private and free, but slow on this Mac.",
             onlineFacts: "Fast on any Mac. Needs internet and an account; your text is sent to the service.")
 
         switch place {
@@ -502,89 +505,113 @@ struct AIEngineSettings: View {
         }
     }
 
-    // MARK: On this Mac (Ollama)
+    // MARK: On this Mac
 
-    private var recommended: LocalLLMModel? { recommendedLocalLLMModel(for: capabilities) }
-    private var bestQuality: LocalLLMModel? { bestQualityLocalLLMModel(for: capabilities) }
+    private var recommended: LocalChatModel? { recommendedLocalChatModel(for: capabilities) }
+    private var bestQuality: LocalChatModel? { bestQualityLocalChatModel(for: capabilities) }
 
     private var thisMac: some View {
-        SettingsGroup(title: "Models in Ollama", trailing: AnyView(
+        SettingsGroup(title: "Models on this Mac", trailing: AnyView(
             Text("For your \(macDescription(capabilities))")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SetupColor.label2)), inset: 5) {
-            switch manager.isRunning {
-            case nil:
-                HStack(spacing: 8) { SetupSpinner(); Text("Looking for Ollama…").rowNote() }
-                    .padding(10)
-                    .task { await manager.refresh() }
-            case .some(false):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Ollama isn't running")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(SetupColor.label)
-                    // Ollama is a separate app the user installs — this one cannot install
-                    // it without downloading an executable. After that, models are one click.
-                    Text("AI Rewrite on this Mac runs through Ollama, a free app. Install it once, then pick a model here.")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(SetupColor.label2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 8) {
-                        Button("Get Ollama…") { NSWorkspace.shared.open(URL(string: "https://ollama.com/download")!) }
-                            .buttonStyle(SetupButtonStyle(kind: .primary, height: 28))
-                        Button("Check Again") { Task { await manager.refresh() } }
-                            .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
-                    }
-                }
-                .padding(10)
-            case .some(true):
-                let fitting = localLLMModels.filter { localModelFitsMemory($0.memoryFloorBytes, capabilities) }
-                let heavy = localLLMModels.filter { !localModelFitsMemory($0.memoryFloorBytes, capabilities) }
-                ForEach(fitting) { ollamaRow($0, heavy: false) }
-                ForEach(otherInstalled) { model in
-                    SetupRow(title: model.name,
-                             subtitle: ByteCountFormatter.string(fromByteCount: model.sizeBytes, countStyle: .file),
-                             detail: "Already in Ollama.", isSelected: pick == .ollama && ollamaModel == model.name) {
-                        useOllama(model.name)
-                    }
-                }
-                if !heavy.isEmpty {
-                    Button(showHeavyModels ? "Hide models too heavy for this Mac"
-                                           : "Show \(heavy.count) models too heavy for this Mac") {
-                        withAnimation(.easeOut(duration: 0.2)) { showHeavyModels.toggle() }
-                    }
-                    .buttonStyle(SetupInlineLinkStyle())
+            if !capabilities.isAppleSilicon {
+                Text(intelChatWarning).rowNote(bad: true)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    if showHeavyModels { ForEach(heavy) { ollamaRow($0, heavy: true) } }
+            }
+            let fitting = localChatModels.filter { localModelFitsMemory($0.memoryFloorBytes, capabilities) }
+            let heavy = localChatModels.filter { !localModelFitsMemory($0.memoryFloorBytes, capabilities) }
+            ForEach(fitting) { localRow($0, heavy: false) }
+            if !heavy.isEmpty {
+                Button(showHeavyModels ? "Hide models too heavy for this Mac"
+                                       : "Show \(heavy.count) \(heavy.count == 1 ? "model" : "models") too heavy for this Mac") {
+                    withAnimation(.easeOut(duration: 0.2)) { showHeavyModels.toggle() }
+                }
+                .buttonStyle(SetupInlineLinkStyle())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                if showHeavyModels { ForEach(heavy) { localRow($0, heavy: true) } }
+            }
+            HStack {
+                Text(store.installedModels.isEmpty
+                     ? "No models downloaded yet"
+                     : "\(ByteCountFormatter.string(fromByteCount: store.installedBytes, countStyle: .file)) of models on this Mac")
+                Spacer()
+                if !store.installedModels.isEmpty {
+                    Button("Show in Finder") {
+                        let url = LocalModelStore.modelsDirectory.appendingPathComponent("llm", isDirectory: true)
+                        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                    .buttonStyle(SetupInlineLinkStyle())
                 }
             }
-            HStack(spacing: 8) {
-                Text("Ollama address").rowNote()
-                TextField("", text: $baseURL, prompt: Text(ollamaDefaultBaseURL).foregroundStyle(SetupColor.label3))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                    .onSubmit { Task { await manager.refresh() } }
-            }
+            .font(.system(size: 11.5))
+            .foregroundStyle(SetupColor.label2)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
         }
-    }
-
-    /// Anything the user pulled into Ollama outside the catalogue: the daemon is theirs.
-    private var otherInstalled: [OllamaInstalledModel] {
-        manager.installed.filter { installed in
-            !localLLMModels.contains { $0.id == installed.name || "\($0.id):latest" == installed.name }
+        .onAppear {
+            store.refresh()
+            capabilities = SystemCapabilities.current()
+        }
+        .onChange(of: waitingIsReady) { _, ready in
+            guard ready, let id = waitingFor else { return }
+            waitingFor = nil
+            useLocal(id)
+        }
+        .confirmationDialog("Remove \(removing?.displayName ?? "")?",
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Remove", role: .destructive) {
+                if let model = removing { remove(model) }
+                removing = nil
+            }
+            Button("Cancel", role: .cancel) { removing = nil }
+        } message: {
+            Text(fallback.map { "It is the model in use. AI Rewrite switches to \($0.displayName)." }
+                 ?? "It is the model in use. AI Rewrite pastes your words as said until you download another.")
         }
     }
 
-    private func useOllama(_ id: String) {
-        ollamaModel = id
-        llmProvider = LLMProviderType.ollama.rawValue
+    private var waitingIsReady: Bool {
+        waitingFor.flatMap(localChatModel(id:)).map { store.state(for: $0) == .installed } ?? false
     }
 
-    private func ollamaRow(_ model: LocalLLMModel, heavy: Bool) -> some View {
-        let installed = manager.isInstalled(model.id)
-        let outdated = manager.version.map { !ollamaVersion($0, isAtLeast: model.minimumOllamaVersion) } ?? false
+    /// What a removed model in use gives way to: another one on this Mac.
+    private var fallback: LocalChatModel? {
+        store.installedModels.first { $0.id != removing?.id }
+    }
+
+    private func useLocal(_ id: String) {
+        localModelID = id
+        llmProvider = LLMProviderType.local.rawValue
+        if let model = localChatModel(id: id) { LocalChat.prewarm(model) }
+    }
+
+    private func remove(_ model: LocalChatModel) {
+        let inUse = pick == .local && localModelID == model.id
+        let next = fallback
+        store.remove(model)
+        if inUse, let next { useLocal(next.id) }
+    }
+
+    /// Choosing a model not on this Mac yet downloads it; AI Rewrite switches to it once it
+    /// is ready (`waitingFor`). Settings closed first, nothing switches.
+    private func pickLocal(_ model: LocalChatModel) {
+        let state = store.state(for: model)
+        guard state == .installed else {
+            if !state.isBusy { store.install(model) }
+            waitingFor = model.id
+            return
+        }
+        waitingFor = nil
+        useLocal(model.id)
+    }
+
+    private func localRow(_ model: LocalChatModel, heavy: Bool) -> some View {
+        let state = store.state(for: model)
         let badge: SetupBadge? = if recommended?.id == model.id {
             SetupBadge(text: "Recommended", kind: .recommended)
         } else if bestQuality?.id == model.id {
@@ -596,28 +623,33 @@ struct AIEngineSettings: View {
         }
         return SetupRow(title: model.displayName, subtitle: model.downloadSizeDescription, badge: badge,
                         detail: aiModelLine(model, heavy: heavy),
-                        isSelected: pick == .ollama && ollamaModel == model.id,
-                        action: {
-                            if installed { useOllama(model.id) }
-                            else if !outdated, manager.pulls[model.id] == nil {
-                                manager.pull(model.id) { Task { @MainActor in useOllama(model.id) } }
-                            }
-                        }) {
+                        isSelected: pick == .local && localModelID == model.id,
+                        action: { pickLocal(model) }) {
             HStack(spacing: 8) {
-                if let fraction = manager.pulls[model.id] {
-                    SetupProgressBar(fraction: fraction).frame(maxWidth: 160)
-                    Text("Downloading · \(Int(fraction * 100))%").rowNote()
-                    Button("Cancel") { manager.cancel(model.id) }.buttonStyle(SetupInlineLinkStyle())
-                } else if installed {
-                    Text("✓ Downloaded").rowNote(ok: true)
-                } else if outdated {
-                    Text("Needs Ollama \(model.minimumOllamaVersion) or newer").rowNote(bad: true)
-                    Button("Update Ollama…") { NSWorkspace.shared.open(URL(string: "https://ollama.com/download")!) }
-                        .buttonStyle(SetupInlineLinkStyle())
-                } else if let error = manager.errors[model.id] {
-                    Text(error).rowNote(bad: true).lineLimit(2)
-                } else {
+                switch state {
+                case .notInstalled:
                     Text("Not downloaded").rowNote()
+                case .downloading(let fraction):
+                    SetupProgressBar(fraction: fraction).frame(maxWidth: 160)
+                    Text("Downloading · \(Int(fraction * 100))%" + (waitingFor == model.id ? " — used once it's ready" : ""))
+                        .rowNote()
+                    Button("Cancel") {
+                        store.cancelInstall(model)
+                        if waitingFor == model.id { waitingFor = nil }
+                    }
+                    .buttonStyle(SetupInlineLinkStyle())
+                case .optimizing:
+                    SetupProgressBar(fraction: nil).frame(maxWidth: 160)
+                    Text("Checking the download").rowNote()
+                case .installed:
+                    Text("✓ Downloaded").rowNote(ok: true)
+                    Button("Remove") {
+                        if pick == .local && localModelID == model.id { removing = model } else { remove(model) }
+                    }
+                    .buttonStyle(SetupInlineLinkStyle())
+                case .failed(let message):
+                    Text(message).rowNote(bad: true).lineLimit(2)
+                    Button("Retry") { store.install(model) }.buttonStyle(SetupInlineLinkStyle())
                 }
             }
             .padding(.top, 4)
@@ -641,7 +673,7 @@ struct AIEngineSettings: View {
         case .groq: groqModel
         case .anthropic: anthropicModel
         case .openai: openAIModel
-        case .ollama: ollamaModel
+        case .local: localModelID
         }
     }
 
@@ -650,7 +682,7 @@ struct AIEngineSettings: View {
         case .groq: groqModel = id
         case .anthropic: anthropicModel = id
         case .openai: openAIModel = id
-        case .ollama: ollamaModel = id
+        case .local: localModelID = id
         }
     }
 

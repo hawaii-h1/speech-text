@@ -636,7 +636,9 @@ private struct AIScreen: View {
                     .padding(.bottom, 16)
                 VStack(spacing: 10) {
                     SetupChoiceCard(glyph: .mac, name: "On this Mac",
-                                    facts: "Private and free. Needs the free Ollama app and a 3–80 GB download.",
+                                    facts: model.capabilities.isAppleSilicon
+                                        ? "Private and free. A 3–19 GB download, nothing else to install."
+                                        : "Private and free, but slow on an Intel Mac. A 3–19 GB download.",
                                     isSelected: model.aiPath == .local) { model.chooseAIPath(.local) }
                     SetupChoiceCard(glyph: .cloud, name: "Online service",
                                     badge: Provider.allCases.contains(where: model.keyReadyFromSpeech) ? "Ready" : nil,
@@ -709,76 +711,30 @@ private struct AIScreen: View {
 
     // MARK: On this Mac
 
-    private var ollamaInstalled: Bool {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.electron.ollama") != nil
-    }
-
     private var localDetails: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                ollamaStatus
-                if model.ollama.isRunning == true && !model.isCheckingOllama {
-                    modelLists
+                if !model.capabilities.isAppleSilicon {
+                    Text(intelChatWarning)
+                        .font(.system(size: 12))
+                        .foregroundStyle(SetupColor.warn)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(12)
                 }
+                modelLists
             }
             .padding(EdgeInsets(top: 14, leading: 12, bottom: 12, trailing: 12))
         }
         .scrollIndicators(.never)
-        .task(id: model.ollama.isRunning) {
-            // While the panel waits for Ollama, it looks every 2 s: opening the app is
-            // something the user does elsewhere, and nothing tells us when it is done.
-            while model.ollama.isRunning != true && !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                if Task.isCancelled { return }
-                await model.ollama.refresh()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var ollamaStatus: some View {
-        let box = { (content: AnyView) in
-            content
-                .font(.system(size: 12))
-                .foregroundStyle(SetupColor.label2)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 12).fill(SetupColor.control))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(SetupColor.panelBorder, lineWidth: 1))
-                .padding(.bottom, 4)
-        }
-        if model.isCheckingOllama || model.ollama.isRunning == nil {
-            box(AnyView(HStack(spacing: 8) { SetupSpinner(); Text("Looking for Ollama…") }))
-        } else if model.ollama.isRunning == true {
-            box(AnyView(Text("✓ Ollama is running.").fontWeight(.medium).foregroundStyle(SetupColor.ok)))
-        } else if ollamaInstalled {
-            box(AnyView(VStack(alignment: .leading, spacing: 2) {
-                Text("Ollama is installed but not running.").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(SetupColor.label)
-                Text("Open it, and the models will appear here.")
-                Button("Open Ollama") {
-                    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.electron.ollama") {
-                        NSWorkspace.shared.openApplication(at: url, configuration: .init()) { _, _ in }
-                    }
-                }
-                .buttonStyle(SetupLinkButtonStyle()).padding(.top, 8)
-            }))
-        } else {
-            box(AnyView(VStack(alignment: .leading, spacing: 2) {
-                Text("Ollama is a free app that runs AI on your Mac.").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(SetupColor.label)
-                Text("Download it, open it once, and come back — we'll notice.")
-                Button("Get Ollama ↗") { NSWorkspace.shared.open(URL(string: "https://ollama.com/download")!) }
-                    .buttonStyle(SetupLinkButtonStyle()).padding(.top, 8)
-            }))
-        }
     }
 
     @ViewBuilder
     private var modelLists: some View {
         let caps = model.capabilities
         let picks = [model.recommendedAIModel, model.bestAIModel].compactMap { $0 }
-            .reduce(into: [LocalLLMModel]()) { if !$0.contains($1) { $0.append($1) } }
-        let fitting = localLLMModels.filter { localModelFitsMemory($0.memoryFloorBytes, caps) && !picks.contains($0) }
-        let heavy = localLLMModels.filter { !localModelFitsMemory($0.memoryFloorBytes, caps) && !picks.contains($0) }
+            .reduce(into: [LocalChatModel]()) { if !$0.contains($1) { $0.append($1) } }
+        let fitting = localChatModels.filter { localModelFitsMemory($0.memoryFloorBytes, caps) && !picks.contains($0) }
+        let heavy = localChatModels.filter { !localModelFitsMemory($0.memoryFloorBytes, caps) && !picks.contains($0) }
         heading("Recommended for your Mac (\(macDescription(caps)))")
         ForEach(picks) { aiRow($0) }
         if !fitting.isEmpty {
@@ -789,7 +745,7 @@ private struct AIScreen: View {
             heading("Heavier models")
             ForEach(heavy) { aiRow($0) }
         }
-        if let selected = localLLMModel(id: model.aiModelID), !localModelFitsMemory(selected.memoryFloorBytes, caps) {
+        if let selected = localChatModel(id: model.aiModelID), !localModelFitsMemory(selected.memoryFloorBytes, caps) {
             Text("This model may be slow on your Mac. We recommend \(model.recommendedAIModel?.displayName ?? "a lighter one").")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SetupColor.warn)
@@ -806,13 +762,11 @@ private struct AIScreen: View {
             .padding(EdgeInsets(top: 12, leading: 10, bottom: 4, trailing: 10))
     }
 
-    private func aiRow(_ llm: LocalLLMModel) -> some View {
+    private func aiRow(_ llm: LocalChatModel) -> some View {
         let heavy = !localModelFitsMemory(llm.memoryFloorBytes, model.capabilities)
-        let installed = model.ollama.isInstalled(llm.id)
-        let outdated = model.aiModelNeedsNewerOllama(llm)
+        let state = model.chatStore.state(for: llm)
         let selected = model.aiModelID == llm.id
-        let badge: SetupBadge? = if installed { SetupBadge(text: "✓ Installed", kind: .done) }
-            else if outdated { SetupBadge(text: "Needs newer Ollama", kind: .warn) }
+        let badge: SetupBadge? = if state == .installed { SetupBadge(text: "✓ Downloaded", kind: .done) }
             else if heavy { SetupBadge(text: "Too heavy for this Mac", kind: .warn) }
             else if model.recommendedAIModel?.id == llm.id { SetupBadge(text: "Recommended", kind: .recommended) }
             else if model.bestAIModel?.id == llm.id { SetupBadge(text: "Best quality", kind: .quality) }
@@ -820,20 +774,15 @@ private struct AIScreen: View {
         return SetupRow(title: llm.displayName, subtitle: llm.downloadSizeDescription, badge: badge,
                         detail: aiModelLine(llm, heavy: heavy), isSelected: selected, dimmed: heavy,
                         action: { model.aiModelID = llm.id }) {
-            if let f = model.ollama.pulls[llm.id] {
+            if case .downloading(let f) = state {
                 SetupProgressBar(fraction: f).padding(.top, 6)
                 Text("Downloading · \(Int(f * 100))%").rowNote()
             }
-            if model.ollama.errors[llm.id] != nil {
+            if case .failed = state {
                 HStack(spacing: 4) {
                     Text("Download failed.").rowNote(bad: true)
-                    Button("Retry") { model.ollama.pull(llm.id) {} }.buttonStyle(SetupInlineLinkStyle())
+                    Button("Retry") { model.chatStore.install(llm) }.buttonStyle(SetupInlineLinkStyle())
                 }
-            }
-            if selected && outdated && !installed {
-                Button("Update Ollama ↗") { NSWorkspace.shared.open(URL(string: "https://ollama.com/download")!) }
-                    .buttonStyle(SetupLinkButtonStyle())
-                    .padding(.top, 6)
             }
         }
     }

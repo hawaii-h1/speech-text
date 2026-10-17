@@ -243,7 +243,7 @@ changed; try it with `⌃⇧Q` (inline), `⌃⇧A` (AI) or `⌃⇧W` (record win
 
   ```sh
   for k in sttProvider groqModel elevenLabsModel openAISTTModel localSTTModel \
-           llmProvider groqLLMModel anthropicModel openAIModel ollamaModel; do
+           llmProvider groqLLMModel anthropicModel openAIModel localLLMModel; do
     printf '%s = %s\n' "$k" "$(defaults read app.speech-text.SpeechText "$k" 2>/dev/null || echo '(unset)')"
   done
   ```

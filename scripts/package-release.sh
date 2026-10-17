@@ -158,8 +158,13 @@ TIMESTAMP=(--timestamp)
 # binary and, depending on the build, XPC services. A framework's signature only *seals*
 # those; each one is code in its own right and notarization refuses the submission unless
 # every one of them carries our signature and the hardened runtime.
-if [ -d "$APP/Contents/Frameworks" ]; then
-    find "$APP/Contents/Frameworks" -depth \
+# The SpeechTextLLM service is signed the same way, after the llama.framework it carries.
+NESTED_DIRS=()
+for dir in "$APP/Contents/Frameworks" "$APP/Contents/XPCServices"; do
+    [ -d "$dir" ] && NESTED_DIRS+=("$dir")
+done
+if [ "${#NESTED_DIRS[@]}" -gt 0 ]; then
+    find "${NESTED_DIRS[@]}" -depth \
         \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' -o -name '*.app' \
            -o -name '*.xpc' -o -name 'Autoupdate' \) -print0 |
         while IFS= read -r -d '' nested; do
@@ -199,10 +204,11 @@ fi
 
 # The same question, asked of everything nested: a helper signed without the flag is
 # found by the notary service and not by `codesign --verify`.
+[ "${#NESTED_DIRS[@]}" -eq 0 ] ||
 while IFS= read -r -d '' nested; do
     grep -q 'flags=.*runtime' <<< "$(codesign -dv "$nested" 2>&1)" ||
         die "${nested#"$APP/"} is missing the hardened runtime flag"
-done < <(find "$APP/Contents/Frameworks" -depth \
+done < <(find "${NESTED_DIRS[@]}" -depth \
     \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' -o -name '*.app' \
        -o -name '*.xpc' -o -name 'Autoupdate' \) -print0 2>/dev/null)
 

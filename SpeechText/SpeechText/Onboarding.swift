@@ -103,7 +103,7 @@ final class OnboardingModel {
 
     let appState: AppState
     let store = LocalModelStore.shared
-    let ollama = OllamaModelManager.shared
+    let chatStore = LocalChatStore.shared
     let capabilities: SystemCapabilities
 
     var step: OnboardingStep {
@@ -124,7 +124,6 @@ final class OnboardingModel {
     var aiPath = AIPath.none
     var aiService = Provider.groq
     var aiModelID: String
-    private(set) var isCheckingOllama = false
 
     // Keys
     private(set) var keys: [Provider: KeyEntry] = [:]
@@ -158,7 +157,7 @@ final class OnboardingModel {
 
         speechModelID = recommendedLocalSTTModel(for: caps, languages: storedSpokenLanguages())?.id
             ?? Provider.local.defaultSpeechModel
-        aiModelID = recommendedLocalLLMModel(for: caps)?.id ?? "qwen3.5:4b"
+        aiModelID = recommendedLocalChatModel(for: caps)?.id ?? Provider.local.defaultChatModel
 
         // Setup run again: open on what is set up now.
         let storedEngine = STTProviderType(rawValue: defaults.string(forKey: SettingsKeys.sttProvider) ?? "")
@@ -179,9 +178,9 @@ final class OnboardingModel {
             if let card = SetupCards.aiCard(reopening: pick) {
                 aiPath = .online
                 aiService = card.service
-            } else if pick == .ollama {
+            } else if pick == .local {
                 aiPath = .local
-                aiModelID = LLMConfiguration.model(for: .ollama)
+                aiModelID = LLMConfiguration.model(for: .local)
             }
         }
 
@@ -230,7 +229,6 @@ final class OnboardingModel {
             if !defaults.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) { setLaunchAtLogin(true) }
             refreshPermissions()
         }
-        if step == .ai, aiPath == .local { checkOllama() }
         if step != .tryIt { appState.dictationTest.reset() }
         appState.dictationTest.isActive = step == .tryIt
         refreshTestBlock()
@@ -329,41 +327,27 @@ final class OnboardingModel {
             && key(service).status.isUsable
     }
 
-    var recommendedAIModel: LocalLLMModel? { recommendedLocalLLMModel(for: capabilities) }
-    var bestAIModel: LocalLLMModel? { bestQualityLocalLLMModel(for: capabilities) }
+    var recommendedAIModel: LocalChatModel? { recommendedLocalChatModel(for: capabilities) }
+    var bestAIModel: LocalChatModel? { bestQualityLocalChatModel(for: capabilities) }
 
     func chooseAIPath(_ path: AIPath) {
         aiPath = path
-        if path == .local { checkOllama() }
-    }
-
-    func checkOllama() {
-        guard !isCheckingOllama else { return }
-        isCheckingOllama = true
-        Task {
-            await ollama.refresh()
-            isCheckingOllama = false
-        }
-    }
-
-    func aiModelNeedsNewerOllama(_ model: LocalLLMModel) -> Bool {
-        guard let version = ollama.version else { return false }
-        return !ollamaVersion(version, isAtLeast: model.minimumOllamaVersion)
     }
 
     var aiPrimaryTitle: String {
-        guard aiPath == .local, ollama.isRunning == true else { return "Continue" }
-        if ollama.isInstalled(aiModelID) || ollama.pulls[aiModelID] != nil { return "Continue" }
-        return ollama.errors[aiModelID] != nil ? "Retry and continue" : "Download and continue"
+        guard aiPath == .local, let chat = localChatModel(id: aiModelID) else { return "Continue" }
+        switch chatStore.state(for: chat) {
+        case .installed, .downloading, .optimizing: return "Continue"
+        case .failed: return "Retry and continue"
+        case .notInstalled: return "Download and continue"
+        }
     }
 
     var aiCanContinue: Bool {
         switch aiPath {
         case .none: return false
         case .online: return key(aiService).status.isUsable
-        case .local:
-            guard ollama.isRunning == true, let model = localLLMModel(id: aiModelID) ?? localLLMModels.first else { return false }
-            return ollama.isInstalled(aiModelID) || ollama.pulls[aiModelID] != nil || !aiModelNeedsNewerOllama(model)
+        case .local: return localChatModel(id: aiModelID) != nil
         }
     }
 
@@ -381,14 +365,14 @@ final class OnboardingModel {
             }
         case .local:
             let id = aiModelID
-            if !ollama.isInstalled(id) && ollama.pulls[id] == nil {
-                ollama.pull(id) {}
+            if let chat = localChatModel(id: id), !chatStore.state(for: chat).isBusy, !isLocalChatModelInstalled(chat) {
+                chatStore.install(chat)
             }
             aiDownloadID = id
-            defaults.set(LLMProviderType.ollama.rawValue, forKey: SettingsKeys.llmProvider)
-            defaults.set(id, forKey: SettingsKeys.ollamaModel)
+            defaults.set(LLMProviderType.local.rawValue, forKey: SettingsKeys.llmProvider)
+            defaults.set(id, forKey: SettingsKeys.localLLMModel)
         }
-        dlog("Setup", "AI: \(aiPath == .local ? "ollama \(aiModelID)" : aiService.rawValue)")
+        dlog("Setup", "AI: \(aiPath == .local ? "on this Mac \(aiModelID)" : aiService.rawValue)")
         go(.permissions)
     }
 
@@ -486,7 +470,6 @@ final class OnboardingModel {
             setKey(service, text, found: true)
         }
         if step == .permissions { refreshPermissions() }
-        if step == .ai, aiPath == .local { checkOllama() }
     }
 
     // MARK: ④ Permissions
@@ -615,10 +598,12 @@ final class OnboardingModel {
 
     var aiIsSetUp: Bool { TextRefinementService.isConfigured }
 
-    /// The AI model the app will use, while Ollama is still pulling it.
+    /// The AI model the app will use, while it is still downloading.
     var pendingAIFraction: Double? {
-        guard LLMConfiguration.providerType == .ollama else { return nil }
-        return ollama.pulls[LLMConfiguration.model(for: .ollama)]
+        guard LLMConfiguration.providerType == .local,
+              let chat = localChatModel(id: LLMConfiguration.model(for: .local)),
+              case .downloading(let fraction) = chatStore.state(for: chat) else { return nil }
+        return fraction
     }
 
     // MARK: Done

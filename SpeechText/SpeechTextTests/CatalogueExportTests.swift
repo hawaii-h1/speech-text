@@ -54,6 +54,11 @@ final class CatalogueExportTests: XCTestCase {
         }
         // Every local model has a source, or the script cannot check it.
         XCTAssertTrue(export.speech.filter { $0.vendor == "local" }.allSatisfy { $0.source != nil })
+        XCTAssertTrue(export.chat.filter { $0.vendor == "local" }.allSatisfy { $0.source != nil })
+        XCTAssertEqual(export.chat.first { $0.id == "gemma-4-12b-it-qat-q4_0" }?.source,
+                       .init(huggingFace: "google/gemma-4-12B-it-qat-q4_0-gguf", path: nil,
+                             requiredFiles: ["gemma-4-12b-it-qat-q4_0.gguf"]))
+        XCTAssertTrue(export.chat.filter { $0.vendor != "local" }.allSatisfy { $0.source == nil })
     }
 
     func testUntilLifecycleStatesLandEveryModelIsCurrent() {

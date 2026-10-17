@@ -801,7 +801,9 @@ private struct UsageEngines: View {
             case .anthropic: "Anthropic"
             case .groq: "Groq"
             case .openai: "OpenAI"
-            case .ollama: "Ollama · on this Mac"
+            case .local: "On this Mac"
+            // Before AI Rewrite ran models itself (2026-10-16).
+            case nil where engine.provider == "ollama": "Ollama · on this Mac"
             case nil: engine.provider ?? ""
             }
         }

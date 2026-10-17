@@ -391,9 +391,14 @@ final class ChatModelCatalogTests: XCTestCase {
         XCTAssertEqual(ids.count, Set(ids).count)
     }
 
-    func testTheLocalEntriesAreOllamasCatalogue() {
-        XCTAssertEqual(knownChatModels(of: .ollama).map(\.id), localLLMModels.map(\.id))
-        XCTAssertEqual(knownChatModels(of: .ollama).map(\.displayName), localLLMModels.map(\.displayName))
+    func testTheLocalEntriesAreTheBuiltInCatalogue() {
+        XCTAssertEqual(knownChatModels(of: .local).map(\.id), localChatModels.map(\.id))
+        XCTAssertEqual(knownChatModels(of: .local).map(\.displayName), localChatModels.map(\.displayName))
+        for model in knownChatModels(of: .local) {
+            XCTAssertEqual(model.price, .free, model.id)
+            // Reasoning is the template's business on this Mac, never a request switch.
+            XCTAssertNil(model.reasoningEffort, model.id)
+        }
     }
 
     /// Switches only where a provider's API has them: `reasoning_format` and
@@ -419,8 +424,9 @@ final class ChatModelCatalogTests: XCTestCase {
     }
 
     func testAnUnlistedIDIsNamedByItselfAndListedNowhere() {
-        XCTAssertNil(listedChatModel(provider: .ollama, id: "llama3.2:3b"))
-        XCTAssertEqual(chatModel(provider: .ollama, id: "llama3.2:3b").displayName, "llama3.2:3b")
+        XCTAssertNil(listedChatModel(provider: .local, id: "llama3.2:3b"))
+        XCTAssertEqual(chatModel(provider: .local, id: "llama3.2:3b").displayName, "llama3.2:3b")
+        XCTAssertEqual(chatModel(provider: .local, id: "llama3.2:3b").price, .free)
         XCTAssertNil(listedChatModel(provider: .groq, id: "gpt-5.6-luna"))
     }
 }
@@ -487,21 +493,6 @@ final class ChatRequestBodyTests: XCTestCase {
         assertBody(haiku.payload(system: "S", user: "U"),
                    ["model": "claude-haiku-4-5", "max_tokens": 16000, "system": "S", "messages": userTurn], "haiku")
         XCTAssertNil(haiku.betaHeader)
-    }
-
-    /// Ollama runs any model the daemon has, so tags outside the catalogue are pinned too:
-    /// a gpt-oss build of any name takes `low`, everything else `none`.
-    func testOllamaModels() {
-        let low = ["gpt-oss:120b", "gpt-oss:20b", "gpt-oss:latest", "gpt-oss-safeguard:20b"]
-        let none = ["qwen3.5:122b", "qwen3.6:35b-a3b", "gemma4:31b", "gemma4:26b", "qwen3.8:27b", "gemma4:12b",
-                    "qwen3.5:9b", "qwen3.5:4b", "qwen3.5:2b", "qwen3.5:0.8b", "llama3.2:3b", "hf.co/org/model:Q4"]
-        for (models, effort) in [(low, "low"), (none, "none")] {
-            for model in models {
-                assertBody(OllamaChatClient(model: chatModel(provider: .ollama, id: model)).payload(system: "S", user: "U"),
-                           ["model": model, "messages": turns, "temperature": 0.3, "stream": false,
-                            "reasoning_effort": effort], model)
-            }
-        }
     }
 }
 
@@ -2640,7 +2631,7 @@ final class StoredProviderNameTests: XCTestCase {
             "aiHotkeyKeyCode", "aiHotkeyModifierFlags",
             "editHotkeyKeyCode", "editHotkeyModifierFlags",
             "holdToTalk", "escapeCancelsDictation",
-            "llmProvider", "groqLLMModel", "anthropicModel", "openAIModel", "ollamaModel", "ollamaBaseURL",
+            "llmProvider", "groqLLMModel", "anthropicModel", "openAIModel", "localLLMModel",
             "promptPresets", "defaultPresetID", "aiModeInRecordWindow",
             "appSkin", "accentColor", "technoPhosphor", "dockIconMode",
             "hotkeyLayoutVersion",
@@ -2678,6 +2669,7 @@ final class StoredProviderNameTests: XCTestCase {
         XCTAssertEqual(Provider.groq.defaultChatModel, "openai/gpt-oss-120b")
         XCTAssertEqual(Provider.anthropic.defaultChatModel, "claude-sonnet-5")
         XCTAssertEqual(Provider.openAI.defaultChatModel, "gpt-5.6-luna")
+        XCTAssertEqual(Provider.local.defaultChatModel, "gemma-4-12b-it-qat-q4_0")
         XCTAssertEqual(Provider.ollama.defaultChatModel, "")
     }
 
@@ -2694,7 +2686,30 @@ final class StoredProviderNameTests: XCTestCase {
     /// `sttProvider` / `llmProvider` store these, and History records them as `provider`.
     func testTheEngineAndProviderPicksKeepTheirStoredNames() {
         XCTAssertEqual(STTProviderType.allCases.map(\.rawValue), ["apple", "groq", "elevenlabs", "openai", "local"])
-        XCTAssertEqual(LLMProviderType.allCases.map(\.rawValue), ["groq", "anthropic", "openai", "ollama"])
+        XCTAssertEqual(LLMProviderType.allCases.map(\.rawValue), ["groq", "anthropic", "openai", "local"])
+    }
+
+    /// AI Rewrite through Ollama moves to the built-in path on the same model where the
+    /// catalogue has it, and Ollama's settings go (2026-10-16).
+    func testAnOllamaPickMovesToTheBuiltInPath() {
+        let suite = "ollama-migration-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("ollama", forKey: SettingsKeys.llmProvider)
+        defaults.set("qwen3.5:9b", forKey: "ollamaModel")
+        defaults.set("http://studio.local:11434", forKey: "ollamaBaseURL")
+        migrateOllamaPick(defaults)
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.llmProvider), "local")
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.localLLMModel), "Qwen3.5-9B-Q4_K_M")
+        XCTAssertNil(defaults.string(forKey: "ollamaModel"))
+        XCTAssertNil(defaults.string(forKey: "ollamaBaseURL"))
+
+        // Another provider is left alone; the leftover settings still go.
+        defaults.set("groq", forKey: SettingsKeys.llmProvider)
+        defaults.set("gemma4:12b", forKey: "ollamaModel")
+        migrateOllamaPick(defaults)
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.llmProvider), "groq")
+        XCTAssertNil(defaults.string(forKey: "ollamaModel"))
     }
 }
 

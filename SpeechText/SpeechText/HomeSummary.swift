@@ -134,12 +134,15 @@ enum UsagePrices {
 
     /// A chat model's token prices, for the vendor a ledger entry names.
     static func chat(vendor: Provider, model: String) -> ListPrice<ChatRates> {
+        if vendor == .ollama { return .free }
         guard let provider = LLMProviderType.allCases.first(where: { $0.vendor == vendor }) else { return .notPriced }
         return chatModel(provider: provider, id: model).price
     }
 
     /// A chat model's token prices, by `LLMProviderType` raw value and model ID.
     static func chat(provider: String, model: String) -> ListPrice<ChatRates> {
+        // A model Ollama ran on this Mac, recorded before AI Rewrite ran models itself.
+        if provider == "ollama" { return .free }
         guard let provider = LLMProviderType(rawValue: provider) else { return .notPriced }
         return chatModel(provider: provider, id: model).price
     }

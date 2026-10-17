@@ -835,14 +835,18 @@ struct SetupTaskPill: View {
                                   size: speech.downloadSizeDescription, phase: phase))
             }
         }
-        if let id = model.aiDownloadID {
-            let name = localLLMModel(id: id)?.displayName ?? id
-            let size = localLLMModel(id: id)?.downloadSizeDescription ?? ""
-            let phase: Task.Phase? = if let f = model.ollama.pulls[id] { .downloading(f) }
-                else if let error = model.ollama.errors[id] { .failed(error) }
-                else if model.ollama.isInstalled(id) { .ready }
-                else { nil }
-            if let phase { tasks.append(Task(id: "ai", label: "AI model", name: name, size: size, phase: phase)) }
+        if let id = model.aiDownloadID, let chat = localChatModel(id: id) {
+            let phase: Task.Phase? = switch model.chatStore.state(for: chat) {
+            case .downloading(let f): .downloading(f)
+            case .optimizing: .preparing
+            case .installed: .ready
+            case .failed(let why): .failed(why)
+            case .notInstalled: nil
+            }
+            if let phase {
+                tasks.append(Task(id: "ai", label: "AI model", name: chat.displayName,
+                                  size: chat.downloadSizeDescription, phase: phase))
+            }
         }
         return tasks
     }
@@ -942,8 +946,8 @@ struct SetupTaskPill: View {
         Button("Cancel download") {
             if task.id == "speech", let id = model.speechDownloadID, let m = localSTTModel(id: id) {
                 model.store.cancelInstall(m)
-            } else if let id = model.aiDownloadID {
-                model.ollama.cancel(id)
+            } else if let id = model.aiDownloadID, let chat = localChatModel(id: id) {
+                model.chatStore.cancelInstall(chat)
             }
             showsDetails = false
         }
@@ -953,8 +957,8 @@ struct SetupTaskPill: View {
     private func retry(_ task: Task) {
         if task.id == "speech", let id = model.speechDownloadID, let m = localSTTModel(id: id) {
             model.store.install(m)
-        } else if let id = model.aiDownloadID {
-            model.ollama.pull(id) {}
+        } else if let id = model.aiDownloadID, let chat = localChatModel(id: id) {
+            model.chatStore.install(chat)
         }
     }
 }

@@ -26,6 +26,9 @@ enum SettingsKeys {
     static let openAISTTModel = "openAISTTModel"
     /// `LocalSTTModel.id` (a WhisperKit variant or Parakeet) the local engine transcribes with.
     static let localSTTModel = "localSTTModel"
+    /// The chat model AI Rewrite runs on this Mac — a `LocalChatModel` id, normalised
+    /// against `localChatModels`.
+    static let localLLMModel = "localLLMModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
     static let removeDisfluencies = "removeDisfluencies"
     /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
@@ -64,11 +67,6 @@ enum SettingsKeys {
     static let anthropicModel = "anthropicModel"
     static let openAIAPIKey = "openAIAPIKey"
     static let openAIModel = "openAIModel"
-    /// Ollama tag for the local rewrite pass — any model the daemon has, not only the
-    /// catalogue's, so it is deliberately not normalised against `localLLMModels`.
-    static let ollamaModel = "ollamaModel"
-    /// Ollama's base URL; empty means `ollamaDefaultBaseURL`.
-    static let ollamaBaseURL = "ollamaBaseURL"
     /// JSON-encoded `[PromptPreset]`.
     static let promptPresets = "promptPresets"
     /// UUID string of the preset used when no other preset matches.
@@ -190,7 +188,7 @@ enum SettingsKeys {
         aiHotkeyKeyCode, aiHotkeyModifierFlags,
         editHotkeyKeyCode, editHotkeyModifierFlags,
         holdToTalk, escapeCancelsDictation,
-        llmProvider, ollamaBaseURL,
+        llmProvider,
         promptPresets, defaultPresetID, aiModeInRecordWindow,
         appSkin, accentColor, technoPhosphor, dockIconMode,
         hotkeyLayoutVersion,
@@ -423,6 +421,7 @@ func normalizeStoredProviders(in defaults: UserDefaults,
     for key in ["webhookURL", "authToken", "aiFocusContextEnabled"] {
         defaults.removeObject(forKey: key)
     }
+    migrateOllamaPick(defaults)
 
     if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
        STTProviderType(rawValue: raw) == nil {
@@ -447,6 +446,27 @@ func normalizeStoredProviders(in defaults: UserDefaults,
     // A choice cleared just now holds `clearedModelChoice`, which pinning leaves alone:
     // the user is asked to pick.
     pinUntouchedModelChoices(in: defaults)
+}
+
+/// AI Rewrite through Ollama became AI Rewrite on this Mac (2026-10-16): the pick moves
+/// to the built-in path, on the same model where the catalogue has it, and the Ollama
+/// settings go. The model is a GGUF file of our own now, not Ollama's store, so it has to
+/// be downloaded again — until it is, each AI dictation pastes the transcript and says
+/// so (`LocalChatError.notInstalled`). A remote Ollama has no replacement.
+func migrateOllamaPick(_ defaults: UserDefaults) {
+    let tag = defaults.string(forKey: "ollamaModel") ?? ""
+    if defaults.string(forKey: SettingsKeys.llmProvider) == "ollama" {
+        let same: [String: String] = [
+            "gemma4:12b": "gemma-4-12b-it-qat-q4_0", "qwen3.5:9b": "Qwen3.5-9B-Q4_K_M",
+            "qwen3.5:4b": "Qwen3.5-4B-Q4_K_M", "qwen3.8:27b": "Qwen3.8-27B-Q4_K_M", "gpt-oss:20b": "gpt-oss-20b-MXFP4",
+        ]
+        let model = same[tag] ?? same[tag.replacingOccurrences(of: ":latest", with: "")]
+            ?? recommendedLocalChatModel(for: .current())?.id ?? Provider.local.defaultChatModel
+        dlog("Settings", "llmProvider=ollama (\(tag)) moved to the built-in path with \(model)")
+        defaults.set(LLMProviderType.local.rawValue, forKey: SettingsKeys.llmProvider)
+        defaults.set(model, forKey: SettingsKeys.localLLMModel)
+    }
+    for key in ["ollamaModel", "ollamaBaseURL"] { defaults.removeObject(forKey: key) }
 }
 
 /// Keeps a local-tier user on the model they actually downloaded when the *default*

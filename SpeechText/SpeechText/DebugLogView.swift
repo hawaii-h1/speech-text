@@ -148,7 +148,7 @@ struct DebugLogView: View {
         // Cloud STT/LLM providers
         case "Groq", "ElevenLabs": .orange
         // Local models
-        case "LocalModel", "LocalWhisper", "Ollama": .brown
+        case "LocalModel", "LocalWhisper": .brown
         // AI text refinement
         case "LLM", "Refine": .indigo
         // Delivery

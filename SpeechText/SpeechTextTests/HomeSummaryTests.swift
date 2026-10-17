@@ -259,7 +259,7 @@ final class ListPriceTests: XCTestCase {
     func testEveryChatModelIsPricedFreeOrSaysItIsNot() {
         for model in chatModelCatalog {
             let key = "\(model.provider.rawValue)/\(model.id)"
-            if model.provider == .ollama {
+            if model.provider == .local {
                 XCTAssertEqual(model.price, .free, "\(key) runs on the Mac")
                 continue
             }
@@ -274,7 +274,7 @@ final class ListPriceTests: XCTestCase {
             XCTAssertEqual(rates.outputPerToken * 1e6, expected.2, accuracy: 1e-9, key)
             XCTAssertLessThanOrEqual(rates.cachedInputPerToken, rates.inputPerToken, key)
         }
-        let cloud = chatModelCatalog.filter { $0.provider != .ollama }
+        let cloud = chatModelCatalog.filter { $0.provider != .local }
         XCTAssertEqual(Set(cloud.map { "\($0.provider.rawValue)/\($0.id)" }), Set(chat.keys), "a row for a model that is gone")
     }
 
@@ -285,6 +285,8 @@ final class ListPriceTests: XCTestCase {
         XCTAssertEqual(UsagePrices.chat(provider: "anthropic", model: "claude-next"), .notPriced)
         XCTAssertEqual(UsagePrices.chat(provider: "ollama", model: "llama9:1b"), .free)
         XCTAssertEqual(UsagePrices.chat(vendor: .ollama, model: "gemma4:12b"), .free)
+        XCTAssertEqual(UsagePrices.chat(provider: "local", model: "gemma-4-12b-it-qat-q4_0"), .free)
+        XCTAssertEqual(UsagePrices.chat(vendor: .local, model: "some-local-model"), .free)
         XCTAssertEqual(UsagePrices.chat(provider: "not-a-provider", model: "x"), .notPriced)
         XCTAssertEqual(UsagePrices.speech(provider: "not-an-engine", model: nil), .notPriced)
         XCTAssertEqual(UsagePrices.speech(provider: "apple", model: nil), .free)

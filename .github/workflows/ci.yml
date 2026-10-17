@@ -105,7 +105,7 @@ jobs:
 
   spdx:
     name: SPDX headers
-    # Reads the first two lines of every Swift file. No Mac involved.
+    # Reads the first two lines of every Swift file (lines 2–3 of a Package.swift). No Mac involved.
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +115,11 @@ jobs:
           set -euo pipefail
           missing=""
           for file in $(git ls-files '*.swift'); do
-            header=$(head -2 "$file")
+            # A Package.swift must open with `// swift-tools-version`; its header follows.
+            case $file in
+              */Package.swift|Package.swift) header=$(sed -n '2,3p' "$file") ;;
+              *) header=$(head -2 "$file") ;;
+            esac
             if ! printf '%s' "$header" | grep -q 'SPDX-FileCopyrightText' \
                || ! printf '%s' "$header" | grep -q 'SPDX-License-Identifier'; then
               missing="$missing  $file"$'\n'

@@ -517,14 +517,23 @@ if [ "$HAVE_IDENTITY" -eq 1 ] && printf '%s' "$SIGN_IDENTITY" | grep -qE '\([A-Z
     HAS_TEAM=1
 fi
 
-# Sparkle's framework and the helpers inside it, deepest first — Xcode left them ad-hoc,
-# and the app's signature only seals them.
+# Sparkle's framework and the helpers inside it, and the SpeechTextLLM service with the
+# llama.framework inside *it*, deepest first — Xcode left them ad-hoc, and the app's
+# signature only seals them.
+nested_dirs() {
+    local dir
+    for dir in "$BUILT/Contents/Frameworks" "$BUILT/Contents/XPCServices"; do
+        [ -d "$dir" ] && printf '%s\n' "$dir"
+    done
+}
+
 sign_nested() {
-    [ -d "$BUILT/Contents/Frameworks" ] || return 0
-    local nested
+    local nested dirs=()
+    while IFS= read -r dir; do dirs+=("$dir"); done < <(nested_dirs)
+    [ "${#dirs[@]}" -gt 0 ] || return 0
     while IFS= read -r -d '' nested; do
         codesign --force --options runtime --sign "$SIGN_IDENTITY" "$nested" || return 1
-    done < <(find "$BUILT/Contents/Frameworks" -depth \
+    done < <(find "${dirs[@]}" -depth \
         \( -name '*.framework' -o -name '*.dylib' -o -name '*.bundle' -o -name '*.app' \
            -o -name '*.xpc' -o -name 'Autoupdate' \) -print0)
 }
@@ -560,6 +569,14 @@ sign_local() {
         codesign -d --entitlements - --xml "$BUILT" > "$entitlements" 2>/dev/null || return 1
         /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' \
             "$entitlements" || return 1
+        # The LLM service loads llama.framework, which no team signed either.
+        local service="$BUILT/Contents/XPCServices/SpeechTextLLM.xpc" service_entitlements="$LOG.llm-entitlements.plist"
+        if [ -d "$service" ]; then
+            /usr/libexec/PlistBuddy -c 'Add :com.apple.security.cs.disable-library-validation bool true' \
+                "$service_entitlements" > /dev/null || return 1
+            codesign --force --sign "$as" --options runtime --entitlements "$service_entitlements" "$service" || return 1
+            rm -f "$service_entitlements"
+        fi
         codesign --force --sign "$as" --options runtime --entitlements "$entitlements" "$BUILT" || return 1
         rm -f "$entitlements"
     fi

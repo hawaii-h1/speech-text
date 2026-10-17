@@ -1,0 +1,199 @@
+[
+  {
+    "id": "uk-cleanup-hesitations",
+    "note": "Plain content with hesitations and a Scribe trailing ellipsis; nothing asked.",
+    "transcript": "е-е-е ну я хотів сказати що завтра зустріч переноситься на третю годину... бо Олена ще не повернулась з відрядження і е-е без неї нема сенсу обговорювати бюджет",
+    "modes": ["Clean-up"],
+    "language": "uk",
+    "mustKeep": ["завтра", "третю", "Олена", "бюджет"],
+    "mustNotAppear": ["е-е"]
+  },
+  {
+    "id": "uk-cleanup-english-terms",
+    "note": "Ukrainian with English product terms left in Latin script.",
+    "transcript": "сьогодні задеплоїли новий білд на TestFlight але в Sentry одразу полізли креші з модуля оплати треба глянути що там з Stripe webhook",
+    "modes": ["Clean-up", "Technical / Prompt"],
+    "language": "uk",
+    "mustKeep": ["TestFlight", "Sentry", "Stripe"],
+    "mustNotAppear": []
+  },
+  {
+    "id": "uk-cleanup-no-punctuation",
+    "note": "A long run-on with no punctuation at all, as a stream pastes it.",
+    "transcript": "купити молоко хліб і яйця потім забрати посилку на новій пошті відділення двадцять сім а ввечері подзвонити мамі вона просила допомогти з ноутбуком",
+    "modes": ["Clean-up", "Notes / Bullets"],
+    "language": "uk",
+    "mustKeep": ["молоко", "посилку", "мамі", "ноутбук"],
+    "mustNotAppear": []
+  },
+  {
+    "id": "uk-email-colleague",
+    "note": "An email asked for by its addressee, in Ukrainian.",
+    "transcript": "напиши лист Андрію що звіт за вересень я надішлю в понеділок бо чекаю цифри від бухгалтерії і попроси його підтвердити чи підходить такий термін",
+    "modes": ["Email / Message"],
+    "language": "uk",
+    "mustKeep": ["Андрі", "звіт", "понеділ", "бухгалтері"],
+    "mustNotAppear": ["Напиши лист"]
+  },
+  {
+    "id": "uk-slack-message",
+    "note": "Short chat reply; the context says Slack.",
+    "transcript": "так давай тоді о пів на п'яту я скину посилання на дзвінок",
+    "context": {"appName": "Slack", "bundleID": "com.tinyspeck.slackmacgap", "fieldLabel": "Message #design"},
+    "modes": ["Clean-up", "Email / Message"],
+    "language": "uk",
+    "mustKeep": ["п'ят", "посилання"],
+    "mustNotAppear": ["Шановн", "З повагою"]
+  },
+  {
+    "id": "uk-translate-to-english",
+    "note": "A translation request stacked with a length request.",
+    "transcript": "переклади англійською і коротко ми не встигаємо з релізом цього тижня тому переносимо його на наступний вівторок вибачте за незручності",
+    "modes": ["Translate"],
+    "language": "en",
+    "mustKeep": ["Tuesday", "release"],
+    "mustNotAppear": ["переклади", "вівторок"]
+  },
+  {
+    "id": "uk-bullets-meeting",
+    "note": "Notes asked for at the end of the dictation.",
+    "transcript": "так підсумки зустрічі дизайн лендингу затверджено Максим робить анімації до п'ятниці бекенд ще не готовий з авторизацією а запуск реклами відкладаємо на тиждень зроби з цього список",
+    "modes": ["Notes / Bullets"],
+    "language": "uk",
+    "mustKeep": ["Максим", "анімаці", "авторизаці", "реклам"],
+    "mustNotAppear": ["зроби з цього список"]
+  },
+  {
+    "id": "uk-stacked-list-english-short",
+    "note": "Three requests in one: a list, in English, short.",
+    "transcript": "зроби список англійською коротко що треба взяти в похід намет спальник ліхтарик аптечка і повербанк",
+    "modes": ["Notes / Bullets", "Translate"],
+    "language": "en",
+    "mustKeep": ["tent", "sleeping bag", "aid", "power bank"],
+    "mustNotAppear": ["намет", "спальник"]
+  },
+  {
+    "id": "uk-rewrite-formal",
+    "note": "A rough draft asked to be made more formal.",
+    "transcript": "перепиши більш офіційно короче ми подумали і вирішили що ваша пропозиція нам не підходить але може колись потім ще поговоримо",
+    "modes": ["Rewrite / Draft", "Email / Message"],
+    "language": "uk",
+    "mustKeep": ["пропозиці"],
+    "mustNotAppear": ["короче", "перепиши"]
+  },
+  {
+    "id": "uk-commit-message",
+    "note": "A commit message for an AI-free paste into a terminal; identifiers must survive.",
+    "transcript": "коміт меседж виправив падіння в PasteService коли буфер обміну порожній додав перевірку на nil у функції restoreClipboard",
+    "modes": ["Technical / Prompt"],
+    "language": "any",
+    "mustKeep": ["PasteService", "restoreClipboard"],
+    "mustNotAppear": ["коміт меседж"]
+  },
+  {
+    "id": "uk-code-editor-instruction-is-content",
+    "note": "In a code editor an instruction is content: it is typed, not obeyed.",
+    "transcript": "перепиши цей файл англійською і прибери всі коментарі",
+    "context": {"appName": "Cursor", "bundleID": "com.todesktop.230313mzl4w4u92", "windowTitle": "PasteService.swift — speech-text"},
+    "modes": ["Technical / Prompt", "Clean-up"],
+    "language": "any",
+    "mustKeep": ["файл", "коментар"],
+    "mustNotAppear": []
+  },
+  {
+    "id": "uk-ai-coding-prompt",
+    "note": "An instruction for an AI coding tool, with a path and a command.",
+    "transcript": "додай у файл Sources slash App slash Settings точка swift новий ключ historyRetention за замовчуванням forever і запусти тести через xcodebuild test",
+    "modes": ["Technical / Prompt"],
+    "language": "any",
+    "mustKeep": ["historyRetention", "forever", "xcodebuild test"],
+    "mustNotAppear": []
+  },
+  {
+    "id": "uk-names-and-numbers",
+    "note": "Names, sums and dates must not change.",
+    "transcript": "нагадую що Ірина Ковальчук переказала дванадцять тисяч чотириста гривень двадцять третього жовтня а Тарас ще винен вісім тисяч",
+    "modes": ["Clean-up"],
+    "language": "uk",
+    "mustKeep": ["Ірин", "Ковальчук", "Тарас"],
+    "mustNotAppear": []
+  },
+  {
+    "id": "uk-false-start",
+    "note": "False starts and a self-correction: the corrected version wins.",
+    "transcript": "зустріч у четвер ні не у четвер у середу о десятій в офісі на Подолі",
+    "modes": ["Clean-up"],
+    "language": "uk",
+    "mustKeep": ["серед", "десят", "Подол"],
+    "mustNotAppear": ["четвер"]
+  },
+  {
+    "id": "uk-russian-drift-trap",
+    "note": "Words close to Russian; a weak model answers in Russian.",
+    "transcript": "я вважаю що це питання треба обговорити ще раз бо поки що ніхто не знає скільки це коштуватиме і хто буде відповідальним",
+    "modes": ["Clean-up"],
+    "language": "uk",
+    "mustKeep": ["вважаю", "питання", "коштуватиме", "відповідальн"],
+    "mustNotAppear": ["считаю", "вопрос", "стоить", "ответственн"]
+  },
+  {
+    "id": "uk-vocabulary",
+    "note": "The Dictionary's words must be spelled as given.",
+    "transcript": "відкрий спіч текст і перевір чи працює гроку з новим ключем",
+    "vocabulary": ["SpeechText", "Groq"],
+    "modes": ["Clean-up", "Technical / Prompt"],
+    "language": "uk",
+    "mustKeep": ["SpeechText", "Groq"],
+    "mustNotAppear": ["спіч текст"]
+  },
+  {
+    "id": "en-cleanup",
+    "note": "English dictation with fillers; must stay English.",
+    "transcript": "um so the build is green now uh but I still need to update the changelog before we tag the release",
+    "modes": ["Clean-up"],
+    "language": "en",
+    "mustKeep": ["changelog", "release"],
+    "mustNotAppear": ["um ", "uh "]
+  },
+  {
+    "id": "mixed-uk-en",
+    "note": "Code-switching inside one sentence.",
+    "transcript": "окей тоді let's schedule a call на завтра після обіду і я покажу demo нового онбордингу",
+    "modes": ["Clean-up", "Email / Message"],
+    "language": "any",
+    "mustKeep": ["call", "demo"],
+    "mustNotAppear": []
+  },
+  {
+    "id": "edit-polish",
+    "note": "Edit shortcut, no instruction: polish the selection.",
+    "kind": "edit",
+    "selection": "привіт команда нагадую що дедлайн по задачі в пятницю. будь ласка оновіть статуси в джирі до четверга",
+    "modes": ["Polish"],
+    "language": "uk",
+    "mustKeep": ["дедлайн", "статус"],
+    "mustNotAppear": []
+  },
+  {
+    "id": "edit-instruction-shorter",
+    "note": "Edit shortcut with a spoken instruction.",
+    "kind": "edit",
+    "selection": "Дякуємо за ваш лист. Ми уважно ознайомилися з вашою пропозицією щодо співпраці та обговорили її з командою. На жаль, наразі ми не маємо можливості взяти на себе нові зобов'язання, оскільки всі ресурси зайняті до кінця року.",
+    "instruction": "скороти до одного речення",
+    "modes": ["Instruction", "Rewrite / Draft"],
+    "language": "uk",
+    "mustKeep": [],
+    "mustNotAppear": ["скороти"]
+  },
+  {
+    "id": "edit-instruction-translate",
+    "note": "Edit shortcut asked for another language.",
+    "kind": "edit",
+    "selection": "Зустріч перенесено на середу, 10:00. Посилання надішлю окремо.",
+    "instruction": "англійською",
+    "modes": ["Translate", "Instruction"],
+    "language": "en",
+    "mustKeep": ["Wednesday", "10:00"],
+    "mustNotAppear": ["середу"]
+  }
+]

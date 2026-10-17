@@ -23,7 +23,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.dashStyle) private var dashStyle = DashStyle.default.rawValue
 
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+    @AppStorage(SettingsKeys.localLLMModel) private var localLLMModel = Provider.local.defaultChatModel
 
     /// The API keys are not in UserDefaults (see `APIKeyStore`), so they are bound to the
     /// store rather than through `@AppStorage`; the store is observable, so the fields and
@@ -688,7 +688,6 @@ struct SettingsView: View {
     // MARK: - Privacy & Data
 
     @AppStorage(SettingsKeys.sendVocabularyToEngine) private var sendVocabulary = true
-    @AppStorage(SettingsKeys.ollamaBaseURL) private var ollamaAddress = ""
 
     /// Where a dictation's audio goes with the engine in use — said from the settings,
     /// never assumed, since this group is the disclosure.
@@ -713,11 +712,8 @@ struct SettingsView: View {
     private var aiSentDetail: String {
         let context = "With it go your Dictionary's words and the app, window title and field the text is for — a window title can show an email subject. Password managers and password fields are never read."
         guard hasLLMKey else { return "AI Rewrite is off, so nothing is sent." }
-        if llm == .ollama {
-            let host = URL(string: ollamaAddress)?.host ?? "localhost"
-            return ["localhost", "127.0.0.1", "::1"].contains(host)
-                ? "Stays on this Mac: AI Rewrite runs in Ollama here."
-                : "AI dictations and edits go to Ollama at \(host). " + context
+        if llm == .local {
+            return "Stays on this Mac. A model is downloaded once; after that nothing goes online."
         }
         return "AI dictations and edits are sent to \(llm.vendor.displayName). " + context
     }
@@ -781,7 +777,7 @@ struct SettingsView: View {
     /// `@AppStorage`, so the status updates live while the key is being typed or a model
     /// is picked.
     private var hasLLMKey: Bool {
-        _ = (llmProvider, ollamaModel)
+        _ = (llmProvider, localLLMModel)
         let value = llm.vendor.descriptor.apiKey.map { keys.value(for: $0.settingsKey) }
             ?? LLMConfiguration.model(for: llm)
         return !value.trimmingCharacters(in: .whitespaces).isEmpty

@@ -307,7 +307,7 @@ final class ChatUsageTests: XCTestCase {
                                                   cachedInputTokens: 1024, reasoningTokens: 40))
     }
 
-    func testGroqAndOllamaSendTheTotalsAlone() throws {
+    func testGroqSendsTheTotalsAlone() throws {
         let groq = try decode(ChatCompletionResponse.self, """
             {"choices":[{"message":{"content":"Hi."}}],
              "usage":{"queue_time":0.01,"prompt_tokens":900,"prompt_time":0.02,"completion_tokens":30,

@@ -538,7 +538,7 @@ private struct DictionaryEffects: View {
     @AppStorage(SettingsKeys.localSTTModel) private var localSTTModel = Provider.local.defaultSpeechModel
     @AppStorage(SettingsKeys.sendVocabularyToEngine) private var sends = true
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
-    @AppStorage(SettingsKeys.ollamaModel) private var ollamaModel = ""
+    @AppStorage(SettingsKeys.localLLMModel) private var localLLMModel = Provider.local.defaultChatModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -563,7 +563,7 @@ private struct DictionaryEffects: View {
     }
 
     private var aiReady: Bool {
-        _ = (llmProvider, ollamaModel)
+        _ = (llmProvider, localLLMModel)
         return LLMConfiguration.isConfigured
     }
 

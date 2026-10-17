@@ -234,11 +234,11 @@ def package_releases(resolved_path):
     return out
 
 
-def huggingface_sources(speech):
-    """Each local model's repository: does the folder or files it installs still exist,
-    and when did the repository last change."""
+def huggingface_sources(models):
+    """Each local model's repository — speech and chat alike: does the folder or files
+    it installs still exist, and when did the repository last change."""
     repos, results = {}, []
-    for model in speech:
+    for model in models:
         if model.get("vendor") != "local":
             continue
         source = model.get("source")
@@ -596,7 +596,7 @@ def main():
     result = compare(catalogue, served, today)
     new, absent = candidates(catalogue, served, (previous or {}).get("vendors"))
     packages = package_releases(args.resolved)
-    sources = huggingface_sources(catalogue["speech"])
+    sources = huggingface_sources(catalogue["speech"] + catalogue["chat"])
     repos, repo_errors = new_repositories(args.since)
     text, gate, unchecked = report(args, catalogue, served, problems, result, new, absent, packages, sources,
                                    repos, repo_errors, previous_date, today)

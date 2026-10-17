@@ -194,7 +194,7 @@ final class SetupCardsTests: XCTestCase {
         }
     }
 
-    /// Setup run again opens the AI step on the card of the stored pick; Ollama has none.
+    /// Setup run again opens the AI step on the card of the stored pick; the Mac has none.
     func testEveryAIPickReopensOnItsOwnCardOrNone() {
         for pick in LLMProviderType.allCases {
             let card = SetupCards.aiCard(reopening: pick)
@@ -202,7 +202,7 @@ final class SetupCardsTests: XCTestCase {
             case .groq, .anthropic, .openai:
                 XCTAssertEqual(card?.pick, pick)
                 XCTAssertEqual(SetupCards.ai(for: card!.service).pick, pick)
-            case .ollama:
+            case .local:
                 XCTAssertNil(card, pick.rawValue)
             }
         }

@@ -3,8 +3,9 @@
 
 import Foundation
 
-/// A company or source that serves models: a cloud vendor, Apple's recogniser, the user's
-/// Mac, or the Ollama app on it.
+/// A company or source that serves models: a cloud vendor, Apple's recogniser, or the
+/// user's Mac. `ollama` serves nothing any more and is kept only as a name History's
+/// ledger may hold from before AI Rewrite ran models itself.
 ///
 /// Not the user's pick: `STTProviderType` and `LLMProviderType` are what the Speech and AI
 /// Rewrite pickers store, and each maps to its provider through an exhaustive `vendor`.
@@ -108,16 +109,22 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
             // the picker, so an install that never chose reads straight through to this,
             // and a moved default would point it at a model it has not downloaded. That is
             // what `preserveInstalledLocalModel()` (Settings.swift) is for; read it first.
-            ProviderDescriptor(displayName: "Local", roles: [.speech], apiKey: nil,
+            //
+            // The chat default is the model the 16–32 GB tiers are recommended; setup writes
+            // the pick for this Mac's own tier, so the default only reaches an install that
+            // chose "On this Mac" before there was a picker for it.
+            ProviderDescriptor(displayName: "Local", roles: [.speech, .chat], apiKey: nil,
                                speechModel: ModelSetting(settingsKey: SettingsKeys.localSTTModel,
                                                          defaultID: parakeetV3ModelID),
-                               chatModel: nil, speechUpload: nil)
-        case .ollama:
-            // Any model the daemon has, so a stored tag is never checked against a list.
-            ProviderDescriptor(displayName: "Ollama", roles: [.chat], apiKey: nil, speechModel: nil,
-                               chatModel: ModelSetting(settingsKey: SettingsKeys.ollamaModel, defaultID: "",
-                                                       normalized: false),
+                               chatModel: ModelSetting(settingsKey: SettingsKeys.localLLMModel,
+                                                       defaultID: "gemma-4-12b-it-qat-q4_0"),
                                speechUpload: nil)
+        case .ollama:
+            // Removed 2026-10-16, when AI Rewrite on this Mac moved into the app (llama.cpp).
+            // Nothing is picked or sent through it; History's older records still name it,
+            // and a ledger entry decodes its vendor by this raw value.
+            ProviderDescriptor(displayName: "Ollama", roles: [], apiKey: nil, speechModel: nil,
+                               chatModel: nil, speechUpload: nil)
         }
     }
 

@@ -42,7 +42,7 @@ are one provider, one key, two catalogue entries. All capability values:
 | | `.selectedModel(of:)` | borrows another vendor's pick (Apple → Groq) |
 | `Requirement` | `.none` / `.apiKey(key)` / `.installedModel` | what must exist before it runs |
 | `Vocabulary` | `.none` / `.termList(TermListLimits)` | takes the user's term list, and its limits |
-| `ListPrice` (speech and chat: the descriptor's `price`) | `.free` | runs on the Mac (local models, Apple, Ollama) |
+| `ListPrice` (speech and chat: the descriptor's `price`) | `.free` | runs on the Mac (local models, Apple) |
 | | `.listed(rates)` | the vendor's list price: `SpeechRates` (a minute, plus a keyterm surcharge) or `ChatRates` (input, cached input, output per token) |
 | | `.notPriced` | the vendor publishes no price; Usage names the model rather than guessing |
 | `ModelLifecycle` (speech and chat: the descriptor's `lifecycle`) | `.current` | offered, nothing better to suggest |
@@ -93,8 +93,9 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
   and add its row to `ListPriceTests`.
 - Chat: one `ChatModelDescriptor` in `chatModelCatalog`, with its measured switches
   (`reasoningEffort`, `reasoningOutput`, `refusalFallbacks`), its `price` and a dated
-  comment, its whole body in `ChatRequestBodyTests` and its row in `ListPriceTests`. An Ollama model is a `LocalLLMModel`, with its
-  `reasoningEffort`; its descriptor is derived.
+  comment, its whole body in `ChatRequestBodyTests` and its row in `ListPriceTests`. A model on this Mac is a `LocalChatModel`
+  (a pinned GGUF file, its SHA-256 and its `ChatTemplateFamily`), loaded by the rewrite evaluation first;
+  its descriptor is derived and free.
 - Changing a default: the `defaultID` of the provider's `ModelSetting` in
   `ProviderDescriptor`, and `testTheDefaultModelsAreTheChosenOnes`; then mark the old
   default `.superseded(by: <new>)`. Nobody is moved: every launch pins the model an

@@ -140,6 +140,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var setupWindow: OnboardingWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if MainActor.assumeIsolated({ LocalChatSmoke.runIfAsked() }) { return }
+        #endif
         // Opened straight from the disk image: move to Applications and start again from
         // there, before this copy writes a setting, registers a login item or opens setup.
         if MainActor.assumeIsolated({ AppInstaller.moveIfRunningFromDiskImage() }) { return }
@@ -196,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         registerLocalSTT()
+        registerLocalChat()
         prewarmSelectedLocalModel()
         registerSpellCheckedJoins()
         registerVocabularyHistory()
@@ -864,6 +868,7 @@ final class AppState {
     private func switchMode(toAI: Bool) {
         dlog("App", "switching the dictation to \(toAI ? "AI" : "plain text")")
         isAIMode = toAI
+        if toAI { LLMConfiguration.prewarmIfLocal() }
         DictationTraceRecorder.record(.modeSwitch, text: toAI ? "ai" : "inline")
     }
 
@@ -914,6 +919,7 @@ final class AppState {
         // The same settings the engine snapshots a moment later, read the same way.
         showsLiveTranscript = RecordingConfiguration.current(locale: locale).hasLiveText
         dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(locale), aiMode=\(isAIMode), liveTranscript=\(showsLiveTranscript)")
+        if isAIMode { LLMConfiguration.prewarmIfLocal() }
 
         speechEngine.recordsEmptyOutcomes = true
         beginTrace()
@@ -1460,6 +1466,7 @@ final class AppState {
                        detail: "Select text in another app, then press the Edit shortcut.", tint: .secondary)
             return
         }
+        LLMConfiguration.prewarmIfLocal()
         guard PasteService.isAccessibilityGranted else {
             editGesture.reset()
             PasteService.promptAccessibility()

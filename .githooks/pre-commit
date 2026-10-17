@@ -37,8 +37,12 @@ fi
 added_swift=$(git diff --cached --name-only --diff-filter=A | grep '\.swift$')
 
 for file in $added_swift; do
-    # 2. Every source file opens with the two-line SPDX header.
-    header=$(staged_content "$file" | head -2)
+    # 2. Every source file opens with the two-line SPDX header — after the
+    #    `// swift-tools-version` line in a Package.swift, which SwiftPM requires first.
+    case $file in
+        */Package.swift|Package.swift) header=$(staged_content "$file" | sed -n '2,3p') ;;
+        *) header=$(staged_content "$file" | head -2) ;;
+    esac
     case $header in
         *SPDX-FileCopyrightText*)
             case $header in

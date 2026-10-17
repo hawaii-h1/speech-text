@@ -36,6 +36,8 @@ struct CatalogueExport: Encodable, Equatable {
         let vendor: String
         let id: String
         let displayName: String
+        /// A model on this Mac: the GGUF file it downloads. Nil for a cloud model.
+        let source: Source?
         let price: ChatPrice
         let lifecycle: Lifecycle
     }
@@ -128,8 +130,13 @@ extension CatalogueExport {
                       cachedInputPerMillion: rounded(rates.cachedInputPerToken * 1e6),
                       outputPerMillion: rounded(rates.outputPerToken * 1e6))
         }
+        // The pinned file of a model on this Mac (`LocalChatCatalog.swift`), checked by
+        // the script like a speech model's folder.
+        let source = model.provider == .local ? localChatModel(id: model.id).map {
+            Source(huggingFace: $0.repository, path: nil, requiredFiles: [$0.file])
+        } : nil
         return ChatModel(vendor: model.provider.vendor.rawValue, id: model.id, displayName: model.displayName,
-                         price: price, lifecycle: lifecycle(of: model))
+                         source: source, price: price, lifecycle: lifecycle(of: model))
     }
 
     /// Where each local engine's models come from: WhisperKit's are folders of

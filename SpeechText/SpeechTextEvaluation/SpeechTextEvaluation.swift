@@ -10,6 +10,9 @@ import Foundation
 ///
 ///     SpeechTextEvaluation --corpus <dir> --runs <dir> [--run-dir <dir>] [--engines a,b] [--clips a,b] [--cloud] [--no-local] [--install]
 ///
+/// With `--rewrite` it measures AI Rewrite on the local chat models instead — see
+/// `RewriteEvaluation`.
+///
 /// `--cloud` adds the cloud engines, with keys from the environment only; `--no-local`
 /// leaves the local ones out. A model that is not on this Mac is a `not installed` row —
 /// unless `--install` is given, which downloads every selected local model that is
@@ -29,7 +32,12 @@ struct SpeechTextEvaluation {
     @MainActor
     static func main() async {
         do {
-            try await run(Options(CommandLine.arguments.dropFirst()))
+            let arguments = CommandLine.arguments.dropFirst()
+            if arguments.contains("--rewrite") {
+                try await RewriteEvaluation.run(arguments)
+                return
+            }
+            try await run(Options(arguments))
         } catch {
             FileHandle.standardError.write(Data("SpeechTextEvaluation: \(error.localizedDescription)\n".utf8))
             exit(2)

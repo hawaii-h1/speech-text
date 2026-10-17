@@ -16,7 +16,7 @@ so a refresh reprices everything without a migration.
 | The date the table was checked | `UsagePrices.checked`, `SpeechText/SpeechText/HomeSummary.swift` |
 | The same table, written out for review | `ListPriceTests`, `SpeechText/SpeechTextTests/HomeSummaryTests.swift` |
 
-A price is one of `ListPrice`'s cases: `.free` (a model on the Mac, Ollama, Apple),
+A price is one of `ListPrice`'s cases: `.free` (a model on the Mac, Apple),
 `.listed(rates)`, or `.notPriced` for a model whose vendor publishes no price. The
 field is required, so a new model cannot be added without one. An unpriced model is
 named in Usage and Home, never charged at another model's rate.

@@ -868,7 +868,7 @@ struct DirectRecordingPanelView: View {
         guard TextRefinementService.isConfigured else {
             refineStatus = LLMConfiguration.providerType.needsAPIKey
                 ? "Set an LLM API key in Settings to use AI mode"
-                : "Pick an Ollama model in Settings to use AI mode"
+                : "Choose a model in Settings › AI Rewrite to use AI mode"
             refineFailed = true
             return
         }
