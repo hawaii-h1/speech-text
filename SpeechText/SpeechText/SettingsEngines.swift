@@ -255,6 +255,13 @@ struct SpeechEngineSettings: View {
             localModelID = id
             sttProvider = STTProviderType.local.rawValue
         }
+        // A model picked here is loaded now, not in front of the next dictation's paste.
+        .onChange(of: localModelID) { _, id in
+            if engine == .local { LocalSTT.prewarm(id) }
+        }
+        .onChange(of: sttProvider) { _, _ in
+            if engine == .local { LocalSTT.prewarm(localModelID) }
+        }
         .confirmationDialog("Remove \(removing.map(speechModelName) ?? "")?",
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
             Button("Remove", role: .destructive) {

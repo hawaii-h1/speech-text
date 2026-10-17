@@ -183,6 +183,11 @@ final class SpeechEngine {
         }
         configuration = .current(locale: locale)
         dlog("Engine", "startRecording: locale=\(locale), provider=\(providerType.rawValue)")
+        // A local model that is not loaded yet starts loading while the user speaks,
+        // rather than after the stop. Loaded already, this costs nothing.
+        if let configuration, configuration.provider == .local {
+            LocalSTT.prewarm(configuration.modelID(for: .local))
+        }
         editedText = ""
         pendingInsertionText = nil
         pendingInsertionSpans = []

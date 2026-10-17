@@ -196,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         registerLocalSTT()
+        prewarmSelectedLocalModel()
         registerSpellCheckedJoins()
         registerVocabularyHistory()
         registerVoiceActivity()

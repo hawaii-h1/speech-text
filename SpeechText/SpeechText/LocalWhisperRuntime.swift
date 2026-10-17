@@ -128,9 +128,12 @@ actor WhisperKitPipelineCache {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Releases the model. Called when it is removed from disk, so the memory goes with it.
-    func unload() async {
+    /// Releases the model if it is the one loaded. Called when a model is removed from
+    /// disk, so the memory goes with it, and with no folder by `LocalSTT.prewarm` of the
+    /// other engine, so only one local model is ever resident.
+    func unload(ifLoaded modelFolder: URL? = nil) async {
         _ = try? await serialized {
+            guard modelFolder == nil || self.folder == modelFolder else { return }
             self.pipe = nil
             self.folder = nil
         }

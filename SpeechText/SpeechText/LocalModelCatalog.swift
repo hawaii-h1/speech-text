@@ -241,9 +241,16 @@ enum LocalSTT {
         UnavailableLocalTranscriber(modelID: $0)
     }
 
-    /// Drops the loaded model from memory — `LocalModelStore.remove` calls it, so deleting
-    /// a model frees its RAM too instead of leaving it resident until the next switch.
-    nonisolated(unsafe) static var releaseModel: () -> Void = {}
+    /// Drops a model from memory if it is the one loaded — `LocalModelStore.remove` calls
+    /// it, so deleting a model frees its RAM too instead of leaving it resident until the
+    /// next switch. Only that model: removing another one must not cost the model in use a
+    /// reload in front of the next paste.
+    nonisolated(unsafe) static var releaseModel: (String) -> Void = { _ in }
+
+    /// Loads an installed model in the background, so its load lands before the dictation
+    /// that needs it rather than in front of the paste. A no-op for a model already loaded
+    /// or not on disk; it never downloads. Replaced at launch.
+    nonisolated(unsafe) static var prewarm: (String) -> Void = { _ in }
 }
 
 // MARK: - On-disk layout

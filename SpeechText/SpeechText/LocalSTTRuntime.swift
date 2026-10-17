@@ -48,13 +48,48 @@ func registerLocalSTT() {
         case nil: UnavailableLocalTranscriber(modelID: modelID)
         }
     }
-    // Both, unconditionally: Settings removed *a* model and we are not told which engine
-    // it belonged to, and unloading one that was never loaded costs nothing.
-    LocalSTT.releaseModel = {
+    LocalSTT.releaseModel = { modelID in
+        let folder = localModelFolder(for: modelID)
         Task {
-            await WhisperKitPipelineCache.shared.unload()
-            await ParakeetPipelineCache.shared.unload()
+            switch localSTTModel(id: modelID)?.engine {
+            case .whisperKit: await WhisperKitPipelineCache.shared.unload(ifLoaded: folder)
+            case .parakeet: await ParakeetPipelineCache.shared.unload(ifLoaded: folder)
+            case nil: break
+            }
+        }
+    }
+    LocalSTT.prewarm = { modelID in
+        guard let model = localSTTModel(id: modelID), isLocalModelInstalled(modelID) else { return }
+        let folder = localModelFolder(for: modelID)
+        Task.detached(priority: .utility) {
+            // The other engine's model goes first: the two caches are separate, and a
+            // switch from one to the other would otherwise keep both resident.
+            do {
+                switch model.engine {
+                case .whisperKit:
+                    await ParakeetPipelineCache.shared.unload()
+                    try await WhisperKitRuntime().prewarm(modelFolder: folder)
+                case .parakeet:
+                    await WhisperKitPipelineCache.shared.unload()
+                    try await ParakeetRuntime().prewarm(modelFolder: folder)
+                }
+            } catch {
+                dlog("LocalModel", "prewarm of \(modelID) failed: \(error.localizedDescription)")
+            }
         }
     }
     dlog("LocalModel", "local speech engines registered (WhisperKit, FluidAudio/Parakeet)")
+}
+
+/// Loads the local model the settings select, if the local tier is the engine in use.
+///
+/// Called at launch. Core ML keeps what it compiled for the Neural Engine in
+/// `~/Library/Caches/<bundle id>/com.apple.e5rt.e5bundlecache`, per macOS build and per
+/// model file, and a load without it compiles again: Parakeet v3 took 28.9 s that way on
+/// an M1 Pro (2026-10-16) against 0.2 s with it. A macOS update, the cache being purged
+/// or the model's files being replaced all empty it — and without this, the first
+/// dictation after the launch paid that wait before its paste.
+func prewarmSelectedLocalModel(defaults: UserDefaults = .standard) {
+    guard defaults.string(forKey: SettingsKeys.sttProvider) == STTProviderType.local.rawValue else { return }
+    LocalSTT.prewarm(defaults.string(forKey: SettingsKeys.localSTTModel) ?? Provider.local.defaultSpeechModel)
 }

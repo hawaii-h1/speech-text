@@ -170,7 +170,7 @@ final class LocalModelStore {
 
     func remove(_ model: LocalSTTModel) {
         cancelInstall(model)
-        LocalSTT.releaseModel()
+        LocalSTT.releaseModel(model.id)
         try? FileManager.default.removeItem(at: folder(for: model.id))
         states[model.id] = .notInstalled
         dlog("LocalModel", "removed \(model.id)")
