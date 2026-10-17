@@ -319,7 +319,8 @@ func knownSTTModels(of vendor: Provider) -> [STTModelDescriptor] {
 /// never renders blank.
 func pickerSTTModels(of vendor: Provider, selected: String) -> [STTModelDescriptor] {
     let offered = offeredSTTModels(of: vendor)
-    if offered.contains(where: { $0.id == selected }) { return offered }
+    // A cleared choice (`clearedModelChoice`) adds no row: nothing is selected until the user picks.
+    if selected.isEmpty || offered.contains(where: { $0.id == selected }) { return offered }
     return offered + [sttModel(vendor: vendor, id: selected)]
 }
 

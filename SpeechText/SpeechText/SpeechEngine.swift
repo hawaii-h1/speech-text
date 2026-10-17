@@ -132,6 +132,9 @@ final class SpeechEngine {
     /// LLM pass and `recordApps` attach to and which must never name a failed row.
     /// Cleared on each new session.
     private(set) var offlineRecordID: UUID?
+    /// The last segment failed because the vendor no longer serves the model
+    /// (`RecognitionOutcome.modelUnavailable`); the failure notice offers the picker.
+    private(set) var failedForModel = false
     /// Whether a segment that produced no words, with no error, is written to History
     /// (with its audio kept for a retry). Off for the Edit shortcut's instruction: saying
     /// nothing there means "just polish", and the edit writes its own record.
@@ -181,11 +184,21 @@ final class SpeechEngine {
             dlog("Engine", "startRecording: phase=\(phase), ignoring")
             return
         }
-        configuration = .current(locale: locale)
+        let configuration = RecordingConfiguration.current(locale: locale)
+        // Every caller is told the same way as for a microphone that would not open; the
+        // inline flow asks first, to offer the picker (`AppState.startRecording`).
+        guard !configuration.modelChoiceMissing else {
+            let message = "Choose a model for \(configuration.provider.vendor.modelChoiceTarget) in Settings to dictate."
+            dlog("Engine", "startRecording: no model chosen for \(configuration.provider.rawValue) — refused")
+            errorMessage = message
+            onStartFailure?(message)
+            return
+        }
+        self.configuration = configuration
         dlog("Engine", "startRecording: locale=\(locale), provider=\(providerType.rawValue)")
         // A local model that is not loaded yet starts loading while the user speaks,
         // rather than after the stop. Loaded already, this costs nothing.
-        if let configuration, configuration.provider == .local {
+        if configuration.provider == .local {
             LocalSTT.prewarm(configuration.modelID(for: .local))
         }
         editedText = ""
@@ -193,6 +206,7 @@ final class SpeechEngine {
         pendingInsertionSpans = []
         lastRecordID = nil
         offlineRecordID = nil
+        failedForModel = false
         spanLayer.reset()
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -797,6 +811,7 @@ final class SpeechEngine {
         let tooShortToRetry = failure != nil && duration < STTTuning.minimumSegmentSeconds
         let audioURL = outcome.audioFileURL ?? (tooShortToRetry ? nil : (try? writer?.writeAudioFile()) ?? nil)
         if let error = failure {
+            if outcome.modelUnavailable, !superseded { failedForModel = true }
             let id = history.recordFailure(error: error, provider: provider, model: model, locale: locale,
                                            duration: duration, audioURL: audioURL, usage: outcome.usage)
             if outcome.offline, !superseded, history.record(id: id)?.isRetryable == true {

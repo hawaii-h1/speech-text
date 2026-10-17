@@ -858,7 +858,8 @@ struct HomeEngines: View {
         let provider = STTProviderType(rawValue: sttProvider) ?? .apple
         switch provider {
         case .apple: return "Apple · On-device"
-        case .local: return "On this Mac · \(localSTTModel(id: localSTTModelID)?.displayName ?? localSTTModelID)"
+        case .local:
+            return "On this Mac · \(localSTTModel(id: localSTTModelID)?.displayName ?? (localSTTModelID.isEmpty ? "Choose a model" : localSTTModelID))"
         case .groq: return cloudEngine(provider, model: groqModel)
         case .elevenlabs: return cloudEngine(provider, model: elevenLabsModel)
         case .openai: return cloudEngine(provider, model: openAISTTModel)
@@ -866,7 +867,8 @@ struct HomeEngines: View {
     }
 
     private func cloudEngine(_ provider: STTProviderType, model id: String) -> String {
-        "\(provider.vendor.displayName) · \(Self.plainName(sttModel(vendor: provider.vendor, id: id).displayName))"
+        guard id != clearedModelChoice else { return "\(provider.vendor.displayName) · Choose a model" }
+        return "\(provider.vendor.displayName) · \(Self.plainName(sttModel(vendor: provider.vendor, id: id).displayName))"
     }
 
     private var languages: String {
@@ -885,7 +887,7 @@ struct HomeEngines: View {
                 + Text("Choose a provider").foregroundStyle(MainColor.aiInk)
         }
         let id = LLMConfiguration.model(for: type)
-        let listed = chatModel(provider: type, id: id).displayName
+        let listed = id == clearedModelChoice ? "Choose a model" : chatModel(provider: type, id: id).displayName
         let (vendor, name): (String, String) = switch type {
         case .anthropic: ("Claude", Self.plainName(listed).replacingOccurrences(of: "Claude ", with: ""))
         case .groq: ("Groq", Self.plainName(listed))

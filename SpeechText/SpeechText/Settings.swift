@@ -443,10 +443,10 @@ func normalizeStoredProviders(in defaults: UserDefaults,
     // reaches only new installs. The local model is written down first if it was never
     // set (see below).
     preserveInstalledLocalModel(in: defaults, onDisk: localModelOnDisk)
-    let moved = migrateStoredModels(in: defaults)
-    // A choice cleared just now stays unset: the user is asked to pick (the notice), and
-    // pinning the default over it would make it look chosen.
-    pinUntouchedModelChoices(in: defaults, except: Set(moved.filter { $0.to == nil }.map(\.settingsKey)))
+    migrateStoredModels(in: defaults)
+    // A choice cleared just now holds `clearedModelChoice`, which pinning leaves alone:
+    // the user is asked to pick.
+    pinUntouchedModelChoices(in: defaults)
 }
 
 /// Keeps a local-tier user on the model they actually downloaded when the *default*

@@ -179,6 +179,9 @@ struct RecordingConfiguration {
     /// `modelInstalled` is a parameter so the check stays testable without a filesystem.
     func batchUnavailableReason(modelInstalled: (String) -> Bool = { isLocalModelInstalled($0) }) -> String? {
         let batch = batchDescriptor
+        if models[batch.vendor] == clearedModelChoice {
+            return "Choose a model for \(batch.vendor.modelChoiceTarget) in Settings."
+        }
         switch batch.requirement {
         case .none:
             return nil
@@ -191,7 +194,12 @@ struct RecordingConfiguration {
         }
     }
 
-    /// The speech model stored for a provider, else its default.
+    /// The engine in use has no model chosen: the launch cleared one that leads to no
+    /// model on offer (`clearedModelChoice`), and a dictation is refused until the user
+    /// picks — never run on the default in its place (the owner's call, 2026-10-17).
+    var modelChoiceMissing: Bool { models[provider.vendor] == clearedModelChoice }
+
+    /// The speech model stored for a provider, else its default; empty for a cleared choice.
     func modelID(for vendor: Provider) -> String {
         models[vendor] ?? vendor.defaultSpeechModel
     }

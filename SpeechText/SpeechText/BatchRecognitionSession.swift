@@ -102,6 +102,7 @@ final class BatchRecognitionSession: RecognitionSession {
             return RecognitionOutcome(text: "", error: error.localizedDescription,
                                       audioFileURL: fileURL, cancelled: false,
                                       offline: NetworkFailure.isOffline(error),
+                                      modelUnavailable: (error as? TranscriptionError)?.isModelUnavailable == true,
                                       usage: NetworkFailure.isOffline(error) ? [] : event(nil, succeeded: false))
         }
     }

@@ -104,13 +104,20 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
   launched a release with it before the default moved. A realtime model's fallback
   (`batchUpload: .model(id)`) is its own decision.
 - A better model, same vendor, the old one still working: mark the old one
-  `.superseded(by:)`. It stays offered; nothing moves by itself.
+  `.superseded(by:)`. It stays offered; nothing moves by itself. Its picker row says
+  "Newer model available" with Switch to it, and whoever has it is told once at a
+  dictation (`pendingModelNotice`) — for a local model, that the new version is
+  recommended, never downloaded for them.
 - Retiring a model (the vendor announced a shutdown): **never delete the entry.** Set
   `lifecycle: .deprecated(Deprecation(announced:shutdown:replacement:source:))` with the
   vendor's dates, its recommended replacement *of the same vendor* and its page. The model
   leaves the pickers and setup; the first launch of the release moves every stored choice
   to the replacement (`migrateStoredModels`, chains followed) and records the move in
-  `modelMigrations`; History keeps its name and price. A local model is never deprecated,
+  `modelMigrations`, which the first dictation after the update tells once, with the
+  shutdown date and the list-price difference (`pendingModelNotice`); History keeps its
+  name and price. A stored ID that leads to no offered model is cleared to
+  `clearedModelChoice` (an empty string, never pinned over): a dictation is refused, and AI
+  Rewrite pastes the text as dictated, until the user picks. A local model is never deprecated,
   only superseded — a launch must not point anyone at files they never downloaded.
   `ModelRetirement.termMonths` (6) after the shutdown date `testNoDeprecatedEntryHasOutlivedItsTerm`
   fails: move the entry to `archivedSpeechModels` / `archivedChatModels` (ID, vendor, name,
@@ -245,7 +252,8 @@ Kinds: `stt`, `realtime`, `llm`, `key` (a new API key), `docs`. Check: `compiler
 stt      | SpeechText/SpeechText/Transcribers.swift              | enum STTProviderType                          | compiler    | case, displayName
 stt      | SpeechText/SpeechText/Transcribers.swift              | protocol BatchTranscriber                     | manual:file | an own-API transcriber struct, if it is not OpenAI-compatible
 stt      | SpeechText/SpeechText/Transcribers.swift              | func makeBatchTranscriber                     | compiler    | a case returning the transcriber with configuration.batchModel
-stt      | SpeechText/SpeechText/Transcribers.swift              | private func providerErrorReason              | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
+stt      | SpeechText/SpeechText/Transcribers.swift              | func providerErrorReason                      | review      | a candidate for a new error JSON shape, and a ProviderErrorMessageTests case
+stt      | SpeechText/SpeechText/ModelLifecycle.swift            | enum ModelUnavailableReply                    | review      | the vendor's "no such model" reply, measured with a real key, and its literal body in ModelUnavailableReplyTests
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | var vendor: Provider                          | compiler    | STTProviderType.vendor: the engine's provider
 stt      | SpeechText/SpeechText/STTModelCatalog.swift           | let sttModelCatalog                           | manual      | one descriptor per model, with a dated comment on why it is offered
 stt      | SpeechText/SpeechText/RecognitionSessionFactory.swift | func makeRecognitionSession                   | compiler    | add the case to the cloud list
@@ -261,6 +269,7 @@ realtime | SpeechText/SpeechText/NetworkFailure.swift            | static func i
 llm      | SpeechText/SpeechText/ChatClients.swift               | enum LLMProviderType                          | compiler    | case, displayName, needsAPIKey
 llm      | SpeechText/SpeechText/ChatClients.swift               | let chatModelCatalog                          | manual      | the vendor's models with their switches
 llm      | SpeechText/SpeechText/ChatClients.swift               | static func makeChatClient                    | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct
+llm      | SpeechText/SpeechText/ModelLifecycle.swift            | enum ModelUnavailableReply                    | review      | the vendor's "no such model" chat reply, measured, if its shape is new
 llm      | SpeechText/SpeechText/Settings.swift                  | enum SettingsKeys                             | manual      | the chat model key, named in the descriptor's chatModel
 llm      | SpeechText/SpeechText/SettingsEngines.swift           | func onlineAIServiceLine                      | review      | Settings › AI Rewrite lists every keyed pick by itself; add its line here, and each model's in chatModelLine
 llm      | SpeechText/SpeechTextTests/PureLogicTests.swift       | final class ChatRequestBodyTests              | manual      | each model's whole request body, written out

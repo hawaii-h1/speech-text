@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import XCTest
 
 /// The catalogues' lifecycle (#19): what is offered, what is still known, where a retired
@@ -258,10 +259,42 @@ final class ModelLifecycleTests: XCTestCase {
 
         normalizeStoredProviders(in: defaults, localModelOnDisk: { _ in false })
 
-        XCTAssertNil(defaults.string(forKey: SettingsKeys.groqLLMModel))
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.groqLLMModel), clearedModelChoice)
         let move = storedModelMigrations(in: defaults).last
         XCTAssertEqual(move?.reason, .unavailable)
         XCTAssertNil(move?.to)
+
+        // The next launch neither pins the default over it nor records it again.
+        normalizeStoredProviders(in: defaults, localModelOnDisk: { _ in false })
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.groqLLMModel), clearedModelChoice)
+        XCTAssertEqual(storedModelMigrations(in: defaults).count, 1)
+    }
+
+    /// A cleared speech choice refuses the dictation, and a retry, until the user picks —
+    /// it is never run on the provider's default in its place.
+    func testAClearedSpeechChoiceRefusesTheDictation() {
+        let groq = RecordingConfiguration(provider: .groq, locale: "uk", localeIsAutomatic: false,
+                                          apiKeys: [.groq: "gsk_test"], models: [.groq: clearedModelChoice])
+        XCTAssertTrue(groq.modelChoiceMissing)
+        XCTAssertEqual(groq.batchUnavailableReason(modelInstalled: { _ in true }),
+                       "Choose a model for Groq in Settings.")
+
+        // Apple's retries upload to the Groq model, so a cleared Groq choice stops those too.
+        var apple = RecordingConfiguration(provider: .apple, locale: "uk", localeIsAutomatic: false,
+                                           apiKeys: [.groq: "gsk_test"], models: [.groq: clearedModelChoice])
+        XCTAssertFalse(apple.modelChoiceMissing)
+        XCTAssertNotNil(apple.batchUnavailableReason(modelInstalled: { _ in true }))
+
+        apple.models = [:]
+        XCTAssertNil(apple.batchUnavailableReason(modelInstalled: { _ in true }))
+    }
+
+    /// A cleared choice selects nothing in a picker — no row is added for it.
+    func testAClearedChoiceAddsNoPickerRow() {
+        XCTAssertEqual(pickerSTTModels(of: .groq, selected: clearedModelChoice).map(\.id),
+                       offeredSTTModels(of: .groq).map(\.id))
+        XCTAssertEqual(pickerChatModels(of: .groq, selected: clearedModelChoice).map(\.id),
+                       offeredChatModels(of: .groq).map(\.id))
     }
 
     /// An install that never picked a model has the one it runs written down, so a later
@@ -316,5 +349,178 @@ final class ModelLifecycleTests: XCTestCase {
         XCTAssertEqual(SettingsKeys.modelNoticesShown, "modelNoticesShown")
         XCTAssertFalse(SettingsKeys.portable.contains(SettingsKeys.modelMigrations))
         XCTAssertFalse(SettingsKeys.portable.contains(SettingsKeys.modelNoticesShown))
+    }
+}
+
+/// Which vendor replies say the model is not served (`ModelUnavailableReply`), against the
+/// bodies the vendors sent on 2026-10-17 (request IDs shortened). Nothing retries on them;
+/// they put the model picker on the failure notice.
+final class ModelUnavailableReplyTests: XCTestCase {
+    func testEachVendorsMissingModelReplyIsRecognised() {
+        let replies = [
+            // OpenAI, transcription and chat alike (404).
+            """
+            {
+                "error": {
+                    "message": "The model `gpt-nonexistent-transcribe` does not exist or you do not have access to it.",
+                    "type": "invalid_request_error",
+                    "param": null,
+                    "code": "model_not_found"
+                }
+            }
+            """,
+            // Groq (404).
+            #"{"error":{"message":"The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}"#,
+            // Groq, a model it switched off (400).
+            #"{"error":{"message":"The model `distil-whisper-large-v3-en` has been decommissioned and is no longer supported. Please refer to https://console.groq.com/docs/deprecations for a recommendation on which model to use instead.","type":"invalid_request_error","code":"model_decommissioned"}}"#,
+            // ElevenLabs (400).
+            #"{"detail":{"type":"validation_error","code":"unsupported_model","message":"'scribe_v0' is not a valid model_id. Available models: 'scribe_v1', 'scribe_v1_experimental', 'scribe_v2', 'scribe_v2_medical'","status":"invalid_model_id","request_id":"3934","param":"model_id"}}"#,
+            // Anthropic (404).
+            #"{"type":"error","error":{"type":"not_found_error","message":"model: claude-2.1"},"request_id":"req_011C"}"#,
+        ]
+        for body in replies {
+            XCTAssertTrue(ModelUnavailableReply.matches(body), body)
+        }
+    }
+
+    /// Anthropic's `not_found_error` is any 404 of its API, and other refusals are not
+    /// about the model at all.
+    func testOtherRepliesAreNot() {
+        let replies = [
+            #"{"type":"error","error":{"type":"not_found_error","message":"Not found"},"request_id":null}"#,
+            #"{"error":{"message":"Incorrect API key provided.","type":"invalid_request_error","param":null,"code":"invalid_api_key"}}"#,
+            #"{"detail":{"type":"authentication_error","code":"invalid_api_key","message":"Invalid API key"}}"#,
+            #"{"detail":"Not Found"}"#,
+            "Bad Gateway",
+            "",
+        ]
+        for body in replies {
+            XCTAssertFalse(ModelUnavailableReply.matches(body), body)
+        }
+    }
+
+    func testTheErrorsCarryIt() {
+        let gone = #"{"error":{"message":"The model `x` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}"#
+        XCTAssertTrue(TranscriptionError.httpError(.openAI, 404, gone).isModelUnavailable)
+        XCTAssertFalse(TranscriptionError.httpError(.openAI, 401, #"{"error":{"code":"invalid_api_key"}}"#).isModelUnavailable)
+        XCTAssertFalse(TranscriptionError.invalidResponse(.openAI).isModelUnavailable)
+
+        XCTAssertTrue(LLMError.httpError(404, gone).needsModelChoice)
+        XCTAssertTrue(LLMError.noModelChosen(.groq).needsModelChoice)
+        XCTAssertFalse(LLMError.httpError(429, "{}").needsModelChoice)
+        // The vendor's own words, not the JSON: the same reply means a key without access.
+        XCTAssertEqual(LLMError.httpError(404, gone).errorDescription,
+                       "The model isn't available: The model `x` does not exist or you do not have access to it. (HTTP 404)")
+    }
+}
+
+/// What the first dictation after an update says about the model in use (#19).
+final class ModelNoticeTests: XCTestCase {
+    private let moved = ModelMigration(settingsKey: SettingsKeys.openAISTTModel, from: "gpt-4o-mini-transcribe",
+                                       to: "gpt-transcribe", reason: .deprecated, date: Date(timeIntervalSince1970: 0))
+    private let inUse = ModelSettingsInUse(speechKey: SettingsKeys.openAISTTModel, chatKey: SettingsKeys.groqLLMModel)
+
+    func testAMoveOffARetiringModelIsToldOnceWithTheDateAndPrice() throws {
+        let stored = [SettingsKeys.openAISTTModel: "gpt-transcribe", SettingsKeys.groqLLMModel: "openai/gpt-oss-120b"]
+        let notice = try XCTUnwrap(pendingModelNotice(inUse: inUse, stored: { stored[$0] },
+                                                      migrations: [moved], shown: []))
+        XCTAssertEqual(notice.title, "Now using GPT Transcribe")
+        XCTAssertEqual(notice.detail,
+                       "GPT-4o mini Transcribe retires on 26 Feb 2027. +$0.0015/min.")
+        XCTAssertEqual(notice.action, .openSettings(.speech))
+
+        XCTAssertNil(pendingModelNotice(inUse: inUse, stored: { stored[$0] }, migrations: [moved], shown: [notice.id]))
+    }
+
+    /// A move is told only while it still describes the setting: not once the user picked
+    /// something else, and not for a provider not in use.
+    func testAStaleOrUnusedMoveIsNotTold() {
+        let picked = [SettingsKeys.openAISTTModel: openAIRealtimeSTTModel]
+        XCTAssertNil(pendingModelNotice(inUse: inUse, stored: { picked[$0] }, migrations: [moved], shown: []))
+
+        let elsewhere = ModelSettingsInUse(speechKey: SettingsKeys.groqModel, chatKey: nil)
+        let stored = [SettingsKeys.openAISTTModel: "gpt-transcribe", SettingsKeys.groqModel: "whisper-large-v3-turbo"]
+        XCTAssertNil(pendingModelNotice(inUse: elsewhere, stored: { stored[$0] }, migrations: [moved], shown: []))
+    }
+
+    /// A dictation refused for want of a model names the one the launch cleared.
+    func testTheRefusalNamesTheClearedModel() {
+        let cleared = ModelMigration(settingsKey: SettingsKeys.groqLLMModel, from: "llama-3.3-70b-versatile",
+                                     to: nil, reason: .unavailable, date: Date(timeIntervalSince1970: 0))
+        let notice = modelChoiceNotice(settingsKey: SettingsKeys.groqLLMModel, role: .chat, migrations: [cleared])
+        XCTAssertEqual(notice.title, "Choose a model for Groq")
+        XCTAssertEqual(notice.detail, "llama-3.3-70b-versatile is no longer available.")
+        XCTAssertEqual(notice.action, .openSettings(.chat))
+
+        let unnamed = modelChoiceNotice(settingsKey: SettingsKeys.groqModel, role: .speech, migrations: [])
+        XCTAssertEqual(unnamed.title, "Choose a model for Groq")
+        XCTAssertEqual(unnamed.detail, "Dictation waits for your pick.")
+        XCTAssertEqual(modelChoiceNotice(settingsKey: SettingsKeys.localSTTModel, role: .speech, migrations: []).title,
+                       "Choose a model for this Mac")
+    }
+
+    /// Nothing in today's catalogue is superseded, so a current model owes no notice.
+    func testACurrentModelOwesNothing() {
+        let stored = [SettingsKeys.openAISTTModel: "gpt-transcribe", SettingsKeys.groqLLMModel: "openai/gpt-oss-120b"]
+        XCTAssertNil(pendingModelNotice(inUse: inUse, stored: { stored[$0] }, migrations: [], shown: []))
+    }
+
+    /// Every notice fits the status notice as laid out: the title on one line, the detail
+    /// on two (`StatusOverlayView`: 12 pt semibold and 11 pt, 272 pt of text beside the
+    /// icon), less the action button — its title's width plus an estimated 24 pt of
+    /// bordered padding, and 12 pt of spacing. Checked for every model a launch could move
+    /// today and, for a cleared choice, the longest ID each vendor lists.
+    func testEveryNoticeFits() {
+        var notices: [ModelNotice] = []
+        var keys: [(key: String, role: ModelNotice.Role, ids: [String])] = []
+        for vendor in Provider.allCases {
+            if let key = vendor.descriptor.speechModel?.settingsKey {
+                keys.append((key, .speech, knownSTTModels(of: vendor).map(\.id)))
+            }
+        }
+        for type in LLMProviderType.allCases where type.vendor.descriptor.chatModel?.normalized == true {
+            if let key = type.vendor.descriptor.chatModel?.settingsKey {
+                keys.append((key, .chat, knownChatModels(of: type).map(\.id)))
+            }
+        }
+        for (key, role, ids) in keys {
+            let longest = ids.max { $0.count < $1.count } ?? "x"
+            let cleared = ModelMigration(settingsKey: key, from: longest, to: nil, reason: .unavailable, date: Date())
+            notices.append(modelChoiceNotice(settingsKey: key, role: role, migrations: [cleared]))
+        }
+        for vendor in Provider.allCases {
+            guard let key = vendor.descriptor.speechModel?.settingsKey else { continue }
+            for model in knownSTTModels(of: vendor) where model.lifecycle.deprecation != nil {
+                let to = resolvedReplacement(of: model.id) { speechLifecycleLink(vendor: vendor, id: $0) }
+                let move = ModelMigration(settingsKey: key, from: model.id, to: to, reason: .deprecated, date: Date())
+                let inUse = ModelSettingsInUse(speechKey: key, chatKey: nil)
+                if let notice = pendingModelNotice(inUse: inUse, stored: { _ in to }, migrations: [move], shown: []) {
+                    notices.append(notice)
+                }
+            }
+        }
+        XCTAssertGreaterThan(notices.count, 5)
+
+        func height(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular, width: CGFloat) -> CGFloat {
+            NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: size, weight: weight)])
+                .boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
+                              options: .usesLineFragmentOrigin).height
+        }
+        for notice in notices {
+            let button = NSAttributedString(string: notice.actionTitle,
+                                            attributes: [.font: NSFont.systemFont(ofSize: 11)]).size().width + 24
+            let width = 272 - button - 12
+            XCTAssertLessThanOrEqual(height(notice.title, size: 12, weight: .semibold, width: width),
+                                     height("Ag", size: 12, weight: .semibold, width: width), notice.title)
+            XCTAssertLessThanOrEqual(height(notice.detail, size: 11, width: width),
+                                     height("Ag\nAg", size: 11, width: width), notice.detail)
+        }
+    }
+
+    func testDollars() {
+        XCTAssertEqual(dollars(0.003), "$0.003")
+        XCTAssertEqual(dollars(0.0015), "$0.0015")
+        XCTAssertEqual(dollars(2.5), "$2.5")
+        XCTAssertEqual(dollars(15), "$15")
     }
 }

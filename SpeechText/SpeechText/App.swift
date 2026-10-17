@@ -889,6 +889,16 @@ final class AppState {
 
     private func startRecording() {
         let began = ProcessInfo.processInfo.systemUptime
+        // A choice the launch cleared is the user's to make again (#19): the dictation is
+        // refused with the picker on offer, before the overlay or the microphone opens.
+        let engine = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider).flatMap(STTProviderType.init) ?? .apple
+        if let key = engine.vendor.descriptor.speechModel?.settingsKey,
+           UserDefaults.standard.string(forKey: key) == clearedModelChoice {
+            dlog("App", "startRecording: no model chosen for \(key) — refused")
+            show(modelChoiceNotice(settingsKey: key, role: .speech,
+                                   migrations: storedModelMigrations(in: .standard)))
+            return
+        }
         isTestDictation = dictationTest.isActive
         let front = NSWorkspace.shared.frontmostApplication
         if isTestDictation {
@@ -924,6 +934,9 @@ final class AppState {
         // result belongs to the setup window that has long moved on by then.
         speechEngine.onSavedOffline = isTestDictation ? nil : { id in MainActor.assumeIsolated { OfflineRetry.shared.enqueue(id) } }
         speechEngine.startRecording(locale: locale)
+        // Not over a start that failed at once: its notice is the one to read, and this
+        // one would be spent unseen.
+        if speechEngine.isStartingEngine || speechEngine.isRecording { showModelNoticeOnce() }
         // The overlay was ordered front above, but draws only once this returns.
         let held = ProcessInfo.processInfo.systemUptime - began
         dlog("App", "\(held > 0.25 ? "⚠ " : "")startRecording held the main thread \(Int(held * 1000)) ms — the overlay draws after it")
@@ -1044,6 +1057,20 @@ final class AppState {
             if let recordID = speechEngine.offlineRecordID {
                 // Not an error to read: nothing is lost, it is waiting in History.
                 showSavedOffline(recordID)
+            } else if speechEngine.failedForModel {
+                // Not "switched off": the same reply means a key without access. The
+                // vendor's words are in History (a tap opens it), with the audio to retry
+                // once a model is chosen.
+                showStatus(
+                    icon: "exclamationmark.triangle.fill",
+                    title: "This model isn't available",
+                    detail: "The service won't serve it to your key. The recording is in History.",
+                    tint: .orange,
+                    duration: 10,
+                    action: StatusOverlayAction(title: "Choose") { [weak self] in
+                        self?.perform(.openSettings(.speech))
+                    }
+                )
             } else {
                 showStatus(
                     icon: "exclamationmark.triangle.fill",
@@ -1186,12 +1213,25 @@ final class AppState {
                 // Never lose the dictation: fall back to the raw transcript, but say so
                 // rather than pasting unrewritten text with no explanation.
                 dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript")
-                self.showStatus(
-                    icon: "sparkles.slash",
-                    title: "AI processing failed",
-                    detail: "\(error.localizedDescription) Pasted the raw transcription.",
-                    tint: .orange
-                )
+                if case LLMError.noModelChosen? = error as? LLMError,
+                   let key = LLMConfiguration.providerType.vendor.descriptor.chatModel?.settingsKey {
+                    let notice = modelChoiceNotice(settingsKey: key, role: .chat,
+                                                   migrations: storedModelMigrations(in: .standard))
+                    self.show(notice, detail: "\(notice.detail) Pasted the raw transcription.")
+                } else {
+                    self.showStatus(
+                        icon: "sparkles.slash",
+                        title: "AI processing failed",
+                        detail: (error as? LLMError)?.needsModelChoice == true
+                            ? "The model isn't available to your key. Pasted the raw transcription."
+                            : "\(error.localizedDescription) Pasted the raw transcription.",
+                        tint: .orange,
+                        duration: (error as? LLMError)?.needsModelChoice == true ? 10 : 5,
+                        action: (error as? LLMError)?.needsModelChoice == true
+                            ? StatusOverlayAction(title: "Choose") { [weak self] in self?.perform(.openSettings(.chat)) }
+                            : nil
+                    )
+                }
             }
             self.isRefining = false
             self.refinementTask = nil
@@ -2051,6 +2091,43 @@ final class AppState {
         let detail = texts.count == 1 ? texts[0] : "\(texts.count) dictations, oldest first."
         showStatus(icon: "doc.on.clipboard", title: "Back online — copied to the clipboard",
                    detail: detail, tint: Semantic.confirmation, duration: 10)
+    }
+
+    // MARK: - Model lifecycle
+
+    /// The next notice the model lifecycle owes (`pendingModelNotice`): a model the launch
+    /// moved off one its vendor is retiring, or a newer one on offer. One per dictation,
+    /// each once; not during setup's Try it.
+    private func showModelNoticeOnce() {
+        guard !isTestDictation else { return }
+        let defaults = UserDefaults.standard
+        let shown = defaults.stringArray(forKey: SettingsKeys.modelNoticesShown) ?? []
+        guard let notice = pendingModelNotice(inUse: ModelSettingsInUse(defaults),
+                                              stored: { defaults.string(forKey: $0) },
+                                              migrations: storedModelMigrations(in: defaults),
+                                              shown: Set(shown)) else { return }
+        dlog("App", "model notice: \(notice.id)")
+        defaults.set(shown + [notice.id], forKey: SettingsKeys.modelNoticesShown)
+        show(notice, tint: .secondary)
+    }
+
+    private func show(_ notice: ModelNotice, detail: String? = nil, tint: Color = .orange) {
+        showStatus(icon: "cpu", title: notice.title, detail: detail ?? notice.detail, tint: tint, duration: 10,
+                   action: StatusOverlayAction(title: notice.actionTitle) { [weak self] in
+                       self?.perform(notice.action)
+                   })
+    }
+
+    private func perform(_ action: ModelNotice.Action) {
+        hideStatus()
+        switch action {
+        case .openSettings(let role):
+            NotificationCenter.default.post(name: .openSettingsPage,
+                                            object: role == .speech ? SettingsCategory.speech : SettingsCategory.ai)
+        case .switchModel(let key, let id):
+            dlog("App", "model notice: \(key) switched to \(id)")
+            UserDefaults.standard.set(id, forKey: key)
+        }
     }
 
     // MARK: - Microphone

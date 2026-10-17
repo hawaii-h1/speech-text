@@ -128,6 +128,10 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
     /// The chat model used while none is stored; empty for a provider with none.
     var defaultChatModel: String { descriptor.chatModel?.defaultID ?? "" }
 
+    /// What a model is chosen *for* in a notice — "Choose a model for OpenAI", and for
+    /// the local tier "for this Mac" — worded so no article depends on the name.
+    var modelChoiceTarget: String { self == .local ? "this Mac" : displayName }
+
     /// The phrase the retry notice uses — "a Groq API key", "an OpenAI API key".
     var apiKeyPhrase: String {
         let article = "AEIOU".contains(displayName.prefix(1)) ? "an" : "a"

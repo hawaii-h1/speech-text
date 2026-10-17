@@ -262,15 +262,21 @@ enum LLMError: LocalizedError {
     case refused(String?)
     case emptyResponse
     case noLocalModel
+    /// The choice of model was cleared because the one stored leads to no model on offer
+    /// (`clearedModelChoice`), and the user has not picked another.
+    case noModelChosen(LLMProviderType)
 
     var errorDescription: String? {
         switch self {
         case .missingAPIKey(let p): "No API key set for \(p.displayName)"
         case .invalidResponse: "Invalid response from the LLM API"
+        case .httpError(let code, let body) where ModelUnavailableReply.matches(body):
+            "The model isn't available: \(providerErrorReason(in: body) ?? "the service no longer serves it.") (HTTP \(code))"
         case .httpError(let code, let body): "LLM API error HTTP \(code): \(body)"
         case .refused(let why): "The model declined the request\(why.map { ": \($0)" } ?? "")"
         case .emptyResponse: "The model returned an empty response"
         case .noLocalModel: "No Ollama model selected — pick or download one in Settings"
+        case .noModelChosen(let p): "No model chosen for \(p.displayName) — choose one in Settings"
         }
     }
 }
@@ -515,7 +521,8 @@ enum LLMConfiguration {
         type.vendor.descriptor.apiKey.map { APIKeyStore.shared.value(for: $0.settingsKey) } ?? ""
     }
 
-    /// The chat model stored for the pick, else its provider's default.
+    /// The chat model stored for the pick, else its provider's default; empty for a choice
+    /// the launch cleared (`clearedModelChoice`).
     static func model(for type: LLMProviderType) -> String {
         let setting = type.vendor.descriptor.chatModel
         return setting?.settingsKey.flatMap { UserDefaults.standard.string(forKey: $0) } ?? setting?.defaultID ?? ""
@@ -538,7 +545,9 @@ enum LLMConfiguration {
         }
         let key = apiKey(for: type).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw LLMError.missingAPIKey(type) }
-        let model = chatModel(provider: type, id: model(for: type))
+        let id = model(for: type)
+        guard id != clearedModelChoice else { throw LLMError.noModelChosen(type) }
+        let model = chatModel(provider: type, id: id)
 
         switch type {
         case .groq:

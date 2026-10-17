@@ -95,6 +95,9 @@ struct RecognitionOutcome {
     /// than shown the provider's error, and the archived audio is retried once the
     /// network is back.
     var offline = false
+    /// The vendor answered that the model is not served (`ModelUnavailableReply`): the
+    /// failure notice offers the model picker. Nothing retries on it.
+    var modelUnavailable = false
     /// Every request the segment cost (`UsageEvent`) — on an empty or failed outcome too,
     /// since a request the vendor answered was billed whatever the answer held.
     var usage: [UsageEvent] = []

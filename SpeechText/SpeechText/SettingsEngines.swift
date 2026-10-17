@@ -330,6 +330,12 @@ struct SpeechEngineSettings: View {
                     Text("Getting ready for your Mac — first time only").rowNote()
                 case .installed:
                     Text("✓ Downloaded").rowNote(ok: true)
+                    if let next = newerLocalVersion(of: model) {
+                        // Never downloaded for the user: a newer version is recommended,
+                        // and choosing it downloads it and switches once it is ready.
+                        Button("Newer version: \(speechModelName(next))") { pickLocal(next) }
+                            .buttonStyle(SetupInlineLinkStyle())
+                    }
                     Button("Remove") {
                         if engine == .local && localModelID == model.id { removing = model } else { remove(model) }
                     }
@@ -341,6 +347,14 @@ struct SpeechEngineSettings: View {
             }
             .padding(.top, 4)
         }
+    }
+
+    /// The local model that supersedes this one, when it is not on the Mac already — the
+    /// row then offers it; once both are, the old one's Remove is what is left to do.
+    private func newerLocalVersion(of model: LocalSTTModel) -> LocalSTTModel? {
+        guard case .superseded(let id) = model.lifecycle, let next = localSTTModel(id: id),
+              !store.state(for: id).isUsable else { return nil }
+        return next
     }
 
     /// Choosing a model that is not on this Mac yet downloads it, and the engine switches
@@ -412,6 +426,11 @@ struct SpeechEngineSettings: View {
                         if keyed { sttProvider = card.engine.rawValue }
                     }
                 }
+                ModelChoiceNote(stored: storedModel(card.service),
+                                successor: { offeredSuccessor(of: $0, among: offeredSTTModels(of: card.service).map(\.id),
+                                                              lifecycle: sttModel(vendor: card.service, id: $0).lifecycle) },
+                                name: { onlineSpeechModelName(sttModel(vendor: card.service, id: $0)) },
+                                choose: { setStoredModel($0, for: card.service) })
                 // The provider's own note (what its server is asked to leave out) and the
                 // selected model's (how a realtime stream falls back), from the catalogue.
                 let note = [card.service.descriptor.speechModel?.caption,
@@ -649,6 +668,11 @@ struct AIEngineSettings: View {
                         if keyed { llmProvider = card.pick.rawValue }
                     }
                 }
+                ModelChoiceNote(stored: storedModel(card.pick),
+                                successor: { offeredSuccessor(of: $0, among: offeredChatModels(of: card.pick).map(\.id),
+                                                              lifecycle: chatModel(provider: card.pick, id: $0).lifecycle) },
+                                name: { chatModelName(chatModel(provider: card.pick, id: $0)) },
+                                choose: { setStoredModel($0, for: card.pick) })
                 SettingsKeyField(service: card.service, value: keyBinding(card.service), showsHeader: false)
                     .padding(.top, 6)
                 if !selected && keyed {
@@ -669,7 +693,42 @@ struct AIEngineSettings: View {
 /// A model the vendor is retiring says so, with the date, in place of any other badge. It
 /// is listed only while it is still the one selected (`pickerSTTModels`).
 private func lifecycleBadge(_ lifecycle: ModelLifecycle) -> SetupBadge? {
-    lifecycle.status(on: Date()).map { SetupBadge(text: $0, kind: .warn) }
+    if case .superseded = lifecycle { return SetupBadge(text: "Newer model available", kind: .quality) }
+    return lifecycle.status(on: Date()).map { SetupBadge(text: $0, kind: .warn) }
+}
+
+/// The offered model a superseded one points to, or nil.
+private func offeredSuccessor(of id: String, among offered: [String], lifecycle: ModelLifecycle) -> String? {
+    guard case .superseded(let next) = lifecycle, offered.contains(next) else { return nil }
+    return next
+}
+
+/// Under a service's models: what the stored choice needs from the user — a model to be
+/// chosen when the launch cleared one that leads nowhere (#19), or the switch to the
+/// model a newer one supersedes it with. Nothing otherwise.
+private struct ModelChoiceNote: View {
+    let stored: String
+    let successor: (String) -> String?
+    let name: (String) -> String
+    let choose: (String) -> Void
+
+    var body: some View {
+        if stored == clearedModelChoice {
+            Text("Choose a model — the one you had is no longer available, and dictation waits for your pick.")
+                .rowNote(bad: true)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .padding(.top, 2)
+        } else if let next = successor(stored) {
+            HStack(spacing: 8) {
+                Text("\(name(next)) is newer.").rowNote()
+                Button("Switch to it") { choose(next) }
+                    .buttonStyle(SetupInlineLinkStyle())
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 2)
+        }
+    }
 }
 
 private extension Text {

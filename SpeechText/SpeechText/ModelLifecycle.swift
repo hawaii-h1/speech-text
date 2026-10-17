@@ -205,6 +205,15 @@ func storedModelVerdict(_ id: String, link: (String) -> LifecycleLink?) -> Store
     return .clear
 }
 
+/// What a model setting holds once its model led nowhere: an empty string, so the user
+/// picks (the owner's call, 2026-10-16). Not an absent key, which reads through to the
+/// provider's default and is pinned at the next launch — a cleared choice would quietly
+/// come back as the default, which is the silent move #19 exists to stop. A dictation on
+/// an engine whose choice is cleared is refused until the user picks
+/// (`RecordingConfiguration.modelChoiceMissing`), and AI Rewrite falls back to the text as
+/// dictated (`LLMError.noModelChosen`).
+let clearedModelChoice = ""
+
 /// Applies `storedModelVerdict` to every normalised model setting in `defaults` and
 /// appends what changed to `SettingsKeys.modelMigrations`. Takes the store, so the tests
 /// run it against an isolated suite.
@@ -224,7 +233,8 @@ func migrateStoredModels(in defaults: UserDefaults, now: Date = Date()) -> [Mode
 
     var moved: [ModelMigration] = []
     for (key, link) in settings {
-        guard let raw = defaults.string(forKey: key) else { continue }
+        // A choice already cleared waits for the user, and was recorded when it was cleared.
+        guard let raw = defaults.string(forKey: key), raw != clearedModelChoice else { continue }
         switch storedModelVerdict(raw, link: link) {
         case .keep:
             continue
@@ -233,8 +243,8 @@ func migrateStoredModels(in defaults: UserDefaults, now: Date = Date()) -> [Mode
             defaults.set(target, forKey: key)
             moved.append(ModelMigration(settingsKey: key, from: raw, to: target, reason: .deprecated, date: now))
         case .clear:
-            dlog("Settings", "\(key)=\"\(raw)\" leads to no model on offer — cleared")
-            defaults.removeObject(forKey: key)
+            dlog("Settings", "\(key)=\"\(raw)\" leads to no model on offer — cleared for the user to pick")
+            defaults.set(clearedModelChoice, forKey: key)
             moved.append(ModelMigration(settingsKey: key, from: raw, to: nil, reason: .unavailable, date: now))
         }
     }
@@ -264,18 +274,266 @@ func storedModelMigrations(in defaults: UserDefaults) -> [ModelMigration] {
 /// default moved, switching to the local tier would point at a model they never
 /// downloaded. The local tier is not pinned here at all: `preserveInstalledLocalModel`
 /// pins it to a model on disk, whichever engine is in use, and with none installed there
-/// is nothing to keep.
-func pinUntouchedModelChoices(in defaults: UserDefaults, except skipped: Set<String> = []) {
+/// is nothing to keep. A cleared choice (`clearedModelChoice`) is a stored value, so it is
+/// never pinned over.
+func pinUntouchedModelChoices(in defaults: UserDefaults) {
     let engine = defaults.string(forKey: SettingsKeys.sttProvider).flatMap(STTProviderType.init(rawValue:)) ?? .apple
     if engine != .local, let setting = engine.vendor.descriptor.speechModel, setting.normalized,
-       let key = setting.settingsKey, !skipped.contains(key), defaults.string(forKey: key) == nil {
+       let key = setting.settingsKey, defaults.string(forKey: key) == nil {
         dlog("Settings", "\(key) was never set — pinning \(setting.defaultID)")
         defaults.set(setting.defaultID, forKey: key)
     }
     let ai = defaults.string(forKey: SettingsKeys.llmProvider).flatMap(LLMProviderType.init(rawValue:)) ?? .groq
     if let setting = ai.vendor.descriptor.chatModel, setting.normalized,
-       let key = setting.settingsKey, !skipped.contains(key), defaults.string(forKey: key) == nil {
+       let key = setting.settingsKey, defaults.string(forKey: key) == nil {
         dlog("Settings", "\(key) was never set — pinning \(setting.defaultID)")
         defaults.set(setting.defaultID, forKey: key)
     }
+}
+
+// MARK: - A reply that says the model is gone
+
+/// Whether a vendor's error reply says the model asked for is not served — switched off,
+/// renamed, or never existed. Read from the body's codes, never the HTTP status, which
+/// differs per vendor for the same meaning. Measured 2026-10-16 and 2026-10-17 with the
+/// project's test keys (the literal bodies are in `ModelUnavailableReplyTests`):
+///
+/// - OpenAI and Groq: `error.code` `model_not_found` (404) — which also means the key has
+///   no access to a model that exists, so the notice keeps the vendor's own words rather
+///   than saying the model was switched off — and Groq's `model_decommissioned` (400);
+/// - ElevenLabs: `detail.code` `unsupported_model` (400);
+/// - Anthropic: `error.type` `not_found_error` with a message `model: <id>` (404). The type
+///   alone is any 404 of Anthropic's ("Not found" for an unknown path), so both are read.
+///
+/// Nothing retries on it (the owner's call, 2026-10-17): a model the catalogue retires is
+/// moved at launch before a request can name it, so the reply means a model nobody here
+/// knew was going, or a key without access — the user's to sort out in Settings, and the
+/// audio is in History for a retry.
+enum ModelUnavailableReply {
+    static func matches(_ body: String) -> Bool {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        if let error = json["error"] as? [String: Any] {
+            if let code = error["code"] as? String, ["model_not_found", "model_decommissioned"].contains(code) {
+                return true
+            }
+            if error["type"] as? String == "not_found_error",
+               (error["message"] as? String)?.hasPrefix("model: ") == true {
+                return true
+            }
+        }
+        if let detail = json["detail"] as? [String: Any], detail["code"] as? String == "unsupported_model" {
+            return true
+        }
+        return false
+    }
+}
+
+extension TranscriptionError {
+    /// The vendor answered that the model is not served (`ModelUnavailableReply`).
+    var isModelUnavailable: Bool {
+        if case .httpError(_, _, let body) = self { ModelUnavailableReply.matches(body) } else { false }
+    }
+}
+
+extension LLMError {
+    /// The vendor answered that the model is not served, or none is chosen: either way the
+    /// user's next step is the model picker.
+    var needsModelChoice: Bool {
+        switch self {
+        case .httpError(_, let body): ModelUnavailableReply.matches(body)
+        case .noModelChosen: true
+        default: false
+        }
+    }
+}
+
+// MARK: - Telling the user
+
+/// A one-time notice about the model in use, or the one that says a dictation needs a
+/// model picked. Built here, shown by `AppState` as a status notice whose action is one of
+/// `Action`'s.
+struct ModelNotice: Equatable {
+    enum Role: Equatable {
+        case speech, chat
+    }
+
+    enum Action: Equatable {
+        /// Opens Settings on the role's page.
+        case openSettings(Role)
+        /// Stores `id` under `settingsKey`.
+        case switchModel(settingsKey: String, to: String)
+    }
+
+    /// What `SettingsKeys.modelNoticesShown` records, so each is told once.
+    let id: String
+    let title: String
+    let detail: String
+    let actionTitle: String
+    let action: Action
+}
+
+/// The model settings a notice can be about: the speech engine's and the AI provider's
+/// in use (`nil` for one with no stored choice — Apple's speech, an AI provider without a
+/// list). Read from the store by `AppState`, handed in so the rules stay testable.
+struct ModelSettingsInUse: Equatable {
+    var speechKey: String?
+    var chatKey: String?
+
+    init(speechKey: String?, chatKey: String?) {
+        self.speechKey = speechKey
+        self.chatKey = chatKey
+    }
+
+    init(_ defaults: UserDefaults) {
+        let engine = defaults.string(forKey: SettingsKeys.sttProvider).flatMap(STTProviderType.init(rawValue:)) ?? .apple
+        let ai = defaults.string(forKey: SettingsKeys.llmProvider).flatMap(LLMProviderType.init(rawValue:)) ?? .groq
+        speechKey = engine.vendor.descriptor.speechModel.flatMap { $0.normalized ? $0.settingsKey : nil }
+        chatKey = ai.vendor.descriptor.chatModel.flatMap { $0.normalized ? $0.settingsKey : nil }
+    }
+}
+
+/// The next notice the first dictation after an update owes, or nil. Only about the
+/// settings in use — a move of a provider the user does not use is told if they switch
+/// to it — and only while the setting still holds what the move left there. In order: a
+/// model the vendor is retiring that the launch moved (`ModelMigration`), then a model in
+/// use that a newer one supersedes. A cleared choice is not here: a dictation that needs
+/// it is refused with `modelChoiceNotice` every time until the user picks.
+func pendingModelNotice(inUse: ModelSettingsInUse, stored: (String) -> String?,
+                        migrations: [ModelMigration], shown: Set<String>) -> ModelNotice? {
+    for (role, key) in [(ModelNotice.Role.speech, inUse.speechKey), (.chat, inUse.chatKey)] {
+        guard let key, let current = stored(key) else { continue }
+        if let move = migrations.last(where: { $0.settingsKey == key && $0.reason == .deprecated && $0.to == current }),
+           !shown.contains(move.noticeID) {
+            return movedNotice(move, role: role)
+        }
+        if let offer = supersededNotice(key: key, id: current, role: role), !shown.contains(offer.id) {
+            return offer
+        }
+    }
+    return nil
+}
+
+/// The notice a dictation (or an AI pass) that needs a model is refused with: names the
+/// model the launch cleared when a move recorded it, and opens the picker.
+func modelChoiceNotice(settingsKey key: String, role: ModelNotice.Role, migrations: [ModelMigration]) -> ModelNotice {
+    let naming = ModelNaming(key: key)
+    let old = migrations.last { $0.settingsKey == key && $0.to == nil }.map { naming.name(of: $0.from) }
+    return ModelNotice(
+        id: "choose:\(key)",
+        title: "Choose a model for \(naming.target)",
+        detail: old.map { "\($0) is no longer available." }
+            ?? (role == .speech ? "Dictation waits for your pick." : "AI Rewrite waits for your pick."),
+        actionTitle: "Choose",
+        action: .openSettings(role))
+}
+
+extension ModelMigration {
+    /// What `SettingsKeys.modelNoticesShown` records once this move was told.
+    var noticeID: String { "moved:\(settingsKey):\(from)" }
+}
+
+private func movedNotice(_ move: ModelMigration, role: ModelNotice.Role) -> ModelNotice {
+    let naming = ModelNaming(key: move.settingsKey)
+    let new = move.to ?? ""
+    let when = naming.shutdown(of: move.from).map { "retires on \(ModelRetirement.dayText($0))" } ?? "is retiring"
+    let price = naming.priceChange(from: move.from, to: new).map { " \($0)" } ?? ""
+    return ModelNotice(
+        id: move.noticeID,
+        title: "Now using \(naming.name(of: new))",
+        detail: "\(naming.name(of: move.from)) \(when).\(price)",
+        actionTitle: "Settings",
+        action: .openSettings(role))
+}
+
+private func supersededNotice(key: String, id: String, role: ModelNotice.Role) -> ModelNotice? {
+    let naming = ModelNaming(key: key)
+    guard case .superseded(let next)? = naming.lifecycle(of: id), naming.isOffered(next) else { return nil }
+    let noticeID = "superseded:\(key):\(id)"
+    if naming.vendor == .local {
+        // Never downloaded for the user: the new version is recommended, and the row in
+        // Settings downloads it when they choose it.
+        return ModelNotice(
+            id: noticeID,
+            title: "Newer: \(naming.name(of: next))",
+            detail: "We recommend updating from \(naming.name(of: id)). Download it in Settings.",
+            actionTitle: "Settings",
+            action: .openSettings(role))
+    }
+    let price = naming.priceChange(from: id, to: next).map { " \($0)" } ?? ""
+    return ModelNotice(
+        id: noticeID,
+        title: "Newer: \(naming.name(of: next))",
+        detail: "It supersedes \(naming.name(of: id)).\(price)",
+        actionTitle: "Switch",
+        action: .switchModel(settingsKey: key, to: next))
+}
+
+/// A model setting's vendor, and what the catalogue says about a model stored under it.
+private struct ModelNaming {
+    /// The speech vendor whose setting this is, if it is a speech setting.
+    let vendor: Provider?
+    let chat: LLMProviderType?
+
+    init(key: String) {
+        vendor = Provider.allCases.first { $0.descriptor.speechModel?.settingsKey == key }
+        chat = vendor == nil
+            ? LLMProviderType.allCases.first { $0.vendor.descriptor.chatModel?.settingsKey == key }
+            : nil
+    }
+
+    /// "this Mac" or the vendor's name (`Provider.modelChoiceTarget`).
+    var target: String {
+        vendor?.modelChoiceTarget ?? chat?.vendor.modelChoiceTarget ?? ""
+    }
+
+    /// The model's name without a picker note ("Scribe v2 Realtime", not "… — live text").
+    func name(of id: String) -> String {
+        if let vendor { return plainModelName(sttModel(vendor: vendor, id: id).displayName) }
+        if let chat { return plainModelName(listedChatModel(provider: chat, id: id)?.displayName ?? knownChatModelName(id: id)) }
+        return id
+    }
+
+    func lifecycle(of id: String) -> ModelLifecycle? {
+        if let vendor { return knownSTTModels(of: vendor).first { $0.id == id }?.lifecycle }
+        if let chat { return knownChatModels(of: chat).first { $0.id == id }?.lifecycle }
+        return nil
+    }
+
+    func isOffered(_ id: String) -> Bool {
+        if let vendor { return offeredSTTModels(of: vendor).contains { $0.id == id } }
+        if let chat { return offeredChatModels(of: chat).contains { $0.id == id } }
+        return false
+    }
+
+    func shutdown(of id: String) -> Date? {
+        lifecycle(of: id)?.deprecation?.shutdown.date
+    }
+
+    /// "Same price." / "+$0.0015/min." / "About 2× the price." — nil where either
+    /// side has no list price (free on the Mac, or not priced). A chat model is compared
+    /// by a million tokens in and out together, the only way two rate cards read as one.
+    func priceChange(from old: String, to new: String) -> String? {
+        if let vendor {
+            guard case .listed(let was) = sttModel(vendor: vendor, id: old).price,
+                  case .listed(let now) = sttModel(vendor: vendor, id: new).price else { return nil }
+            let difference = now.perMinute - was.perMinute
+            if abs(difference) < 0.000_000_5 { return "Same price." }
+            return "\(difference > 0 ? "+" : "−")\(dollars(abs(difference)))/min."
+        }
+        if let chat {
+            guard case .listed(let was) = chatModel(provider: chat, id: old).price,
+                  case .listed(let now) = chatModel(provider: chat, id: new).price else { return nil }
+            let ratio = (now.inputPerToken + now.outputPerToken) / (was.inputPerToken + was.outputPerToken)
+            if abs(ratio - 1) < 0.05 { return "Same price." }
+            return ratio > 1 ? "About \(String(format: "%.2g", ratio))× the price."
+                             : "About \(Int((ratio * 100).rounded()))% of the price."
+        }
+        return nil
+    }
+}
+
+/// "$0.003", "$2.5", "$15" — up to four significant digits, no trailing zeros.
+func dollars(_ value: Double) -> String {
+    "$" + String(format: "%.4g", value)
 }

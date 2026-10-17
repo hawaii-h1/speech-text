@@ -586,7 +586,8 @@ func providerErrorMessage(vendor: String, status: Int, body: String) -> String {
     return "\(vendor) couldn't transcribe the recording: \(sentence) (HTTP \(status))"
 }
 
-private func providerErrorReason(in body: String) -> String? {
+/// The provider's own message in an error reply, or nil when the body has none.
+func providerErrorReason(in body: String) -> String? {
     guard let data = body.data(using: .utf8),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
     let candidates: [Any?] = [

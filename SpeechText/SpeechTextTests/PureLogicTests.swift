@@ -2195,7 +2195,7 @@ final class STTModelCatalogTests: XCTestCase {
         XCTAssertFalse(groq.streams)
         XCTAssertEqual(groq.batchModel, "whisper-next")
         XCTAssertNil(groq.batchUnavailableReason())
-        XCTAssertEqual(config(.groq, groqModel: "", groqKey: "").batchUnavailableReason(),
+        XCTAssertEqual(config(.groq, groqModel: "whisper-next", groqKey: "").batchUnavailableReason(),
                        "Retry needs a Groq API key — add one in Settings.")
 
         let local = config(.local, localModel: "openai_whisper-gone")

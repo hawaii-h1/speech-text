@@ -303,6 +303,11 @@ final class OnboardingModel {
             // What the card promises: the words while speaking.
             if let model = card.savedModel, let key = card.service.descriptor.speechModel?.settingsKey {
                 defaults.set(model, forKey: key)
+            } else if let setting = card.service.descriptor.speechModel, let key = setting.settingsKey,
+                      defaults.string(forKey: key) == clearedModelChoice {
+                // Setup shows no model picker, so picking the card is the pick: a choice the
+                // launch cleared (#19) takes the service's default, or Try it is refused.
+                defaults.set(setting.defaultID, forKey: key)
             }
         }
         dlog("Setup", "speech: \(speechPath == .online ? speechService.rawValue : speechUsesApple ? "apple" : "local \(speechModelID)")")
@@ -365,6 +370,10 @@ final class OnboardingModel {
         case .online:
             saveKey(aiService)
             defaults.set(SetupCards.ai(for: aiService).pick.rawValue, forKey: SettingsKeys.llmProvider)
+            if let setting = aiService.descriptor.chatModel, let key = setting.settingsKey,
+               defaults.string(forKey: key) == clearedModelChoice {
+                defaults.set(setting.defaultID, forKey: key)
+            }
         case .local:
             let id = aiModelID
             if !ollama.isInstalled(id) && ollama.pulls[id] == nil {
