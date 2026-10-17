@@ -187,6 +187,25 @@ on 2026-09-28 expires in 2044.
 
 ## Cutting a release
 
+Before the tag, run `scripts/check-vendor-models.sh` on the commit being tagged
+([vendor watch](vendor-watch.md)). It must exit **0**:
+
+- **No catalogue model may be one the vendor no longer serves while it is in any state
+  but `deprecated` or `retired`.** Such a model fails every dictation or rewrite that
+  uses it. Mark it deprecated with its replacement, so that this release moves its users
+  off it.
+- Every vendor must have been checked. Exit 3 means a key was missing or a vendor did not
+  answer, and that is not an all-clear.
+- A shutdown the vendor's API announces for a `current` model does not block the tag. It
+  is the warning to deprecate the model in this release or the next, before that date.
+- A `retired` model past its six months is removed in this release.
+
+The lifecycle states (`current`, `superseded`, `deprecated`, `retired`) are being added to
+the catalogues by the model-lifecycle work. Until they land, every model exports as
+`current`, so any model the vendor no longer serves fails the rule. If this paragraph
+reaches `main` first, whichever change merges second connects `CatalogueExport.lifecycle`
+to the descriptors.
+
 1. Write what changed under `## [Unreleased]` in `CHANGELOG.md` as the work lands —
    that section becomes the release notes.
 2. `scripts/rebuild.sh --tag X.Y.Z` sets the version, dates the

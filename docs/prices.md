@@ -21,6 +21,10 @@ A price is one of `ListPrice`'s cases: `.free` (a model on the Mac, Ollama, Appl
 field is required, so a new model cannot be added without one. An unpriced model is
 named in Usage and Home, never charged at another model's rate.
 
+Between refreshes, `scripts/check-vendor-models.sh` compares the prices with the vendor's own
+API where it states them, which means Groq's chat models. It also flags models a vendor
+retires or adds ([vendor watch](vendor-watch.md)).
+
 ## Where to check
 
 The pay-as-you-go, standard-tier price, in US dollars:

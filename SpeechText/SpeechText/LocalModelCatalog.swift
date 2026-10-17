@@ -278,7 +278,7 @@ func localModelFolder(for modelID: String) -> URL {
 /// interrupted after the 433 MB encoder leaves a folder that a "contains a `.mlmodelc`"
 /// test calls installed, and the first dictation then fails on a missing decoder
 /// instead of the model simply not being there.
-private let parakeetRequiredBundles = [
+let parakeetRequiredBundles = [
     "Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc",
 ]
 

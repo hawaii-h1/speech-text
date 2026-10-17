@@ -163,6 +163,9 @@
 		E6000200000000000000001A /* OnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6000100000000000000001A /* OnboardingTests.swift */; };
 		D8000002000000000000A001 /* LiveProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A001 /* LiveProviderTests.swift */; };
 		D8000002000000000000A002 /* CorpusEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A002 /* CorpusEvaluation.swift */; };
+		E9C0E0020000000000000001 /* CatalogueExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9C0E0010000000000000001 /* CatalogueExport.swift */; };
+		E9C0E0030000000000000001 /* CatalogueExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9C0E0010000000000000001 /* CatalogueExport.swift */; };
+		E9C0E0020000000000000002 /* CatalogueExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9C0E0010000000000000002 /* CatalogueExportTests.swift */; };
 		D8000002000000000000A003 /* LiveDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A003 /* LiveDictation.swift */; };
 		D8000002000000000000A004 /* LocalSTTRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A004 /* LocalSTTRuntime.swift */; };
 		D80000030000000000000000 /* LiveDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A003 /* LiveDictation.swift */; };
@@ -341,6 +344,8 @@
 		E6000100000000000000001A /* OnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTests.swift; sourceTree = "<group>"; };
 		D8000001000000000000A001 /* LiveProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveProviderTests.swift; sourceTree = "<group>"; };
 		D8000001000000000000A002 /* CorpusEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorpusEvaluation.swift; sourceTree = "<group>"; };
+		E9C0E0010000000000000001 /* CatalogueExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogueExport.swift; sourceTree = "<group>"; };
+		E9C0E0010000000000000002 /* CatalogueExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogueExportTests.swift; sourceTree = "<group>"; };
 		D8000001000000000000A003 /* LiveDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDictation.swift; sourceTree = "<group>"; };
 		D8000001000000000000A004 /* LocalSTTRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSTTRuntime.swift; sourceTree = "<group>"; };
 		D8000001000000000000A010 /* SpeechTextEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTextEvaluation.swift; sourceTree = "<group>"; };
@@ -507,6 +512,8 @@
 			children = (
 				D8000001000000000000A003 /* LiveDictation.swift */,
 				D8000001000000000000A002 /* CorpusEvaluation.swift */,
+				E9C0E0010000000000000001 /* CatalogueExport.swift */,
+				E9C0E0010000000000000002 /* CatalogueExportTests.swift */,
 				D8000001000000000000A001 /* LiveProviderTests.swift */,
 				B20000010000000000000001 /* PureLogicTests.swift */,
 				C20000010000000000000100 /* LocalModelsTests.swift */,
@@ -746,6 +753,8 @@
 			files = (
 				D8000002000000000000A003 /* LiveDictation.swift in Sources */,
 				D8000002000000000000A002 /* CorpusEvaluation.swift in Sources */,
+				E9C0E0020000000000000001 /* CatalogueExport.swift in Sources */,
+				E9C0E0020000000000000002 /* CatalogueExportTests.swift in Sources */,
 				D8000002000000000000A001 /* LiveProviderTests.swift in Sources */,
 				F7A003000000000000000001 /* HomeSummary.swift in Sources */,
 				F7A003000000000000000004 /* HomeSummaryTests.swift in Sources */,
@@ -817,6 +826,7 @@
 			files = (
 				D80000030000000000000000 /* LiveDictation.swift in Sources */,
 				D80000030000000000000001 /* CorpusEvaluation.swift in Sources */,
+				E9C0E0030000000000000001 /* CatalogueExport.swift in Sources */,
 				D80000030000000000000002 /* HomeSummary.swift in Sources */,
 				D80000030000000000000003 /* HistorySummary.swift in Sources */,
 				D80000030000000000000004 /* Vocabulary.swift in Sources */,

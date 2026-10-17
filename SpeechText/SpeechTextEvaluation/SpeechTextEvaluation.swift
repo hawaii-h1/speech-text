@@ -16,6 +16,12 @@ import Foundation
 /// whichever way they were run. It is what `scripts/evaluate.sh` runs: unlike the test
 /// bundle it can load the voice activity detector (FluidAudio), so its cloud rows are
 /// judged as the app judges them.
+///
+///     SpeechTextEvaluation --export-catalogue [<file>]
+///
+/// writes the speech and chat catalogues as JSON (`CatalogueExport`) to the file, or to
+/// standard output, and does nothing else — `scripts/check-vendor-models.sh` (#20) compares
+/// them with what each vendor serves.
 @main
 struct SpeechTextEvaluation {
     @MainActor
@@ -36,6 +42,8 @@ struct SpeechTextEvaluation {
         var clips: [String] = []
         var cloud = false
         var local = true
+        /// `--export-catalogue`: nil when not asked; "" for standard output.
+        var exportCatalogue: String?
 
         init(_ arguments: ArraySlice<String>) throws {
             var arguments = arguments
@@ -52,6 +60,8 @@ struct SpeechTextEvaluation {
                 case "--clips": clips = try value(argument).split(separator: ",").map(String.init)
                 case "--cloud": cloud = true
                 case "--no-local": local = false
+                case "--export-catalogue":
+                    exportCatalogue = arguments.first.flatMap { $0.hasPrefix("--") ? nil : arguments.popFirst() } ?? ""
                 default: throw UsageError("unknown argument \(argument)")
                 }
             }
@@ -63,6 +73,7 @@ struct SpeechTextEvaluation {
         init(_ message: String) { self.message = message }
         var errorDescription: String? {
             message + "\nusage: SpeechTextEvaluation --corpus <dir> --runs <dir> [--run-dir <dir>] [--engines vendor/model,…] [--clips a,…] [--cloud] [--no-local]"
+                + "\n       SpeechTextEvaluation --export-catalogue [<file>]"
         }
     }
 
@@ -73,6 +84,15 @@ struct SpeechTextEvaluation {
 
     @MainActor
     static func run(_ options: Options) async throws {
+        if let path = options.exportCatalogue {
+            let json = try CatalogueExport.current().json() + Data("\n".utf8)
+            if path.isEmpty {
+                FileHandle.standardOutput.write(json)
+            } else {
+                try json.write(to: URL(fileURLWithPath: path), options: .atomic)
+            }
+            return
+        }
         guard let corpus = options.corpus else { throw UsageError("--corpus is required") }
         registerLocalSTT()
         registerSpellCheckedJoins()
