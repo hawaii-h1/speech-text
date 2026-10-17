@@ -971,6 +971,42 @@ final class HoldTipTests: XCTestCase {
         XCTAssertEqual(HoldTip.demoKeys(.letterOnly).modifiersDown, false)
         XCTAssertEqual(HoldTip.demoKeys(.letterOnly).letterDown, true)
     }
+
+    private func states(_ frame: (TimeInterval) -> HoldTip.DemoFrame, period: TimeInterval) -> [HoldTip.DemoState] {
+        var order: [HoldTip.DemoState] = []
+        for time in stride(from: 0.0, to: period, by: 0.05) where order.last != frame(time).state {
+            order.append(frame(time).state)
+        }
+        return order
+    }
+
+    func testTheDoubleTapDemoLocksWithNothingHeld() {
+        XCTAssertEqual(states(HoldTip.lockFrame(at:), period: HoldTip.lockDemoPeriod),
+                       [.idle, .recording, .locked, .pasted])
+        // Two presses before the lock, and nothing down while it records.
+        var presses = 0
+        var wasDown = false
+        for time in stride(from: 0.0, to: HoldTip.lockDemoPeriod, by: 0.05) {
+            let frame = HoldTip.lockFrame(at: time)
+            if frame.letterDown, !wasDown, frame.state == .recording { presses += 1 }
+            wasDown = frame.letterDown
+        }
+        XCTAssertEqual(presses, 2)
+        XCTAssertFalse(HoldTip.lockFrame(at: 2.5).letterDown)
+        XCTAssertEqual(HoldTip.lockFrame(at: 2.5).state, .locked)
+    }
+
+    func testTheSwitchDemoGoesToAIAndBackWhileHeld() {
+        XCTAssertEqual(states(HoldTip.switchFrame(at:), period: HoldTip.switchDemoPeriod),
+                       [.idle, .recording, .ai, .recording, .pasted])
+        for time in stride(from: 0.0, to: HoldTip.switchDemoPeriod, by: 0.05) {
+            let frame = HoldTip.switchFrame(at: time)
+            // The mode changes only on a tap of the other shortcut, with this one held.
+            if frame.otherDown { XCTAssertTrue(frame.letterDown && frame.modifiersDown) }
+        }
+        XCTAssertEqual(HoldTip.holdFrame(at: 3.0).state, .recording)
+        XCTAssertFalse(HoldTip.holdFrame(at: 3.0).modifiersDown)
+    }
 }
 
 // MARK: - The Edit shortcut (SelectionEdit.swift)

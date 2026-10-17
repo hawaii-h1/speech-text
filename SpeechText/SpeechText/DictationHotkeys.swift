@@ -328,4 +328,76 @@ enum HoldTip {
         case .letterOnly: return (false, true)
         }
     }
+
+    // Settings › Hold to talk draws each gesture as keys and what the dictation is
+    // doing, one frame at a time: the hold above, the double tap and the switch below.
+
+    /// What the dictation is doing in a demo frame.
+    enum DemoState: Equatable {
+        case idle, recording, locked, ai, pasted
+    }
+
+    /// One frame of a gesture demo: which keys are down — the shortcut's modifiers and
+    /// letter, and for the switch the other shortcut — and what that does.
+    struct DemoFrame: Equatable {
+        var modifiersDown = false
+        var letterDown = false
+        var otherDown = false
+        var state: DemoState = .idle
+    }
+
+    /// The hold, as a frame.
+    static func holdFrame(at time: TimeInterval) -> DemoFrame {
+        let step = demoStep(at: time)
+        let keys = demoKeys(step)
+        let state: DemoState = switch step {
+        case .rest, .chord: .idle
+        case .held, .letterOnly: .recording
+        case .done: .pasted
+        }
+        return DemoFrame(modifiersDown: keys.modifiersDown, letterDown: keys.letterDown, state: state)
+    }
+
+    static let lockDemoPeriod: TimeInterval = 5.0
+
+    /// The double tap: two quick presses lock the dictation on, nothing is held while it
+    /// records, and the next press stops it.
+    static func lockFrame(at time: TimeInterval) -> DemoFrame {
+        let t = time.truncatingRemainder(dividingBy: lockDemoPeriod)
+        let down = DemoFrame(modifiersDown: true, letterDown: true, state: .recording)
+        switch t {
+        case ..<0.6: return DemoFrame()
+        case ..<0.8: return down
+        case ..<0.95: return DemoFrame(state: .recording)
+        case ..<1.15: return down
+        case ..<3.6: return DemoFrame(state: .locked)
+        case ..<3.8: return DemoFrame(modifiersDown: true, letterDown: true, state: .locked)
+        default: return DemoFrame(state: .pasted)
+        }
+    }
+
+    static let switchDemoPeriod: TimeInterval = 5.6
+
+    /// The switch: the shortcut held, a tap of the other one turns the dictation into an
+    /// AI Rewrite, a second tap turns it back, and letting go pastes.
+    static func switchFrame(at time: TimeInterval) -> DemoFrame {
+        let t = time.truncatingRemainder(dividingBy: switchDemoPeriod)
+        let held = DemoFrame(modifiersDown: true, letterDown: true)
+        func frame(_ state: DemoState, otherDown: Bool = false) -> DemoFrame {
+            var frame = held
+            frame.state = state
+            frame.otherDown = otherDown
+            return frame
+        }
+        switch t {
+        case ..<0.5: return DemoFrame()
+        case ..<0.8: return DemoFrame(modifiersDown: true)
+        case ..<1.7: return frame(.recording)
+        case ..<1.95: return frame(.ai, otherDown: true)
+        case ..<3.0: return frame(.ai)
+        case ..<3.25: return frame(.recording, otherDown: true)
+        case ..<4.1: return frame(.recording)
+        default: return DemoFrame(state: .pasted)
+        }
+    }
 }
