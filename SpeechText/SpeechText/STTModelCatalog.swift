@@ -50,6 +50,9 @@ struct STTModelDescriptor: Identifiable, Hashable {
     /// What Settings says under the speech model picker while this model is selected;
     /// every realtime model explains its stream. Nil says nothing.
     var settingsNote: String? = nil
+    /// Where the model is in its vendor's life (`ModelLifecycle`). Only an offered one
+    /// reaches a picker, setup or a recommendation; every one is still known to History.
+    var lifecycle: ModelLifecycle = .current
 
     enum Delivery: Hashable {
         /// A file POSTed after the segment ends.
@@ -186,7 +189,7 @@ struct SpeechRates: Hashable {
 let appleSpeechModelID = "apple-speech"
 
 /// Every speech model the app offers, grouped by vendor, each vendor's in picker order.
-/// The Settings pickers read it (`sttModels(of:)`), so a model and its capabilities are
+/// The Settings pickers read it (`offeredSTTModels(of:)`), so a model and its capabilities are
 /// written down once.
 ///
 /// Prices are the vendors' pay-as-you-go list prices as of `UsagePrices.checked`
@@ -223,7 +226,9 @@ let sttModelCatalog: [STTModelDescriptor] = {
         // The batch (upload) model IDs are exactly what the API's `unsupported_model`
         // error lists, minus the two that are gone: scribe_v1 is deprecated in favour of
         // scribe_v2 and scribe_v1_experimental no longer appears in the documentation
-        // (checked 2026-09-16) — stored values for either are normalised to scribe_v2.
+        // (checked 2026-09-16). Both were deleted from this list before models had a
+        // lifecycle, so a stored value for either is cleared at launch; the API still
+        // answered both on 2026-10-16.
         STTModelDescriptor(
             id: "scribe_v2", vendor: .elevenLabs, displayName: "Scribe v2",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: elevenLabsKey,
@@ -259,11 +264,17 @@ let sttModelCatalog: [STTModelDescriptor] = {
             vocabulary: .termList(.openAIKeywords)
         ),
         // No vocabulary: `keywords` is documented for gpt-transcribe, and this model
-        // takes only a free-text prompt.
+        // takes only a free-text prompt. Deprecated on 2026-08-26 with whisper-1 and the
+        // other gpt-4o transcription models; OpenAI names gpt-transcribe as the
+        // replacement (checked 2026-10-16).
         STTModelDescriptor(
-            id: "gpt-4o-mini-transcribe", vendor: .openAI, displayName: "GPT-4o mini Transcribe — cheaper",
+            id: "gpt-4o-mini-transcribe", vendor: .openAI, displayName: "GPT-4o mini Transcribe",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey,
-            price: .listed(SpeechRates(perMinute: 0.003))
+            price: .listed(SpeechRates(perMinute: 0.003)),
+            lifecycle: .deprecated(Deprecation(
+                announced: ModelRetirement.day(2026, 8, 26), shutdown: ModelRetirement.day(2027, 2, 26),
+                replacement: "gpt-transcribe",
+                source: URL(string: "https://developers.openai.com/api/docs/deprecations")!))
         ),
         STTModelDescriptor(
             id: openAIRealtimeSTTModel, vendor: .openAI, displayName: "GPT Live Transcribe — live text",
@@ -282,15 +293,34 @@ let sttModelCatalog: [STTModelDescriptor] = {
         STTModelDescriptor(
             id: model.id, vendor: .local, displayName: model.displayName,
             delivery: .onDevice(model.engine), language: .single,
-            batchUpload: .itself, requirement: .installedModel, price: .free
+            batchUpload: .itself, requirement: .installedModel, price: .free,
+            lifecycle: model.lifecycle
         )
     }
     return cloud + local
 }()
 
-/// A vendor's models in picker order.
-func sttModels(of vendor: Provider) -> [STTModelDescriptor] {
+/// A vendor's models a picker, setup or a recommendation may offer, in picker order. A
+/// picker also shows the model selected now when it is not among them
+/// (`pickerSTTModels(of:selected:)`), so it is never blank.
+func offeredSTTModels(of vendor: Provider) -> [STTModelDescriptor] {
+    sttModelCatalog.filter { $0.vendor == vendor && $0.lifecycle.isOffered }
+}
+
+/// Every model of a vendor the catalogue still describes, offered or not — what prices,
+/// names, History, Usage and normalisation look in. The archive (`archivedSpeechModels`)
+/// is the rest of what is known.
+func knownSTTModels(of vendor: Provider) -> [STTModelDescriptor] {
     sttModelCatalog.filter { $0.vendor == vendor }
+}
+
+/// What a speech model picker lists: the offered models, and the selected one after them
+/// when it is not offered — marked by its `ModelLifecycle.status(on:)` — so the picker
+/// never renders blank.
+func pickerSTTModels(of vendor: Provider, selected: String) -> [STTModelDescriptor] {
+    let offered = offeredSTTModels(of: vendor)
+    if offered.contains(where: { $0.id == selected }) { return offered }
+    return offered + [sttModel(vendor: vendor, id: selected)]
 }
 
 /// The descriptor for a stored model ID. An ID the catalogue does not list — a
@@ -302,16 +332,19 @@ func sttModel(vendor: Provider, id: String) -> STTModelDescriptor {
     if let listed = sttModelCatalog.first(where: { $0.vendor == vendor && $0.id == id }) {
         return listed
     }
-    let models = sttModels(of: vendor)
+    let models = knownSTTModels(of: vendor)
     precondition(!models.isEmpty, "\(vendor) serves no speech")
     let template = models.first { !$0.isRealtime } ?? models[0]
+    // An archived model keeps its name and price, so History still names and prices it.
+    let archived = archivedSpeechModels.first { $0.vendor == vendor && $0.id == id }
     // No vocabulary, whatever the template takes: a parameter the model may not know
     // can fail the whole request. No price either, unless it runs on the Mac: an ID
     // nobody checked is named as unpriced, never charged at another model's rate.
     return STTModelDescriptor(
-        id: id, vendor: vendor, displayName: id,
+        id: id, vendor: vendor, displayName: archived?.displayName ?? id,
         delivery: template.delivery, language: template.language,
         batchUpload: template.batchUpload, requirement: template.requirement,
-        price: template.price == .free ? .free : .notPriced
+        price: archived?.price ?? (template.price == .free ? .free : .notPriced),
+        lifecycle: archived.map { .deprecated(.archived(replacement: $0.replacement)) } ?? .current
     )
 }

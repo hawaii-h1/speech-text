@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **OpenAI is retiring GPT-4o mini Transcribe on 26 February 2027**, so it is no longer offered, and if you use it SpeechText now uses GPT Transcribe instead — OpenAI's replacement, $0.0045 a minute instead of $0.003. A model a vendor retires is no longer simply dropped: you are moved to its own replacement, not to the provider's default, History keeps its name and price, and a model you never picked yourself stays the one you have when SpeechText's default changes.
 - **Techno is the default skin.** A skin you picked in Settings is kept; an install that never picked one switches to techno, and Minimal is one click away in Settings › Appearance. Setup's Try it step shows the overlay in the skin you will actually get.
 - The Mac classes in Settings are named by memory alone ("16 GB class"), because naming a Mac model beside the real chip read as the app deciding which Mac this is.
 - **SpeechText has a new bundle identifier**, `app.speech-text.SpeechText`, taken from the project's own domain. macOS asks once more for the microphone, speech recognition and Accessibility; your settings, API keys, shortcuts, presets, History and downloaded models carry over. The old grants can be cleared with `tccutil reset All com.speechtext.app`.

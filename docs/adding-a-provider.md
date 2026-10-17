@@ -45,6 +45,9 @@ are one provider, one key, two catalogue entries. All capability values:
 | `ListPrice` (speech and chat: the descriptor's `price`) | `.free` | runs on the Mac (local models, Apple, Ollama) |
 | | `.listed(rates)` | the vendor's list price: `SpeechRates` (a minute, plus a keyterm surcharge) or `ChatRates` (input, cached input, output per token) |
 | | `.notPriced` | the vendor publishes no price; Usage names the model rather than guessing |
+| `ModelLifecycle` (speech and chat: the descriptor's `lifecycle`) | `.current` | offered, nothing better to suggest |
+| | `.superseded(by: id)` | still works and offered; whoever has it is offered the switch to `id` (same vendor) |
+| | `.deprecated(Deprecation)` | the vendor is switching it off: not offered, stored choices move to its `replacement` at launch |
 | `VocabularyField` (OpenAI-compatible upload) | `.prompt` | the words as Whisper's free-text `prompt` (Groq) |
 | | `.keywords` | a `keywords[]` field per term (OpenAI) |
 | `Dialect` (chat) | `.classic` | `max_tokens` + `temperature` (Groq) |
@@ -93,11 +96,27 @@ no clipboard pick-up) · a free authenticated request for the key check (usually
   comment, its whole body in `ChatRequestBodyTests` and its row in `ListPriceTests`. An Ollama model is a `LocalLLMModel`, with its
   `reasoningEffort`; its descriptor is derived.
 - Changing a default: the `defaultID` of the provider's `ModelSetting` in
-  `ProviderDescriptor`, and `testTheDefaultModelsAreTheChosenOnes`. Catalogue entries carry
-  literal IDs, so the old model stays offered and whoever stored it keeps it; a realtime
-  model's fallback (`batchUpload: .model(id)`) is its own decision. The local tier's
-  default reaches installs that never chose: read `preserveInstalledLocalModel` first.
-- Retiring a model: remove it; `normalizeStoredProviders` moves its users to the default.
+  `ProviderDescriptor`, and `testTheDefaultModelsAreTheChosenOnes`; then mark the old
+  default `.superseded(by: <new>)`. Nobody is moved: every launch pins the model an
+  untouched install runs (`pinUntouchedModelChoices` for the engine and AI provider in
+  use, `preserveInstalledLocalModel` for a local model on disk), so only new installs get
+  the new default and everyone else is offered it. Pinning only protects installs that
+  launched a release with it before the default moved. A realtime model's fallback
+  (`batchUpload: .model(id)`) is its own decision.
+- A better model, same vendor, the old one still working: mark the old one
+  `.superseded(by:)`. It stays offered; nothing moves by itself.
+- Retiring a model (the vendor announced a shutdown): **never delete the entry.** Set
+  `lifecycle: .deprecated(Deprecation(announced:shutdown:replacement:source:))` with the
+  vendor's dates, its recommended replacement *of the same vendor* and its page. The model
+  leaves the pickers and setup; the first launch of the release moves every stored choice
+  to the replacement (`migrateStoredModels`, chains followed) and records the move in
+  `modelMigrations`; History keeps its name and price. A local model is never deprecated,
+  only superseded — a launch must not point anyone at files they never downloaded.
+  `ModelRetirement.termMonths` (6) after the shutdown date `testNoDeprecatedEntryHasOutlivedItsTerm`
+  fails: move the entry to `archivedSpeechModels` / `archivedChatModels` (ID, vendor, name,
+  price, replacement — one line, never deleted). `ModelLifecycleTests` checks that every
+  chain ends on an offered model of the same vendor and every upload target is offered.
+- Ollama's models are the user's and have no lifecycle.
 - The vendor's name is already everywhere, so `check-provider-guide.sh` cannot help here.
 
 ## 4. Upload speech engine

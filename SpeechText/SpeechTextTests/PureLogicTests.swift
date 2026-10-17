@@ -323,7 +323,7 @@ final class LLMRequestPayloadTests: XCTestCase {
     }
 
     func testEveryCatalogueReasoningModelGetsTheEffort() {
-        for model in chatModels(of: .openai) {
+        for model in knownChatModels(of: .openai) {
             XCTAssertEqual(model.reasoningEffort, "none", model.id)
         }
     }
@@ -379,7 +379,7 @@ final class ChatModelCatalogTests: XCTestCase {
 
     func testEveryProviderOffersModelsAndItsDefaultIsOne() {
         for provider in LLMProviderType.allCases {
-            XCTAssertFalse(chatModels(of: provider).isEmpty, provider.rawValue)
+            XCTAssertFalse(offeredChatModels(of: provider).isEmpty, provider.rawValue)
         }
         XCTAssertNotNil(listedChatModel(provider: .groq, id: "openai/gpt-oss-120b"))
         XCTAssertNotNil(listedChatModel(provider: .anthropic, id: "claude-sonnet-5"))
@@ -392,8 +392,8 @@ final class ChatModelCatalogTests: XCTestCase {
     }
 
     func testTheLocalEntriesAreOllamasCatalogue() {
-        XCTAssertEqual(chatModels(of: .ollama).map(\.id), localLLMModels.map(\.id))
-        XCTAssertEqual(chatModels(of: .ollama).map(\.displayName), localLLMModels.map(\.displayName))
+        XCTAssertEqual(knownChatModels(of: .ollama).map(\.id), localLLMModels.map(\.id))
+        XCTAssertEqual(knownChatModels(of: .ollama).map(\.displayName), localLLMModels.map(\.displayName))
     }
 
     /// Switches only where a provider's API has them: `reasoning_format` and
@@ -407,14 +407,14 @@ final class ChatModelCatalogTests: XCTestCase {
 
     /// The pickers read the catalogue, in the order and with the names they had.
     func testPickersKeepTheirOrderAndNames() {
-        XCTAssertEqual(chatModels(of: .groq).map(\.id), ["openai/gpt-oss-120b", "openai/gpt-oss-20b",
+        XCTAssertEqual(offeredChatModels(of: .groq).map(\.id), ["openai/gpt-oss-120b", "openai/gpt-oss-20b",
                                                    "qwen/qwen3.8-27b", "minimaxai/minimax-m2.7"])
-        XCTAssertEqual(chatModels(of: .groq).map(\.displayName), ["GPT-OSS 120B", "GPT-OSS 20B (fastest)",
+        XCTAssertEqual(offeredChatModels(of: .groq).map(\.displayName), ["GPT-OSS 120B", "GPT-OSS 20B (fastest)",
                                                      "Qwen3.8 27B (preview)", "MiniMax M2.7 (preview)"])
-        XCTAssertEqual(chatModels(of: .anthropic).map(\.id), ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"])
-        XCTAssertEqual(chatModels(of: .anthropic).map(\.displayName), ["Claude Sonnet 5", "Claude Opus 5", "Claude Haiku 4.5 (fastest)"])
-        XCTAssertEqual(chatModels(of: .openai).map(\.id), ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"])
-        XCTAssertEqual(chatModels(of: .openai).map(\.displayName), ["GPT-5.6 Luna — fastest", "GPT-5.6 Terra — balanced",
+        XCTAssertEqual(offeredChatModels(of: .anthropic).map(\.id), ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"])
+        XCTAssertEqual(offeredChatModels(of: .anthropic).map(\.displayName), ["Claude Sonnet 5", "Claude Opus 5", "Claude Haiku 4.5 (fastest)"])
+        XCTAssertEqual(offeredChatModels(of: .openai).map(\.id), ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"])
+        XCTAssertEqual(offeredChatModels(of: .openai).map(\.displayName), ["GPT-5.6 Luna — fastest", "GPT-5.6 Terra — balanced",
                                                        "GPT-5.6 Sol — flagship"])
     }
 
@@ -1977,7 +1977,7 @@ final class OpenAISTTTests: XCTestCase {
     /// `gpt-4o-transcribe-diarize` answers in a shape this app does not decode. Neither
     /// may be offered, however the catalogue is later rearranged.
     func testCatalogueLeavesOutTheModelsThatCannotBeTrusted() {
-        let ids = sttModels(of: .openAI).map(\.id)
+        let ids = offeredSTTModels(of: .openAI).map(\.id)
         XCTAssertFalse(ids.contains("whisper-1"))
         XCTAssertFalse(ids.contains("gpt-4o-transcribe-diarize"))
         XCTAssertTrue(ids.contains("gpt-transcribe"))
@@ -2101,7 +2101,7 @@ final class STTModelCatalogTests: XCTestCase {
         for model in sttModelCatalog {
             guard case .selectedModel(let vendor) = model.batchUpload else { continue }
             XCTAssertEqual(model.delivery, .systemRecognizer, model.id)
-            XCTAssertTrue(sttModels(of: vendor).allSatisfy { $0.delivery == .upload }, model.id)
+            XCTAssertTrue(knownSTTModels(of: vendor).allSatisfy { $0.delivery == .upload }, model.id)
         }
     }
 
@@ -2121,11 +2121,11 @@ final class STTModelCatalogTests: XCTestCase {
         }
         // One vendor, one key — its own.
         for vendor in Provider.allCases {
-            for model in sttModels(of: vendor) {
+            for model in knownSTTModels(of: vendor) {
                 guard case .apiKey(let key) = model.requirement else { continue }
                 XCTAssertEqual(key, vendor.descriptor.apiKey?.settingsKey, model.id)
             }
-            XCTAssertLessThanOrEqual(Set(sttModels(of: vendor).map(\.requirement)).count, 1, vendor.rawValue)
+            XCTAssertLessThanOrEqual(Set(knownSTTModels(of: vendor).map(\.requirement)).count, 1, vendor.rawValue)
         }
     }
 
@@ -2139,12 +2139,12 @@ final class STTModelCatalogTests: XCTestCase {
 
     func testEveryModelBelongsToOneVendorAndIsListedOnce() {
         for vendor in Provider.allCases where vendor.descriptor.roles.contains(.speech) {
-            let ids = sttModels(of: vendor).map(\.id)
+            let ids = knownSTTModels(of: vendor).map(\.id)
             XCTAssertFalse(ids.isEmpty, vendor.rawValue)
             XCTAssertEqual(ids.count, Set(ids).count, vendor.rawValue)
         }
         for provider in STTProviderType.allCases {
-            XCTAssertFalse(sttModels(of: provider.vendor).isEmpty, provider.rawValue)
+            XCTAssertFalse(knownSTTModels(of: provider.vendor).isEmpty, provider.rawValue)
         }
     }
 
@@ -2161,10 +2161,12 @@ final class STTModelCatalogTests: XCTestCase {
 
     /// The pickers read the catalogue, in the order and with the names they had.
     func testPickersKeepTheirOrderAndNames() {
-        XCTAssertEqual(sttModels(of: .groq).map(\.id), ["whisper-large-v3-turbo", "whisper-large-v3"])
-        XCTAssertEqual(sttModels(of: .elevenLabs).map(\.displayName), ["Scribe v2", "Scribe v2 Realtime — live text"])
-        XCTAssertEqual(sttModels(of: .openAI).map(\.id), ["gpt-transcribe", "gpt-4o-mini-transcribe", openAIRealtimeSTTModel])
-        XCTAssertEqual(sttModels(of: .local).map(\.id), localSTTModels.map(\.id))
+        XCTAssertEqual(offeredSTTModels(of: .groq).map(\.id), ["whisper-large-v3-turbo", "whisper-large-v3"])
+        XCTAssertEqual(offeredSTTModels(of: .elevenLabs).map(\.displayName), ["Scribe v2", "Scribe v2 Realtime — live text"])
+        XCTAssertEqual(offeredSTTModels(of: .openAI).map(\.id), ["gpt-transcribe", openAIRealtimeSTTModel])
+        // Deprecated by OpenAI, so no longer offered, but still known to History.
+        XCTAssertEqual(knownSTTModels(of: .openAI).map(\.id), ["gpt-transcribe", "gpt-4o-mini-transcribe", openAIRealtimeSTTModel])
+        XCTAssertEqual(offeredSTTModels(of: .local).map(\.id), localSTTModels.map(\.id))
         for local in localSTTModels {
             XCTAssertEqual(sttModel(vendor: .local, id: local.id).delivery, .onDevice(local.engine))
         }
@@ -2434,7 +2436,7 @@ final class VocabularyWireTests: XCTestCase {
     }
 
     func testEveryLocalAndGroqModelTakesNone() {
-        for model in sttModels(of: .local) + sttModels(of: .groq) {
+        for model in knownSTTModels(of: .local) + knownSTTModels(of: .groq) {
             XCTAssertEqual(model.vocabulary, .none, model.id)
         }
     }
@@ -2594,6 +2596,12 @@ final class StoredProviderNameTests: XCTestCase {
 
     /// `APIKeyStore.open` moves and deletes exactly these names, which are also the
     /// keychain accounts; a key that left the list would be stranded in a plist.
+    /// The model lifecycle's two machine-local keys (#19).
+    func testTheModelLifecycleKeysKeepTheirStoredNames() {
+        XCTAssertEqual(SettingsKeys.modelMigrations, "modelMigrations")
+        XCTAssertEqual(SettingsKeys.modelNoticesShown, "modelNoticesShown")
+    }
+
     func testTheAPIKeysKeepTheirStoredNames() {
         XCTAssertEqual(APIKeyStore.keys, ["groqAPIKey", "elevenLabsAPIKey", "anthropicAPIKey", "openAIAPIKey"])
     }
@@ -2646,13 +2654,13 @@ final class StoredProviderNameTests: XCTestCase {
         for engine in STTProviderType.allCases {
             let setting = engine.vendor.descriptor.speechModel
             XCTAssertNotNil(setting, engine.rawValue)
-            XCTAssertTrue(sttModels(of: engine.vendor).map(\.id).contains(engine.vendor.defaultSpeechModel), engine.rawValue)
+            XCTAssertTrue(offeredSTTModels(of: engine.vendor).map(\.id).contains(engine.vendor.defaultSpeechModel), engine.rawValue)
         }
         for type in LLMProviderType.allCases {
             let setting = type.vendor.descriptor.chatModel
             XCTAssertNotNil(setting, type.rawValue)
             guard setting?.normalized == true else { continue }
-            XCTAssertNotNil(listedChatModel(provider: type, id: type.vendor.defaultChatModel), type.rawValue)
+            XCTAssertTrue(offeredChatModels(of: type).contains { $0.id == type.vendor.defaultChatModel }, type.rawValue)
         }
         let keys = Provider.allCases.flatMap { [$0.descriptor.speechModel?.settingsKey, $0.descriptor.chatModel?.settingsKey] }
             .compactMap { $0 }

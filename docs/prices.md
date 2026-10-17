@@ -57,3 +57,21 @@ The pay-as-you-go, standard-tier price, in US dollars:
 6. Add a line to `CHANGELOG.md` under *Changed* if any price moved.
 
 A new model gets its price when it is added (docs/adding-a-provider.md, section 3).
+
+## Deprecations
+
+Read each vendor's deprecations page in the same pass, and compare it with every
+catalogue entry's `lifecycle`:
+
+- **OpenAI:** developers.openai.com/api/docs/deprecations ("deprecated", "shutdown date").
+- **Groq:** console.groq.com/docs/deprecations.
+- **ElevenLabs:** elevenlabs.io/docs/overview/models (a deprecated model is marked there).
+- **Anthropic:** platform.claude.com/docs/en/about-claude/model-deprecations ("deprecated",
+  "retirement date").
+
+1. A model the vendor deprecated gets `.deprecated(…)` with the announcement date, the
+   shutdown date, the replacement and the page (docs/adding-a-provider.md › section 3).
+   Never delete it.
+2. Set `UsagePrices.deprecationsChecked` to today, and the date in
+   `testTheDeprecationCheckHasItsDate`, even if nothing changed.
+3. Add a line to `CHANGELOG.md` under *Changed* for each model whose users will be moved.

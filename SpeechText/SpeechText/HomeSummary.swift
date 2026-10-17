@@ -99,6 +99,10 @@ func homeWordCount(_ text: String) -> Int {
 enum UsagePrices {
     /// When the table was last checked against every vendor's page.
     static let checked = DateComponents(calendar: Calendar(identifier: .gregorian), year: 2026, month: 10, day: 14)
+    /// When every vendor's deprecations page was last read against both catalogues'
+    /// `lifecycle` (docs/prices.md › Deprecations). Its own date: a price check and a
+    /// deprecation check are separate passes.
+    static let deprecationsChecked = DateComponents(calendar: Calendar(identifier: .gregorian), year: 2026, month: 10, day: 16)
 
     /// "14 October 2026".
     static var checkedText: String {
@@ -124,7 +128,7 @@ enum UsagePrices {
     static func speech(provider: String, model: String?) -> ListPrice<SpeechRates> {
         guard let engine = STTProviderType(rawValue: provider) else { return .notPriced }
         if let model { return speech(vendor: engine.vendor, model: model) }
-        let prices = Set(sttModels(of: engine.vendor).map(\.price))
+        let prices = Set(knownSTTModels(of: engine.vendor).map(\.price))
         return prices.count == 1 ? prices.first! : .notPriced
     }
 

@@ -139,6 +139,13 @@ enum SettingsKeys {
     /// The one-time notice that Automatic recorded from the Mac's microphone instead of
     /// Bluetooth headphones has been shown. Machine-local.
     static let microphoneNoticeShown = "microphoneNoticeShown"
+    /// Stored model choices the launch moved or cleared because their vendor is retiring
+    /// the model: JSON-encoded `[ModelMigration]`, newest last, for the notice the next
+    /// dictation shows. Describes this Mac's history, so machine-local.
+    static let modelMigrations = "modelMigrations"
+    /// The model IDs whose lifecycle notice has been shown, so each is shown once.
+    /// Machine-local.
+    static let modelNoticesShown = "modelNoticesShown"
 
     // Debug
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-
@@ -395,13 +402,21 @@ private func currentInputSourceLanguage() -> String? {
     return nil
 }
 
-/// Drops provider settings whose stored value no longer maps to a known case.
+/// Drops provider settings whose stored value no longer maps to a known case, moves
+/// stored models their vendor is retiring to their replacements, and pins the model an
+/// untouched install runs (`ModelLifecycle`).
 ///
 /// A stale identifier is worse than a missing one: the picker in Settings finds no
 /// matching tag and renders blank, while the engine quietly falls back to its
 /// default — so the UI shows nothing and the app runs something the user did not pick.
 func normalizeStoredProviders() {
-    let defaults = UserDefaults.standard
+    normalizeStoredProviders(in: .standard)
+}
+
+/// `normalizeStoredProviders()` against any store, so the tests run it on an isolated
+/// suite. The local model is looked for on disk only through `localModelOnDisk`.
+func normalizeStoredProviders(in defaults: UserDefaults,
+                              localModelOnDisk: (String) -> Bool = { isLocalModelInstalled($0) }) {
 
     // Settings for removed features: the webhook (whose bearer token should not outlive
     // it) and the switch that used to keep the focus context out of AI dictations.
@@ -421,21 +436,17 @@ func normalizeStoredProviders() {
         defaults.set(LLMProviderType.groq.rawValue, forKey: SettingsKeys.llmProvider)
     }
 
-    // Model catalogues get replaced when a vendor retires a generation; a stored ID
-    // that is no longer offered blanks the picker exactly like a stale provider does.
-    // Every provider's model settings come from its descriptor; the local one is
-    // written down first if it was never set (see below).
-    preserveInstalledLocalModel()
-    for engine in STTProviderType.allCases {
-        guard let setting = engine.vendor.descriptor.speechModel, setting.normalized,
-              let key = setting.settingsKey else { continue }
-        normalizeStoredModel(key, in: sttModels(of: engine.vendor).map(\.id), fallback: setting.defaultID)
-    }
-    for type in LLMProviderType.allCases {
-        guard let setting = type.vendor.descriptor.chatModel, setting.normalized,
-              let key = setting.settingsKey else { continue }
-        normalizeStoredModel(key, in: chatModels(of: type).map(\.id), fallback: setting.defaultID)
-    }
+    // A vendor retires models; a stored one it is retiring is moved to the model's own
+    // replacement — never to the default, which may be another kind of model — and the
+    // move is recorded for the notice. One that leads nowhere is cleared for the user
+    // to pick. Then whatever is still unset is pinned, so a later change of our default
+    // reaches only new installs. The local model is written down first if it was never
+    // set (see below).
+    preserveInstalledLocalModel(in: defaults, onDisk: localModelOnDisk)
+    let moved = migrateStoredModels(in: defaults)
+    // A choice cleared just now stays unset: the user is asked to pick (the notice), and
+    // pinning the default over it would make it look chosen.
+    pinUntouchedModelChoices(in: defaults, except: Set(moved.filter { $0.to == nil }.map(\.settingsKey)))
 }
 
 /// Keeps a local-tier user on the model they actually downloaded when the *default*
@@ -443,8 +454,8 @@ func normalizeStoredProviders() {
 ///
 /// Nothing writes `localSTTModel` until the user picks a model by hand: both
 /// `@AppStorage` and `RecordingConfiguration.current()` fall back to
-/// `Provider.local.defaultSpeechModel` on read, and `normalizeStoredModel` deliberately ignores an
-/// absent key. So when that default moved from Whisper Turbo to Parakeet, every install
+/// `Provider.local.defaultSpeechModel` on read, and normalisation leaves an absent key
+/// alone. So when that default moved from Whisper Turbo to Parakeet, every install
 /// running the local tier on the old default — key never written, Turbo on disk and
 /// working — would have been pointed at a model it had not downloaded, and the next
 /// dictation would have failed with "Parakeet v3 isn't installed". A working setup
@@ -452,28 +463,20 @@ func normalizeStoredProviders() {
 ///
 /// So an absent key plus a model on disk is read as "they meant this one", and it is
 /// written down. A fresh install has nothing on disk and falls through to the new
-/// default, which is the whole point of moving it.
-private func preserveInstalledLocalModel() {
-    let defaults = UserDefaults.standard
+/// default, which is the whole point of moving it. This is the local tier's half of
+/// pinning (`pinUntouchedModelChoices`): it runs whichever engine is in use, because a
+/// model on disk is a choice the user made by downloading it.
+private func preserveInstalledLocalModel(in defaults: UserDefaults, onDisk: (String) -> Bool) {
     guard defaults.string(forKey: SettingsKeys.localSTTModel) == nil else { return }
-    // The old default first, because that is what an untouched install was running; only
-    // then the heaviest installed, for someone who downloaded something else by hand.
+    // The old default first, because that is what an untouched install was running; then
+    // today's default; only then the heaviest installed, for someone who downloaded
+    // something else by hand.
     let previousDefault = "openai_whisper-large-v3-v20240930_turbo_632MB"
-    let keep = isLocalModelInstalled(previousDefault)
-        ? localSTTModel(id: previousDefault)
-        : localSTTModels.first { isLocalModelInstalled($0.id) }
+    let keep = [previousDefault, Provider.local.defaultSpeechModel].first(where: onDisk)
+        ?? localSTTModels.first { onDisk($0.id) }?.id
     guard let keep else { return }
-    dlog("Settings", "localSTTModel was never set and \(keep.id) is installed — keeping it")
-    defaults.set(keep.id, forKey: SettingsKeys.localSTTModel)
-}
-
-private func normalizeStoredModel(_ key: String, in catalog: [String], fallback: String) {
-    let defaults = UserDefaults.standard
-    guard let raw = defaults.string(forKey: key),
-          !catalog.contains(raw)
-    else { return }
-    dlog("Settings", "\(key)=\"\(raw)\" is no longer offered — resetting to \(fallback)")
-    defaults.set(fallback, forKey: key)
+    dlog("Settings", "localSTTModel was never set and \(keep) is installed — keeping it")
+    defaults.set(keep, forKey: SettingsKeys.localSTTModel)
 }
 
 /// The languages the user says they speak, newest storage format.

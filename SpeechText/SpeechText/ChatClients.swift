@@ -68,6 +68,9 @@ struct ChatModelDescriptor: Equatable {
     /// The vendor's list price, checked on `UsagePrices.checked`. Required, so a model
     /// added without one fails to build rather than showing as free.
     let price: ListPrice<ChatRates>
+    /// Where the model is in its vendor's life (`ModelLifecycle`). Ollama's entries are
+    /// always current: the daemon's models are the user's, and never normalised.
+    var lifecycle: ModelLifecycle = .current
 }
 
 /// What a vendor charges for a chat model's tokens.
@@ -93,18 +96,20 @@ struct ChatRates: Hashable {
 
 /// Groq: checked against Groq's model and deprecation pages on 2026-09-16. Both Llama
 /// models, Qwen3 32B and Kimi K2 were shut down for free and developer accounts between
-/// April and August 2026 — the old default among them, so a stored ID for any of those is
-/// normalised to `Provider.groq.defaultChatModel` at launch. The two preview models are labelled as
+/// April and August 2026 — the old default among them. They were deleted from this list
+/// before models had a lifecycle (#19), so a stored ID for any of them leads nowhere and
+/// is cleared at launch. The two preview models are labelled as
 /// such: Groq may withdraw a preview without notice. Groq's reasoning models take
 /// different switches, and the wrong one is an HTTP 400 rather than something ignored:
 /// gpt-oss rejects `reasoning_format` and has no `none` effort; Qwen defaults to `raw`.
 /// MiniMax M2.7 documents no switch, so its reply goes through `strippingReasoning`.
 ///
 /// Anthropic: Fable 5.1 is left out on purpose: it is the slowest and most expensive
-/// model, and a dictation clean-up gains nothing from it. Haiku 4.5 is scheduled for
-/// retirement no sooner than 2026-10-15 — when it goes, dropping it here lets
-/// normalisation move users. `output_config.effort` is rejected by pre-4.6-era models
-/// such as Haiku 4.5; elsewhere `low` keeps latency down while leaving adaptive thinking
+/// model, and a dictation clean-up gains nothing from it. Haiku 4.5 is still active, its
+/// retirement "not sooner than 2026-10-15" (checked 2026-10-16); when it is deprecated it
+/// is marked `.deprecated` with its replacement, never dropped (docs/adding-a-provider.md
+/// › Retiring a model). `output_config.effort` is rejected by pre-4.6-era models such as
+/// Haiku 4.5; elsewhere `low` keeps latency down while leaving adaptive thinking
 /// on (disabling it can leak `<thinking>` tags).
 ///
 /// OpenAI: GPT-6 Astra is left out: it is built for long agentic work, and a dictation
@@ -159,8 +164,25 @@ let chatModelCatalog: [ChatModelDescriptor] = [
                         price: .free)
 }
 
-func chatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
+/// A provider's models a picker, setup or a recommendation may offer, in picker order.
+func offeredChatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
+    chatModelCatalog.filter { $0.provider == provider && $0.lifecycle.isOffered }
+}
+
+/// Every model of a provider the catalogue still describes, offered or not — what
+/// prices, names, History, Usage and normalisation look in. The archive
+/// (`archivedChatModels`) is the rest of what is known.
+func knownChatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
     chatModelCatalog.filter { $0.provider == provider }
+}
+
+/// What a chat model picker lists: the offered models, and the selected one after them
+/// when it is not offered, so the picker never renders blank. An empty selection (an
+/// Ollama pick not made yet) adds nothing.
+func pickerChatModels(of provider: LLMProviderType, selected: String) -> [ChatModelDescriptor] {
+    let offered = offeredChatModels(of: provider)
+    if selected.isEmpty || offered.contains(where: { $0.id == selected }) { return offered }
+    return offered + [chatModel(provider: provider, id: selected)]
 }
 
 /// The catalogue's entry for this model, or nil for an ID it does not list.
@@ -168,22 +190,34 @@ func listedChatModel(provider: LLMProviderType, id: String) -> ChatModelDescript
     chatModelCatalog.first { $0.provider == provider && $0.id == id }
 }
 
+/// A chat model's name wherever it is known — the catalogue, else the archive — for a
+/// caller that has the ID but not the provider; the ID itself otherwise.
+func knownChatModelName(id: String) -> String {
+    chatModelCatalog.first { $0.id == id }?.displayName
+        ?? archivedChatModels.first { $0.id == id }?.displayName
+        ?? id
+}
+
 /// The model a request is built for: its catalogue entry, or what an unlisted ID is sent.
 func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
     if let listed = listedChatModel(provider: provider, id: id) { return listed }
     switch provider {
     case .groq, .anthropic, .openai:
-        // Normalisation moves a stored cloud ID the catalogue no longer lists to the
-        // default at launch, so only an ID nobody measured gets here. It is sent no
-        // switch: an unsupported one costs the whole rewrite, a default effort only time.
-        // Nor a price: it is named as unpriced, never charged at another model's rate.
-        return ChatModelDescriptor(provider: provider, id: id, displayName: id, reasoningEffort: nil,
-                                   reasoningOutput: .unchanged, refusalFallbacks: false, price: .notPriced)
+        // The launch moves a stored cloud ID the catalogue no longer offers to its
+        // replacement, so only an ID nobody measured, or History's archived one, gets
+        // here. It is sent no switch: an unsupported one costs the whole rewrite, a
+        // default effort only time. An archived model keeps its name and price; anything
+        // else is named as unpriced, never charged at another model's rate.
+        let archived = archivedChatModels.first { $0.vendor == provider.vendor && $0.id == id }
+        return ChatModelDescriptor(provider: provider, id: id, displayName: archived?.displayName ?? id,
+                                   reasoningEffort: nil, reasoningOutput: .unchanged, refusalFallbacks: false,
+                                   price: archived?.price ?? .notPriced,
+                                   lifecycle: archived.map { .deprecated(.archived(replacement: $0.replacement)) } ?? .current)
     case .ollama:
         // Ollama runs any tag the daemon has. A tag takes the effort of the catalogue
         // family its name begins with (any gpt-oss build takes `gpt-oss:20b`'s `low`), and
         // `none` otherwise — which Qwen honours and a model with no thinking mode accepts.
-        let family = chatModels(of: .ollama)
+        let family = knownChatModels(of: .ollama)
             .map { (name: String($0.id.prefix { $0 != ":" }), model: $0) }
             .filter { id.hasPrefix($0.name) }
             .max { $0.name.count < $1.name.count }

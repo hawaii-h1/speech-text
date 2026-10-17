@@ -20,7 +20,7 @@ struct UsageView: View {
     /// A chat model's name from the catalogues, without its picker note; the ID itself for
     /// one no catalogue lists.
     static func chatModelName(_ id: String) -> String {
-        HomeEngines.plainName(chatModelCatalog.first { $0.id == id }?.displayName ?? id)
+        HomeEngines.plainName(knownChatModelName(id: id))
     }
 
     var body: some View {
@@ -1035,7 +1035,7 @@ private struct UsageLimits: View {
     }
 
     private func name(_ snapshot: RateLimitSnapshot) -> String {
-        snapshot.vendor.descriptor.roles.contains(.speech) && sttModels(of: snapshot.vendor).contains { $0.id == snapshot.model }
+        snapshot.vendor.descriptor.roles.contains(.speech) && knownSTTModels(of: snapshot.vendor).contains { $0.id == snapshot.model }
             ? HomeEngines.plainName(sttModel(vendor: snapshot.vendor, id: snapshot.model).displayName)
             : UsageView.chatModelName(snapshot.model)
     }

@@ -12,6 +12,7 @@
 		F7A002000000000000000002 /* MainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000002 /* MainWindow.swift */; };
 		F7A002000000000000000003 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000003 /* HomeView.swift */; };
 		F7A003000000000000000004 /* HomeSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000004 /* HomeSummaryTests.swift */; };
+		F7A0030000000000000000F9 /* ModelLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A0010000000000000000F9 /* ModelLifecycleTests.swift */; };
 		F7A002000000000000000005 /* HistorySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000005 /* HistorySummary.swift */; };
 		F7A003000000000000000007 /* HistorySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000005 /* HistorySummary.swift */; };
 		F7A003000000000000000006 /* HistorySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A001000000000000000006 /* HistorySummaryTests.swift */; };
@@ -40,6 +41,7 @@
 		D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
 		D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
 		D300000100000000000000E2 /* OpenSegmentClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000100000000000000E2 /* OpenSegmentClock.swift */; };
+		D300000100000000000000F7 /* ModelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000100000000000000F7 /* ModelLifecycle.swift */; };
 		D30000010000000000000006 /* DictationReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000003 /* DictationReplay.swift */; };
 		D30000010000000000000007 /* DictationReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000004 /* DictationReplayTests.swift */; };
 		C30000010000000000000100 /* LocalModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000100 /* LocalModelsTests.swift */; };
@@ -91,6 +93,7 @@
 		A10000010000000000000024 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
 		A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
 		A100000100000000000000E2 /* OpenSegmentClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000100000000000000E2 /* OpenSegmentClock.swift */; };
+		A100000100000000000000F7 /* ModelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000100000000000000F7 /* ModelLifecycle.swift */; };
 		A10000010000000000000026 /* TranscriptSpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000029 /* TranscriptSpan.swift */; };
 		A10000010000000000000027 /* TranscriptMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000002A /* TranscriptMerge.swift */; };
 		A1000001000000000000C054 /* STTModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000C054 /* STTModelCatalog.swift */; };
@@ -216,6 +219,7 @@
 		D80000030000000000000027 /* BatchRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000027 /* BatchRecognitionSession.swift */; };
 		D80000030000000000000028 /* StreamingRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000028 /* StreamingRecognitionSession.swift */; };
 		D800000300000000000000E2 /* OpenSegmentClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000100000000000000E2 /* OpenSegmentClock.swift */; };
+		D800000300000000000000F7 /* ModelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000100000000000000F7 /* ModelLifecycle.swift */; };
 		D80000030000000000000029 /* DictationTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000005 /* DictationTrace.swift */; };
 		D8000003000000000000002A /* LocalSTTRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8000001000000000000A004 /* LocalSTTRuntime.swift */; };
 		D8000003000000000000002B /* LocalWhisperRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000005 /* LocalWhisperRuntime.swift */; };
@@ -238,6 +242,7 @@
 		F7A001000000000000000002 /* MainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindow.swift; sourceTree = "<group>"; };
 		F7A001000000000000000003 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		F7A001000000000000000004 /* HomeSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSummaryTests.swift; sourceTree = "<group>"; };
+		F7A0010000000000000000F9 /* ModelLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelLifecycleTests.swift; sourceTree = "<group>"; };
 		F7A001000000000000000005 /* HistorySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySummary.swift; sourceTree = "<group>"; };
 		F7A001000000000000000006 /* HistorySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySummaryTests.swift; sourceTree = "<group>"; };
 		F7A001000000000000000010 /* Vocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Vocabulary.swift; sourceTree = "<group>"; };
@@ -301,6 +306,7 @@
 		A20000010000000000000027 /* BatchRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchRecognitionSession.swift; sourceTree = "<group>"; };
 		A20000010000000000000028 /* StreamingRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingRecognitionSession.swift; sourceTree = "<group>"; };
 		A200000100000000000000E2 /* OpenSegmentClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenSegmentClock.swift; sourceTree = "<group>"; };
+		A200000100000000000000F7 /* ModelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelLifecycle.swift; sourceTree = "<group>"; };
 		A20000010000000000000029 /* TranscriptSpan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSpan.swift; sourceTree = "<group>"; };
 		A2000001000000000000002A /* TranscriptMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptMerge.swift; sourceTree = "<group>"; };
 		A2000001000000000000C054 /* STTModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTModelCatalog.swift; sourceTree = "<group>"; };
@@ -426,6 +432,7 @@
 				A20000010000000000000027 /* BatchRecognitionSession.swift */,
 				A20000010000000000000028 /* StreamingRecognitionSession.swift */,
 				A200000100000000000000E2 /* OpenSegmentClock.swift */,
+				A200000100000000000000F7 /* ModelLifecycle.swift */,
 				A20000010000000000000029 /* TranscriptSpan.swift */,
 				A2000001000000000000002A /* TranscriptMerge.swift */,
 				A20000010000000000000200 /* SpellCheckedJoins.swift */,
@@ -520,6 +527,7 @@
 				E6000100000000000000001A /* OnboardingTests.swift */,
 				F78001000000000000000010 /* NetworkTests.swift */,
 				F7A001000000000000000004 /* HomeSummaryTests.swift */,
+				F7A0010000000000000000F9 /* ModelLifecycleTests.swift */,
 				F7A001000000000000000006 /* HistorySummaryTests.swift */,
 				F7A001000000000000000012 /* MainPagesTests.swift */,
 				F79001000000000000000003 /* APIKeyStoreTests.swift */,
@@ -692,6 +700,7 @@
 				A10000010000000000000024 /* BatchRecognitionSession.swift in Sources */,
 				A10000010000000000000025 /* StreamingRecognitionSession.swift in Sources */,
 				A100000100000000000000E2 /* OpenSegmentClock.swift in Sources */,
+				A100000100000000000000F7 /* ModelLifecycle.swift in Sources */,
 				A10000010000000000000026 /* TranscriptSpan.swift in Sources */,
 				A10000010000000000000027 /* TranscriptMerge.swift in Sources */,
 				A10000010000000000000200 /* SpellCheckedJoins.swift in Sources */,
@@ -758,6 +767,7 @@
 				D8000002000000000000A001 /* LiveProviderTests.swift in Sources */,
 				F7A003000000000000000001 /* HomeSummary.swift in Sources */,
 				F7A003000000000000000004 /* HomeSummaryTests.swift in Sources */,
+				F7A0030000000000000000F9 /* ModelLifecycleTests.swift in Sources */,
 				F7A003000000000000000007 /* HistorySummary.swift in Sources */,
 				F7A003000000000000000006 /* HistorySummaryTests.swift in Sources */,
 				F7A003000000000000000010 /* Vocabulary.swift in Sources */,
@@ -814,6 +824,7 @@
 				D30000010000000000000004 /* BatchRecognitionSession.swift in Sources */,
 				D30000010000000000000005 /* StreamingRecognitionSession.swift in Sources */,
 				D300000100000000000000E2 /* OpenSegmentClock.swift in Sources */,
+				D300000100000000000000F7 /* ModelLifecycle.swift in Sources */,
 				D30000010000000000000006 /* DictationReplay.swift in Sources */,
 				D30000010000000000000007 /* DictationReplayTests.swift in Sources */,
 				D30000010000000000000008 /* DictationTrace.swift in Sources */,
@@ -870,6 +881,7 @@
 				D80000030000000000000027 /* BatchRecognitionSession.swift in Sources */,
 				D80000030000000000000028 /* StreamingRecognitionSession.swift in Sources */,
 				D800000300000000000000E2 /* OpenSegmentClock.swift in Sources */,
+				D800000300000000000000F7 /* ModelLifecycle.swift in Sources */,
 				D80000030000000000000029 /* DictationTrace.swift in Sources */,
 				D8000003000000000000002A /* LocalSTTRuntime.swift in Sources */,
 				D8000003000000000000002B /* LocalWhisperRuntime.swift in Sources */,

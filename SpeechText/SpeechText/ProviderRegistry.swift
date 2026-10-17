@@ -30,8 +30,10 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
     ///
     /// A default model is a pointer into the catalogue, written here and nowhere else.
     /// The catalogue entries carry literal IDs, so moving a default never removes a
-    /// model, and an install that stored the old one keeps it — except `localSTTModel`,
-    /// which nothing writes until the user picks: see `preserveInstalledLocalModel`.
+    /// model, and an install that stored the old one keeps it. One that never picked has
+    /// the model it runs pinned at launch (`pinUntouchedModelChoices`,
+    /// `preserveInstalledLocalModel`), so a new default reaches only new installs; mark
+    /// the old one `.superseded(by:)` to offer the switch.
     /// Chat defaults are the fast end of each catalogue that still rewrites well — the
     /// user is waiting on the paste; Groq's is its own replacement for the retired
     /// Llama 3.3 70B.
@@ -158,8 +160,10 @@ struct ModelSetting {
     let settingsKey: String?
     /// A catalogue entry's ID — the pointer, never the entry's own constant.
     let defaultID: String
-    /// A stored ID the catalogue no longer lists is reset to the default at launch
-    /// (`normalizeStoredProviders`).
+    /// A stored ID the vendor is retiring is moved to its replacement at launch, and one
+    /// that leads to no offered model is cleared (`migrateStoredModels`); an unset one is
+    /// pinned for the provider in use (`pinUntouchedModelChoices`). False for Ollama,
+    /// whose models are the user's.
     var normalized = true
     /// What Settings says beside the model picker, whichever model is picked.
     var caption: String? = nil

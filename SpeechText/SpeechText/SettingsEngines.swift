@@ -401,10 +401,11 @@ struct SpeechEngineSettings: View {
         }
         if selected || opened == card.service {
             NestedUnderRow {
-                ForEach(sttModels(of: card.service)) { model in
+                ForEach(pickerSTTModels(of: card.service, selected: storedModel(card.service))) { model in
                     SetupRow(title: onlineSpeechModelName(model),
-                             badge: model.id == card.service.defaultSpeechModel
-                                ? SetupBadge(text: "Recommended", kind: .recommended) : nil,
+                             badge: lifecycleBadge(model.lifecycle)
+                                ?? (model.id == card.service.defaultSpeechModel
+                                    ? SetupBadge(text: "Recommended", kind: .recommended) : nil),
                              detail: onlineSpeechModelLine(model),
                              isSelected: storedModel(card.service) == model.id, compact: true) {
                         setStoredModel(model.id, for: card.service)
@@ -637,10 +638,11 @@ struct AIEngineSettings: View {
         }
         if selected || opened == card.service {
             NestedUnderRow {
-                ForEach(chatModels(of: card.pick), id: \.id) { model in
+                ForEach(pickerChatModels(of: card.pick, selected: storedModel(card.pick)), id: \.id) { model in
                     SetupRow(title: chatModelName(model),
-                             badge: model.id == card.service.defaultChatModel
-                                ? SetupBadge(text: "Recommended", kind: .recommended) : nil,
+                             badge: lifecycleBadge(model.lifecycle)
+                                ?? (model.id == card.service.defaultChatModel
+                                    ? SetupBadge(text: "Recommended", kind: .recommended) : nil),
                              detail: chatModelLine(model).isEmpty ? nil : chatModelLine(model),
                              isSelected: storedModel(card.pick) == model.id, compact: true) {
                         setStoredModel(model.id, for: card.pick)
@@ -662,6 +664,12 @@ struct AIEngineSettings: View {
             }
         }
     }
+}
+
+/// A model the vendor is retiring says so, with the date, in place of any other badge. It
+/// is listed only while it is still the one selected (`pickerSTTModels`).
+private func lifecycleBadge(_ lifecycle: ModelLifecycle) -> SetupBadge? {
+    lifecycle.status(on: Date()).map { SetupBadge(text: $0, kind: .warn) }
 }
 
 private extension Text {

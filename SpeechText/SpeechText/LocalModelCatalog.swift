@@ -40,6 +40,10 @@ struct LocalSTTModel: Identifiable, Hashable {
     let memoryFloorBytes: UInt64
     /// Shown under the model in Settings.
     let summary: String
+    /// Superseded at most, never deprecated: a launch that moved a stored choice to a
+    /// local model would point it at files nobody downloaded. A newer local model is
+    /// offered, and only downloaded once the user takes it.
+    var lifecycle: ModelLifecycle = .current
 
     var downloadSizeDescription: String {
         ByteCountFormatter.string(fromByteCount: downloadBytes, countStyle: .file)

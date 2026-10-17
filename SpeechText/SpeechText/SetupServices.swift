@@ -70,7 +70,7 @@ struct SpeechServiceCard {
 
     /// The model choosing the card saves, or nil to leave the stored one.
     var savedModel: String? {
-        promisesLiveWords ? sttModels(of: service).first(where: \.isRealtime)?.id : nil
+        promisesLiveWords ? offeredSTTModels(of: service).first(where: \.isRealtime)?.id : nil
     }
 }
 

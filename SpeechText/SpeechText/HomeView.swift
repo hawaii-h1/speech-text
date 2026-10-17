@@ -885,7 +885,7 @@ struct HomeEngines: View {
                 + Text("Choose a provider").foregroundStyle(MainColor.aiInk)
         }
         let id = LLMConfiguration.model(for: type)
-        let listed = listedChatModel(provider: type, id: id)?.displayName ?? id
+        let listed = chatModel(provider: type, id: id).displayName
         let (vendor, name): (String, String) = switch type {
         case .anthropic: ("Claude", Self.plainName(listed).replacingOccurrences(of: "Claude ", with: ""))
         case .groq: ("Groq", Self.plainName(listed))

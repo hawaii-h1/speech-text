@@ -1040,7 +1040,7 @@ private struct HistoryDetail: View {
 
     private func modelName(_ refinement: TranscriptionRecord.Refinement) -> String {
         let name = LLMProviderType(rawValue: refinement.provider)
-            .flatMap { listedChatModel(provider: $0, id: refinement.model)?.displayName }
+            .map { chatModel(provider: $0, id: refinement.model).displayName }
         return HomeEngines.plainName(name ?? refinement.model)
     }
 
