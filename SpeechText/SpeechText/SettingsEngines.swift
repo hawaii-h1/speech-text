@@ -185,6 +185,7 @@ struct SpeechEngineSettings: View {
     @State private var waitingFor: String?
     /// The model in use, about to be removed — asked first.
     @State private var removing: LocalSTTModel?
+    @State private var showHeavyModels = false
 
     init() {
         let stored = STTProviderType(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.sttProvider) ?? "") ?? .apple
@@ -226,8 +227,24 @@ struct SpeechEngineSettings: View {
             Text("For your \(macDescription(capabilities))")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SetupColor.label2)), inset: 5) {
-            ForEach(offeredLocalSTTModels(for: capabilities)) { model in
-                localRow(model)
+            // A model this Mac cannot hold waits behind a link, as AI Rewrite's do — unless
+            // it is the one in use or on disk, which must stay in sight to be changed or removed.
+            let offered = offeredLocalSTTModels(for: capabilities)
+            let heavy = offered.filter { model in
+                !localModelFitsMemory(model.memoryFloorBytes, capabilities)
+                    && !(engine == .local && localModelID == model.id)
+                    && store.state(for: model.id) == .notInstalled
+            }
+            ForEach(offered.filter { model in !heavy.contains { $0.id == model.id } }) { localRow($0) }
+            if !heavy.isEmpty {
+                Button(showHeavyModels ? "Hide models too heavy for this Mac"
+                                       : "Show \(heavy.count) \(heavy.count == 1 ? "model" : "models") too heavy for this Mac") {
+                    withAnimation(.easeOut(duration: 0.2)) { showHeavyModels.toggle() }
+                }
+                .buttonStyle(SetupInlineLinkStyle())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                if showHeavyModels { ForEach(heavy) { localRow($0) } }
             }
             SetupRow(title: "Apple Dictation", subtitle: "Built in", detail: appleDictationLine,
                      isSelected: engine == .apple) { sttProvider = STTProviderType.apple.rawValue }
