@@ -70,6 +70,40 @@ struct FocusContext: Codable, Equatable {
         return context.isEmpty ? nil : context
     }
 
+    /// What kind of text the field takes, where the app or the field's label says so
+    /// plainly. Only one kind is told apart today: a prompt box for an AI. An app such as
+    /// T3 Code is newer than any model's training, so its name alone said nothing, and a
+    /// dictation into it came out as a chat message, or carried out, rather than as the
+    /// prompt it was. Cursor and VS Code are left out on purpose: their agent pane and their
+    /// editor are one app, and only the field could tell them apart.
+    enum Kind: Equatable {
+        case aiPrompt
+    }
+
+    /// Apps whose text fields are prompts to an AI, by bundle identifier prefix, so every
+    /// channel of one ("T3 Code (Alpha)", "(Beta)") counts.
+    static let aiPromptBundleIDPrefixes = [
+        "com.t3tools.t3code",
+        "com.anthropic.claudefordesktop",
+        "com.openai.chat",
+        "com.openai.codex",
+    ]
+
+    /// Derived, never stored: `Refinement.context` is kept in History, and a record from
+    /// before the kind existed reads the same as one after.
+    var kind: Kind? {
+        if let bundleID, Self.aiPromptBundleIDPrefixes.contains(where: { bundleID.hasPrefix($0) }) {
+            return .aiPrompt
+        }
+        // A chat page in a browser is known only by its field: "Write your prompt to
+        // Claude", ChatGPT's "Ask anything".
+        if let label = fieldLabel?.lowercased(),
+           label.contains("prompt") || label.hasPrefix("ask anything") {
+            return .aiPrompt
+        }
+        return nil
+    }
+
     var isEmpty: Bool {
         appName == nil && bundleID == nil && windowTitle == nil && fieldLabel == nil
     }
@@ -85,6 +119,8 @@ struct FocusContext: Codable, Equatable {
         }
         if let windowTitle { lines.append("window: \(windowTitle)") }
         if let fieldLabel { lines.append("field: \(fieldLabel)") }
+        // Ours, not read off the screen, so it is a fact the model may lean on.
+        if kind == .aiPrompt { lines.append("kind: a prompt to an AI assistant") }
         return "<context>\n\(lines.joined(separator: "\n"))\n</context>"
     }
 
