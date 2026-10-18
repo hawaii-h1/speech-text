@@ -80,13 +80,16 @@ final class AudioBufferWriter {
         }
     }
 
+    /// Guards everything below, the converter included. The stop is asynchronous
+    /// (`SpeechEngine.stopAudioEngine`), so a tap callback can still be inside `append`
+    /// while the stop's task flushes the converter in `writeAudioFile`: two threads
+    /// driving one `AVAudioConverter`, whose output buffer the flush may reallocate under
+    /// the conversion.
     private let lock = NSLock()
 
     // Primary path: converted samples.
-    /// Set once by `prepare` before the tap exists, then only touched from the audio
-    /// thread (via `append`) and, after the tap is gone, by `writeAudioFile`'s flush —
-    /// so it needs no lock. `reset()` deliberately leaves it alone: the writer is dropped
-    /// right after, and the converter must outlive any tap callback still inside `append`.
+    /// Set by `prepare`, used by `append` and flushed by `writeAudioFile`, all under
+    /// `lock`. `reset()` leaves it alone: the writer is dropped right after.
     private var downsampler: PCMDownsampler?
     private var pcm16 = Data()
     private var pcm16Frames = 0
@@ -111,31 +114,37 @@ final class AudioBufferWriter {
     /// installed — and again, with no tap in place, when the engine is rebuilt on a new
     /// device mid-segment; without it `append` takes the native-copy fallback path.
     func prepare(sourceFormat: AVAudioFormat) {
-        downsampler = PCMDownsampler(sourceFormat: sourceFormat, targetRate: Self.uploadSampleRate)
+        let downsampler = PCMDownsampler(sourceFormat: sourceFormat, targetRate: Self.uploadSampleRate)
+        lock.lock()
+        self.downsampler = downsampler
         isConvertingLive = downsampler != nil
-        if !isConvertingLive {
+        lock.unlock()
+        if downsampler == nil {
             dlog("Audio", "prepare: no converter for \(sourceFormat) — keeping native copies, converting at stop")
         }
     }
 
     /// Appends one tap buffer and returns its 16 kHz mono Int16 bytes, or nil on the
-    /// fallback path (or if this particular buffer failed to convert). Runs on the audio
-    /// thread: the conversion happens before the lock is taken, and the lock only guards
-    /// a `Data.append`.
+    /// fallback path (or if this particular buffer failed to convert, or arrived after the
+    /// stop's flush). Runs on the tap's thread — never Core Audio's render thread — and
+    /// converts under the lock, which the stop's flush takes too. That holds the lock for
+    /// about 22 µs per 4 800-frame buffer and 6 µs per 1 024 (medians, Debug build, M1
+    /// Pro), against the 100 or 21 ms of audio each holds; the lock was already taken once
+    /// per buffer before.
     @discardableResult
     func append(_ buffer: AVAudioPCMBuffer) -> Data? {
         guard buffer.frameLength > 0 else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        // After the stop: the file is written, or being written, from what came before,
+        // and the converter has been told the stream ended.
+        guard !flushed else { return nil }
 
         if let downsampler {
             if let pcm = downsampler.convert(buffer) {
-                let peak = Self.peak(ofPCM16: pcm)
-                lock.lock()
-                if !flushed {
-                    pcm16.append(pcm)
-                    pcm16Frames += pcm.count / MemoryLayout<Int16>.size
-                    pcm16Peak = max(pcm16Peak, peak)
-                }
-                lock.unlock()
+                pcm16.append(pcm)
+                pcm16Frames += pcm.count / MemoryLayout<Int16>.size
+                pcm16Peak = max(pcm16Peak, Self.peak(ofPCM16: pcm))
                 return pcm
             }
             // A genuine converter error (priming returns empty bytes, not nil). Keep this
@@ -153,8 +162,10 @@ final class AudioBufferWriter {
     /// Drains the resampler's delay line into `pcm16`. `AVAudioConverter` holds back a few
     /// milliseconds of audio between calls and only releases it on `.endOfStream`, so
     /// without this the last frames of every recording — the tail of the final syllable —
-    /// would be missing from the file. Must run after the tap is removed, which is the
-    /// only time `writeAudioFile` is called; it is a no-op on the native path.
+    /// would be missing from the file. Runs when the stop's task writes the file, which may
+    /// be before the asynchronous stop has removed the tap: `flushed`, set under the same
+    /// lock `append` converts under, is what keeps a late buffer out. A no-op on the
+    /// native path.
     private func flushConverter() {
         lock.lock()
         defer { lock.unlock() }
@@ -165,6 +176,7 @@ final class AudioBufferWriter {
         pcm16Frames += tail.count / MemoryLayout<Int16>.size
     }
 
+    /// Called by `append` with `lock` held.
     private func appendNative(_ buffer: AVAudioPCMBuffer) {
         guard let src = buffer.floatChannelData else {
             abwLog.error("append: buffer has nil floatChannelData, skipping")
@@ -186,12 +198,10 @@ final class AudioBufferWriter {
             memcpy(dst[ch], src[ch], Int(buffer.frameLength) * MemoryLayout<Float>.size)
         }
 
-        lock.lock()
         if nativeFormat == nil {
             nativeFormat = buffer.format
         }
         nativeBuffers.append(copy)
-        lock.unlock()
     }
 
     /// Writes the buffered audio to a temp file for upload (or for the History archive)
@@ -252,9 +262,9 @@ final class AudioBufferWriter {
                     // also hold the 16 kHz bytes.
                     guard capturedFrames == 0, let capturedFormat else { throw error }
                     dlog("Audio", "writeAudioFile: downsample failed (\(error.localizedDescription)) — falling back to native format")
-                    let nativeURL = Self.makeTempURL(codec: .wav)
-                    try Self.writeNative(buffers: capturedBuffers, format: capturedFormat, to: nativeURL)
-                    tempURL = nativeURL
+                    tempURL = try Self.writeAttempt(codec: .wav) { url in
+                        try Self.writeNative(buffers: capturedBuffers, format: capturedFormat, to: url)
+                    }
                 }
             }
         } else {
@@ -279,20 +289,29 @@ final class AudioBufferWriter {
     /// `uploadCodec(forFrames:)` routes it here as WAV to begin with), but a lost
     /// recording is the one outcome this file exists to prevent, so the plain-PCM path
     /// stays one step behind it. Each attempt gets its own temp URL so a half-written
-    /// FLAC never carries a `.wav` name.
-    private static func writeWithCodecFallback(preferred: UploadCodec,
-                                               _ write: (UploadCodec, URL) throws -> Void) throws -> URL {
-        let url = makeTempURL(codec: preferred)
+    /// FLAC never carries a `.wav` name, and one that throws leaves no file behind.
+    static func writeWithCodecFallback(preferred: UploadCodec,
+                                       _ write: (UploadCodec, URL) throws -> Void) throws -> URL {
         do {
-            try write(preferred, url)
-            return url
+            return try writeAttempt(codec: preferred) { try write(preferred, $0) }
         } catch {
             guard preferred != .wav else { throw error }
             dlog("Audio", "writeAudioFile: \(preferred.fileExtension) encoding failed (\(error.localizedDescription)) — falling back to wav")
+            return try writeAttempt(codec: .wav) { try write(.wav, $0) }
+        }
+    }
+
+    /// Runs `write` into a fresh temp file of `codec`, removing whatever it wrote there if
+    /// it throws: a half-written file is the user's speech left in the temp folder, with
+    /// no History row pointing at it and nothing to clean it up.
+    private static func writeAttempt(codec: UploadCodec, _ write: (URL) throws -> Void) throws -> URL {
+        let url = makeTempURL(codec: codec)
+        do {
+            try write(url)
+            return url
+        } catch {
             try? FileManager.default.removeItem(at: url)
-            let wavURL = makeTempURL(codec: .wav)
-            try write(.wav, wavURL)
-            return wavURL
+            throw error
         }
     }
 
@@ -457,8 +476,8 @@ final class AudioBufferWriter {
         nativeFormat = nil
         flushed = false
         lock.unlock()
-        // `downsampler` is not touched here: this runs on the main thread, and a tap
-        // callback may still be inside `append`. It dies with the writer.
+        // `downsampler` is not touched here: the writer is dropped right after, and the
+        // converter dies with it.
     }
 
     static func cleanup(fileURL: URL) {

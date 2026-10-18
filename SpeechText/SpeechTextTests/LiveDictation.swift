@@ -61,7 +61,10 @@ final class InlineDictationFlow {
         }
         layer.commitSegment(outcome.text)
         layer.settleSegment()
-        let result = InlineDelivery.stopResult(finalText: outcome.text, failed: outcome.error != nil,
+        // `SpeechEngine.recordOutcome` puts the error in `errorMessage` only when the
+        // segment has no text: words with an error after them are pasted.
+        let failed = outcome.error != nil && outcome.text.isEmpty
+        let result = InlineDelivery.stopResult(finalText: outcome.text, failed: failed,
                                                aiMode: aiMode, recordingText: layer.text)
         return (outcome, result)
     }

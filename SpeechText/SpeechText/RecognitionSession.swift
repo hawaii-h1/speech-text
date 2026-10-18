@@ -82,7 +82,8 @@ struct RecognitionOutcome {
     /// Trimmed. Empty when nothing was recognised or the segment failed.
     var text: String
     /// Set when the segment failed. May coexist with non-empty text (Apple: an error after
-    /// some words were recognised) — text wins for History, the error is still surfaced.
+    /// some words were recognised) — text wins, for History and the stop's paste alike, and
+    /// the engine only logs the error.
     var error: String?
     /// The segment file a batch session wrote. Ownership passes to the engine, which
     /// deletes it on success and hands it to History otherwise.

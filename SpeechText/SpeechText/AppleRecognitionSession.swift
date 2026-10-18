@@ -151,11 +151,16 @@ final class AppleRecognitionSession: RecognitionSession {
         scheduleChunkRotation()
     }
 
+    /// In the main run loop's common modes, not only the default one: while the status
+    /// menu is open (or a window is dragged) the run loop is in event tracking, a default
+    /// mode timer waits it out, and past the recogniser's minute every word is dropped.
     private func scheduleChunkRotation() {
         chunkTimer?.invalidate()
-        chunkTimer = Timer.scheduledTimer(withTimeInterval: chunkDuration, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: chunkDuration, repeats: false) { [weak self] _ in
             self?.rotate()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        chunkTimer = timer
     }
 
     private func rotate() {

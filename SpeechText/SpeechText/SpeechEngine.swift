@@ -386,10 +386,16 @@ final class SpeechEngine {
                 self.spanLayer.ingest(committed: cleanedCommitted.cleaned,
                                       partial: configuration.cleaned(partial))
             case .failure(let failure):
-                self.errorMessage = failure.message
-                if failure.endsRecording {
-                    self.endRecording(after: failure)
+                // A failure after text is not the dictation's: the recording goes on and
+                // the stop pastes what was heard (`recordOutcome`). Left in `errorMessage`
+                // until the stop, it made the whole dictation a failure, handed to the
+                // Record Window instead of pasted. The session logged the error itself.
+                guard failure.endsRecording else {
+                    dlog("Engine", "recognition error after text — not a failure, the recording goes on")
+                    return
                 }
+                self.errorMessage = failure.message
+                self.endRecording(after: failure)
             }
         }
         session = newSession
@@ -823,7 +829,10 @@ final class SpeechEngine {
 
     /// Writes the segment's History entry from what the session returned. Non-empty text
     /// is a success even when an error was also reported (Apple: an error after some
-    /// words). With nothing recognised the audio is archived — the writer has it for every
+    /// words) — for the stop too: the error is only logged, never put in `errorMessage`,
+    /// which would make the dictation a failure and send its words to the Record Window
+    /// instead of pasting them. Text that cleanup emptied is no text, and its error stays.
+    /// With nothing recognised the audio is archived — the writer has it for every
     /// tier, so on-device recognition producing nothing still leaves a cloud retry.
     /// `superseded`: the segment landed after its task was cancelled by a resume. It
     /// still belongs in History, but the engine's live state is the *new* session's, so
@@ -843,7 +852,9 @@ final class SpeechEngine {
         // Any error known when an empty segment lands makes the entry a failure, so the
         // History row stays explainable after the fact.
         let failure = outcome.error ?? (superseded ? nil : errorMessage)
-        if let error = outcome.error, !superseded {
+        if outcome.error != nil, !outcome.text.isEmpty {
+            dlog("Engine", "segment has \(outcome.text.count) chars and a recognition error — kept as a success, the error only logged")
+        } else if let error = outcome.error, !superseded {
             errorMessage = error
         }
         if !outcome.text.isEmpty {
@@ -1052,7 +1063,9 @@ final class SpeechEngine {
     /// Asynchronous by default: waiting here would stall the main thread for the whole
     /// of a slow (Bluetooth) start whenever a cancel or stop lands during one. A buffer
     /// or two delivered after this returns is tolerated by every tier — `pause()` and
-    /// `finish()` ignore late feeds, `append` ignores them once flushed — and the tap
+    /// `finish()` ignore late feeds, and `append` converts under the lock the stop's flush
+    /// takes and drops a buffer once flushed, so one still converting when `finish()`
+    /// writes the file never shares the converter with the flush — and the tap
     /// closure holds the writer and session strongly until it is removed, so dropping
     /// the engine's references right after is safe. `waiting` is for the one caller
     /// that re-prepares the writer next and must know no callback is inside `append`.

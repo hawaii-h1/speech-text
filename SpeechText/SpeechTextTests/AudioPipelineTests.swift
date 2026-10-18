@@ -587,7 +587,8 @@ final class RecognitionFailureTests: XCTestCase {
         let failure = try XCTUnwrap(apple(hasText: true))
 
         XCTAssertFalse(failure.endsRecording)
-        XCTAssertTrue(failure.message.contains("English speech model"), "still explained at the stop")
+        XCTAssertTrue(failure.message.contains("English speech model"),
+                      "still explained should the segment come back with no words after all")
     }
 
     /// A rotation, a stop and `cancel()` all cancel a task — in whichever domain.
@@ -1118,5 +1119,187 @@ final class UsageLedgerPricingTests: XCTestCase {
         let cost = RecordCost(record(events: [speech(.upload, .openAI, model: "gpt-9-transcribe", seconds: 60)]))
         XCTAssertEqual(cost.speech, 0)
         XCTAssertEqual(cost.unpricedSpeech, ["gpt-9-transcribe"], "an ID the catalogue does not list is named, not priced as another")
+    }
+}
+
+// MARK: - The stop's flush and a late tap buffer
+
+/// What the appending thread saw, read by the test once it has finished.
+private final class LateAppends: @unchecked Sendable {
+    private let lock = NSLock()
+    private var writeDone = false
+    private var late: [Data?] = []
+
+    var hasWritten: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return writeDone
+    }
+
+    func markWritten() {
+        lock.lock()
+        writeDone = true
+        lock.unlock()
+    }
+
+    func record(_ pcm: Data?) {
+        lock.lock()
+        late.append(pcm)
+        lock.unlock()
+    }
+
+    var results: [Data?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return late
+    }
+}
+
+final class AudioBufferWriterStopTests: XCTestCase {
+
+    /// The stop is queued on `engineQueue` and its task writes the file at once
+    /// (`SpeechEngine.stopAudioEngine`), so a tap callback can still be inside `append`
+    /// while `writeAudioFile` flushes the converter. Two threads driving one
+    /// `AVAudioConverter` corrupt it; a buffer that arrives once the flush has begun is
+    /// after the stop, and is dropped — never converted, never kept.
+    func testATapBufferDuringTheStopsFlushNeverReachesTheConverter() throws {
+        let writer = AudioBufferWriter()
+        writer.prepare(sourceFormat: mono48k())
+        let buffer = makeSineBuffer(format: mono48k(), frames: 4_800)
+        let appends = LateAppends()
+        let running = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+
+        Thread.detachNewThread {
+            // Bounded by time, since how long the write takes is not ours to know; done
+            // once twenty buffers have arrived after the file was written. Paced once the
+            // write may have begun, so a converter that kept taking buffers after the
+            // flush cannot fill the memory while the test waits.
+            let deadline = Date().addingTimeInterval(20)
+            var index = 0
+            while Date() < deadline {
+                let afterWrite = appends.hasWritten
+                let pcm = writer.append(buffer)
+                if afterWrite {
+                    appends.record(pcm)
+                    if appends.results.count == 20 { break }
+                }
+                index += 1
+                if index == 20 { running.signal() }
+                if index > 20 { Thread.sleep(forTimeInterval: 0.0005) }
+            }
+            done.signal()
+        }
+
+        running.wait()
+        let url = try writer.writeAudioFile()
+        defer { AudioBufferWriter.cleanup(fileURL: url) }
+        appends.markWritten()
+        let written = writer.bufferedDuration
+        XCTAssertEqual(done.wait(timeout: .now() + 30), .success, "the appending thread never finished")
+
+        XCTAssertFalse(appends.results.isEmpty, "no buffer arrived after the write")
+        XCTAssertTrue(appends.results.allSatisfy { $0 == nil }, "a buffer after the stop was converted")
+        XCTAssertEqual(writer.bufferedDuration, written, "a buffer after the stop was kept")
+
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertEqual(file.fileFormat.sampleRate, 16_000)
+        XCTAssertEqual(Int(file.length), Int((written * AudioBufferWriter.uploadSampleRate).rounded()),
+                       "the file holds exactly what the writer kept")
+    }
+}
+
+// MARK: - A failed write leaves nothing behind
+
+final class AudioBufferWriterFailedWriteTests: XCTestCase {
+
+    private struct EncoderRefused: Error {}
+
+    /// An attempt that writes part of a file and then throws.
+    private func halfWrite(_ url: URL) throws {
+        FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 1, count: 64))
+        throw EncoderRefused()
+    }
+
+    /// Both encodings failing — likely on the mixed path, whose native tail already failed
+    /// once — left the WAV attempt's half-written file in the temp folder: the user's
+    /// speech, with no History row pointing at it.
+    func testBothEncodingsFailingLeaveNoFileBehind() {
+        var attempts: [URL] = []
+        XCTAssertThrowsError(try AudioBufferWriter.writeWithCodecFallback(preferred: .flac) { _, url in
+            attempts.append(url)
+            try halfWrite(url)
+        })
+
+        XCTAssertEqual(attempts.map(\.pathExtension), ["flac", "wav"])
+        for url in attempts {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) was left behind")
+        }
+    }
+
+    /// A recording under one FLAC block is written as WAV to begin with: its one attempt.
+    func testAShortRecordingsFailedWAVLeavesNoFileBehind() {
+        var attempts: [URL] = []
+        XCTAssertThrowsError(try AudioBufferWriter.writeWithCodecFallback(preferred: .wav) { _, url in
+            attempts.append(url)
+            try halfWrite(url)
+        })
+
+        XCTAssertEqual(attempts.map(\.pathExtension), ["wav"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attempts[0].path))
+    }
+
+    func testAWAVThatSucceedsAfterAFailedFLACIsTheOnlyFileLeft() throws {
+        var attempts: [URL] = []
+        let url = try AudioBufferWriter.writeWithCodecFallback(preferred: .flac) { codec, url in
+            attempts.append(url)
+            if codec == .flac { try halfWrite(url) }
+            FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 2, count: 64))
+        }
+        defer { AudioBufferWriter.cleanup(fileURL: url) }
+
+        XCTAssertEqual(attempts.count, 2)
+        XCTAssertEqual(url, attempts[1])
+        XCTAssertEqual(url.pathExtension, "wav")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attempts[0].path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+}
+
+// MARK: - An error after text
+
+@MainActor
+final class ErrorAfterTextTests: XCTestCase {
+
+    /// Apple's recogniser can answer the stop's `endAudio()` on a chunk that heard nothing
+    /// after a rotation with "No speech detected", with a minute of words already in the
+    /// segment. Those words are pasted; the error made the dictation a failure, handed to
+    /// the Record Window with "Transcription failed".
+    func testWordsWithAnErrorAfterThemArePasted() {
+        let flow = InlineDictationFlow(clean: cleanedTranscript)
+        flow.live(committed: "First minute of words.", partial: "")
+        let outcome = RecognitionOutcome(text: "First minute of words.", error: "No speech detected",
+                                         audioFileURL: nil, cancelled: false)
+
+        let (_, result) = flow.stop(outcome, aiMode: false)
+        XCTAssertEqual(result, .paste("First minute of words."))
+    }
+
+    func testAnErrorWithNoWordsIsStillAFailure() {
+        let flow = InlineDictationFlow(clean: cleanedTranscript)
+        let outcome = RecognitionOutcome(text: "", error: "No speech detected", audioFileURL: nil, cancelled: false)
+
+        let (_, result) = flow.stop(outcome, aiMode: false)
+        XCTAssertEqual(result, .failed(partial: ""))
+    }
+
+    /// Words that cleanup removes are no words: the error explains the empty result.
+    func testAnErrorAfterOnlyHesitationsIsStillAFailure() {
+        let flow = InlineDictationFlow(clean: cleanedTranscript)
+        let outcome = RecognitionOutcome(text: "е-е-е", error: "No speech detected", audioFileURL: nil, cancelled: false)
+
+        let (cleaned, result) = flow.stop(outcome, aiMode: false)
+        XCTAssertEqual(cleaned.text, "")
+        XCTAssertEqual(result, .failed(partial: ""))
     }
 }
