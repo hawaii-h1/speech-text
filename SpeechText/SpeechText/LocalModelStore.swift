@@ -76,8 +76,11 @@ final class LocalModelStore {
         states[modelID] ?? (isInstalled(modelID) ? .installed : .notInstalled)
     }
 
+    /// Read from `states`, which the launch, `refresh`, an install and a remove keep, not
+    /// from the disk: Settings asks on every render, and a download renders it often.
+    /// `.optimizing` counts — the model is already in its folder.
     var installedModels: [LocalSTTModel] {
-        localSTTModels.filter { isInstalled($0.id) }
+        localSTTModels.filter { state(for: $0.id).isUsable }
     }
 
     /// True when at least one model is ready, which is what the engine picker needs to
@@ -100,6 +103,14 @@ final class LocalModelStore {
         // Models directory before that would silently strand an old install's history.
         _ = TranscriptionHistory.shared
 
+        // A failed or cancelled install deletes its staging, so nothing of it is on disk.
+        if let shortfall = localModelDiskShortfall(downloadBytes: model.downloadBytes,
+                                                   freeDiskBytes: SystemCapabilities.current().freeDiskBytes) {
+            states[model.id] = .failed(shortfall.localizedDescription)
+            dlog("LocalModel", "install of \(model.id) refused: \(shortfall.localizedDescription)")
+            return
+        }
+
         states[model.id] = .downloading(fraction: 0)
         dlog("LocalModel", "installing \(model.id) (\(model.downloadSizeDescription))")
 
@@ -109,15 +120,19 @@ final class LocalModelStore {
         let staging = Self.modelsDirectory.appendingPathComponent(".downloads", isDirectory: true)
             .appendingPathComponent(model.id, isDirectory: true)
         let runtime = runtime(model.engine)
+        let throttle = DownloadProgressThrottle()
 
         tasks[model.id] = Task { [weak self] in
             do {
                 try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
 
                 let downloaded = try await runtime.download(variant: model.id, into: staging) { fraction in
+                    guard let fraction = throttle.admit(fraction) else { return }
                     Task { @MainActor [weak self] in
-                        guard let self, self.states[model.id]?.isBusy == true else { return }
-                        self.states[model.id] = .downloading(fraction: min(max(fraction, 0), 1))
+                        // A report that lands after the download ended must not turn
+                        // "getting ready" back into a download.
+                        guard let self, case .downloading? = self.states[model.id] else { return }
+                        self.states[model.id] = .downloading(fraction: fraction)
                     }
                 }
                 try Task.checkCancellation()
@@ -136,11 +151,18 @@ final class LocalModelStore {
                 // Pay the one-time specialisation now, while the user is still in Settings,
                 // rather than on their first dictation. A failure here is not an install
                 // failure — the model is on disk and the next load will try again.
+                // Through the path every prewarm takes, which unloads the other engine's
+                // model first: every install is of a model about to be used — setup selects
+                // it before the download, Settings once it is usable, which it was from
+                // `.optimizing` — so it replaces the one resident rather than joining it.
                 do {
-                    try await runtime.prewarm(modelFolder: destination)
+                    try await prewarmLocalModel(model, with: runtime)
                 } catch {
                     dlog("LocalModel", "prewarm of \(model.id) failed: \(error.localizedDescription)")
                 }
+                // Downloaded and not taken (Settings closed before it was ready): the model
+                // dictations use is loaded again, and this one goes.
+                prewarmSelectedLocalModel(unlessItIs: model.id)
                 await MainActor.run { [weak self] in
                     self?.states[model.id] = .installed
                     self?.tasks[model.id] = nil

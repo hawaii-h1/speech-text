@@ -60,25 +60,32 @@ func registerLocalSTT() {
     }
     LocalSTT.prewarm = { modelID in
         guard let model = localSTTModel(id: modelID), isLocalModelInstalled(modelID) else { return }
-        let folder = localModelFolder(for: modelID)
+        let runtime: LocalSTTRuntime = switch model.engine {
+        case .whisperKit: WhisperKitRuntime()
+        case .parakeet: ParakeetRuntime()
+        }
         Task.detached(priority: .utility) {
-            // The other engine's model goes first: the two caches are separate, and a
-            // switch from one to the other would otherwise keep both resident.
             do {
-                switch model.engine {
-                case .whisperKit:
-                    await ParakeetPipelineCache.shared.unload()
-                    try await WhisperKitRuntime().prewarm(modelFolder: folder)
-                case .parakeet:
-                    await WhisperKitPipelineCache.shared.unload()
-                    try await ParakeetRuntime().prewarm(modelFolder: folder)
-                }
+                try await prewarmLocalModel(model, with: runtime)
             } catch {
                 dlog("LocalModel", "prewarm of \(modelID) failed: \(error.localizedDescription)")
             }
         }
     }
     dlog("LocalModel", "local speech engines registered (WhisperKit, FluidAudio/Parakeet)")
+}
+
+/// Loads an installed model through `runtime`, the other engine's model going first: the
+/// two caches are separate, and a load beside the other engine's model would keep both
+/// resident. A model of the same engine needs nothing — its cache holds one. The one path
+/// every prewarm takes — `LocalSTT.prewarm`'s and the one after an install — so only one
+/// local model is ever resident.
+func prewarmLocalModel(_ model: LocalSTTModel, with runtime: LocalSTTRuntime) async throws {
+    switch model.engine {
+    case .whisperKit: await ParakeetPipelineCache.shared.unload()
+    case .parakeet: await WhisperKitPipelineCache.shared.unload()
+    }
+    try await runtime.prewarm(modelFolder: localModelFolder(for: model.id))
 }
 
 /// Loads the local model the settings select, if the local tier is the engine in use.
@@ -89,7 +96,12 @@ func registerLocalSTT() {
 /// an M1 Pro (2026-10-16) against 0.2 s with it. A macOS update, the cache being purged
 /// or the model's files being replaced all empty it — and without this, the first
 /// dictation after the launch paid that wait before its paste.
-func prewarmSelectedLocalModel(defaults: UserDefaults = .standard) {
+///
+/// Also called after an install's prewarm, with `loaded` the model just installed: one the
+/// user downloaded and did not take gives way again to the model dictations use.
+func prewarmSelectedLocalModel(defaults: UserDefaults = .standard, unlessItIs loaded: String? = nil) {
     guard defaults.string(forKey: SettingsKeys.sttProvider) == STTProviderType.local.rawValue else { return }
-    LocalSTT.prewarm(defaults.string(forKey: SettingsKeys.localSTTModel) ?? Provider.local.defaultSpeechModel)
+    let selected = defaults.string(forKey: SettingsKeys.localSTTModel) ?? Provider.local.defaultSpeechModel
+    guard selected != loaded else { return }
+    LocalSTT.prewarm(selected)
 }

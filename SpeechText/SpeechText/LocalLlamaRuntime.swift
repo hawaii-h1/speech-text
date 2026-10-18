@@ -142,11 +142,13 @@ final class LlamaModel {
     /// `cacheablePrefix` is the part of it that does not change between requests — the
     /// system turn (`ChatTemplates.cacheablePrefix`); its state is saved the first time
     /// and restored after, so only the rest is read.
-    /// `shouldCancel` is asked between tokens: llama.cpp's abort callback reaches only
-    /// CPU execution, and on Metal a token is the smallest unit that can be stopped.
+    /// `shouldCancel` is asked before the prompt is read and between tokens: llama.cpp's
+    /// abort callback reaches only CPU execution, and on Metal a token is the smallest unit
+    /// that can be stopped.
     func complete(prompt: String, cacheablePrefix: String? = nil, maxTokens: Int,
                   sampling: LlamaSampling = .rewrite,
                   shouldCancel: () -> Bool = { false }) throws -> LlamaCompletion {
+        if shouldCancel() { throw LlamaError.cancelled }
         let memory = llama_get_memory(context)
         llama_memory_clear(memory, true)
         let tokens = try tokenize(prompt)
@@ -292,9 +294,6 @@ final class LocalLlamaRuntime: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.speech-text.llama", qos: .userInitiated)
     /// Touched only on `queue`.
     private var loaded: LlamaModel?
-    /// Read by the generation loop between tokens. Outside the queue: the loop holds it
-    /// for the whole job, so a `cancel()` that had to wait its turn would land after it.
-    private let cancelRequested = LlamaCancelFlag()
 
     private func run<T>(_ work: @escaping () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
@@ -331,30 +330,33 @@ final class LocalLlamaRuntime: @unchecked Sendable {
         }
     }
 
-    func unload() async {
-        _ = try? await run { self.loaded = nil }
+    /// Frees the model — with a `path`, only if it is the one loaded.
+    func unload(ifLoaded path: String? = nil) async {
+        _ = try? await run {
+            if path == nil || self.loaded?.path == path { self.loaded = nil }
+        }
     }
 
-    /// Frees the model on the calling thread, waiting for any job first. For a process
-    /// about to exit: ggml asserts at exit if Metal still holds a model's buffers.
-    func unloadNow() {
-        queue.sync { loaded = nil }
+    /// Frees the model on the calling thread, waiting for any job first — unless `stillIdle`,
+    /// asked once it is the queue's turn, says a job came in meanwhile and needs it. For a
+    /// process about to exit: ggml asserts at exit if Metal still holds a model's buffers.
+    func unloadNow(if stillIdle: () -> Bool = { true }) {
+        queue.sync { if stillIdle() { loaded = nil } }
     }
 
-    /// Asks a running completion to stop at its next token.
-    func cancel() { cancelRequested.set(true) }
-
+    /// `shouldCancel` is asked before the prompt is read and between tokens, on the queue —
+    /// the caller's own answer for this request, so a cancel stops the request it names
+    /// whether it came while the job ran or while the job waited its turn.
     func complete(system: String, user: String, maxTokens: Int,
-                  sampling: LlamaSampling = .rewrite, date: Date = Date()) async throws -> LlamaCompletion {
-        cancelRequested.set(false)
-        let flag = cancelRequested
-        return try await run {
+                  sampling: LlamaSampling = .rewrite, date: Date = Date(),
+                  shouldCancel: @escaping () -> Bool = { false }) async throws -> LlamaCompletion {
+        try await run {
             guard let model = self.loaded else { throw LlamaError.loadFailed("no model loaded") }
             let prompt = ChatTemplates.render(model.family, system: system, user: user, date: date)
             return try model.complete(prompt: prompt,
                                       cacheablePrefix: ChatTemplates.cacheablePrefix(model.family, system: system, date: date),
                                       maxTokens: maxTokens + ChatTemplates.reasoningAllowance(model.family),
-                                      sampling: sampling, shouldCancel: { flag.isSet })
+                                      sampling: sampling, shouldCancel: shouldCancel)
         }
     }
 
@@ -368,13 +370,6 @@ final class LocalLlamaRuntime: @unchecked Sendable {
     func metadata(_ key: String) async -> String? {
         (try? await run { self.loaded?.metadata(key) }) ?? nil
     }
-}
-
-final class LlamaCancelFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-    var isSet: Bool { lock.withLock { value } }
-    func set(_ newValue: Bool) { lock.withLock { value = newValue } }
 }
 
 /// The process's own memory as the system counts it (`phys_footprint`, what Activity

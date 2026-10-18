@@ -306,12 +306,31 @@ func localSTTPicks(for tier: MacTier) -> TierPicks {
 func firstFitting<Model>(_ candidates: [String], in catalog: [Model],
                          id: (Model) -> String, floor: (Model) -> UInt64, bytes: (Model) -> Int64,
                          capabilities: SystemCapabilities) -> Model? {
-    let usableDisk = capabilities.freeDiskBytes > gigabyte ? capabilities.freeDiskBytes - gigabyte : 0
     for candidate in candidates {
         guard let model = catalog.first(where: { id($0) == candidate }) else { continue }
-        if capabilities.memoryBytes >= floor(model), usableDisk >= UInt64(bytes(model)) { return model }
+        if capabilities.memoryBytes >= floor(model),
+           localModelDiskShortfall(downloadBytes: bytes(model), freeDiskBytes: capabilities.freeDiskBytes) == nil {
+            return model
+        }
     }
     return nil
+}
+
+/// What a download leaves free: Core ML's compiled copy, the hash check and every other
+/// app on the volume need room after it. The same gigabyte the recommendations keep, so a
+/// model they step down from for want of disk is not downloaded either.
+let localModelDiskHeadroomBytes: UInt64 = gigabyte
+
+/// Why a download may not start, or nil when it fits: the bytes still to come — the whole
+/// file, less what an interrupted download of it already holds on disk — plus the headroom,
+/// against the free space on the Application Support root (`SystemCapabilities.freeDiskBytes`).
+/// Asked before every download, because one that fills the volume fails every app on it
+/// long before URLSession gives up, and its resume data may keep the partial file.
+func localModelDiskShortfall(downloadBytes: Int64, alreadyOnDisk: Int64 = 0,
+                             freeDiskBytes: UInt64) -> LocalModelError? {
+    let remaining = UInt64(max(0, downloadBytes - max(0, alreadyOnDisk)))
+    let needed = remaining + localModelDiskHeadroomBytes
+    return freeDiskBytes >= needed ? nil : .insufficientDisk(needed: needed, free: freeDiskBytes)
 }
 
 /// The models a pick may land on: offered on this Mac, and knowing every language the
@@ -354,16 +373,54 @@ func localSTTRecommendationReason(for capabilities: SystemCapabilities, language
     return "\(model.displayName) for a \(tier.displayName) Mac."
 }
 
-enum LocalModelError: LocalizedError {
+enum LocalModelError: LocalizedError, Equatable {
     case notInstalled(String)
     case downloadFailed(String)
-    case insufficientDisk
+    /// `needed` counts the headroom, so it is the free space to make, as the user reads it.
+    case insufficientDisk(needed: UInt64, free: UInt64)
 
     var errorDescription: String? {
         switch self {
         case .notInstalled(let name): "The local model \"\(name)\" is not installed yet"
         case .downloadFailed(let why): "Could not install the local model: \(why)"
-        case .insufficientDisk: "Not enough free disk space to install this model"
+        case .insufficientDisk(let needed, let free):
+            "Not enough disk space: the download needs \(Self.size(needed)) free, and \(Self.size(free)) is."
+        }
+    }
+
+    private static func size(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
+    }
+}
+
+/// Which of a download's progress reports reach the main actor. URLSession reports a chat
+/// model's download every few kilobytes — hundreds of thousands of times — and the speech
+/// engines' downloads are not much quieter; each report was a main-actor task and a new
+/// render of both Settings pages. A report is let through once it moved by `step` and
+/// `interval` has passed since the last one let through — at most ten a second, about two
+/// hundred a download — and the first and the finish always are. One per download; the
+/// reports come on whatever thread the downloader has, so it locks.
+final class DownloadProgressThrottle: @unchecked Sendable {
+    static let step = 0.005
+    static let interval: TimeInterval = 0.1
+
+    private let lock = NSLock()
+    private var published: Double?
+    private var publishedAt: TimeInterval = 0
+
+    /// The fraction to publish, held to 0…1, or nil when this report is dropped. `time`
+    /// is a parameter so the tests need no clock.
+    func admit(_ fraction: Double, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Double? {
+        let fraction = min(max(fraction, 0), 1)
+        return lock.withLock {
+            if let published {
+                // `abs`: a downloader whose fraction steps back is still shown doing so.
+                let moved = abs(fraction - published) >= Self.step && time - publishedAt >= Self.interval
+                guard moved || (fraction == 1 && published != 1) else { return nil }
+            }
+            published = fraction
+            publishedAt = time
+            return fraction
         }
     }
 }

@@ -18,7 +18,7 @@ struct LocalChatClient: ChatClient {
         guard FileManager.default.fileExists(atPath: path.path) else { throw LocalChatError.notInstalled(model) }
         let request = LocalChatRequest.rewrite(model: model, path: path, system: system, user: user)
         let body = try JSONEncoder().encode(request)
-        let response: LocalChatResponse = try await LocalChatConnection.shared.call { service, finish in
+        let response: LocalChatResponse = try await LocalChatConnection.shared.call(cancelling: request.id) { service, finish in
             service.complete(body) { data, error in
                 if let data, let response = try? JSONDecoder().decode(LocalChatResponse.self, from: data) {
                     finish(.success(response))
@@ -74,14 +74,26 @@ final class LocalChatConnection: @unchecked Sendable {
 
     private let lock = NSLock()
     private var connection: NSXPCConnection?
+    /// Something was sent since the service last exited, so it may hold a model. Its idle
+    /// exit interrupts the connection, which then stays open: a message would start it again.
+    private var serviceMayBeRunning = false
 
+    /// The connection every request and prewarm goes over; whatever is sent over it starts
+    /// the service.
     private func current() -> NSXPCConnection {
         lock.withLock {
+            serviceMayBeRunning = true
             if let connection { return connection }
             let connection = NSXPCConnection(serviceName: localChatServiceName)
             connection.remoteObjectInterface = NSXPCInterface(with: LocalChatServiceProtocol.self)
+            connection.interruptionHandler = { [weak self] in
+                self?.lock.withLock { self?.serviceMayBeRunning = false }
+            }
             connection.invalidationHandler = { [weak self] in
-                self?.lock.withLock { self?.connection = nil }
+                self?.lock.withLock {
+                    self?.connection = nil
+                    self?.serviceMayBeRunning = false
+                }
             }
             connection.resume()
             self.connection = connection
@@ -89,13 +101,27 @@ final class LocalChatConnection: @unchecked Sendable {
         }
     }
 
+    /// The service over the connection already open, or nil — never a connection opened for
+    /// this: a cancel for a request that was never sent has nothing to stop, and launching
+    /// the service for it would only start a process that holds nothing. `onlyIfRunning`:
+    /// nil too once the service has exited, for a message that has nothing to do there.
+    private func existingService(onlyIfRunning: Bool = false) -> LocalChatServiceProtocol? {
+        let connection = lock.withLock { onlyIfRunning && !serviceMayBeRunning ? nil : self.connection }
+        return connection?.remoteObjectProxyWithErrorHandler { _ in } as? LocalChatServiceProtocol
+    }
+
     /// One request: the reply, or the error the connection ended with. A cancelled task
-    /// stops the completion in the service and a reply that never comes times out.
-    func call<T: Sendable>(_ body: @escaping (LocalChatServiceProtocol, @escaping (Result<T, Error>) -> Void) -> Void) async throws -> T {
+    /// or a reply that never comes (a timeout) stops the completion named `requestID` in
+    /// the service, and only that one; a task already cancelled sends nothing.
+    func call<T: Sendable>(cancelling requestID: String? = nil,
+                           _ body: @escaping (LocalChatServiceProtocol, @escaping (Result<T, Error>) -> Void) -> Void) async throws -> T {
         let once = Once<T>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                once.continuation = continuation
+                once.store(continuation)
+                // A task cancelled before this point ran its cancel handler while there was
+                // no continuation to end — so it ends here, and the request is never sent.
+                guard !Task.isCancelled else { once.finish(.failure(CancellationError())); return }
                 let proxy = current().remoteObjectProxyWithErrorHandler { error in
                     let nsError = error as NSError
                     once.finish(.failure(nsError.code == NSXPCConnectionInterrupted ? LocalChatError.interrupted : error))
@@ -105,13 +131,12 @@ final class LocalChatConnection: @unchecked Sendable {
                 }
                 Task {
                     try? await Task.sleep(nanoseconds: LocalChatClient.timeoutSeconds * 1_000_000_000)
-                    if once.finish(.failure(LocalChatError.timedOut)) { service.cancel() }
+                    if once.finish(.failure(LocalChatError.timedOut)), let requestID { service.cancel(requestID) }
                 }
                 body(service, { once.finish($0) })
             }
         } onCancel: {
-            (self.current().remoteObjectProxy as? LocalChatServiceProtocol)?.cancel()
-            once.finish(.failure(CancellationError()))
+            if once.finish(.failure(CancellationError())), let requestID { self.existingService()?.cancel(requestID) }
         }
     }
 
@@ -138,8 +163,10 @@ final class LocalChatConnection: @unchecked Sendable {
     func proxy() -> Any { current().remoteObjectProxyWithErrorHandler { _ in } }
     #endif
 
-    func release() {
-        (current().remoteObjectProxyWithErrorHandler { _ in } as? LocalChatServiceProtocol)?.unload {}
+    /// Unloads a removed model if the service holds it. A service that is not running holds
+    /// nothing, and is not started to be told so.
+    func release(_ model: LocalChatModel) {
+        existingService(onlyIfRunning: true)?.unload(localChatModelFile(for: model).path) {}
     }
 }
 
@@ -147,7 +174,12 @@ final class LocalChatConnection: @unchecked Sendable {
 /// timeout or the cancel gets there first.
 private final class Once<T>: @unchecked Sendable {
     private let lock = NSLock()
-    var continuation: CheckedContinuation<T, Error>?
+    private var continuation: CheckedContinuation<T, Error>?
+
+    /// Under the lock, as `finish` reads it: a cancel handler runs on another thread.
+    func store(_ continuation: CheckedContinuation<T, Error>) {
+        lock.withLock { self.continuation = continuation }
+    }
 
     @discardableResult
     func finish(_ result: Result<T, Error>) -> Bool {
@@ -176,7 +208,7 @@ extension LocalChatRequest {
 func registerLocalChat() {
     LocalChat.clientFactory = { LocalChatClient(model: $0) }
     LocalChat.prewarm = { LocalChatConnection.shared.prewarm($0) }
-    LocalChat.release = { LocalChatConnection.shared.release() }
+    LocalChat.release = { LocalChatConnection.shared.release($0) }
 }
 
 #if DEBUG

@@ -20,10 +20,12 @@ let localChatServiceName = "app.speech-text.SpeechText.LLM"
     /// Loads the model ahead of the first request — a cold load takes seconds — and reads
     /// the request's `prefixes`, the system prompts, which take seconds more.
     func prewarm(_ request: Data, reply: @escaping (String?) -> Void)
-    /// Stops a running completion at its next token.
-    func cancel()
-    /// Drops the model from memory (a removed download, or the user switched away).
-    func unload(reply: @escaping () -> Void)
+    /// Stops the completion with this `LocalChatRequest.id`: before its model loads, before
+    /// it reads its prompt, or at its next token — and no other.
+    func cancel(_ requestID: String)
+    /// Drops the model at `modelPath` from memory if it is the one loaded — a removed
+    /// download. Any other model stays: it may be the one in use.
+    func unload(_ modelPath: String, reply: @escaping () -> Void)
 }
 
 struct LocalChatRequest: Codable, Equatable {
@@ -39,6 +41,8 @@ struct LocalChatRequest: Codable, Equatable {
     /// For a prewarm: system prompts to read ahead, so the requests that follow restore
     /// them (AI dictation's and the Edit shortcut's). Nil on a completion.
     var prefixes: [String]? = nil
+    /// What a cancel names, so it stops this request and no other (`LocalChatActivity`).
+    var id = UUID().uuidString
 }
 
 struct LocalChatResponse: Codable, Equatable {

@@ -144,6 +144,103 @@ final class LocalSTTRecommendationTests: XCTestCase {
 
 }
 
+// MARK: - Room for a download
+
+/// `localModelDiskShortfall`, which both stores ask before a download starts: a download
+/// that fills the volume fails every app on it, not only ours.
+final class LocalModelDiskCheckTests: XCTestCase {
+
+    private let chat = localChatModel(id: "Qwen3.8-27B-Q4_K_M")!
+
+    func testADownloadMustLeaveAGigabyteFree() {
+        let bytes = UInt64(chat.downloadBytes)
+        XCTAssertNil(localModelDiskShortfall(downloadBytes: chat.downloadBytes, freeDiskBytes: bytes + gb))
+        XCTAssertEqual(localModelDiskShortfall(downloadBytes: chat.downloadBytes, freeDiskBytes: bytes + gb - 1),
+                       .insufficientDisk(needed: bytes + gb, free: bytes + gb - 1))
+        // The review's case: a 19 GB model with 10 GB free is refused before a byte arrives.
+        XCTAssertNotNil(localModelDiskShortfall(downloadBytes: chat.downloadBytes, freeDiskBytes: 10 * gb))
+    }
+
+    /// An interrupted chat download keeps its partial file, which already took its share
+    /// of the free space: only the rest has to fit, or a cancelled download could never
+    /// be resumed on a disk that has room for it.
+    func testAResumedDownloadNeedsRoomOnlyForTheRest() {
+        let half = chat.downloadBytes / 2
+        let rest = UInt64(chat.downloadBytes - half)
+        XCTAssertNil(localModelDiskShortfall(downloadBytes: chat.downloadBytes, alreadyOnDisk: half,
+                                             freeDiskBytes: rest + gb))
+        XCTAssertNotNil(localModelDiskShortfall(downloadBytes: chat.downloadBytes, alreadyOnDisk: half,
+                                                freeDiskBytes: rest + gb - 1))
+        // A count past the file's size (a stale one) still asks for the headroom.
+        XCTAssertNotNil(localModelDiskShortfall(downloadBytes: chat.downloadBytes, alreadyOnDisk: 2 * chat.downloadBytes,
+                                                freeDiskBytes: gb - 1))
+    }
+
+    /// The download refuses exactly what the recommendations step down from, so Settings
+    /// never recommends a model it then will not download.
+    func testTheRecommendationsAndTheDownloadAgree() {
+        for model in localSTTModels {
+            let fits = UInt64(model.downloadBytes) + gb
+            for free in [fits - 1, fits] {
+                let capabilities = SystemCapabilities(chipName: "Apple M5", isAppleSilicon: true, cores: 10,
+                                                      memoryBytes: 512 * gb, freeDiskBytes: free, systemMajorVersion: 26)
+                let picked = firstFitting([model.id], in: localSTTModels, id: \.id, floor: \.memoryFloorBytes,
+                                          bytes: \.downloadBytes, capabilities: capabilities)
+                XCTAssertEqual(picked != nil,
+                               localModelDiskShortfall(downloadBytes: model.downloadBytes, freeDiskBytes: free) == nil,
+                               "\(model.id) with \(free) bytes free")
+            }
+        }
+    }
+
+    func testTheRefusalSaysWhatToFree() throws {
+        let message = try XCTUnwrap(localModelDiskShortfall(downloadBytes: chat.downloadBytes,
+                                                             freeDiskBytes: 10 * gb)?.errorDescription)
+        XCTAssertTrue(message.contains(ByteCountFormatter.string(fromByteCount: chat.downloadBytes + Int64(gb),
+                                                                 countStyle: .file)), message)
+        XCTAssertTrue(message.contains(ByteCountFormatter.string(fromByteCount: Int64(10 * gb), countStyle: .file)),
+                      message)
+    }
+}
+
+// MARK: - Download progress
+
+/// `DownloadProgressThrottle`: what of a download's reports becomes a Settings render.
+final class DownloadProgressThrottleTests: XCTestCase {
+
+    func testTheFirstReportAndTheFinishAlwaysGetThrough() {
+        let throttle = DownloadProgressThrottle()
+        XCTAssertEqual(throttle.admit(0.0001, at: 0), 0.0001)
+        XCTAssertEqual(throttle.admit(1, at: 0.001), 1)
+        XCTAssertNil(throttle.admit(1, at: 5), "the finish once, not again")
+    }
+
+    /// A chat model's URLSession reports every few kilobytes: a thousand reports in one
+    /// second become ten renders, not a thousand.
+    func testAFloodOfReportsBecomesTenASecond() {
+        let throttle = DownloadProgressThrottle()
+        let admitted = (0 ..< 1000).compactMap { throttle.admit(Double($0) / 1000 * 0.2, at: Double($0) / 1000) }
+        XCTAssertEqual(admitted.count, 10)
+        XCTAssertEqual(admitted, admitted.sorted())
+    }
+
+    /// A slow download still moves once it has moved by half a percent, and not before.
+    func testAReportIsLetThroughOnlyOnceItMovedHalfAPercent() {
+        let throttle = DownloadProgressThrottle()
+        XCTAssertNotNil(throttle.admit(0.100, at: 0))
+        XCTAssertNil(throttle.admit(0.104, at: 60))
+        XCTAssertEqual(throttle.admit(0.106, at: 61), 0.106)
+        // And a fraction that steps back is shown doing so.
+        XCTAssertEqual(throttle.admit(0.05, at: 62), 0.05)
+    }
+
+    func testAFractionOutsideZeroToOneIsHeldToIt() {
+        let throttle = DownloadProgressThrottle()
+        XCTAssertEqual(throttle.admit(-0.5, at: 0), 0)
+        XCTAssertEqual(throttle.admit(1.5, at: 1), 1)
+    }
+}
+
 // MARK: - Installed-on-disk test
 
 /// `isLocalModelInstalled` against a temporary directory, never the real

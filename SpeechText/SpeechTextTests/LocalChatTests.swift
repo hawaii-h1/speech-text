@@ -195,6 +195,69 @@ final class UTF8AccumulatorTests: XCTestCase {
     }
 }
 
+// MARK: - The service's requests
+
+/// `LocalChatActivity`, the SpeechTextLLM service's bookkeeping of what it is doing: the
+/// service is a process the test bundle cannot start, so its rules are held here.
+final class LocalChatActivityTests: XCTestCase {
+
+    /// ⎋ while the model loads: the cancel comes before the completion's own steps start,
+    /// and nothing the request does on its way to the first token clears it.
+    func testACancelDuringTheLoadIsStillThereWhenTheReplyWouldStart() {
+        var activity = LocalChatActivity()
+        activity.begin()
+        activity.cancel("dictation")
+        XCTAssertTrue(activity.isCancelled("dictation"))
+        activity.end("dictation")
+        XCTAssertFalse(activity.isCancelled("dictation"))
+        XCTAssertEqual(activity.running, 0)
+    }
+
+    /// A rewrite queued behind another job: a cancel of one is not a cancel of the other.
+    func testACancelStopsOnlyTheRequestItNames() {
+        var activity = LocalChatActivity()
+        activity.begin()   // a prewarm, which nothing cancels
+        activity.begin()
+        activity.begin()
+        activity.cancel("second")
+        XCTAssertFalse(activity.isCancelled("first"))
+        XCTAssertTrue(activity.isCancelled("second"))
+        activity.end("first")
+        XCTAssertTrue(activity.isCancelled("second"))
+        XCTAssertEqual(activity.running, 2)
+    }
+
+    /// The app gave up while it was sending the request: the cancel can arrive first.
+    func testACancelThatArrivesBeforeItsRequestWaitsForIt() {
+        var activity = LocalChatActivity()
+        activity.cancel("early")
+        activity.begin()
+        XCTAssertTrue(activity.isCancelled("early"))
+    }
+
+    func testFiveIdleMinutesAfterTheLastJobTheServiceMayExit() {
+        var activity = LocalChatActivity()
+        activity.begin()
+        activity.end("rewrite")
+        XCTAssertTrue(activity.mayExit(armedAt: activity.started))
+    }
+
+    /// The review's case: a rewrite that arrives while the idle exit is freeing the model.
+    /// It keeps the service — whether it is still running at the exit's last look, or was
+    /// quick enough to have ended already — and its own end arms the next exit.
+    func testARequestThatBeganAfterTheExitWasArmedKeepsTheService() {
+        var activity = LocalChatActivity()
+        activity.begin()
+        activity.end(nil)
+        let mark = activity.started
+        activity.begin()
+        XCTAssertFalse(activity.mayExit(armedAt: mark))
+        activity.end("rewrite")
+        XCTAssertFalse(activity.mayExit(armedAt: mark))
+        XCTAssertTrue(activity.mayExit(armedAt: activity.started))
+    }
+}
+
 // MARK: - Catalogue
 
 final class LocalChatCatalogTests: XCTestCase {

@@ -18,24 +18,31 @@ final class LocalChatService: NSObject, LocalChatServiceProtocol, @unchecked Sen
 
     private let runtime = LocalLlamaRuntime()
     private let lock = NSLock()
-    private var running = 0
+    private var activity = LocalChatActivity()
     private var idleTimer: DispatchSourceTimer?
 
     func complete(_ request: Data, reply: @escaping (Data?, String?) -> Void) {
         guard let request = try? JSONDecoder().decode(LocalChatRequest.self, from: request) else {
             reply(nil, "The request could not be read."); return
         }
+        let id = request.id
         begin()
         Task {
-            defer { self.end() }
+            defer { self.end(id) }
             do {
+                // Asked at every step, since a cancel can come while this request waits behind
+                // a prewarm or while its model loads: the reply nobody wants is never
+                // generated, and the next rewrite does not wait behind it.
+                try self.stopIfCancelled(id)
                 let load = try await self.load(request)
+                try self.stopIfCancelled(id)
                 // A rewrite is about as long as what it rewrites: a long selection is given
                 // room for its own length, not the floor alone, and the context bounds it.
                 let input = try await runtime.tokenize(request.user).count
                 let completion = try await runtime.complete(
                     system: request.system, user: request.user,
-                    maxTokens: ChatTemplates.replyTokens(atLeast: request.maxTokens, forInputTokens: input))
+                    maxTokens: ChatTemplates.replyTokens(atLeast: request.maxTokens, forInputTokens: input),
+                    shouldCancel: { self.isCancelled(id) })
                 let response = LocalChatResponse(
                     reply: completion.reply, promptTokens: completion.promptTokens,
                     outputTokens: completion.outputTokens, loadSeconds: load,
@@ -54,7 +61,7 @@ final class LocalChatService: NSObject, LocalChatServiceProtocol, @unchecked Sen
         }
         begin()
         Task {
-            defer { self.end() }
+            defer { self.end(nil) }
             do {
                 _ = try await self.load(request)
                 try await runtime.cache(systems: request.prefixes ?? [])
@@ -65,10 +72,23 @@ final class LocalChatService: NSObject, LocalChatServiceProtocol, @unchecked Sen
         }
     }
 
-    func cancel() { runtime.cancel() }
+    func cancel(_ requestID: String) { lock.withLock { activity.cancel(requestID) } }
 
-    func unload(reply: @escaping () -> Void) {
-        Task { await runtime.unload(); reply() }
+    private func isCancelled(_ requestID: String) -> Bool { lock.withLock { activity.isCancelled(requestID) } }
+
+    private func stopIfCancelled(_ requestID: String) throws {
+        if isCancelled(requestID) { throw LlamaError.cancelled }
+    }
+
+    /// A job like any other, so a service that this message started arms its idle exit
+    /// rather than staying up holding nothing.
+    func unload(_ modelPath: String, reply: @escaping () -> Void) {
+        begin()
+        Task {
+            defer { self.end(nil) }
+            await runtime.unload(ifLoaded: modelPath)
+            reply()
+        }
     }
 
     /// Refuses a model the Mac cannot hold: the weights plus room for the context and
@@ -86,26 +106,38 @@ final class LocalChatService: NSObject, LocalChatServiceProtocol, @unchecked Sen
 
     private func begin() {
         lock.withLock {
-            running += 1
+            activity.begin()
             idleTimer?.cancel()
             idleTimer = nil
         }
     }
 
-    private func end() {
+    private func end(_ requestID: String?) {
         lock.withLock {
-            running -= 1
-            guard running == 0 else { return }
+            activity.end(requestID)
+            guard activity.running == 0 else { return }
+            let mark = activity.started
             let timer = DispatchSource.makeTimerSource(queue: .global())
             timer.schedule(deadline: .now() + Self.idleExitSeconds)
-            timer.setEventHandler { [weak self] in
-                guard let self, self.lock.withLock({ self.running == 0 }) else { return }
-                // Freed first: ggml asserts at exit while Metal still holds a model.
-                self.runtime.unloadNow()
-                exit(0)
-            }
+            timer.setEventHandler { [weak self] in self?.exitIfIdle(armedAt: mark) }
             idleTimer = timer
             timer.resume()
+        }
+    }
+
+    /// Freeing the model takes hundreds of milliseconds, and a request can come in during
+    /// them. So idleness is asked again once it is the runtime queue's turn, before the
+    /// model goes, and again under the lock before the exit: a request that began keeps the
+    /// service and the model it loads, and its own end arms the timer again. Never with the
+    /// lock held across the unload — the queue's jobs take it to read their cancels.
+    private func exitIfIdle(armedAt mark: Int) {
+        let idle = { self.lock.withLock { self.activity.mayExit(armedAt: mark) } }
+        guard idle() else { return }
+        // Freed first: ggml asserts at exit while Metal still holds a model.
+        runtime.unloadNow(if: idle)
+        lock.withLock {
+            guard activity.mayExit(armedAt: mark) else { return }
+            exit(0)
         }
     }
 }

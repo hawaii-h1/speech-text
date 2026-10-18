@@ -216,6 +216,46 @@ struct UTF8Accumulator {
     }
 }
 
+/// What the SpeechTextLLM service is doing, as far as its requests' cancels and its idle
+/// exit need: how many jobs are running and have begun, and which requests the app has
+/// given up on. A cancel is kept by
+/// request, never as one flag for the service: as one flag it was cleared by the completion
+/// it was meant to stop when that completion started — after the model's load, or after
+/// the prewarm it waited behind, so ⎋ during a cold load was lost — and it stopped whatever
+/// was running rather than the request it named. A cancel can also arrive before its
+/// request (the app gave up while sending it); it waits for it. One for a request that has
+/// already ended stays until the service exits, a few bytes. The service keeps one under
+/// its lock; it is here, in a file every target compiles, so the rules are tested.
+///
+/// The idle exit is armed when the last job ends and carries `started` as it was then; it
+/// may exit only while no job has begun since. Freeing the model before the exit takes
+/// hundreds of milliseconds, and a request that arrived in them used to be killed with the
+/// process — the app saw an interrupted connection and pasted the transcript unrewritten.
+struct LocalChatActivity {
+    private(set) var running = 0
+    /// Jobs begun since the service started.
+    private(set) var started = 0
+    private var cancelled: Set<String> = []
+
+    mutating func begin() {
+        running += 1
+        started += 1
+    }
+
+    /// `requestID` is the completion's; nil for a prewarm, which nothing cancels.
+    mutating func end(_ requestID: String?) {
+        running -= 1
+        if let requestID { cancelled.remove(requestID) }
+    }
+
+    mutating func cancel(_ requestID: String) { cancelled.insert(requestID) }
+
+    func isCancelled(_ requestID: String) -> Bool { cancelled.contains(requestID) }
+
+    /// Whether an idle exit armed when `started` was `mark` may still exit.
+    func mayExit(armedAt mark: Int) -> Bool { running == 0 && started == mark }
+}
+
 /// Removes a leading `<think>…</think>` block.
 ///
 /// A fallback, not the main defence: the local templates write an empty reasoning block

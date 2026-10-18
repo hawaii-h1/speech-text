@@ -65,6 +65,12 @@ func macDescription(_ caps: SystemCapabilities) -> String {
 
 // The rows' words — every line, and the language notes they carry — are ModelRowWords.swift.
 
+/// The models a page's two badges go to, worked out once a render and handed to each row.
+private struct LocalPicks {
+    let recommended: String?
+    let bestQuality: String?
+}
+
 /// A row's "No Spanish" badge, in the warning kind, while the model lacks one of the user's
 /// languages (#30) — on every row, not only the selected one, since tapping a local row
 /// starts a download. Apple's answer is asked of macOS.
@@ -145,7 +151,9 @@ struct SpeechEngineSettings: View {
                     && !(engine == .local && localModelID == model.id)
                     && store.state(for: model.id) == .notInstalled
             }
-            ForEach(offered.filter { model in !heavy.contains { $0.id == model.id } }) { localRow($0) }
+            // Once a render, not twice a row: a download renders the page ten times a second.
+            let picks = LocalPicks(recommended: recommended?.id, bestQuality: bestQuality?.id)
+            ForEach(offered.filter { model in !heavy.contains { $0.id == model.id } }) { localRow($0, picks: picks) }
             if !heavy.isEmpty {
                 Button(showHeavyModels ? "Hide models too heavy for this Mac"
                                        : "Show \(heavy.count) \(heavy.count == 1 ? "model" : "models") too heavy for this Mac") {
@@ -154,7 +162,7 @@ struct SpeechEngineSettings: View {
                 .buttonStyle(SetupInlineLinkStyle())
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                if showHeavyModels { ForEach(heavy) { localRow($0) } }
+                if showHeavyModels { ForEach(heavy) { localRow($0, picks: picks) } }
             }
             SetupRow(title: "Apple Dictation", subtitle: "Built in",
                      languageBadge: languageBadge(sttModel(vendor: .apple, id: appleSpeechModelID).languages, spoken: spoken),
@@ -232,11 +240,11 @@ struct SpeechEngineSettings: View {
         }
     }
 
-    private func localRow(_ model: LocalSTTModel) -> some View {
+    private func localRow(_ model: LocalSTTModel, picks: LocalPicks) -> some View {
         let state = store.state(for: model.id)
-        let badge: SetupBadge? = if recommended?.id == model.id {
+        let badge: SetupBadge? = if picks.recommended == model.id {
             SetupBadge(text: "Recommended", kind: .recommended)
-        } else if bestQuality?.id == model.id {
+        } else if picks.bestQuality == model.id {
             SetupBadge(text: "Best quality", kind: .quality)
         } else if !localModelFitsMemory(model.memoryFloorBytes, capabilities) {
             SetupBadge(text: "Too heavy for this Mac", kind: .warn)
@@ -456,7 +464,8 @@ struct AIEngineSettings: View {
             }
             let fitting = localChatModels.filter { localModelFitsMemory($0.memoryFloorBytes, capabilities) }
             let heavy = localChatModels.filter { !localModelFitsMemory($0.memoryFloorBytes, capabilities) }
-            ForEach(fitting) { localRow($0, heavy: false) }
+            let picks = LocalPicks(recommended: recommended?.id, bestQuality: bestQuality?.id)
+            ForEach(fitting) { localRow($0, heavy: false, picks: picks) }
             if !heavy.isEmpty {
                 Button(showHeavyModels ? "Hide models too heavy for this Mac"
                                        : "Show \(heavy.count) \(heavy.count == 1 ? "model" : "models") too heavy for this Mac") {
@@ -465,7 +474,7 @@ struct AIEngineSettings: View {
                 .buttonStyle(SetupInlineLinkStyle())
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                if showHeavyModels { ForEach(heavy) { localRow($0, heavy: true) } }
+                if showHeavyModels { ForEach(heavy) { localRow($0, heavy: true, picks: picks) } }
             }
             HStack {
                 Text(store.installedModels.isEmpty
@@ -543,11 +552,11 @@ struct AIEngineSettings: View {
         useLocal(model.id)
     }
 
-    private func localRow(_ model: LocalChatModel, heavy: Bool) -> some View {
+    private func localRow(_ model: LocalChatModel, heavy: Bool, picks: LocalPicks) -> some View {
         let state = store.state(for: model)
-        let badge: SetupBadge? = if recommended?.id == model.id {
+        let badge: SetupBadge? = if picks.recommended == model.id {
             SetupBadge(text: "Recommended", kind: .recommended)
-        } else if bestQuality?.id == model.id {
+        } else if picks.bestQuality == model.id {
             SetupBadge(text: "Best quality", kind: .quality)
         } else if heavy {
             SetupBadge(text: "Too heavy for this Mac", kind: .warn)

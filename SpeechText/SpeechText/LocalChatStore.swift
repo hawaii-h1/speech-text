@@ -29,7 +29,10 @@ final class LocalChatStore {
         states[model.id] ?? (isLocalChatModelInstalled(model) ? .installed : .notInstalled)
     }
 
-    var installedModels: [LocalChatModel] { localChatModels.filter(isLocalChatModelInstalled) }
+    /// Read from `states` rather than the disk, as the speech store's is: Settings asks on
+    /// every render. Only `.installed` — a chat model's `.optimizing` is the hash check,
+    /// before the file is under its final name.
+    var installedModels: [LocalChatModel] { localChatModels.filter { state(for: $0) == .installed } }
 
     var installedBytes: Int64 { installedModels.reduce(0) { $0 + $1.downloadBytes } }
 
@@ -51,13 +54,25 @@ final class LocalChatStore {
         _ = TranscriptionHistory.shared
 
         let staging = staging(for: model)
+        // An interrupted download's partial file is already on the disk, so only the rest
+        // of it has to fit — otherwise a cancelled download could never be resumed.
+        if let shortfall = localModelDiskShortfall(downloadBytes: model.downloadBytes,
+                                                   alreadyOnDisk: GGUFDownload.bytesOnDisk(in: staging),
+                                                   freeDiskBytes: SystemCapabilities.current().freeDiskBytes) {
+            states[model.id] = .failed(shortfall.localizedDescription)
+            dlog("LocalModel", "download of \(model.id) refused: \(shortfall.localizedDescription)")
+            return
+        }
         let destination = localChatModelFile(for: model)
         states[model.id] = .downloading(fraction: 0)
         dlog("LocalModel", "downloading \(model.id) (\(model.downloadSizeDescription))")
 
+        let throttle = DownloadProgressThrottle()
         let download = GGUFDownload(staging: staging, expectedBytes: model.downloadBytes) { [weak self] fraction in
+            guard let fraction = throttle.admit(fraction) else { return }
             Task { @MainActor [weak self] in
-                guard let self, self.states[model.id]?.isBusy == true else { return }
+                // Not once the hash check began: a late report would turn it back into a download.
+                guard let self, case .downloading? = self.states[model.id] else { return }
                 self.states[model.id] = .downloading(fraction: fraction)
             }
         }
@@ -103,7 +118,7 @@ final class LocalChatStore {
 
     func remove(_ model: LocalChatModel) {
         cancelInstall(model)
-        LocalChat.release()
+        LocalChat.release(model)
         try? FileManager.default.removeItem(at: localChatModelFile(for: model).deletingLastPathComponent())
         try? FileManager.default.removeItem(at: staging(for: model))
         states[model.id] = .notInstalled
@@ -137,7 +152,8 @@ func sha256Hex(of file: URL) throws -> String {
 
 /// One file's download, resumable. URLSession hands the finished file over in a temporary
 /// location that is deleted when its delegate call returns, so it is moved into `staging`
-/// there; an interrupted download leaves its resume data in `staging/resume.data`.
+/// there; an interrupted download leaves its resume data in `staging/resume.data`, and
+/// beside it in `resume.bytes` how much of the file that partial download holds.
 final class GGUFDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let staging: URL
     private let expectedBytes: Int64
@@ -146,9 +162,23 @@ final class GGUFDownload: NSObject, URLSessionDownloadDelegate, @unchecked Senda
     private var continuation: CheckedContinuation<URL, Error>?
     private var task: URLSessionDownloadTask?
     private var session: URLSession?
+    /// What the partial file holds: the offset a resume started at, plus every write since.
+    /// Counted from `bytesWritten` rather than read off `totalBytesWritten`, which leaves
+    /// unsaid whether a resumed download's earlier bytes are in it.
+    private var onDisk: Int64 = 0
 
     private var resumeFile: URL { staging.appendingPathComponent("resume.data") }
+    private var resumeBytesFile: URL { staging.appendingPathComponent("resume.bytes") }
     private var partFile: URL { staging.appendingPathComponent("model.gguf") }
+
+    /// The bytes an interrupted download in `staging` holds on disk, which its resume does
+    /// not fetch again; 0 with no resume data.
+    static func bytesOnDisk(in staging: URL) -> Int64 {
+        guard FileManager.default.fileExists(atPath: staging.appendingPathComponent("resume.data").path),
+              let text = try? String(contentsOf: staging.appendingPathComponent("resume.bytes"), encoding: .utf8)
+        else { return 0 }
+        return Int64(text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
 
     init(staging: URL, expectedBytes: Int64, progress: @escaping (Double) -> Void) {
         self.staging = staging
@@ -166,6 +196,7 @@ final class GGUFDownload: NSObject, URLSessionDownloadDelegate, @unchecked Senda
                 self.continuation = continuation
                 if let data = try? Data(contentsOf: resumeFile) {
                     try? FileManager.default.removeItem(at: resumeFile)
+                    try? FileManager.default.removeItem(at: resumeBytesFile)
                     task = session.downloadTask(withResumeData: data)
                 } else {
                     task = session.downloadTask(with: url)
@@ -182,7 +213,9 @@ final class GGUFDownload: NSObject, URLSessionDownloadDelegate, @unchecked Senda
 
     private func keep(_ resumeData: Data?) {
         guard let resumeData else { return }
+        let onDisk = lock.withLock { self.onDisk }
         try? resumeData.write(to: resumeFile, options: .atomic)
+        try? String(onDisk).write(to: resumeBytesFile, atomically: true, encoding: .utf8)
     }
 
     private func finish(_ result: Result<URL, Error>) {
@@ -193,8 +226,14 @@ final class GGUFDownload: NSObject, URLSessionDownloadDelegate, @unchecked Senda
         continuation?.resume(with: result)
     }
 
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didResumeAtOffset fileOffset: Int64, expectedTotalBytes: Int64) {
+        lock.withLock { onDisk = fileOffset }
+    }
+
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        lock.withLock { onDisk += bytesWritten }
         let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : expectedBytes
         progress(min(1, max(0, Double(totalBytesWritten) / Double(max(total, 1)))))
     }

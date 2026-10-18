@@ -162,8 +162,9 @@ enum LocalChat {
     /// Loads the model in the service ahead of the first rewrite — after a download, and
     /// when the user picks an installed one.
     nonisolated(unsafe) static var prewarm: (LocalChatModel) -> Void = { _ in }
-    /// Drops the model from the service's memory: a removed download.
-    nonisolated(unsafe) static var release: () -> Void = {}
+    /// Drops a removed download from the service's memory, if it is the model loaded
+    /// there — removing another one must not cost the model in use a cold load.
+    nonisolated(unsafe) static var release: (LocalChatModel) -> Void = { _ in }
 }
 
 struct UnavailableLocalChatClient: ChatClient {
