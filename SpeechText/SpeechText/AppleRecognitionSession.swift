@@ -106,7 +106,7 @@ final class AppleRecognitionSession: RecognitionSession {
                     self.onEvent?(.live(committed: joinedTranscript(self.committedText, self.utterances.settled),
                                         partial: self.utterances.current))
                     if isFinal {
-                        dlog("Engine", "recognitionTask: isFinal=true, text=\(partial.prefix(80))"
+                        dlog("Engine", "recognitionTask: isFinal=true, \(partial.count) chars"
                              + (partial.isEmpty ? " — keeping the \(self.utterances.text.count) chars heard before it" : ""))
                         self.finalText = joinedTranscript(self.committedText, self.utterances.text)
                         // No-op unless a finish is waiting, so isFinal during a chunk

@@ -402,7 +402,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         guard let data = raw.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["message_type"] as? String else {
-            dlog("ElevenLabs", "realtime: unreadable message: \(raw.prefix(120))")
+            dlog("ElevenLabs", "realtime: unreadable message of \(raw.utf8.count) bytes")
             return
         }
 
@@ -448,6 +448,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             // keepalive, a VAD state change, …) into a silent degrade where every
             // recording pays for the streamed minutes *and* a batch re-upload.
             let detail = json["error"] as? String ?? raw
+            // log-privacy: ok — the vendor's error message, not a transcript
             dlog("ElevenLabs", "realtime: \(type): \(detail.prefix(200))")
             fail(TranscriptionError.realtime(.elevenLabs, type, detail))
         default:
@@ -1020,7 +1021,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         guard let data = raw.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else {
-            dlog("OpenAI", "realtime: unreadable message: \(raw.prefix(120))")
+            dlog("OpenAI", "realtime: unreadable message of \(raw.utf8.count) bytes")
             return
         }
 
@@ -1071,6 +1072,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
             resumeFinish()
         case "conversation.item.input_audio_transcription.failed":
             let detail = Self.errorDetail(in: json) ?? raw
+            // log-privacy: ok — the vendor's error message, not a transcript
             dlog("OpenAI", "realtime: transcription failed: \(detail.prefix(200))")
             fail(TranscriptionError.realtime(.openAI, "transcription_failed", detail))
         case "error":
@@ -1082,10 +1084,12 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
                 // over before anything reached the socket. Nothing further is coming for
                 // it, so stop waiting; the stream itself is fine and the stop falls back
                 // to the upload, which has the whole segment on disk.
+                // log-privacy: ok — the vendor's error message, not a transcript
                 dlog("OpenAI", "realtime: \(detail.prefix(160))")
                 resumeFinish()
                 return
             }
+            // log-privacy: ok — the vendor's error message, not a transcript
             dlog("OpenAI", "realtime: error \(code): \(detail.prefix(200))")
             fail(TranscriptionError.realtime(.openAI, code, detail))
         default:

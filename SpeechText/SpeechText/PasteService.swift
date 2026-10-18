@@ -10,7 +10,7 @@ struct PasteService {
     /// Saves clipboard contents, pastes via ⌘V, then restores the original clipboard.
     static func pasteAtCursor(_ text: String) {
         let frontApp = NSWorkspace.shared.frontmostApplication
-        dlog("Paste", "pasteAtCursor: \(text.count) chars \"\(text.prefix(80))\", trusted=\(AXIsProcessTrusted()), secureInput=\(IsSecureEventInputEnabled()), front=\(frontApp?.localizedName ?? "nil") (\(frontApp?.bundleIdentifier ?? "nil"))")
+        dlog("Paste", "pasteAtCursor: \(text.count) chars, trusted=\(AXIsProcessTrusted()), secureInput=\(IsSecureEventInputEnabled()), front=\(frontApp?.localizedName ?? "nil") (\(frontApp?.bundleIdentifier ?? "nil"))")
 
         let pasteboard = NSPasteboard.general
         stageClipboard(pasteboard, text: text)
@@ -50,7 +50,7 @@ struct PasteService {
                 completion(.nothingSelected)
                 return
             }
-            dlog("Edit", "selection: \(record.text.count) chars at \(record.range.location)+\(record.range.length), read through AX: \(String(record.text.prefix(60)).debugDescription)")
+            dlog("Edit", "selection: \(record.text.count) chars at \(record.range.location)+\(record.range.length), read through AX")
             completion(.selected(CapturedSelection(text: record.text, record: record)))
             return
         }
@@ -60,7 +60,7 @@ struct PasteService {
                 completion(.nothingSelected)
                 return
             }
-            dlog("Edit", "selection: \(text.count) chars, read with ⌘C: \(String(text.prefix(60)).debugDescription)")
+            dlog("Edit", "selection: \(text.count) chars, read with ⌘C")
             completion(.selected(CapturedSelection(text: text, record: nil)))
         }
     }

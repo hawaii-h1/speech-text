@@ -66,7 +66,7 @@ final class SpeechEngine {
     var finalText = "" {
         didSet {
             if oldValue != finalText {
-                dlog("Engine", "finalText updated (\(finalText.count) chars): \"\(finalText.prefix(80))\"")
+                dlog("Engine", "finalText updated: \(finalText.count) chars")
             }
         }
     }

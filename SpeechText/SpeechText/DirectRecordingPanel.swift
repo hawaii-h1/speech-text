@@ -203,7 +203,7 @@ final class TextInsertionHandler {
         textView.textStorage?.replaceCharacters(in: range, with: text)
         textView.didChangeText()
         ledger.replaced(span: span, at: range, with: text)
-        dlog("Span", "replaceSpan \(span) at \(range.location): \"\(text.prefix(40))\"")
+        dlog("Span", "replaceSpan \(span) at \(range.location)+\(range.length): \(text.count) chars")
         return true
     }
 }

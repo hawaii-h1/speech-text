@@ -360,8 +360,8 @@ struct OpenAICompatibleTranscriber: BatchTranscriber {
         let audioData = try Data(contentsOf: audioFileURL)
         let part = multipartAudioPart(for: audioFileURL)
         // The count only: terms are often people's names, and the log is public.
-        let terms = upload.vocabulary == .keywords ? ", keywords=\(keywords.count)" : ""
-        dlog(log, "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")\(terms)")
+        let keywordNote = upload.vocabulary == .keywords ? ", keywords=\(keywords.count)" : ""
+        dlog(log, "transcribe: audioSize=\(audioData.count) bytes (\(part.mimeType)), model=\(model), language=\(language ?? "nil")\(keywordNote)")
 
         request.httpBody = Self.multipartBody(boundary: boundary, audio: audioData, part: part, upload: upload,
                                               model: model, language: language, prompt: prompt, keywords: keywords)
@@ -645,6 +645,7 @@ func validatedHTTPResponse(_ response: URLResponse,
     }
     guard (200 ... 299).contains(http.statusCode) else {
         let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+        // log-privacy: ok — the vendor's error reply, which says what was wrong with the request
         dlog(category, "\(label): HTTP \(http.statusCode): \(body.prefix(bodyLimit))")
         throw httpError(http.statusCode, body)
     }

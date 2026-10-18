@@ -245,3 +245,14 @@ jobs:
           echo
           echo "Open the base's pull request first, or retarget this one at main."
           exit 1
+
+  log-privacy:
+    name: Log privacy
+    # Every Debug Log entry also goes to the system log as public, so a dlog line may
+    # say how long a dictation is, never what it says. Shell and awk only. No Mac involved.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No Debug Log line interpolates the user's text
+        run: scripts/check-log-privacy.sh

@@ -1297,7 +1297,7 @@ final class AppState {
     }
 
     func pasteTextToTarget(_ text: String) {
-        dlog("App", "pasteTextToTarget: \(text.count) chars \"\(text.prefix(50))\", previousApp=\(previousApp?.localizedName ?? "nil")")
+        dlog("App", "pasteTextToTarget: \(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil")")
 
         // Re-activate the app the user was in before recording
         if let app = previousApp {
@@ -1655,7 +1655,7 @@ final class AppState {
                 self.editRemoval = .notRemovable
             case .cut(let items, let text):
                 guard SelectionEdit.cutMatches(text, selection: selection.text, selectionConfirmed: confirmed) else {
-                    dlog("Edit", "cut \(text.count) chars that are not the selection (read \(selection.record == nil ? "with ⌘C" : "through AX")) — putting them back: cut \(String(text.prefix(60)).debugDescription), read \(String(selection.text.prefix(60)).debugDescription)")
+                    dlog("Edit", "cut \(text.count) chars that are not the selection (read \(selection.record == nil ? "with ⌘C" : "through AX")), read \(selection.text.count) — putting them back")
                     PasteService.pasteItems(items)
                     self.abortEdit(icon: "text.badge.xmark", title: "Couldn't confirm the selection",
                                    detail: "What was cut wasn't the text that was read, so it was put back. Nothing was edited.")

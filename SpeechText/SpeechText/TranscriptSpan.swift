@@ -154,7 +154,7 @@ struct TranscriptSpanLayer {
     mutating func beginSegment() {
         if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
             spans[index].state = .committed
-            log("commit \(id) (segment closed) \"\(preview(spans[index].text))\"")
+            log("commit \(id) (segment closed), \(spans[index].text.count) chars")
         }
         segment += 1
         lastCommitted = ""
@@ -197,14 +197,14 @@ struct TranscriptSpanLayer {
             spans[index].state = .committed
             spans[index].joinsPrevious = glued
             provisionalID = nil
-            log("commit \(id)\(glued ? " (joins previous)" : "") \"\(preview(delta))\"")
+            log("commit \(id)\(glued ? " (joins previous)" : ""), \(delta.count) chars")
         } else {
             var span = append(text: delta, state: .committed)
             if glued, let index = index(of: span.id) {
                 spans[index].joinsPrevious = true
                 span.joinsPrevious = true
             }
-            log("commit \(span.id)\(glued ? " (joins previous)" : "") \"\(preview(delta))\"")
+            log("commit \(span.id)\(glued ? " (joins previous)" : ""), \(delta.count) chars")
         }
     }
 
@@ -223,11 +223,11 @@ struct TranscriptSpanLayer {
         if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
             guard spans[index].text != text else { return }
             spans[index].text = text
-            log("partial \(id) \"\(preview(text))\"")
+            log("partial \(id), \(text.count) chars")
         } else {
             let span = append(text: text, state: .provisional)
             provisionalID = span.id
-            log("partial \(span.id) \"\(preview(text))\"")
+            log("partial \(span.id), \(text.count) chars")
         }
     }
 
@@ -283,7 +283,7 @@ struct TranscriptSpanLayer {
         }
         spans[index].text = new
         spans[index].state = .revised
-        log("revise \(id) \"\(preview(new))\"")
+        log("revise \(id), \(new.count) chars")
         return true
     }
 
@@ -316,7 +316,7 @@ struct TranscriptSpanLayer {
                 spans[index].text = text
                 spans[index].state = .committed
                 replaced = true
-                log("rewrite \(spans[index].id) (\(reason)) \"\(preview(text))\"")
+                log("rewrite \(spans[index].id) (\(reason)), \(text.count) chars")
             }
         }
         guard !replaced else { return }
@@ -330,7 +330,7 @@ struct TranscriptSpanLayer {
             return
         }
         let span = append(text: text, state: .committed)
-        log("commit \(span.id) (\(reason)) \"\(preview(text))\"")
+        log("commit \(span.id) (\(reason)), \(text.count) chars")
     }
 
     private mutating func append(text: String, state: TranscriptSpan.State) -> TranscriptSpan {
@@ -350,8 +350,6 @@ struct TranscriptSpanLayer {
     private func trimmed(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
-    private func preview(_ text: String) -> String { String(text.prefix(40)) }
 
     private func log(_ message: String) { dlog("Span", message) }
 }
