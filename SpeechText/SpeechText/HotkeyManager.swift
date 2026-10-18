@@ -37,10 +37,13 @@ final class HotkeyManager {
     private var hotKeyRefs: [ShortcutAction: EventHotKeyRef] = [:]
     private var eventHandlerRef: EventHandlerRef?
     private var observers: [Any] = []
-    /// Recorders currently listening. While any is, nothing is registered: a combination
-    /// that is already one of ours would otherwise start a dictation instead of reaching
-    /// the recorder, which then could not tell the user it is taken.
-    private var recorderPauses = 0
+    /// Recorders currently listening, plus one while the status menu is open. While any
+    /// is, nothing is registered. A combination that is already one of ours would
+    /// otherwise start a dictation instead of reaching the recorder, which then could
+    /// not tell the user it is taken; and an open menu holds back the hotkey's event
+    /// until it closes, so the press landed late — two presses as a start and an
+    /// instant stop — instead of reaching the menu item drawn with that shortcut.
+    private var pauses = 0
 
     /// A dictation shortcut went down (`true`) or came back up (`false`). Releases are
     /// what hold-to-talk runs on; `AppState` decides whether one means anything.
@@ -78,16 +81,24 @@ final class HotkeyManager {
                 self?.reloadHotkeys()
             },
             center.addObserver(forName: .hotkeyRecorderDidStart, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.recorderPauses += 1
-                if self.recorderPauses == 1 { self.unregisterHotkeys() }
+                self?.pause()
             },
             center.addObserver(forName: .hotkeyRecorderDidStop, object: nil, queue: .main) { [weak self] _ in
-                guard let self, self.recorderPauses > 0 else { return }
-                self.recorderPauses -= 1
-                if self.recorderPauses == 0 { self.reloadHotkeys() }
+                self?.resume()
             },
         ]
+    }
+
+    /// Unregisters every shortcut until the matching `resume()`; pauses nest.
+    func pause() {
+        pauses += 1
+        if pauses == 1 { unregisterHotkeys() }
+    }
+
+    func resume() {
+        guard pauses > 0 else { return }
+        pauses -= 1
+        if pauses == 0 { reloadHotkeys() }
     }
 
     func stop() {
@@ -105,8 +116,9 @@ final class HotkeyManager {
     private func reloadHotkeys() {
         unregisterHotkeys()
         loadHotkeys()
-        // A recorder still listening re-registers when it stops; the new values are loaded.
-        guard recorderPauses == 0 else { return }
+        // A recorder still listening, or the open menu, re-registers on its resume; the
+        // new values are loaded.
+        guard pauses == 0 else { return }
         registerHotkeys()
     }
 
@@ -200,7 +212,8 @@ final class HotkeyManager {
     }
 
     private func applyEscapeShortcut() {
-        // No handler means a recorder is listening, and ⎋ is how it gives up.
+        // No handler means a recorder is listening, and ⎋ is how it gives up — or the
+        // status menu is open, and ⎋ closes it.
         let shouldExist = escapeWanted && eventHandlerRef != nil
         if shouldExist, escapeRef == nil {
             var ref: EventHotKeyRef?

@@ -408,6 +408,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateRecordingItemTitles(in: menu)
     }
 
+    /// Whether the status menu is open, so the pause and resume below stay paired even
+    /// when `rebuildMenu` swaps the menu out from under itself.
+    private var isMenuOpen = false
+
+    /// While the menu is open the global shortcuts are off and its items' key
+    /// equivalents take the keys: a Carbon hotkey's event waits until the menu closes,
+    /// so a press made with the menu open used to start the dictation only after it
+    /// closed, and a second press stopped it the same instant.
+    func menuWillOpen(_ menu: NSMenu) {
+        guard !isMenuOpen else { return }
+        isMenuOpen = true
+        appState.hotkeyManager.pause()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard isMenuOpen else { return }
+        isMenuOpen = false
+        appState.hotkeyManager.resume()
+    }
+
     private func rebuildMenu() {
         let menu = NSMenu()
         menu.delegate = self
@@ -649,9 +669,10 @@ private struct StoredShortcut {
     }
 
     /// Draws the shortcut in the menu's right-hand column, where ⌘, and ⌘Q are. A status
-    /// menu matches its equivalents only while it is open; the shortcut itself is the
-    /// Carbon hotkey, global whether the menu is open or not. A key a menu cannot draw
-    /// stays in the title, as before.
+    /// menu matches its equivalents only while it is open, and that is when they act:
+    /// the Carbon hotkeys are paused for as long as the menu is open (`menuWillOpen`),
+    /// since their events would wait for it to close. A key a menu cannot draw stays in
+    /// the title, as before — and with the menu open, that shortcut does nothing.
     func apply(to item: NSMenuItem, title: String) {
         if let key = menuKeyEquivalent(keyCode: keyCode) {
             item.title = title
