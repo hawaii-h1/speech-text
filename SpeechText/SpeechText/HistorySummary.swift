@@ -45,17 +45,162 @@ enum HistorySearch {
     /// the selection an edit rewrote, the error, the apps or the prompt — ignoring case and
     /// accents.
     static func matches(_ record: TranscriptionRecord, query: String) -> Bool {
-        let words = query.split(whereSeparator: \.isWhitespace)
-        guard !words.isEmpty else { return true }
-        let fields: [String?] = [
-            record.text, record.errorMessage, record.originApp, record.destinationApp,
-            record.refinement?.inputText, record.refinement?.outputText,
-            record.refinement?.presetName, record.refinement?.context?.appName,
-        ]
-        let haystack = fields.compactMap { $0 }.joined(separator: "\n")
-        return words.allSatisfy {
-            haystack.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        Query(query).matches(Text(record))
+    }
+
+    /// What a record is searched by.
+    struct Fields: Equatable {
+        let text: String
+        let errorMessage, originApp, destinationApp: String?
+        let inputText, outputText, presetName, contextApp: String?
+
+        init(_ record: TranscriptionRecord) {
+            text = record.text
+            errorMessage = record.errorMessage
+            originApp = record.originApp
+            destinationApp = record.destinationApp
+            inputText = record.refinement?.inputText
+            outputText = record.refinement?.outputText
+            presetName = record.refinement?.presetName
+            contextApp = record.refinement?.context?.appName
         }
+
+        /// Every field there is, a line each — what a word is looked for in.
+        var joined: String {
+            [text, errorMessage, originApp, destinationApp, inputText, outputText, presetName, contextApp]
+                .compactMap { $0 }.joined(separator: "\n")
+        }
+    }
+
+    /// A record as the search reads it: its fields and, where `foldsFaithfully` says it
+    /// changes nothing found, their join folded once — so a key typed in the search looks
+    /// for bytes in it instead of folding every record again, which at 20,000 records took
+    /// a second or two, and ran twice a keystroke.
+    struct Text {
+        let fields: Fields
+        /// Nil when the join holds a character outside `foldsFaithfully`'s table; such a
+        /// record is searched as it always was.
+        let folded: String?
+
+        init(_ record: TranscriptionRecord) { self.init(fields: Fields(record)) }
+
+        init(fields: Fields) {
+            self.fields = fields
+            let joined = fields.joined
+            folded = HistorySearch.foldsFaithfully(joined) ? HistorySearch.folded(joined) : nil
+        }
+    }
+
+    /// A search's words, each folded as `Text` folds — unless it holds a character outside
+    /// the table, when it is looked for as it always was.
+    struct Query {
+        struct Word {
+            let typed: Substring
+            let folded: String?
+        }
+
+        let words: [Word]
+
+        init(_ query: String) {
+            words = query.split(whereSeparator: \.isWhitespace).map { word in
+                Word(typed: word, folded: HistorySearch.foldsFaithfully(word) ? HistorySearch.folded(String(word)) : nil)
+            }
+        }
+
+        var isEmpty: Bool { words.isEmpty }
+
+        func matches(_ text: Text) -> Bool {
+            // The join is made only for a word that needs it, as it was for every one.
+            var joined: String?
+            for word in words {
+                if let needle = word.folded, let haystack = text.folded {
+                    guard HistorySearch.contains(haystack, needle) else { return false }
+                    continue
+                }
+                if joined == nil { joined = text.fields.joined }
+                guard joined?.range(of: word.typed, options: [.caseInsensitive, .diacriticInsensitive]) != nil else {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
+    /// Every record's `Text`, kept from one keystroke to the next and worked out again only
+    /// for a record that changed or is new; one deleted is let go.
+    final class Index {
+        private var records: [TranscriptionRecord] = []
+        private var texts: [Text] = []
+
+        /// The texts of `records`, in their order.
+        func texts(for records: [TranscriptionRecord]) -> [Text] {
+            // An unchanged History is the same array, which compares at once.
+            guard records != self.records else { return texts }
+            var known: [UUID: Text] = [:]
+            known.reserveCapacity(texts.count)
+            for (record, text) in zip(self.records, texts) { known[record.id] = text }
+            texts = records.map { record in
+                let fields = Fields(record)
+                if let text = known[record.id], text.fields == fields { return text }
+                return Text(fields: fields)
+            }
+            self.records = records
+            return texts
+        }
+    }
+
+    /// Whether folding `string` first — case and accents, as the search ignores them — and
+    /// then looking for a folded word byte for byte finds exactly what
+    /// `range(of:options: [.caseInsensitive, .diacriticInsensitive])` finds, for a word and a
+    /// text that both pass. Measured, not derived: on macOS 26 the two agreed on every one of
+    /// over 30 million random texts and words drawn from this table, accents and capitals
+    /// included (`HistoryAndUsageCacheTests` repeats a seeded sample of it). Outside it they
+    /// do not: ß and the ligatures fold to two letters, which the original search matches in
+    /// its own way; an accent on a CJK character or a symbol, or on nothing, survives
+    /// folding; and kana, Devanagari, Thai and emoji — a skin tone, a joiner — are matched
+    /// by grapheme in ways a byte search does not repeat. Anything outside the table is
+    /// searched as it always was.
+    static func foldsFaithfully(_ string: some StringProtocol) -> Bool {
+        // A combining accent counts only on a letter of the Latin, Greek or Cyrillic rows.
+        var afterLetter = false
+        for scalar in string.unicodeScalars {
+            switch scalar.value {
+            case 0x0300...0x036F:
+                // U+0345 folds to a letter of its own.
+                guard scalar.value != 0x0345, afterLetter else { return false }
+            // ß and ŉ fold to two letters; a soft hyphen is invisible.
+            case 0x00DF, 0x00AD, 0x0149:
+                return false
+            case 0x0000...0x007F, 0x00A0...0x0237, 0x0370...0x03FF, 0x0400...0x0482, 0x048A...0x04FF,
+                 0x1E00...0x1E99, 0x1EA0...0x1EF9:
+                afterLetter = scalar.properties.isAlphabetic
+            // Punctuation, currency, №, arrows, symbols and dingbats, CJK and Hangul: no
+            // accent may follow them.
+            case 0x2010...0x2027, 0x2030...0x205E, 0x20A0...0x20C0, 0x2100...0x214F, 0x2190...0x22FF,
+                 0x2500...0x257F, 0x25A0...0x27BF, 0x3000...0x3029, 0x3030...0x303F, 0x4E00...0x9FFF, 0xAC00...0xD7A3:
+                afterLetter = false
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Case and accents folded away, and in one run of UTF-8 so it is searched in place.
+    static func folded(_ string: String) -> String {
+        var folded = string.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        folded.makeContiguousUTF8()
+        return folded
+    }
+
+    /// `needle`'s bytes somewhere in `haystack`'s.
+    private static func contains(_ haystack: String, _ needle: String) -> Bool {
+        let found = haystack.utf8.withContiguousStorageIfAvailable { text in
+            needle.utf8.withContiguousStorageIfAvailable { word in
+                memmem(text.baseAddress, text.count, word.baseAddress, word.count) != nil
+            }
+        }
+        return (found ?? nil) ?? (haystack.range(of: needle, options: .literal) != nil)
     }
 }
 
@@ -80,16 +225,27 @@ enum HistoryDates: Equatable, Hashable {
     }
 
     func includes(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> Bool {
-        let today = calendar.startOfDay(for: now)
-        func since(_ days: Int) -> Bool {
-            date >= (calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today)
+        matcher(now: now, calendar: calendar)(date)
+    }
+
+    /// `includes`, with the range's first day — or the one day's bounds — worked out once
+    /// for a whole pass over History rather than again for every record.
+    func matcher(now: Date = Date(), calendar: Calendar = .current) -> (Date) -> Bool {
+        func since(_ days: Int) -> (Date) -> Bool {
+            let today = calendar.startOfDay(for: now)
+            let first = calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today
+            return { $0 >= first }
         }
         switch self {
-        case .anyTime: return true
+        case .anyTime: return { _ in true }
         case .today: return since(1)
         case .last7Days: return since(7)
         case .last30Days: return since(30)
-        case .day(let day): return calendar.isDate(date, inSameDayAs: day)
+        case .day(let day):
+            guard let bounds = calendar.dateInterval(of: .day, for: day) else {
+                return { calendar.isDate($0, inSameDayAs: day) }
+            }
+            return { bounds.start <= $0 && $0 < bounds.end }
         }
     }
 }
@@ -104,14 +260,20 @@ struct HistoryNarrowing: Equatable {
     var isEmpty: Bool { app == nil && dates == .anyTime }
 
     func includes(_ record: TranscriptionRecord, now: Date = Date(), calendar: Calendar = .current) -> Bool {
-        if let app, HomeRecentEntry(record).place != app { return false }
-        return dates.includes(record.date, now: now, calendar: calendar)
+        matcher(now: now, calendar: calendar)(record)
+    }
+
+    /// `includes` for a whole pass over History: the days worked out once.
+    func matcher(now: Date = Date(), calendar: Calendar = .current) -> (TranscriptionRecord) -> Bool {
+        let dates = dates.matcher(now: now, calendar: calendar)
+        guard let app else { return { dates($0.date) } }
+        return { HomeRecentEntry.place(of: $0) == app && dates($0.date) }
     }
 
     /// Every place dictations went, the busiest first, with how many went there.
     static func apps(in records: [TranscriptionRecord]) -> [(app: String, count: Int)] {
         var counts: [String: Int] = [:]
-        for record in records { counts[HomeRecentEntry(record).place, default: 0] += 1 }
+        for record in records { counts[HomeRecentEntry.place(of: record), default: 0] += 1 }
         return counts.map { (app: $0.key, count: $0.value) }
             .sorted { $0.count != $1.count ? $0.count > $1.count : $0.app.localizedCompare($1.app) == .orderedAscending }
     }
@@ -282,20 +444,7 @@ struct HistoryDay: Identifiable, Equatable {
     static func group(_ records: [TranscriptionRecord], filter: HistoryFilter = .all, query: String = "",
                       narrowing: HistoryNarrowing = HistoryNarrowing(), now: Date = Date(),
                       calendar: Calendar = .current) -> [HistoryDay] {
-        var days: [HistoryDay] = []
-        var current: (start: Date, records: [TranscriptionRecord])?
-        for record in records where filter.includes(record) && HistorySearch.matches(record, query: query)
-            && narrowing.includes(record, now: now, calendar: calendar) {
-            let start = calendar.startOfDay(for: record.date)
-            if current?.start == start {
-                current?.records.append(record)
-            } else {
-                if let current { days.append(HistoryDay(start: current.start, records: current.records)) }
-                current = (start, [record])
-            }
-        }
-        if let current { days.append(HistoryDay(start: current.start, records: current.records)) }
-        return days
+        HistoryListing(records: records, filter: filter, query: query, narrowing: narrowing, now: now, calendar: calendar).days
     }
 
     /// "Today", "Yesterday", a weekday within the week, then "28 September" — with the year
@@ -316,6 +465,122 @@ struct HistoryDay: Identifiable, Equatable {
         guard days < 7 else { return nil }
         return HistoryFormat.formatter(days < 2 ? "EEEE, d MMMM" : "d MMMM", calendar: calendar).string(from: start)
     }
+}
+
+// MARK: - The page
+
+/// What History's page shows for a filter, a search and a narrowing: the days, and beside
+/// the search each filter's count — worked out together in one pass, since the page needs
+/// both on every key typed. The search runs once a record, and the days' bounds once a day.
+struct HistoryListing: Equatable {
+    var days: [HistoryDay] = []
+    var counts: [HistoryFilter: Int] = Dictionary(uniqueKeysWithValues: HistoryFilter.allCases.map { ($0, 0) })
+
+    /// `texts` are the records' search texts in their order, kept between keystrokes
+    /// (`HistorySearch.Index`); without them a record is folded as it is searched.
+    init(records: [TranscriptionRecord], filter: HistoryFilter = .all, query: String = "",
+         narrowing: HistoryNarrowing = HistoryNarrowing(), now: Date = Date(), calendar: Calendar = .current,
+         texts: [HistorySearch.Text]? = nil) {
+        let search = HistorySearch.Query(query)
+        let narrowed = narrowing.matcher(now: now, calendar: calendar)
+        let filters = HistoryFilter.allCases
+        var tally = Array(repeating: 0, count: filters.count)
+        // The day being gathered, and when it starts and ends.
+        var gathered: [TranscriptionRecord] = []
+        var start = Date.distantPast, end = Date.distantPast
+        for (index, record) in records.enumerated() where narrowed(record) {
+            if !search.isEmpty {
+                let found = if let texts { search.matches(texts[index]) } else { search.matches(HistorySearch.Text(record)) }
+                guard found else { continue }
+            }
+            for (position, item) in filters.enumerated() where item.includes(record) { tally[position] += 1 }
+            guard filter.includes(record) else { continue }
+            if !gathered.isEmpty, start <= record.date, record.date < end {
+                gathered.append(record)
+                continue
+            }
+            let bounds = calendar.dateInterval(of: .day, for: record.date)
+            let recordStart = bounds?.start ?? calendar.startOfDay(for: record.date)
+            if !gathered.isEmpty, recordStart == start {
+                gathered.append(record)
+                continue
+            }
+            // A record out of order starts a day of its own, as it always did.
+            if !gathered.isEmpty { days.append(HistoryDay(start: start, records: gathered)) }
+            gathered = [record]
+            start = recordStart
+            end = bounds?.end ?? recordStart
+        }
+        if !gathered.isEmpty { days.append(HistoryDay(start: start, records: gathered)) }
+        counts = Dictionary(uniqueKeysWithValues: zip(filters, tally))
+    }
+}
+
+/// History's page as it was last worked out, kept until something it is worked out from
+/// changes: the page's body runs again for every key typed in the search, every row opened
+/// and every busy day unfolded, and each time that was every record searched twice and
+/// grouped. Now a key typed searches each record once, and a redraw that changed none of
+/// them works nothing out.
+final class HistoryListingCache {
+    private struct Key: Equatable {
+        let records: [TranscriptionRecord]
+        let filter: HistoryFilter
+        let query: String
+        let narrowing: HistoryNarrowing
+        /// What "Today" and "Last 7 days" count from.
+        let today: Date
+        let calendar: Calendar
+    }
+
+    private var key: Key?
+    private var last = HistoryListing(records: [])
+    /// Apart from the listing: a key typed changes the search and leaves every text as it was.
+    private let index = HistorySearch.Index()
+
+    func listing(records: [TranscriptionRecord], filter: HistoryFilter, query: String, narrowing: HistoryNarrowing,
+                 now: Date = Date(), calendar: Calendar = .current) -> HistoryListing {
+        // An unchanged History is the same array, which compares at once.
+        let key = Key(records: records, filter: filter, query: query, narrowing: narrowing,
+                      today: calendar.startOfDay(for: now), calendar: calendar)
+        guard key != self.key else { return last }
+        let texts = HistorySearch.Query(query).isEmpty ? nil : index.texts(for: records)
+        last = HistoryListing(records: records, filter: filter, query: query, narrowing: narrowing,
+                              now: now, calendar: calendar, texts: texts)
+        self.key = key
+        return last
+    }
+}
+
+/// Whether a plain dictation's whole text fits its closed History row, by the width of
+/// that text, for the last few widths the rows were laid out at. The page keeps it past the
+/// rows themselves (`HistoryRowFit`, HistoryView.swift) — and kept every width a window
+/// was ever resized through, a frame at a time, for good.
+struct HistoryRowFits {
+    /// The width the rows have now, the one a row has while its Copy says Copied, and the
+    /// last ones before a resize stopped.
+    static let widthsKept = 4
+
+    private var answers: [Int: [UUID: Bool]] = [:]
+    /// The widths answered for, oldest first.
+    private var widths: [Int] = []
+
+    subscript(id: UUID, width: Int) -> Bool? {
+        get { answers[width]?[id] }
+        set {
+            guard let newValue else {
+                answers[width]?[id] = nil
+                return
+            }
+            if answers[width] == nil {
+                widths.append(width)
+                if widths.count > Self.widthsKept { answers[widths.removeFirst()] = nil }
+            }
+            answers[width, default: [:]][id] = newValue
+        }
+    }
+
+    /// How many answers are kept, over every width.
+    var count: Int { answers.values.reduce(0) { $0 + $1.count } }
 }
 
 // MARK: - Formatting

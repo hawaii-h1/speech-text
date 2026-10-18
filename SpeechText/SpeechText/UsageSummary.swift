@@ -296,7 +296,7 @@ struct UsageSummary: Equatable {
                 if let bucket {
                     if kind == .rewritten { buckets[bucket].rewrittenWords += count } else { buckets[bucket].dictatedWords += count }
                 }
-                let app = HomeRecentEntry(record).place
+                let app = HomeRecentEntry.place(of: record)
                 if appIndex[app] == nil { apps.append(AppUse(app: app)); appIndex[app] = apps.count - 1 }
                 if let index = appIndex[app] {
                     apps[index].words += count
@@ -383,6 +383,39 @@ struct UsageSummary: Equatable {
     /// The tallest bar's words — the chart's scale.
     var mostWords: Int { buckets.map(\.words).max() ?? 0 }
     var mostCost: Double { buckets.map(\.cost).max() ?? 0 }
+}
+
+/// The Usage page's summaries as they were last worked out, kept until History, the typing
+/// speed or the day changes: the page's body runs again whenever SwiftUI redraws it, and
+/// each time that was every record History holds priced and counted. Each period is kept,
+/// so switching back to one costs nothing.
+final class UsageSummaryCache {
+    private struct Key: Equatable {
+        let records: [TranscriptionRecord]
+        let typingWordsPerMinute: Double
+        /// What the periods and the chart's buckets count back from.
+        let today: Date
+        let calendar: Calendar
+    }
+
+    private var key: Key?
+    private var summaries: [UsagePeriod: UsageSummary] = [:]
+
+    func summary(records: [TranscriptionRecord], period: UsagePeriod, typingWordsPerMinute: Double,
+                 now: Date = Date(), calendar: Calendar = .current) -> UsageSummary {
+        // An unchanged History is the same array, which compares at once.
+        let key = Key(records: records, typingWordsPerMinute: typingWordsPerMinute,
+                      today: calendar.startOfDay(for: now), calendar: calendar)
+        if key != self.key {
+            self.key = key
+            summaries = [:]
+        }
+        if let summary = summaries[period] { return summary }
+        let summary = UsageSummary(records: records, period: period, typingWordsPerMinute: typingWordsPerMinute,
+                                   now: now, calendar: calendar)
+        summaries[period] = summary
+        return summary
+    }
 }
 
 // MARK: - Formatting

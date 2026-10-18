@@ -21,13 +21,17 @@ struct HistoryView: View {
     /// The days opened past their first `HistoryDaySection.shown` dictations.
     @State private var openDays: Set<Date> = []
     @State private var confirmingClear = false
+    /// The days and the counts, worked out again only when the records, the search, the
+    /// filter, the narrowing or the day changes — not for a row opened or hovered.
+    @State private var listings = HistoryListingCache()
     @FocusState private var searchFocused: Bool
 
     private var history: TranscriptionHistory { .shared }
 
     var body: some View {
         let records = history.records
-        let days = HistoryDay.group(records, filter: filter, query: query, narrowing: narrowing)
+        let listing = listings.listing(records: records, filter: filter, query: query, narrowing: narrowing)
+        let days = listing.days
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
                 header(records)
@@ -44,7 +48,7 @@ struct HistoryView: View {
                     }
                     if !records.isEmpty { footer.padding(.top, 34) }
                 } header: {
-                    toolbar(records)
+                    toolbar(records, counts: listing.counts)
                 }
             }
             .frame(maxWidth: HomeView.columnWidth)
@@ -97,15 +101,16 @@ struct HistoryView: View {
 
     // MARK: Search and filters
 
-    /// Pinned under the title while the days scroll past.
-    private func toolbar(_ records: [TranscriptionRecord]) -> some View {
+    /// Pinned under the title while the days scroll past. `counts` are each filter's under
+    /// the search, the app and the dates, from the same pass as the days.
+    private func toolbar(_ records: [TranscriptionRecord], counts: [HistoryFilter: Int]) -> some View {
         let search = HStack(spacing: 8) {
             HistorySearchField(query: $query, focused: $searchFocused)
                 .frame(minWidth: 150, maxWidth: 300)
-            HistoryAppMenu(app: $narrowing.app, apps: HistoryNarrowing.apps(in: records))
+            HistoryAppMenu(app: $narrowing.app, records: records)
             HistoryDatesMenu(dates: $narrowing.dates, records: records)
         }
-        let filters = HistoryFilterSwitch(filter: $filter, counts: counts(records))
+        let filters = HistoryFilterSwitch(filter: $filter, counts: counts)
         // On one line while it fits; in a narrow window the filters go under the search.
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
@@ -123,17 +128,6 @@ struct HistoryView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(MainColor.separator).frame(height: 1)
         }
-    }
-
-    /// Each filter's count under the search, the app and the dates — one pass, since the
-    /// toolbar is redrawn with every key typed in the search.
-    private func counts(_ records: [TranscriptionRecord]) -> [HistoryFilter: Int] {
-        var counts = Dictionary(uniqueKeysWithValues: HistoryFilter.allCases.map { ($0, 0) })
-        let now = Date()
-        for record in records where narrowing.includes(record, now: now) && HistorySearch.matches(record, query: query) {
-            for filter in HistoryFilter.allCases where filter.includes(record) { counts[filter, default: 0] += 1 }
-        }
-        return counts
     }
 
     // MARK: Nothing to show
@@ -328,10 +322,12 @@ private struct HistoryChoiceRow<Mark: View>: View {
 /// The app a dictation went to, as its row names it.
 private struct HistoryAppMenu: View {
     @Binding var app: String?
-    let apps: [(app: String, count: Int)]
+    let records: [TranscriptionRecord]
 
     var body: some View {
         HistoryNarrowButton(symbol: "app.dashed", title: app ?? "App", isSet: app != nil, clear: { app = nil }) { dismiss in
+            // Counted only while the popover is open, not on every key typed in the search.
+            let apps = HistoryNarrowing.apps(in: records)
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     HistoryChoiceRow(title: "Any app", selected: app == nil, action: { app = nil; dismiss() }) {
@@ -734,8 +730,8 @@ private struct HistoryRow: View {
 
     /// A plain dictation that fits the row's two lines has nothing more to show, so it
     /// does not open at all; one cut short opens to its whole text.
-    private var canExpand: Bool { !showsWholeText || HistoryRowFit.known[fitKey] == false }
-    private var fitKey: HistoryRowFit.Key { HistoryRowFit.Key(id: record.id, width: Int(textSize.width.rounded())) }
+    private var canExpand: Bool { !showsWholeText || HistoryRowFit.fits[record.id, fitWidth] == false }
+    private var fitWidth: Int { Int(textSize.width.rounded()) }
     private var isOpen: Bool { isExpanded && canExpand }
 
     /// A dictation pasted as it was heard: AI Rewrite and the Edit shortcut have two texts
@@ -772,7 +768,7 @@ private struct HistoryRow: View {
                                     // short; anything else always opens. Measured once per
                                     // width, and only while closed, when the text is the two lines.
                                     if showsWholeText, !isOpen, textSize.width > 0,
-                                       HistoryRowFit.known[fitKey] == nil {
+                                       HistoryRowFit.fits[record.id, fitWidth] == nil {
                                         textMeasure(entry)
                                     }
                                 }
@@ -874,8 +870,8 @@ private struct HistoryRow: View {
     /// Writes down whether the whole text fits the closed row, once both heights are in.
     private func settleFit() {
         guard showsWholeText, !isOpen, textSize.width > 0, fullTextHeight > 0,
-              HistoryRowFit.known[fitKey] == nil else { return }
-        HistoryRowFit.known[fitKey] = fullTextHeight <= textSize.height + 1
+              HistoryRowFit.fits[record.id, fitWidth] == nil else { return }
+        HistoryRowFit.fits[record.id, fitWidth] = fullTextHeight <= textSize.height + 1
     }
 
     /// For a row that cannot open: the facts it would have shown, as its tooltip.
@@ -915,13 +911,9 @@ private struct HistoryRow: View {
 /// it came back cost the scroll.
 @MainActor
 enum HistoryRowFit {
-    struct Key: Hashable {
-        let id: UUID
-        let width: Int
-    }
-
-    /// Whether a plain dictation's whole text fits its closed row, at a width of text.
-    static var known: [Key: Bool] = [:]
+    /// Whether a plain dictation's whole text fits its closed row, at a width of text — for
+    /// the last few widths only, so resizing the window does not keep one per width.
+    static var fits = HistoryRowFits()
     /// The widths of the Copy and Delete buttons, whose places a row holds while they are
     /// not built; measured whenever one is shown.
     static var copyWidth: CGFloat = 47

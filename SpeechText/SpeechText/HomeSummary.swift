@@ -106,10 +106,7 @@ enum UsagePrices {
 
     /// "14 October 2026".
     static var checkedText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "d MMMM yyyy"
+        let formatter = HistoryFormat.formatter("d MMMM yyyy", calendar: Calendar(identifier: .gregorian))
         return checked.date.map(formatter.string(from:)) ?? ""
     }
 
@@ -303,12 +300,20 @@ struct RecordCost: Equatable {
 // MARK: - Formatting
 
 enum HomeFormat {
+    /// "1,234" — in English whatever the Mac's region, as everything else on the pages is.
     static func integer(_ value: Int) -> String {
+        integerFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    /// Made once: every filter's count, day and popover row asks for one each time it is
+    /// drawn, and a formatter is costly to build. Its locale is fixed, so nothing the user
+    /// changes can leave it out of date.
+    private static let integerFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = Locale(identifier: "en_US")
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-    }
+        return formatter
+    }()
 
     /// "52 min", "1 h 5 min", "2 h".
     static func duration(minutes: Double) -> (hours: Int?, minutes: Int?) {
@@ -378,7 +383,7 @@ struct HomeRecentEntry: Equatable, Identifiable {
         case .failed:
             text = record.errorMessage ?? "Transcription failed."
         }
-        app = record.destinationApp ?? record.refinement?.context?.appName ?? record.originApp
+        app = Self.app(of: record)
         var tags: [Tag] = []
         if edit {
             tags.append(.edit)
@@ -400,7 +405,19 @@ struct HomeRecentEntry: Equatable, Identifiable {
 
     /// Where the row says the text went: its app, the Record Window for a success that
     /// names none — or that nothing was pasted.
-    var place: String {
+    var place: String { Self.place(app: app, status: status) }
+
+    /// `place` of a record, without the rest of its row — History narrows by it and Usage
+    /// counts by it for every record, and the row's text and tags were worked out for nothing.
+    static func place(of record: TranscriptionRecord) -> String {
+        place(app: app(of: record), status: record.status)
+    }
+
+    private static func app(of record: TranscriptionRecord) -> String? {
+        record.destinationApp ?? record.refinement?.context?.appName ?? record.originApp
+    }
+
+    private static func place(app: String?, status: TranscriptionRecord.Status) -> String {
         app ?? (status == .success ? "Record Window" : "Not pasted")
     }
 
@@ -411,21 +428,19 @@ struct HomeRecentEntry: Equatable, Identifiable {
 
     /// `timeText` for any date.
     static func relativeDay(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
+        let format: String
         if calendar.isDate(date, inSameDayAs: now) {
-            formatter.dateFormat = "HH:mm"
+            format = "HH:mm"
         } else if calendar.isDateInYesterday(date) {
             return "Yesterday"
         } else if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
                                                      to: calendar.startOfDay(for: now)).day, days < 7 {
-            formatter.dateFormat = "EEEE"
+            format = "EEEE"
         } else {
-            formatter.dateFormat = "d MMM"
+            format = "d MMM"
         }
-        return formatter.string(from: date)
+        // Made once per format and calendar, as History's own are.
+        return HistoryFormat.formatter(format, calendar: calendar).string(from: date)
     }
 }
 

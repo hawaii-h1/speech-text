@@ -13,6 +13,8 @@ import SwiftUI
 struct UsageView: View {
     @State private var period: UsagePeriod = .month
     @AppStorage(SettingsKeys.typingWordsPerMinute) private var storedTyping = 0.0
+    /// Worked out again only when History, the typing speed or the day changes.
+    @State private var summaries = UsageSummaryCache()
 
     private var history: TranscriptionHistory { .shared }
     private var typing: Double { storedTyping >= 10 ? storedTyping : HomeWeek.typingWordsPerMinute }
@@ -24,7 +26,7 @@ struct UsageView: View {
     }
 
     var body: some View {
-        let summary = UsageSummary(records: history.records, period: period, typingWordsPerMinute: typing)
+        let summary = summaries.summary(records: history.records, period: period, typingWordsPerMinute: typing)
         GeometryReader { proxy in
             let wide = proxy.size.width >= 1000
             ScrollViewReader { scroller in
