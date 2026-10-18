@@ -92,4 +92,4 @@ An app that watches the keyboard by other means cannot be detected; if a shortcu
 2. Reproduce the problem, then open status menu › Debug Log… and press **Copy**.
 3. Open About SpeechText (in the app menu while a SpeechText window is open) › **Report a problem**, and paste both, with what you did and what you expected.
 
-**Read the log before you send it.** It contains snippets of what you dictated and of text you selected for an edit, and the names of the apps you used. Remove anything you would not post publicly. The same entries also go to the system log that Console shows. Your API keys are not written to it.
+**Glance over the log before you send it.** It holds the names of the apps you used, whether a window had a title, counts and lengths, timings, and the words of a vendor's error reply — never the words you dictated, selected or had rewritten, nor window titles or Dictionary terms. Still, remove anything you would not post publicly. The same entries also go to the system log that Console shows. Your API keys are not written to it.

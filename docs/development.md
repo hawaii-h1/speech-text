@@ -116,7 +116,9 @@ settings take care of the rest:
   the pull request's commits, and nothing checks the squash commit afterwards.
 - **Head branches are deleted on merge**, so merged branches do not pile up.
 
-The `dco` job fails a pull request with an unsigned commit. On this private
+The `dco` job fails a pull request with an unsigned commit; the one exemption is
+Dependabot's own commits (`.github/dependabot.yml`), and only in a pull request that
+Dependabot itself opened. On this private
 repository, though, that failure does not block anything: branch protection and
 required checks need GitHub Pro or a public repository. A red *DCO sign-off* check
 therefore means "do not merge", and pushing straight to `main` skips it
@@ -174,7 +176,10 @@ code at the tip was the same before and after, apart from those test sentences.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every pull request. **On a public repository
+`.github/workflows/ci.yml` runs on every pull request and on every push to `main`: the
+squash that lands a pull request is a new commit, two green pull requests can combine into
+a red `main`, and the README's CI badge reads `main`'s latest run. (`dco` and the base
+check mean something only for a pull request and are skipped on a push.) **On a public repository
 no job may run on the organisation's self-hosted Mac.** A pull request is code,
 and anyone can open one; building and running it on someone's own Mac would hand
 a stranger that machine's keychain, SSH keys and the app's `app.speech-text.SpeechText`
@@ -191,6 +196,7 @@ moves the work:
 | DCO sign-off | `self-hosted` | `ubuntu-latest` | a `Signed-off-by` trailer on every commit in the range |
 | Provider guide | `self-hosted` | `ubuntu-latest` | `scripts/check-provider-guide.sh` — docs/adding-a-provider.md still names code that exists |
 | Base branch | `self-hosted` | `ubuntu-latest` | the base is `main`, or the stack is labelled — see above |
+| Log privacy | `self-hosted` | `ubuntu-latest` | `scripts/check-log-privacy.sh` — no `dlog` call interpolates dictated, selected or rewritten text |
 
 While the repository is private only collaborators can open a pull request, so
 the self-hosted Mac is the arrangement it has always been. The moment visibility
@@ -201,7 +207,7 @@ the failure is a job that does not start rather than a stranger's code on
 someone's Mac.
 
 Actions minutes are free for a public repository on the standard runners. The
-five cheap jobs then run on Linux, where they are faster and cost a tenth as
+six cheap jobs then run on Linux, where they are faster and cost a tenth as
 much, and stop competing for a runner with the tests.
 
 A hosted runner starts empty, so WhisperKit, FluidAudio and Sparkle would be

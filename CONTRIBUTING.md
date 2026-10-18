@@ -50,7 +50,7 @@ git config core.hooksPath .githooks
 - `prepare-commit-msg` adds the DCO `Signed-off-by` line to every commit, so `-s` is no longer something to forget.
 - `pre-commit` refuses a commit that puts a `DEVELOPMENT_TEAM` back into `project.pbxproj`, adds a source file without the SPDX header, or adds a source file that is in no target. It reads the *staged* content and takes a fraction of a second; `--no-verify` bypasses it.
 
-The test suite is deliberately not in a hook — CI runs it on every pull request, and a hook slow enough to avoid is a hook that gets bypassed.
+The test suite is deliberately not in a hook — CI runs it on every pull request and on every push to `main`, and a hook slow enough to avoid is a hook that gets bypassed.
 
 ## Signing your commits (DCO)
 

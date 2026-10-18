@@ -212,8 +212,10 @@ to the descriptors.
    CHANGELOG section, commits and tags `vX.Y.Z`. Nothing is pushed.
 3. `git push && git push origin vX.Y.Z`.
 4. The **Release** workflow checks the tag against the project version, signs,
-   notarizes (a few minutes), writes the appcast, and opens a **draft** release with
-   `SpeechText-X.Y.Z.dmg`, its `.sha256` and `appcast.xml`.
+   notarizes (a few minutes) and writes the appcast and the release notes in its
+   *Package* job; a separate *Draft release* job, the only one that may write to the
+   repository, then opens a **draft** release with `SpeechText-X.Y.Z.dmg`, its `.sha256`
+   and `appcast.xml`.
 5. Download the image and install it on a Mac — or a fresh user account — that has
    never run SpeechText: it should open without any Gatekeeper dialog, show the drag
    window (the app, the arrow, Applications), and on first launch from Applications open
@@ -248,9 +250,10 @@ gh run download <run-id> --dir build/ci        # SpeechText-<sha>/: the .dmg, .s
 
 It runs on the self-hosted Mac with the repository secrets, exactly as a tag does, up to
 and including the image. What a tag adds is skipped: the version check, the release
-notes, the appcast and the draft release. The image is kept as the run's artifact for
-14 days. This is the way to try the pipeline, or to get a newer notarized build for an
-[update test](#checking-an-update-before-publishing), without a tag that would then have
+notes, the appcast and the *Draft release* job. The image is kept as the run's artifact for
+14 days (for a tag the artifact also carries `appcast.xml` and `notes.md`, which the
+*Draft release* job downloads). This is the way to try the pipeline, or to get a newer
+notarized build for an [update test](#checking-an-update-before-publishing), without a tag that would then have
 to be deleted.
 
 One difference to watch: the guard that refuses to release unsigned applies to tags
