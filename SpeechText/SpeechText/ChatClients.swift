@@ -257,6 +257,8 @@ enum LLMError: LocalizedError {
     case httpError(Int, String)
     case refused(String?)
     case emptyResponse
+    /// The reply ran out of tokens before it ended: only the start of one, never pasted.
+    case cutOff
     case noLocalModel
     /// The choice of model was cleared because the one stored leads to no model on offer
     /// (`clearedModelChoice`), and the user has not picked another.
@@ -268,12 +270,33 @@ enum LLMError: LocalizedError {
         case .invalidResponse: "Invalid response from the LLM API"
         case .httpError(let code, let body) where ModelUnavailableReply.matches(body):
             "The model isn't available: \(providerErrorReason(in: body) ?? "the service no longer serves it.") (HTTP \(code))"
-        case .httpError(let code, let body): "LLM API error HTTP \(code): \(body)"
+        case .httpError(let code, let body): "The rewrite failed: \(chatErrorSentence(status: code, body: body)) (HTTP \(code))"
         case .refused(let why): "The model declined the request\(why.map { ": \($0)" } ?? "")"
         case .emptyResponse: "The model returned an empty response"
+        case .cutOff: "The model's reply was cut off before it ended."
         case .noLocalModel: "No model on this Mac is ready — choose or download one in Settings › AI Rewrite"
         case .noModelChosen(let p): "No model chosen for \(p.displayName) — choose one in Settings"
         }
+    }
+}
+
+/// What an AI provider's error reply says, as a sentence the notice and History can show:
+/// its own message where the body carries one (`providerErrorReason`, as the transcription
+/// errors read it), else what the status means — never the body itself, which may be a
+/// proxy's whole HTML page or a rate-limit reply's JSON. The Debug Log keeps the body.
+private func chatErrorSentence(status: Int, body: String) -> String {
+    let reason = providerErrorReason(in: body) ?? chatErrorReason(forStatus: status)
+    return reason.last.map { ".!?".contains($0) } == true ? reason : reason + "."
+}
+
+/// The transcription errors' `genericReason`, in words about text rather than a recording.
+private func chatErrorReason(forStatus status: Int) -> String {
+    switch status {
+    case 401, 403: "the API key was rejected"
+    case 413: "the text is too long for the service"
+    case 429: "too many requests — try again in a moment"
+    case 500...: "the service is having problems"
+    default: "the request was refused"
     }
 }
 
@@ -357,11 +380,10 @@ struct OpenAICompatibleChatClient: ChatClient {
                                   httpError: LLMError.httpError)
 
         let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
-        // A model whose reasoning cannot be switched off from here (MiniMax M2.7 on Groq
-        // documents no control) may still put it inline; strip it before parsing.
-        guard let raw = decoded.choices.first?.message.content else { throw LLMError.emptyResponse }
-        let text = strippingReasoning(raw)
-        guard !text.isEmpty else { throw LLMError.emptyResponse }
+        if decoded.choices.first?.finish_reason == "length" {
+            dlog("LLM", "\(label): cut off at the output cap\(decoded.usageLog)")
+        }
+        let text = try decoded.replyText()
         dlog("LLM", "\(label): done in \(String(format: "%.2f", elapsed))s, \(text.count) chars\(decoded.usageLog)")
         return ChatReply(text: text, usage: decoded.chatUsage)
     }
@@ -373,6 +395,8 @@ struct ChatCompletionResponse: Decodable {
     struct Choice: Decodable {
         struct Message: Decodable { let content: String? }
         let message: Message
+        /// `stop` when the model ended the reply, `length` when the output cap did.
+        let finish_reason: String?
     }
     /// `prompt_tokens` includes the cached ones and `completion_tokens` the reasoning
     /// ones; the details are parts of them. Groq sends the totals alone.
@@ -396,6 +420,20 @@ struct ChatCompletionResponse: Decodable {
     }
 
     var usageLog: String { chatUsage.map { ", \($0.logLine)" } ?? "" }
+
+    /// The reply's text, or why there is none to paste. A reply the output cap ended is
+    /// only the start of one: pasted, it would end a dictation mid-sentence, and an edit
+    /// would put it in place of the whole selection.
+    func replyText() throws -> String {
+        guard let choice = choices.first else { throw LLMError.emptyResponse }
+        if choice.finish_reason == "length" { throw LLMError.cutOff }
+        // A model whose reasoning cannot be switched off from here (MiniMax M2.7 on Groq
+        // documents no control) may still put it inline; strip it before parsing.
+        guard let raw = choice.message.content else { throw LLMError.emptyResponse }
+        let text = strippingReasoning(raw)
+        guard !text.isEmpty else { throw LLMError.emptyResponse }
+        return text
+    }
 }
 
 extension ChatUsage {
@@ -459,17 +497,15 @@ struct AnthropicChatClient: ChatClient {
         let decoded = try JSONDecoder().decode(MessagesResponse.self, from: data)
         let usage = decoded.usage?.chatUsage
 
-        // A policy decline arrives as HTTP 200 — check stop_reason before reading content.
-        if decoded.stop_reason == "refusal" {
+        switch decoded.stop_reason {
+        case "refusal":
             dlog("LLM", "Anthropic: refusal (\(decoded.stop_details?.category ?? "unknown"))")
-            throw LLMError.refused(decoded.stop_details?.explanation)
+        case let reason? where MessagesResponse.cutOffReasons.contains(reason):
+            dlog("LLM", "Anthropic: cut off (\(reason))\(usage.map { ", \($0.logLine)" } ?? "")")
+        default:
+            break
         }
-
-        let text = decoded.content
-            .filter { $0.type == "text" }
-            .compactMap(\.text)
-            .joined()
-        guard !text.isEmpty else { throw LLMError.emptyResponse }
+        let text = try decoded.replyText()
         dlog("LLM", "Anthropic: done in \(String(format: "%.2f", elapsed))s, \(text.count) chars\(usage.map { ", \($0.logLine)" } ?? "")")
         return ChatReply(text: text, usage: usage)
     }
@@ -502,6 +538,24 @@ struct AnthropicChatClient: ChatClient {
         let stop_reason: String?
         let stop_details: StopDetails?
         let usage: Usage?
+
+        /// The stop reasons that end a reply before the model did: the output cap, and the
+        /// context window filling.
+        static let cutOffReasons: Set<String> = ["max_tokens", "model_context_window_exceeded"]
+
+        /// The reply's text, or why there is none to paste. A policy decline arrives as
+        /// HTTP 200, and so does a reply the output cap or the context window ended, which
+        /// is only the start of one — so `stop_reason` is read before the content.
+        func replyText() throws -> String {
+            if stop_reason == "refusal" { throw LLMError.refused(stop_details?.explanation) }
+            if let stop_reason, Self.cutOffReasons.contains(stop_reason) { throw LLMError.cutOff }
+            let text = content
+                .filter { $0.type == "text" }
+                .compactMap(\.text)
+                .joined()
+            guard !text.isEmpty else { throw LLMError.emptyResponse }
+            return text
+        }
     }
 }
 

@@ -30,8 +30,12 @@ final class LocalChatService: NSObject, LocalChatServiceProtocol, @unchecked Sen
             defer { self.end() }
             do {
                 let load = try await self.load(request)
-                let completion = try await runtime.complete(system: request.system, user: request.user,
-                                                            maxTokens: request.maxTokens)
+                // A rewrite is about as long as what it rewrites: a long selection is given
+                // room for its own length, not the floor alone, and the context bounds it.
+                let input = try await runtime.tokenize(request.user).count
+                let completion = try await runtime.complete(
+                    system: request.system, user: request.user,
+                    maxTokens: ChatTemplates.replyTokens(atLeast: request.maxTokens, forInputTokens: input))
                 let response = LocalChatResponse(
                     reply: completion.reply, promptTokens: completion.promptTokens,
                     outputTokens: completion.outputTokens, loadSeconds: load,

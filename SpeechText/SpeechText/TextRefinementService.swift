@@ -365,7 +365,8 @@ enum TextRefinementService {
     }
 
     /// `<<NAME>>`, `<mode:NAME>`, `<NAME>` on the first line, when NAME is a preset — plus
-    /// the closing `</mode:NAME>` a model sometimes adds at the very end.
+    /// the closing `</mode:NAME>` a model sometimes adds at the very end, taken only when
+    /// it names the same preset: `</div>` closing a reply's own HTML is the reply's.
     private static func takeLooseModeMarker(from text: String, presetNames: [String]) -> (String, String)? {
         guard !presetNames.isEmpty,
               let match = text.range(of: #"^<{1,2}\s*(?:mode\s*:\s*)?([^<>\n]+?)\s*>{1,2}"#,
@@ -378,18 +379,32 @@ enum TextRefinementService {
             return nil
         }
         var rest = String(text[match.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if let closing = rest.range(of: #"</{1,2}\s*(?:mode\s*:\s*)?[^<>\n]*>{1,2}\s*$"#, options: .regularExpression) {
+        if let closing = rest.range(of: #"</{1,2}\s*(?:mode\s*:\s*)?[^<>\n]*>{1,2}\s*$"#, options: .regularExpression),
+           closingTagName(rest[closing]).caseInsensitiveCompare(name) == .orderedSame {
             rest = String(rest[..<closing.lowerBound])
         }
         return (name, rest)
     }
 
+    /// The name a closing tag names: its brackets, slashes and `mode:` off.
+    private static func closingTagName(_ tag: Substring) -> String {
+        tag.trimmingCharacters(in: CharacterSet(charactersIn: "</> ").union(.whitespacesAndNewlines))
+            .replacingOccurrences(of: #"^mode\s*:\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+    }
+
     /// Splits `<<prefix … >>` off the front, returning the marker's contents and the rest.
+    ///
+    /// The name ends at the first bracket or line break, and only a `>>` right there closes
+    /// the marker. Searched for anywhere, the `>>` of a shell redirect or a C++ stream
+    /// later in the reply closed a marker written `<<mode:Clean-up>` (Qwen's single `>`),
+    /// and everything before it was dropped — in an edit, put in place of the selection.
+    /// Without its `>>` the marker is left to the loose forms.
     private static func takeMarker(prefix: String, from text: String) -> (String, String)? {
-        guard text.hasPrefix(prefix), let close = text.range(of: ">>") else { return nil }
+        guard text.hasPrefix(prefix) else { return nil }
         let start = text.index(text.startIndex, offsetBy: prefix.count)
-        guard start <= close.lowerBound else { return nil }
-        return (String(text[start ..< close.lowerBound]), String(text[close.upperBound...]))
+        let end = text[start...].firstIndex { $0 == "<" || $0 == ">" || $0.isNewline } ?? text.endIndex
+        guard text[end...].hasPrefix(">>") else { return nil }
+        return (String(text[start ..< end]), String(text[text.index(end, offsetBy: 2)...]))
     }
 
     /// Removes a fence only when it wraps the *entire* response — a fenced snippet

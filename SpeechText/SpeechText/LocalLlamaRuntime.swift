@@ -16,7 +16,8 @@ import llama
 /// What one completion did, in the units Usage and the evaluation read.
 struct LlamaCompletion: Codable, Equatable, Sendable {
     /// Everything the model wrote, special tokens included — kept for the evaluation,
-    /// which checks that no reasoning reached `reply`.
+    /// which checks that no reasoning reached `reply`. The end-of-generation token it
+    /// stopped on is left out, except Harmony's (`LlamaModel.complete`).
     var generated: String
     /// The reply's text (`ChatTemplates.reply`).
     var reply: String
@@ -57,7 +58,8 @@ enum LlamaError: LocalizedError, Equatable {
         case .loadFailed(let path): "The local model couldn't be loaded (\((path as NSString).lastPathComponent))."
         case .contextFailed: "The local model couldn't start: not enough memory for its context."
         case .tokenizeFailed: "The local model couldn't read the prompt."
-        case .promptTooLong(let tokens, let context): "The text is too long for the local model (\(tokens) tokens, \(context) fit)."
+        // Read by the user as it stands: the service sends this text back as the error.
+        case .promptTooLong: "The text is too long for the model on this Mac."
         case .decodeFailed(let code): "The local model stopped with an error (\(code))."
         case .cancelled: "The local rewrite was cancelled."
         }
@@ -181,25 +183,25 @@ final class LlamaModel {
         let promptDone = Date()
 
         var generated = ""
-        var pending: [CChar] = []   // bytes of a UTF-8 character split across tokens
+        var bytes = UTF8Accumulator()   // a character split across tokens, or bytes that are not UTF-8
         var produced = 0
         var finished = false
         while produced < budget {
             if shouldCancel() { throw LlamaError.cancelled }
             var token = llama_sampler_sample(sampler, context, -1)
             produced += 1
-            pending += piece(token)
-            if let text = String(validatingUTF8: pending + [0]) {
-                generated += text
-                pending.removeAll()
-            }
-            if ChatTemplates.isComplete(generated, family: family) { finished = true; break }
-            // End of generation the family does not read as the end of its reply is
-            // Harmony's `<|end|>` after the analysis: the model carries on into `final`.
+            // The end of generation is not part of the reply, whichever token the model
+            // ended on — Qwen may close with `<|endoftext|>` rather than `<|im_end|>`,
+            // Gemma with `<eos>` — so its text is never written in. Harmony's is: its
+            // `<|end|>` closes the analysis too, the model carries on into `final`, and
+            // `isComplete` reads where the reply ends.
             if llama_vocab_is_eog(vocab, token), family != .harmony { finished = true; break }
+            generated += bytes.append(piece(token).lazy.map { UInt8(bitPattern: $0) })
+            if ChatTemplates.isComplete(generated, family: family) { finished = true; break }
             let next = llama_decode(context, llama_batch_get_one(&token, 1))
             guard next == 0 else { throw LlamaError.decodeFailed(next) }
         }
+        generated += bytes.flush()
         let end = Date()
         return LlamaCompletion(
             generated: generated,

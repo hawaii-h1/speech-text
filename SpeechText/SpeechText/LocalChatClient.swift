@@ -30,6 +30,17 @@ struct LocalChatClient: ChatClient {
         dlog("LLM", String(format: "local %@: load %.1fs, prompt %d tok %.1fs, reply %d tok %.1fs%@",
                            model.id, response.loadSeconds, response.promptTokens, response.promptSeconds,
                            response.outputTokens, response.generationSeconds, response.finished ? "" : ", cut off"))
+        // A reply that ran out of room is only the start of one: pasted, it would end a
+        // dictation mid-sentence, and an edit would put it in place of the whole
+        // selection. Thrown, the dictation is pasted as said and the selection put back.
+        // Out of room in the context, the text was too long for the model; out of the
+        // reply's own budget, the model ran on.
+        guard response.finished else {
+            if response.promptTokens + response.outputTokens + 1 >= request.contextLength {
+                throw LocalChatError.tooLong
+            }
+            throw LLMError.cutOff
+        }
         guard !response.reply.isEmpty else { throw LLMError.emptyResponse }
         return ChatReply(text: response.reply,
                          usage: ChatUsage(inputTokens: response.promptTokens, outputTokens: response.outputTokens))
@@ -41,6 +52,8 @@ enum LocalChatError: LocalizedError {
     case service(String)
     case interrupted
     case timedOut
+    /// The reply filled the model's context before it ended.
+    case tooLong
 
     var errorDescription: String? {
         switch self {
@@ -48,6 +61,7 @@ enum LocalChatError: LocalizedError {
         case .service(let message): message
         case .interrupted: "The local model stopped unexpectedly. The next rewrite starts it again."
         case .timedOut: "The local model took too long to answer."
+        case .tooLong: "The text is too long for the model on this Mac to rewrite in full."
         }
     }
 }
@@ -149,7 +163,9 @@ private final class Once<T>: @unchecked Sendable {
 
 extension LocalChatRequest {
     /// What AI Rewrite asks of a local model: 8K tokens of context (the prompt is about
-    /// 1–2K, the reply rarely more), and a reply budget well past any dictation.
+    /// 1–2K, the reply rarely more), and a reply budget well past any dictation — the
+    /// least it gets: the service gives a longer message room for its own length
+    /// (`ChatTemplates.replyTokens`), as far as the context goes.
     static func rewrite(model: LocalChatModel, path: URL, system: String, user: String) -> LocalChatRequest {
         LocalChatRequest(modelPath: path.path, family: model.family, system: system, user: user,
                          maxTokens: 2048, contextLength: 8192)

@@ -2988,3 +2988,144 @@ final class ThirdPartyNoticesTests: XCTestCase {
         }
     }
 }
+
+// MARK: - A chat reply that did not end (ChatClients.swift)
+
+/// What each cloud reply says about how it ended, read from literal bodies: a reply the
+/// output cap or the context window ended is only the start of one, and is never pasted —
+/// it would end a dictation mid-sentence, or replace a whole selection in an edit.
+final class ChatReplyEndingTests: XCTestCase {
+    private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+        try JSONDecoder().decode(type, from: Data(json.utf8))
+    }
+
+    private func isCutOff(_ error: Error) -> Bool {
+        if case LLMError.cutOff = error { true } else { false }
+    }
+
+    func testAReplyTheOutputCapEndedIsCutOff() throws {
+        let groq = try decode(ChatCompletionResponse.self, """
+            {"id":"chatcmpl-1","object":"chat.completion","created":1760000000,"model":"openai/gpt-oss-120b",
+             "choices":[{"index":0,"message":{"role":"assistant","content":"<<mode:Clean-up>>\\nThe first half of"},
+                         "logprobs":null,"finish_reason":"length"}],
+             "usage":{"queue_time":0.01,"prompt_tokens":900,"prompt_time":0.02,"completion_tokens":8192,
+                      "completion_time":9.1,"total_tokens":9092,"total_time":9.12}}
+            """)
+        XCTAssertThrowsError(try groq.replyText()) { XCTAssertTrue(self.isCutOff($0), "\($0)") }
+        // A reasoning model that spent the cap thinking: no text, and the reason is the cap.
+        let openAI = try decode(ChatCompletionResponse.self, """
+            {"id":"chatcmpl-2","object":"chat.completion","model":"gpt-5.6-luna",
+             "choices":[{"index":0,"message":{"role":"assistant","content":"","refusal":null,"annotations":[]},
+                         "finish_reason":"length"}],
+             "usage":{"prompt_tokens":1432,"completion_tokens":8192,"total_tokens":9624,
+                      "completion_tokens_details":{"reasoning_tokens":8192}}}
+            """)
+        XCTAssertThrowsError(try openAI.replyText()) { XCTAssertTrue(self.isCutOff($0), "\($0)") }
+    }
+
+    func testAReplyTheModelEndedIsItsText() throws {
+        let stopped = try decode(ChatCompletionResponse.self, """
+            {"choices":[{"index":0,"message":{"role":"assistant","content":"<<mode:Clean-up>>\\nHi."},
+                         "finish_reason":"stop"}]}
+            """)
+        XCTAssertEqual(try stopped.replyText(), "<<mode:Clean-up>>\nHi.")
+        // A reply that says nothing of how it ended is taken as before.
+        let unsaid = try decode(ChatCompletionResponse.self, #"{"choices":[{"message":{"content":"<think>x</think>Hi."}}]}"#)
+        XCTAssertEqual(try unsaid.replyText(), "Hi.")
+    }
+
+    func testAnAnthropicReplyTheCapOrTheContextEndedIsCutOff() throws {
+        for reason in ["max_tokens", "model_context_window_exceeded"] {
+            let reply = try decode(AnthropicChatClient.MessagesResponse.self, """
+                {"id":"msg_01","type":"message","role":"assistant","model":"claude-sonnet-5",
+                 "content":[{"type":"text","text":"<<mode:Email>>\\nDear Anna,"}],
+                 "stop_reason":"\(reason)","stop_sequence":null,"stop_details":null,
+                 "usage":{"input_tokens":1200,"output_tokens":16000}}
+                """)
+            XCTAssertThrowsError(try reply.replyText(), reason) { XCTAssertTrue(self.isCutOff($0), "\(reason): \($0)") }
+        }
+        let ended = try decode(AnthropicChatClient.MessagesResponse.self, """
+            {"content":[{"type":"text","text":"Hi."}],"stop_reason":"end_turn","usage":{"input_tokens":20,"output_tokens":3}}
+            """)
+        XCTAssertEqual(try ended.replyText(), "Hi.")
+    }
+
+    func testARefusalIsStillARefusal() throws {
+        let refusal = try decode(AnthropicChatClient.MessagesResponse.self, """
+            {"content":[],"stop_reason":"refusal",
+             "stop_details":{"type":"refusal","category":"cyber","explanation":"Not this one."},
+             "usage":{"input_tokens":20,"output_tokens":0}}
+            """)
+        XCTAssertThrowsError(try refusal.replyText()) { error in
+            guard case LLMError.refused(let why) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(why, "Not this one.")
+        }
+    }
+}
+
+// MARK: - Where a mode marker ends (TextRefinementService.parse)
+
+/// A marker written loosely must not take the reply's own text with it: whatever is left
+/// is pasted — in an edit, in place of the selection. Beside `LooseModeMarkerTests`
+/// (LocalModelsTests.swift), the forms small models were measured writing.
+final class ModeMarkerBoundaryTests: XCTestCase {
+    private let presets = ["Clean-up", "Email", "Translate", "Technical / Prompt"]
+
+    /// Qwen's single `>`, and a `>>` later in the body: everything up to the redirect
+    /// used to be taken for the marker.
+    func testASingleBracketMarkerIsNotClosedByARedirectInTheReply() {
+        let r = TextRefinementService.parse("<<mode:Clean-up>\nRun echo x >> ~/.zshrc then reload.", presetNames: presets)
+        XCTAssertEqual(r.presetName, "Clean-up")
+        XCTAssertEqual(r.text, "Run echo x >> ~/.zshrc then reload.")
+    }
+
+    func testNorByOneOnItsOwnLine() {
+        let r = TextRefinementService.parse("<<mode:Clean-up> echo x >> ~/.zshrc", presetNames: presets)
+        XCTAssertEqual(r.presetName, "Clean-up")
+        XCTAssertEqual(r.text, "echo x >> ~/.zshrc")
+    }
+
+    func testAWholeMarkerLeavesTheBodysOwnBracketsAlone() {
+        let r = TextRefinementService.parse("<<mode:Technical / Prompt>>\nstd::cin >> name;\ncat a >> b",
+                                            presetNames: presets)
+        XCTAssertEqual(r.presetName, "Technical / Prompt")
+        XCTAssertEqual(r.text, "std::cin >> name;\ncat a >> b")
+    }
+
+    /// A closing tag at the end is the marker's only when it names the same preset.
+    func testOnlyAClosingTagNamingThePresetComesOff() {
+        XCTAssertEqual(TextRefinementService.parse("<<Technical / Prompt>>\n<div>Hello</div>", presetNames: presets).text,
+                       "<div>Hello</div>")
+        XCTAssertEqual(TextRefinementService.parse("<<Email>>\nHi Anna,\n</Email>", presetNames: presets).text, "Hi Anna,")
+        XCTAssertEqual(TextRefinementService.parse("<mode:Translate>\nI received it.\n</mode:translate>", presetNames: presets).text,
+                       "I received it.")
+    }
+}
+
+// MARK: - What an AI Rewrite HTTP error says (ChatClients.swift)
+
+/// The notice and History read the provider's own sentence or what the status means —
+/// never the reply's body, which may be a proxy's whole HTML page.
+final class ChatHTTPErrorWordsTests: XCTestCase {
+
+    func testTheProvidersOwnSentenceIsKept() {
+        let groq = #"{"error":{"message":"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_1` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 7400, Requested 1200. Please try again in 4.5s.","type":"tokens","code":"rate_limit_exceeded"}}"#
+        XCTAssertEqual(LLMError.httpError(429, groq).errorDescription,
+                       "The rewrite failed: Rate limit reached for model `openai/gpt-oss-120b` in organization `org_1` "
+                           + "service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 7400, Requested 1200. "
+                           + "Please try again in 4.5s. (HTTP 429)")
+        let anthropic = #"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#
+        XCTAssertEqual(LLMError.httpError(529, anthropic).errorDescription, "The rewrite failed: Overloaded. (HTTP 529)")
+    }
+
+    func testABodyWithNoMessageIsNamedByItsStatus() {
+        let proxy = "<html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center></body></html>"
+        XCTAssertEqual(LLMError.httpError(502, proxy).errorDescription,
+                       "The rewrite failed: the service is having problems. (HTTP 502)")
+        XCTAssertEqual(LLMError.httpError(401, "").errorDescription, "The rewrite failed: the API key was rejected. (HTTP 401)")
+        XCTAssertEqual(LLMError.httpError(429, "{}").errorDescription,
+                       "The rewrite failed: too many requests — try again in a moment. (HTTP 429)")
+        XCTAssertEqual(LLMError.httpError(400, "Bad Request").errorDescription,
+                       "The rewrite failed: the request was refused. (HTTP 400)")
+    }
+}

@@ -91,13 +91,18 @@ enum ChatTemplates {
     /// with a reasoning block the model wrote anyway taken off. A Harmony reply cut off
     /// before its final channel has no text — empty, which the caller treats as no reply,
     /// rather than the analysis pasted as if it were the rewrite.
+    ///
+    /// The runtime writes no end-of-generation token into `generated`, but a reply that
+    /// still ends on one the family does not end its turn with — Qwen's `<|endoftext|>`,
+    /// Gemma's `<eos>` — loses it here too, so its text cannot be pasted. Only at the very
+    /// end: the same letters inside a reply may be words the user dictated.
     static func reply(from generated: String, family: ChatTemplateFamily) -> String {
         switch family {
         case .qwen:
             let body = generated.components(separatedBy: "<|im_end|>").first ?? ""
-            return strippingReasoning(body)
+            return strippingReasoning(droppingTrailing("<|endoftext|>", from: body))
         case .gemma4:
-            var body = generated.components(separatedBy: "<turn|>").first ?? ""
+            var body = droppingTrailing("<eos>", from: generated.components(separatedBy: "<turn|>").first ?? "")
             // A thought channel the model opened anyway: everything up to its close goes.
             if let open = body.range(of: "<|channel>") {
                 if let close = body.range(of: "<channel|>", range: open.upperBound..<body.endIndex) {
@@ -113,7 +118,7 @@ enum ChatTemplates {
             // out (measured 2026-10-16). Everything after `final`, header tokens taken out.
             guard let final = generated.range(of: "<|channel|>final", options: .backwards) else { return "" }
             var body = String(generated[final.upperBound...])
-            for marker in ["<|return|>", "<|end|>", "<|call|>"] {
+            for marker in ["<|return|>", "<|end|>", "<|call|>", "<|endoftext|>"] {
                 if let end = body.range(of: marker) { body = String(body[..<end.lowerBound]) }
             }
             for header in ["<|constrain|>", "<|message|>"] {
@@ -130,6 +135,22 @@ enum ChatTemplates {
         family == .harmony ? 1024 : 0
     }
 
+    /// The output tokens a rewrite of a user message of `inputTokens` is given: twice
+    /// them — a rewrite is about as long as what it rewrites, a translation can be longer,
+    /// and the message's own tags and context are counted in — and never less than
+    /// `minimum`. A fixed budget cut a long selection's rewrite short. The context still
+    /// bounds it: `LlamaModel.complete` stops where the context fills, and the app takes
+    /// a reply stopped that way for a cut-off one, not a rewrite.
+    static func replyTokens(atLeast minimum: Int, forInputTokens inputTokens: Int) -> Int {
+        max(minimum, 2 * inputTokens)
+    }
+
+    /// `text` without `marker` at its end, whitespace around it aside.
+    private static func droppingTrailing(_ marker: String, from text: String) -> String {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.hasSuffix(marker) ? String(body.dropLast(marker.count)) : text
+    }
+
     /// Jinja's `trim`: whitespace and newlines off both ends.
     private static func trimmed(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -142,6 +163,56 @@ enum ChatTemplates {
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+}
+
+/// The bytes a model writes, a token's worth at a time, turned into text as soon as they
+/// can be. A token is not a character — a Cyrillic letter or an emoji is often split
+/// across two — and a model can also write bytes that are not UTF-8 at all. Everything
+/// that decodes is handed out at once; only the start of a character still waiting for
+/// its next bytes is held back, never more than three; and a byte no character can be
+/// made of comes out as U+FFFD, as llama-server writes it. Holding back until the whole
+/// pending run decoded, as the runtime once did, let one such byte silence the rest of
+/// the reply.
+struct UTF8Accumulator {
+    private var pending: [UInt8] = []
+
+    /// The bytes held back for the next piece.
+    var heldBytes: Int { pending.count }
+
+    /// Adds one piece's bytes and returns the text they complete.
+    mutating func append<Bytes: Sequence>(_ bytes: Bytes) -> String where Bytes.Element == UInt8 {
+        pending.append(contentsOf: bytes)
+        let ready = pending.count - Self.unfinishedTail(of: pending)
+        let text = String(decoding: pending[..<ready], as: UTF8.self)
+        pending.removeFirst(ready)
+        return text
+    }
+
+    /// What is still held at the end — a character the model never finished — as U+FFFD.
+    mutating func flush() -> String {
+        defer { pending.removeAll() }
+        return String(decoding: pending, as: UTF8.self)
+    }
+
+    /// How many bytes at the end of `bytes` begin a character that more bytes could still
+    /// finish: a lead byte and the continuation bytes after it, fewer than it announces.
+    private static func unfinishedTail(of bytes: [UInt8]) -> Int {
+        guard !bytes.isEmpty else { return 0 }
+        // A character is at most four bytes, so an unfinished one's lead is at most three
+        // from the end.
+        for back in 1...min(3, bytes.count) {
+            let byte = bytes[bytes.count - back]
+            if byte & 0xC0 == 0x80 { continue }
+            let length = switch byte {
+            case 0xC2...0xDF: 2
+            case 0xE0...0xEF: 3
+            case 0xF0...0xF4: 4
+            default: 1   // ASCII, or a byte no character begins with
+            }
+            return back < length ? back : 0
+        }
+        return 0
     }
 }
 

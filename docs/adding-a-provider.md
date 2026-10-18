@@ -83,8 +83,9 @@ makes the audio clips.
 client commit · which message means "ready" · minimum commit size · echoes of committed text.
 
 **Chat:** which parameters each model rejects (HTTP 400 loses the rewrite) · how to turn
-reasoning off, and the latency with and without · how a refusal arrives · whether the
-`<<mode:NAME>>` marker comes back intact on real dictations.
+reasoning off, and the latency with and without · how a refusal arrives · how a reply the
+output cap cut off says so · whether the `<<mode:NAME>>` marker comes back intact on real
+dictations.
 
 **Key:** its prefix (must not match another vendor's; `sk-` is shared, so if it collides,
 no clipboard pick-up) · a free authenticated request for the key check (usually `GET /models`).
@@ -210,6 +211,11 @@ Read CLAUDE.md's streaming sections first. The rules:
   apart, as Anthropic's does) and every output token, reasoning included, in
   `outputTokens`. Usage prices these; nil, for an API that reports none, falls back to an
   estimate from the words. Pin the decode with a literal reply in `ChatUsageTests`.
+- Read how the reply ended before its text, in a `replyText()` on the decoded reply: a
+  refusal throws `LLMError.refused`, and a reply the output cap or the context window
+  ended throws `LLMError.cutOff` — it is only the start of a rewrite, and pasted it would
+  end a dictation mid-sentence or replace a whole selection. Pin it with literal bodies in
+  `ChatReplyEndingTests`.
 - Throw on any failure; the app falls back to the raw transcript.
 
 ## 7. The key

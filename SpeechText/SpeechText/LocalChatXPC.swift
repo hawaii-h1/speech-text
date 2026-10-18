@@ -31,6 +31,9 @@ struct LocalChatRequest: Codable, Equatable {
     var family: ChatTemplateFamily
     var system: String
     var user: String
+    /// The output tokens the reply may take. For a completion it is the least: the
+    /// service gives a longer user message twice its own tokens
+    /// (`ChatTemplates.replyTokens`), and the context bounds it.
     var maxTokens: Int
     var contextLength: Int
     /// For a prewarm: system prompts to read ahead, so the requests that follow restore
@@ -45,5 +48,7 @@ struct LocalChatResponse: Codable, Equatable {
     var loadSeconds: Double
     var promptSeconds: Double
     var generationSeconds: Double
+    /// The model ended its reply itself, rather than running out of tokens — a reply that
+    /// did not is cut off, and the app does not paste it.
     var finished: Bool
 }

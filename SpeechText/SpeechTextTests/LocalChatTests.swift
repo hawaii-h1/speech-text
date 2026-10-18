@@ -100,10 +100,98 @@ final class ChatTemplateTests: XCTestCase {
         XCTAssertEqual(ChatTemplates.reply(from: "Текст.<|channel>thought\nunfinished", family: .gemma4), "Текст.")
     }
 
+    /// A model may stop on an end-of-generation token that is not its family's end of
+    /// turn. The runtime no longer writes one in; a reply that still ends on one loses it.
+    func testAnEndOfGenerationTokenAtTheEndIsNotPasted() {
+        XCTAssertEqual(ChatTemplates.reply(from: "<<mode:Clean-up>>\nТекст.<|endoftext|>", family: .qwen),
+                       "<<mode:Clean-up>>\nТекст.")
+        XCTAssertEqual(ChatTemplates.reply(from: "<think>\nhmm\n</think>\n\nТекст.<|endoftext|>\n", family: .qwen), "Текст.")
+        XCTAssertEqual(ChatTemplates.reply(from: "Текст.\n<eos>", family: .gemma4), "Текст.")
+        XCTAssertEqual(ChatTemplates.reply(from: "<|channel|>analysis<|message|>Clean-up.<|end|>"
+                                           + "<|start|>assistant<|channel|>final<|message|>Текст.<|endoftext|>",
+                                           family: .harmony), "Текст.")
+    }
+
+    /// Only at the very end: the same letters inside a reply may be what the user said.
+    func testTheSameLettersInsideAReplyAreKept() {
+        let dictated = "Модель закінчує відповідь токеном <eos> чи <|endoftext|>, а не текстом."
+        XCTAssertEqual(ChatTemplates.reply(from: dictated + "<turn|>", family: .gemma4), dictated)
+        XCTAssertEqual(ChatTemplates.reply(from: dictated + "<|im_end|>", family: .qwen), dictated)
+    }
+
+    /// A fixed 2048-token budget cut a long selection's rewrite short, and the cut-off
+    /// rewrite replaced the whole selection. The context bounds what this asks for.
+    func testALongMessageIsGivenRoomForItsOwnLength() {
+        XCTAssertEqual(ChatTemplates.replyTokens(atLeast: 2048, forInputTokens: 0), 2048)
+        XCTAssertEqual(ChatTemplates.replyTokens(atLeast: 2048, forInputTokens: 600), 2048)
+        XCTAssertEqual(ChatTemplates.replyTokens(atLeast: 2048, forInputTokens: 3000), 6000)
+    }
+
     func testOnlyHarmonyIsGivenRoomToReason() {
         XCTAssertEqual(ChatTemplates.reasoningAllowance(.qwen), 0)
         XCTAssertEqual(ChatTemplates.reasoningAllowance(.gemma4), 0)
         XCTAssertGreaterThan(ChatTemplates.reasoningAllowance(.harmony), 0)
+    }
+}
+
+// MARK: - The reply's bytes
+
+/// A token is not a character: what the runtime reads out of each piece, and what is left
+/// of a reply when the model writes a byte that is not UTF-8.
+final class UTF8AccumulatorTests: XCTestCase {
+    private let mixed = "Hi, Привіт! 你好 😀 👨‍👩‍👧."
+
+    private func feed(_ pieces: [[UInt8]]) -> (text: String, mostHeld: Int) {
+        var accumulator = UTF8Accumulator()
+        var text = ""
+        var mostHeld = 0
+        for piece in pieces {
+            text += accumulator.append(piece)
+            mostHeld = max(mostHeld, accumulator.heldBytes)
+        }
+        return (text + accumulator.flush(), mostHeld)
+    }
+
+    func testTextSplitAnywhereComesOutWhole() {
+        let bytes = Array(mixed.utf8)
+        for cut in 0...bytes.count {
+            let (text, mostHeld) = feed([Array(bytes[..<cut]), Array(bytes[cut...])])
+            XCTAssertEqual(text, mixed, "cut at byte \(cut)")
+            XCTAssertLessThanOrEqual(mostHeld, 3)
+        }
+        let (text, mostHeld) = feed(bytes.map { [$0] })
+        XCTAssertEqual(text, mixed, "byte by byte")
+        XCTAssertLessThanOrEqual(mostHeld, 3)
+    }
+
+    func testACharacterIsHandedOutTheMomentItIsWhole() {
+        var accumulator = UTF8Accumulator()
+        XCTAssertEqual(accumulator.append([0xD0]), "")   // the first half of «П»
+        XCTAssertEqual(accumulator.heldBytes, 1)
+        XCTAssertEqual(accumulator.append([0x9F] + Array("ри".utf8)), "При")
+        XCTAssertEqual(accumulator.append([0xF0, 0x9F]), "")   // half of «😀»
+        XCTAssertEqual(accumulator.append([0x98]), "")
+        XCTAssertEqual(accumulator.append([0x80]), "😀")
+        XCTAssertEqual(accumulator.heldBytes, 0)
+    }
+
+    /// The regression: the runtime used to hold every byte back until the whole run
+    /// decoded, so one byte that never could silenced the rest of the reply.
+    func testAByteThatIsNotUTF8DoesNotSilenceWhatFollows() {
+        let (text, _) = feed([Array("При".utf8), [0xFF], Array("віт, ".utf8), Array("світе.".utf8)])
+        XCTAssertEqual(text, "При\u{FFFD}віт, світе.")
+    }
+
+    func testALeadByteWithNoCharacterAfterItIsReplaced() {
+        XCTAssertEqual(feed([[0xD0], Array("x".utf8)]).text, "\u{FFFD}x")
+        XCTAssertEqual(feed([[0xE2, 0x82], Array(" ok".utf8)]).text, "\u{FFFD} ok")
+    }
+
+    func testACharacterTheModelNeverFinishedIsReplacedAtTheEnd() {
+        var accumulator = UTF8Accumulator()
+        XCTAssertEqual(accumulator.append(Array("Так".utf8) + [0xF0, 0x9F]), "Так")
+        XCTAssertEqual(accumulator.flush(), "\u{FFFD}")
+        XCTAssertEqual(accumulator.heldBytes, 0)
     }
 }
 
