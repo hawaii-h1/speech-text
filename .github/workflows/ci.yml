@@ -80,14 +80,26 @@ jobs:
           path: .swiftpm-cache
           key: spm-${{ runner.os }}-${{ hashFiles('SpeechText/SpeechText.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
+      # Coverage is measured on every run and only reported: no threshold, and the
+      # summary step below never fails the job. The result bundle is removed first
+      # because the self-hosted runner keeps $RUNNER_TEMP between runs, and
+      # xcodebuild refuses to write over an existing one.
       - name: Test
         run: |
+          rm -rf "$RUNNER_TEMP/tests.xcresult"
           xcodebuild test \
             -project SpeechText/SpeechText.xcodeproj \
             -scheme SpeechText \
             -destination 'platform=macOS' \
             -clonedSourcePackagesDirPath .swiftpm-cache \
+            -enableCodeCoverage YES \
+            -resultBundlePath "$RUNNER_TEMP/tests.xcresult" \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Coverage summary
+        if: always()
+        continue-on-error: true
+        run: scripts/coverage-summary.sh "$RUNNER_TEMP/tests.xcresult" >> "$GITHUB_STEP_SUMMARY"
 
       # The corpus tool compiles the test subset by hand-kept list. Built, never run:
       # running it needs recordings and keys this machine does not have.
@@ -99,6 +111,44 @@ jobs:
             -destination 'platform=macOS' \
             -clonedSourcePackagesDirPath .swiftpm-cache \
             CODE_SIGNING_ALLOWED=NO
+
+  swift-lint:
+    name: Swift lint
+    # Runs on a Mac for the same reason Tests does: swift-format is the one in Xcode
+    # (`xcrun swift-format`), not a dependency of ours. It reads the Swift files the
+    # pull request adds or changes, and reports a finding only on a line it added or
+    # changed, which is also why it is lint-only and filtered. The code is wrapped as
+    # Xcode wraps it, aligned under the first argument, and swift-format's
+    # pretty-printer cannot express that: formatting the tree rewrites about 9,500
+    # lines. So the formatter is never run, and its
+    # layout findings (indentation, line breaks, spacing, line length, trailing
+    # commas) are dropped by rule tag; what is kept are the rules that name a
+    # construct to avoid. scripts/lint-swift.sh holds the list and .swift-format the
+    # configuration — an old finding elsewhere in a touched file is left alone.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'macos-latest' }}
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # See the Tests job: hosted images carry several Xcodes, the self-hosted Mac
+      # uses the one it has.
+      - name: Select the newest Xcode
+        if: runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          latest=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$latest" ]; then
+            echo "No /Applications/Xcode_*.app found; using the runner default."
+          else
+            sudo xcode-select -s "$latest"
+          fi
+
+      - name: swift-format finds nothing in the changed files
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: scripts/lint-swift.sh "$BASE"
 
   pbxproj:
     name: No development team

@@ -190,13 +190,14 @@ moves the work:
 
 | Job | While private | Once public | What it does |
 |---|---|---|---|
-| Tests | `self-hosted` | `macos-latest` | `xcodebuild test` — the only job that needs a Mac |
+| Tests | `self-hosted` | `macos-latest` | `xcodebuild test` — one of the two jobs that need a Mac, with Swift lint |
 | No development team | `self-hosted` | `ubuntu-latest` | greps `project.pbxproj` for a `DEVELOPMENT_TEAM` |
 | SPDX headers | `self-hosted` | `ubuntu-latest` | the two-line header on every Swift file |
 | DCO sign-off | `self-hosted` | `ubuntu-latest` | a `Signed-off-by` trailer on every commit in the range |
 | Provider guide | `self-hosted` | `ubuntu-latest` | `scripts/check-provider-guide.sh` — docs/adding-a-provider.md still names code that exists |
 | Base branch | `self-hosted` | `ubuntu-latest` | the base is `main`, or the stack is labelled — see above |
 | Log privacy | `self-hosted` | `ubuntu-latest` | `scripts/check-log-privacy.sh` — no `dlog` call interpolates dictated, selected or rewritten text |
+| Swift lint | `self-hosted` | `macos-latest` | `scripts/lint-swift.sh` — swift-format's semantic rules (not layout) on the lines a pull request adds or changes; needs Xcode's `swift-format` |
 
 While the repository is private only collaborators can open a pull request, so
 the self-hosted Mac is the arrangement it has always been. The moment visibility

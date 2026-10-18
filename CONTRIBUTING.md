@@ -93,7 +93,9 @@ The history was rewritten once, on 2026-10-15, and moved to this repository; the
 
 ## Formatting
 
-There is no automatic formatter yet. Match the surrounding code — its naming, its comment density, its idiom — and leave the lines you did not change alone.
+Match the surrounding code — its layout, its naming, its comment density, its idiom — and leave the lines you did not change alone. The code is wrapped the way Xcode wraps it, which no formatter reproduces, so a formatter is never run over the codebase.
+
+What is checked is a short list of swift-format's rules about constructs to avoid (a `.forEach` where a `for` loop reads better, two enum cases on one line, a block comment). Run `scripts/lint-swift.sh` before you push: it lints the Swift files your branch changes against `origin/main` and ignores every finding about layout. CI runs the same script as *Swift lint*. It reports findings on the lines you changed and nothing else: an old finding elsewhere in a file you touched is not yours to fix here (restyling pull requests are refused above). Its configuration is `.swift-format`.
 
 ## Language
 
