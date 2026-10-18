@@ -120,8 +120,9 @@ final class SpeechEngine {
     /// still be starting: `AVAudioEngine` is not thread-safe, and a cancel that stopped
     /// it on main while the start was mid-flight raced two mutations of one graph.
     private let engineQueue = DispatchQueue(label: "SpeechEngine.audio", qos: .userInitiated)
-    /// True once a pause has started `finish()` on the current segment, so a subsequent
-    /// stop knows not to send the same audio a second time.
+    /// True once a pause has started `finish()` on the current segment — or, for Apple,
+    /// written its History row — so a subsequent stop knows not to send the same audio a
+    /// second time, nor to write the same segment twice.
     private var segmentFinishStarted = false
     /// History entry written for the most recent successful transcription, so the LLM
     /// pass (which runs later, in AppState or the Record Window) can attach itself to it.
@@ -162,6 +163,16 @@ final class SpeechEngine {
     /// Unset (the Record Window) the stop still happens: the panel's status line shows
     /// `errorMessage` and its knob goes back to idle.
     var onRecognitionFailure: ((String) -> Void)?
+
+    /// The microphone went away under a live recording — no usable input after a device
+    /// change, a device that would not settle, a restart's engine that would not start —
+    /// and the engine has stopped the recording itself, as a stop does: what was said is
+    /// transcribed and written to History. Called once the phase is `.finishing`, with
+    /// the reason. The owner did not ask for this stop and has no waiter parked; without
+    /// this the inline dictation was never pasted, and its overlay stayed up until the
+    /// next press — which, with the stop still transcribing, cancelled it. Unset (the
+    /// Record Window), the stop's text is handed to the panel as a pause's is.
+    var onMicrophoneLost: ((String) -> Void)?
 
     /// A segment failed for want of a network and its audio is in History
     /// (`offlineRecordID`). The owner hands it to `OfflineRetry` to be transcribed once the
@@ -214,6 +225,14 @@ final class SpeechEngine {
     }
 
     func pauseRecording() {
+        pauseRecording(thenResume: nil)
+    }
+
+    /// `thenResume`: a device change is closing the segment, and the next one opens on
+    /// the new device in `locale` as soon as that cannot cost this one — at once when the
+    /// session already has the text (Apple), once its transcription has landed otherwise,
+    /// since a resume before then would cancel the upload with the segment in it.
+    private func pauseRecording(thenResume resumeLocale: String?) {
         dlog("Engine", "pauseRecording: phase=\(phase), provider=\(providerType.rawValue)")
         guard isRecording, let audioEngine, let session, let configuration else {
             dlog("Engine", "pauseRecording: guard failed (phase=\(phase), audioEngine=\(self.audioEngine != nil), session=\(self.session != nil))")
@@ -234,6 +253,10 @@ final class SpeechEngine {
                 recordOutcome(RecognitionOutcome(text: segmentText, error: nil,
                                                  audioFileURL: nil, cancelled: false),
                               writer: audioBufferWriter, locale: configuration.historyLocale)
+                // A stop from this pause finishes from it: asked again, the session hands
+                // back the same segment, and History got it twice. A pause with nothing
+                // recognised leaves it to the stop, which still archives its audio.
+                segmentFinishStarted = true
                 // The Dictionary changed a word the live spans still spell the old way:
                 // the segment's text is the authority, as a batch result is.
                 if segmentText != liveSegment {
@@ -241,6 +264,7 @@ final class SpeechEngine {
                 }
                 setPendingInsertion(segmentText)
             }
+            if let resumeLocale { resumeRecording(locale: resumeLocale) }
             return
         }
 
@@ -259,11 +283,10 @@ final class SpeechEngine {
             var finished = await session.finish()
             finished.text = configuration.finished(finished.text)
             let outcome = finished
-            // A resume can cancel this task while the upload is still in flight. The
-            // segment was still transcribed, so it is still written to History (that is
-            // not "a newer session's state", and dropping it silently lost a completed
-            // upload whenever a resume raced the reply) — but nothing that belongs to
-            // the session now running is touched.
+            // A cancel can land while the upload is still in flight. If the reply came
+            // back first, the segment was still transcribed, so it is still written to
+            // History — but nothing that belongs to the engine's state now is touched.
+            // A resume no longer cancels this task: it waits for the segment to land.
             let superseded = Task.isCancelled
             await MainActor.run {
                 self.recordOutcome(outcome, writer: writer, locale: locale,
@@ -280,6 +303,7 @@ final class SpeechEngine {
                 // waiter owns the transition): the segment has landed.
                 if case .paused(segmentInFlight: true) = self.phase {
                     self.phase = .paused(segmentInFlight: false)
+                    if let resumeLocale { self.resumeRecording(locale: resumeLocale) }
                 }
             }
         }
@@ -287,7 +311,10 @@ final class SpeechEngine {
 
     func resumeRecording(locale: String = "en-US") {
         dlog("Engine", "resumeRecording: phase=\(phase), locale=\(locale)")
-        guard isPaused else { return }
+        // Not while the paused segment is still being transcribed: the resume cancels
+        // `transcriptionTask`, and with it the upload — the segment's audio deleted, its
+        // History row never written, its text never handed over.
+        guard case .paused(segmentInFlight: false) = phase else { return }
         configuration?.locale = locale
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -502,15 +529,21 @@ final class SpeechEngine {
             } catch {
                 let desc = error.localizedDescription
                 DispatchQueue.main.async {
-                    guard self?.engineStartToken == token else { return }
+                    guard let self, self.engineStartToken == token else { return }
                     seLog.error("startAudioEngine: audio engine failed to start: \(desc, privacy: .public)")
                     let message = "Audio engine failed to start: \(desc)"
-                    self?.errorMessage = message
-                    // Only a fresh start: a restart on a new device is already recording,
-                    // and its stop will report the error the ordinary way.
-                    if self?.phase == .starting { self?.onStartFailure?(message) }
-                    self?.phase = .idle
-                    self?.cleanup()
+                    guard self.phase == .starting else {
+                        // A restart on a new device: the segment is already recording, and
+                        // what it holds is ended as a restart with no usable input ends it.
+                        // Going idle here reset the writer and cancelled the session — the
+                        // dictation gone, with no History row, and the overlay left up.
+                        self.endRecording(microphoneLost: message)
+                        return
+                    }
+                    self.errorMessage = message
+                    self.onStartFailure?(message)
+                    self.phase = .idle
+                    self.cleanup()
                 }
                 return
             }
@@ -565,6 +598,21 @@ final class SpeechEngine {
         }
     }
 
+    /// The microphone went away under a live recording: it ends as a stop does, and the
+    /// owner is told (`onMicrophoneLost`). The reason is the engine's, not the
+    /// transcription's — left in `errorMessage`, it made a result with words in it a
+    /// failure, handed to the Record Window instead of pasted — so it explains only a
+    /// segment that comes back with none (`stopRecording(explainingEmptyBy:)`).
+    private func endRecording(microphoneLost reason: String) {
+        // Only a live recording: a stop ignores any other phase, and the owner must not be
+        // told of a stop that never happened.
+        guard case .recording = phase else { return }
+        dlog("Engine", "the microphone was lost — ending the recording: \(reason)")
+        errorMessage = nil
+        stopRecording(explainingEmptyBy: reason)
+        onMicrophoneLost?(reason)
+    }
+
     /// The audio device changed under a live segment: only the engine and its tap are
     /// rebuilt. The writer and the session stay — the writer is re-prepared for the new
     /// hardware format and keeps appending to the same 16 kHz buffer, so the segment has
@@ -587,7 +635,7 @@ final class SpeechEngine {
                 phase = .idle
                 cleanup()
             } else {
-                stopRecording()
+                endRecording(microphoneLost: errorMessage ?? "No audio input device available")
             }
             return
         }
@@ -634,6 +682,14 @@ final class SpeechEngine {
     }
 
     func stopRecording() {
+        stopRecording(explainingEmptyBy: nil)
+    }
+
+    /// `reason`: the engine is ending the recording itself (`endRecording(microphoneLost:)`).
+    /// A segment that comes back with no words and no error of its own is that reason's
+    /// failure — its History row and the notice say why the dictation ended — and one with
+    /// words is handed to the sink as a pause's segment is.
+    private func stopRecording(explainingEmptyBy reason: String?) {
         dlog("Engine", "stopRecording: phase=\(phase), provider=\(providerType.rawValue)")
         switch phase {
         case .recording, .paused:
@@ -650,6 +706,7 @@ final class SpeechEngine {
 
         // Stopping from a paused state where the segment was already sent: the audio is
         // in flight (or done) — finish with that result instead of transcribing it again.
+        // An Apple pause that wrote its row is done the same way.
         if wasPaused && segmentFinishStarted {
             dlog("Engine", "stopRecording: segment already transcribed at pause — not resending")
             finalizeAfterPausedTranscription()
@@ -681,6 +738,9 @@ final class SpeechEngine {
             guard let self else { return }
             var finished = await session.finish()
             finished.text = configuration.finished(finished.text)
+            if let reason, !finished.cancelled, finished.text.isEmpty, finished.error == nil {
+                finished.error = reason
+            }
             let outcome = finished
             await MainActor.run {
                 // A stale task must never touch a newer session's state — but the
@@ -694,6 +754,11 @@ final class SpeechEngine {
                 self.finalText = outcome.text
                 self.spanLayer.commitSegment(outcome.text)
                 self.spanLayer.settleSegment()
+                // A stop nobody asked for: the Record Window takes a pause's segments only,
+                // and would otherwise never show these words.
+                if reason != nil, !outcome.text.isEmpty {
+                    self.setPendingInsertion(outcome.text)
+                }
                 self.phase = .idle
                 self.cleanup()
             }
@@ -944,7 +1009,7 @@ final class SpeechEngine {
                     phase = .idle
                     cleanup()
                 } else {
-                    stopRecording()
+                    endRecording(microphoneLost: "The microphone kept changing — try again")
                 }
                 return
             }
@@ -965,8 +1030,9 @@ final class SpeechEngine {
                 // format), so the segment is closed exactly as a user pause closes it and
                 // the next one opens on the new device. The whole recording's text is
                 // still `spanLayer.text`, which is what the stop pastes and finalizes.
-                pauseRecording()
-                resumeRecording(locale: configuration?.locale ?? "en-US")
+                // A segment that has to be uploaded first is resumed once it has landed:
+                // resumed at once, its upload was cancelled and the segment lost.
+                pauseRecording(thenResume: configuration?.locale ?? "en-US")
             }
         case .paused:
             // Stay paused: the stale engine is discarded here, and a resume builds a fresh

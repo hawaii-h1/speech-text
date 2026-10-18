@@ -922,6 +922,11 @@ final class AppState {
         speechEngine.onRecognitionFailure = { [weak self] message in
             self?.handleRecognitionFailure(message)
         }
+        // Nor did a microphone that went away mid-dictation: the engine stopped and wrote
+        // the History row, and nothing was pasted.
+        speechEngine.onMicrophoneLost = { [weak self] message in
+            self?.handleMicrophoneLost(message)
+        }
         // Retried by itself once the network is back — but not a test dictation, whose
         // result belongs to the setup window that has long moved on by then.
         speechEngine.onSavedOffline = isTestDictation ? nil : { id in MainActor.assumeIsolated { OfflineRetry.shared.enqueue(id) } }
@@ -940,6 +945,20 @@ final class AppState {
     private func handleRecognitionFailure(_ message: String) {
         dlog("App", "recognition failed before any text — ending the dictation: \(message)")
         DictationTraceRecorder.record(.stop)
+        waitForTranscription()
+    }
+
+    /// The engine ended the dictation itself — its microphone went away — and is finishing
+    /// it as a stop does. The rest of an ordinary stop follows, in `stopRecording`'s order:
+    /// the text goes to the app in front now, as if the user had stopped there, and the
+    /// result is handled as any stop's is.
+    private func handleMicrophoneLost(_ message: String) {
+        dlog("App", "the microphone was lost — ending the dictation: \(message)")
+        choosePasteDestination()
+        DictationTraceRecorder.record(.stop)
+        if isAIMode {
+            readFocusContext(of: pasteDestination)
+        }
         waitForTranscription()
     }
 
@@ -1432,6 +1451,7 @@ final class AppState {
             // A microphone still starting may yet fail; that no longer concerns this edit.
             speechEngine.onStartFailure = nil
             speechEngine.onRecognitionFailure = nil
+            speechEngine.onMicrophoneLost = nil
             speechEngine.cancelRecording()
             editInstruction = .ready(nil, recordID: nil)
             removesSelection = true
@@ -1502,20 +1522,33 @@ final class AppState {
         speechEngine.onRecognitionFailure = { [weak self] message in
             guard let self, self.isEditMode, self.editGeneration == generation else { return }
             dlog("Edit", "recognition failed before any instruction: \(message)")
-            self.transcriptionWaitTask?.cancel()
-            self.transcriptionWaitTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.speechEngine.awaitTranscription()
-                guard !Task.isCancelled, self.isEditMode, self.editGeneration == generation else { return }
-                self.transcriptionWaitTask = nil
-                self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't hear the instruction",
-                               detail: self.friendlySTTError(message))
-            }
+            self.abortEditOnceStopped(generation: generation, message: message)
+        }
+        // So did a microphone that went away while the instruction was spoken. The edit
+        // ends the same way rather than rewriting the selection to half an instruction.
+        speechEngine.onMicrophoneLost = { [weak self] message in
+            guard let self, self.isEditMode, self.editGeneration == generation else { return }
+            dlog("Edit", "the microphone was lost during the instruction: \(message)")
+            self.abortEditOnceStopped(generation: generation, message: message)
         }
         // Saying nothing is a request to polish, and the edit writes its own record.
         speechEngine.recordsEmptyOutcomes = false
         speechEngine.startRecording(locale: locale)
         focusContext = PasteService.readFocusContext(in: front)
+    }
+
+    /// The engine stopped the instruction's recording itself: the edit ends once that
+    /// stop has written its History row.
+    private func abortEditOnceStopped(generation: Int, message: String) {
+        transcriptionWaitTask?.cancel()
+        transcriptionWaitTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.speechEngine.awaitTranscription()
+            guard !Task.isCancelled, self.isEditMode, self.editGeneration == generation else { return }
+            self.transcriptionWaitTask = nil
+            self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't hear the instruction",
+                           detail: self.friendlySTTError(message))
+        }
     }
 
     private func selectionRead(_ read: PasteService.SelectionRead) {
@@ -2217,6 +2250,13 @@ final class AppState {
 
     func toggleDirectRecordingState() {
         guard let engine = directRecordingSpeechEngine else { return }
+        // The panel's knob is disabled meanwhile, and the shortcut is the same knob: a
+        // resume while a paused segment was still uploading cancelled the upload, and
+        // the segment was gone — no text in the panel, no History row.
+        guard !engine.isTranscribing, !engine.isStartingEngine else {
+            dlog("Hotkey", "record window pressed while its engine is busy → ignored")
+            return
+        }
         let locale = resolvedLocale()
         let spring = Animation.spring(response: 0.35, dampingFraction: 0.75)
         if engine.isRecording {

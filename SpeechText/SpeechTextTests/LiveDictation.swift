@@ -49,9 +49,16 @@ final class InlineDictationFlow {
 
     /// `SpeechEngine.stopRecording` (after `session.finish()`) →
     /// `AppState.handleTranscriptionResult`. Returns the cleaned outcome with the decision.
-    func stop(_ outcome: RecognitionOutcome, aiMode: Bool) -> (outcome: RecognitionOutcome, result: InlineDelivery.StopResult) {
+    /// `microphoneLost`: the engine ended the recording itself, for that reason
+    /// (`SpeechEngine.endRecording(microphoneLost:)`), which explains only a segment that
+    /// came back with no words and no error of its own.
+    func stop(_ outcome: RecognitionOutcome, aiMode: Bool,
+              microphoneLost reason: String? = nil) -> (outcome: RecognitionOutcome, result: InlineDelivery.StopResult) {
         var outcome = outcome
         outcome.text = finish(outcome.text)
+        if let reason, !outcome.cancelled, outcome.text.isEmpty, outcome.error == nil {
+            outcome.error = reason
+        }
         layer.commitSegment(outcome.text)
         layer.settleSegment()
         let result = InlineDelivery.stopResult(finalText: outcome.text, failed: outcome.error != nil,

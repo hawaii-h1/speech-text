@@ -204,6 +204,11 @@ final class DictationReplay {
         case switchTo(FakeApp)
         /// The user brought one of SpeechText's own windows (Settings, History) to the front.
         case openSpeechTextWindow
+        /// The microphone went away (unplugged, a device that would not settle), and the
+        /// engine ended the recording itself, for this reason
+        /// (`SpeechEngine.endRecording(microphoneLost:)` → `AppState.handleMicrophoneLost`).
+        /// The steps after it are what the user does while that stop is transcribed.
+        case microphoneLost(String)
     }
 
     enum LLM {
@@ -292,7 +297,12 @@ final class DictationReplay {
         }
         let pastedBefore = apps.map(\.pastes.count)
         replay.start(fallback: fallback)
-        for step in steps {
+        // A microphone that went away is the stop: what follows it happens while it is
+        // transcribed.
+        let lost = steps.firstIndex { if case .microphoneLost = $0 { true } else { false } }
+        var lostReason: String?
+        if let lost, case .microphoneLost(let reason) = steps[lost] { lostReason = reason }
+        for step in steps[..<(lost ?? steps.endIndex)] {
             await replay.perform(step)
         }
         // Nothing reaches any app while the user speaks, in any mode: the text is on the
@@ -303,7 +313,9 @@ final class DictationReplay {
         if cancelInsteadOfStopping {
             replay.cancel()
         } else {
-            stop = await replay.stop(llm: llm, whileRewriting: whileRewriting)
+            stop = await replay.stop(llm: llm, whileRewriting: whileRewriting,
+                                     microphoneLost: lostReason,
+                                     whileTranscribing: lost.map { Array(steps[($0 + 1)...]) } ?? [])
         }
         // Lines logged off the main thread arrive through the main queue.
         await withCheckedContinuation { continuation in
@@ -452,6 +464,9 @@ final class DictationReplay {
             speechTextInFront = false
         case .openSpeechTextWindow:
             speechTextInFront = true
+        case .microphoneLost:
+            // The stop, which `run` performs.
+            break
         }
     }
 
@@ -471,8 +486,12 @@ final class DictationReplay {
     }
 
     /// `AppState.stopRecording` → `SpeechEngine.stopRecording` →
-    /// `AppState.handleTranscriptionResult` (→ `refine` → `deliver`).
-    private func stop(llm: LLM, whileRewriting: [Step]) async -> InlineDelivery.StopResult {
+    /// `AppState.handleTranscriptionResult` (→ `refine` → `deliver`). With
+    /// `microphoneLost`, the engine's own stop instead: `SpeechEngine.endRecording(microphoneLost:)`
+    /// → `AppState.handleMicrophoneLost`, the same steps from the destination on, the engine's
+    /// stop coming first — nothing moves the front app in between.
+    private func stop(llm: LLM, whileRewriting: [Step], microphoneLost: String? = nil,
+                      whileTranscribing: [Step] = []) async -> InlineDelivery.StopResult {
         // AppState.choosePasteDestination: fixed now, before anything else.
         destination = InlineDelivery.destination(front: front, frontIsSpeechText: speechTextInFront, origin: app)
         // SpeechEngine.stopRecording: the tap is removed, the phase leaves `.recording`.
@@ -483,9 +502,11 @@ final class DictationReplay {
                                            windowTitle: destination.windowTitle, fieldLabels: [],
                                            isSecureField: false)
         }
+        // The user goes on while the stop is transcribed; where the text goes is fixed.
+        for step in whileTranscribing { await perform(step) }
         // SpeechEngine.stopRecording → AppState.handleTranscriptionResult: the one copy,
         // shared with the live corpus runs.
-        let (_, result) = flow.stop(await session.finish(), aiMode: aiMode)
+        let (_, result) = flow.stop(await session.finish(), aiMode: aiMode, microphoneLost: microphoneLost)
         switch result {
         case .paste(let text):
             deliver(text)

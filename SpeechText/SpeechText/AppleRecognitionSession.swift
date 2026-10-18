@@ -192,8 +192,10 @@ final class AppleRecognitionSession: RecognitionSession {
         request?.append(native)
     }
 
-    /// The task and request stay alive: a later stop-from-paused still ends the audio
-    /// and waits for the final result, so Apple writes one history entry per stop.
+    /// The task and request stay alive, so a stop from a pause that had recognised
+    /// nothing yet can still end the audio and wait for a final result. A pause with text
+    /// has its History row written by the engine there and then, and the stop does not
+    /// finish this session again — it would write the same segment twice.
     /// Idempotent — a stop calls it again (before `finish()`) so the rotation timer is
     /// killed on the main thread synchronously, not after `finish()`'s async hop.
     func pause() -> String? {

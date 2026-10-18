@@ -1410,3 +1410,73 @@ final class LongSegmentReplayTests: XCTestCase {
         assertDocument(run.document, "Усе одним шматком.")
     }
 }
+
+// MARK: - A microphone that went away
+
+/// The engine ended the recording itself — the only microphone unplugged, a device that
+/// would not settle, a restart that would not start — and `AppState.handleMicrophoneLost`
+/// does the rest of a stop. Before, the History row was written and nothing was pasted;
+/// the overlay stayed up, and the next press, with the stop still transcribing, cancelled.
+@MainActor
+final class MicrophoneLostReplayTests: XCTestCase {
+
+    /// What was said is pasted once, into the app in front when the microphone went away —
+    /// not the one it started in, nor the one the user moved to while it was transcribed.
+    func testWhatWasSaidIsPastedOnceWhereTheUserWas() async {
+        let textEdit = FakeApp("TextEdit"), slack = FakeApp("Slack"), notes = FakeApp("Notes")
+        let run = await DictationReplay.run(in: textEdit, [
+            .committed("Почав тут."),
+            .switchTo(slack),
+            .committed("А тут вийняв мікрофон."),
+            .microphoneLost("No audio input device available"),
+            .switchTo(notes),
+        ])
+
+        XCTAssertTrue(run.destination === slack)
+        XCTAssertEqual(run.stop, .paste("Почав тут. А тут вийняв мікрофон."))
+        XCTAssertEqual(slack.pastes, ["Почав тут. А тут вийняв мікрофон. "])
+        XCTAssertTrue(textEdit.pastes.isEmpty)
+        XCTAssertTrue(notes.pastes.isEmpty)
+    }
+
+    /// The reason is the engine's, not the transcription's: words that came back are a
+    /// result, not a failure handed to the Record Window.
+    func testTheReasonDoesNotMakeAResultAFailure() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(in: app, [
+            .audio(seconds: 3),
+            .microphoneLost("The microphone kept changing — try again"),
+        ], fallback: ScriptedSegment(text: "Сказав, поки гарнітура перемикалась."))
+
+        XCTAssertEqual(run.stop, .paste("Сказав, поки гарнітура перемикалась."))
+        XCTAssertNil(run.recordWindow)
+        XCTAssertEqual(app.pastes.count, 1)
+    }
+
+    /// AI mode: the prompt is told about the app the text goes to, read when the
+    /// microphone went away, and the rewrite is the one paste.
+    func testAnAIDictationIsRewrittenForTheAppItEndedIn() async {
+        let mail = FakeApp("Mail", bundleID: "com.apple.mail", windowTitle: "Re: plan")
+        let slack = FakeApp("Slack", bundleID: "com.tinyspeck.slackmacgap", windowTitle: "#general")
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: mail, [
+            .committed("скажи всім що я запізнюсь"),
+            .switchTo(slack),
+            .microphoneLost("No audio input device available"),
+        ], llm: .rewrites("Запізнюся на кілька хвилин."))
+
+        XCTAssertEqual(run.context?.appName, "Slack")
+        XCTAssertEqual(slack.pastes, ["Запізнюся на кілька хвилин. "])
+        XCTAssertTrue(mail.pastes.isEmpty)
+    }
+
+    /// Nothing said before it went: the reason explains the result — the notice and the
+    /// History row say why the dictation ended — and nothing is pasted.
+    func testNothingSaidIsAFailureThatSaysWhy() async {
+        let app = FakeApp()
+        let run = await DictationReplay.run(in: app, [.microphoneLost("No audio input device available")],
+                                            fallback: ScriptedSegment(text: ""))
+
+        XCTAssertEqual(run.stop, .failed(partial: ""))
+        XCTAssertTrue(app.pastes.isEmpty)
+    }
+}
