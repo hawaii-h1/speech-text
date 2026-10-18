@@ -381,24 +381,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// opens, too: the phase moves on by itself (a rewrite finishing), and a menu built
     /// while it was busy would otherwise offer to cancel a dictation that is over.
     private func updateRecordingItemTitles(in menu: NSMenu) {
-        let shortcut = currentShortcutDisplayString()
-        let aiShortcut = currentAIShortcutDisplayString()
+        let shortcut = StoredShortcut.dictation
+        let aiShortcut = StoredShortcut.ai
         let (title, aiTitle): (String, String)
         switch appState.dictationPhase {
         case .idle:
-            (title, aiTitle) = ("Start Recording (\(shortcut))", "AI Recording (\(aiShortcut))")
+            (title, aiTitle) = ("Start Recording", "AI Recording")
         case .busy:
             // Transcribing or rewriting: either item cancels.
-            (title, aiTitle) = ("Cancel Dictation (\(shortcut))", "Cancel Dictation (\(aiShortcut))")
+            (title, aiTitle) = ("Cancel Dictation", "Cancel Dictation")
         case .starting(let ai), .recording(let ai):
             // During a dictation, the other mode's item switches it over rather than stopping it.
             let own = appState.speechEngine.isRecording ? "Stop" : "Cancel"
             (title, aiTitle) = ai
-                ? ("Switch to Plain Text (\(shortcut))", "\(own) AI Recording (\(aiShortcut))")
-                : ("\(own) Recording (\(shortcut))", "Switch to AI (\(aiShortcut))")
+                ? ("Switch to Plain Text", "\(own) AI Recording")
+                : ("\(own) Recording", "Switch to AI")
         }
-        menu.item(withTag: Self.recordingItemTag)?.title = title
-        menu.item(withTag: Self.aiItemTag)?.title = aiTitle
+        menu.item(withTag: Self.recordingItemTag).map { shortcut.apply(to: $0, title: title) }
+        menu.item(withTag: Self.aiItemTag).map { aiShortcut.apply(to: $0, title: aiTitle) }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -408,17 +408,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
         menu.delegate = self
-
-        // Which build is this? The app has no window and no About box, so the menu
-        // is the only place the answer can live — and after a rebuild it is the
-        // first thing worth checking.
-        let versionItem = NSMenuItem(title: "SpeechText \(AppVersion.displayString)",
-                                     action: #selector(copyVersion), keyEquivalent: "")
-        versionItem.target = self
-        versionItem.toolTip = "Click to copy this build's version"
-        menu.addItem(versionItem)
-
-        menu.addItem(.separator())
 
         let mainItem = NSMenuItem(title: "Open SpeechText", action: #selector(openMainWindow), keyEquivalent: "")
         mainItem.target = self
@@ -437,16 +426,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(aiItem)
         updateRecordingItemTitles(in: menu)
 
-        let editItem = NSMenuItem(title: "Edit Selection with AI (\(currentEditShortcutDisplayString()))",
-                                  action: #selector(toggleEdit), keyEquivalent: "")
+        let editItem = NSMenuItem(title: "", action: #selector(toggleEdit), keyEquivalent: "")
+        StoredShortcut.edit.apply(to: editItem, title: "Edit Selection with AI")
         editItem.target = self
         editItem.toolTip = "Rewrites the text selected in the app in front. Speak an instruction, or double-press the shortcut to just polish it."
         menu.addItem(editItem)
 
         menu.addItem(.separator())
 
-        let rwShortcut = currentRecordWindowShortcutDisplayString()
-        let recordItem = NSMenuItem(title: "Record Window (\(rwShortcut))", action: #selector(openRecordPanel), keyEquivalent: "")
+        let recordItem = NSMenuItem(title: "", action: #selector(openRecordPanel), keyEquivalent: "")
+        StoredShortcut.recordWindow.apply(to: recordItem, title: "Record Window")
         recordItem.target = self
         menu.addItem(recordItem)
 
@@ -460,12 +449,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         historyItem.target = self
         menu.addItem(historyItem)
 
-        // Setup can be run again at any time; unfinished, it picks up where it was left.
-        let setupDone = UserDefaults.standard.bool(forKey: SettingsKeys.onboardingCompleted)
-        let setupItem = NSMenuItem(title: setupDone ? "Set Up SpeechText..." : "Continue Setup...",
-                                   action: #selector(openSetup), keyEquivalent: "")
-        setupItem.target = self
-        menu.addItem(setupItem)
+        // Setup is a first-run flow: once finished, everything it asks lives in Settings,
+        // so the menu offers it only to pick up an unfinished one where it was left.
+        if !UserDefaults.standard.bool(forKey: SettingsKeys.onboardingCompleted) {
+            let setupItem = NSMenuItem(title: "Continue Setup...", action: #selector(openSetup), keyEquivalent: "")
+            setupItem.target = self
+            menu.addItem(setupItem)
+        }
 
         let debugItem = NSMenuItem(title: "Debug Log...", action: #selector(openDebugLog), keyEquivalent: "")
         debugItem.target = self
@@ -489,12 +479,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func checkForUpdates() {
         UpdateChecker.shared.checkForUpdates()
-    }
-
-    @objc private func copyVersion() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString("SpeechText \(AppVersion.displayString)", forType: .string)
     }
 
     @objc private func toggleRecording() {
@@ -636,42 +620,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         debugLogWindow = window
         NSApp.activate(ignoringOtherApps: true)
     }
+}
 
-    private func currentShortcutDisplayString() -> String {
-        storedShortcutDisplayString(keyCodeKey: SettingsKeys.hotkeyKeyCode,
-                                    modifiersKey: SettingsKeys.hotkeyModifierFlags,
-                                    defaultKeyCode: 12)  // Q
-    }
+/// One of the four global shortcuts as stored, for the status menu.
+private struct StoredShortcut {
+    let keyCode: UInt16
+    let modifiers: NSEvent.ModifierFlags
 
-    private func currentRecordWindowShortcutDisplayString() -> String {
-        storedShortcutDisplayString(keyCodeKey: SettingsKeys.recordWindowHotkeyKeyCode,
-                                    modifiersKey: SettingsKeys.recordWindowHotkeyModifierFlags,
-                                    defaultKeyCode: 13)  // W
-    }
-
-    private func currentAIShortcutDisplayString() -> String {
-        storedShortcutDisplayString(keyCodeKey: SettingsKeys.aiHotkeyKeyCode,
-                                    modifiersKey: SettingsKeys.aiHotkeyModifierFlags,
-                                    defaultKeyCode: 0)  // A
-    }
-
-    private func currentEditShortcutDisplayString() -> String {
-        storedShortcutDisplayString(keyCodeKey: SettingsKeys.editHotkeyKeyCode,
-                                    modifiersKey: SettingsKeys.editHotkeyModifierFlags,
-                                    defaultKeyCode: 14)  // E
+    static var dictation: StoredShortcut { read(SettingsKeys.hotkeyKeyCode, SettingsKeys.hotkeyModifierFlags, 12) }  // Q
+    static var ai: StoredShortcut { read(SettingsKeys.aiHotkeyKeyCode, SettingsKeys.aiHotkeyModifierFlags, 0) }  // A
+    static var edit: StoredShortcut { read(SettingsKeys.editHotkeyKeyCode, SettingsKeys.editHotkeyModifierFlags, 14) }  // E
+    static var recordWindow: StoredShortcut {
+        read(SettingsKeys.recordWindowHotkeyKeyCode, SettingsKeys.recordWindowHotkeyModifierFlags, 13)  // W
     }
 
     /// The stored shortcut, or the built-in one (⌃⇧ + `defaultKeyCode`, matching
     /// `HotkeyManager`'s defaults) when none has been saved.
-    private func storedShortcutDisplayString(keyCodeKey: String, modifiersKey: String,
-                                             defaultKeyCode: UInt16) -> String {
+    private static func read(_ keyCodeKey: String, _ modifiersKey: String, _ defaultKeyCode: UInt16) -> StoredShortcut {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: keyCodeKey) != nil else {
-            return shortcutDisplayString(keyCode: defaultKeyCode, modifierFlags: [.control, .shift])
+            return StoredShortcut(keyCode: defaultKeyCode, modifiers: [.control, .shift])
         }
-        return shortcutDisplayString(
-            keyCode: UInt16(defaults.integer(forKey: keyCodeKey)),
-            modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: modifiersKey))))
+        return StoredShortcut(keyCode: UInt16(defaults.integer(forKey: keyCodeKey)),
+                              modifiers: NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: modifiersKey))))
+    }
+
+    /// Draws the shortcut in the menu's right-hand column, where ⌘, and ⌘Q are. A status
+    /// menu matches its equivalents only while it is open; the shortcut itself is the
+    /// Carbon hotkey, global whether the menu is open or not. A key a menu cannot draw
+    /// stays in the title, as before.
+    func apply(to item: NSMenuItem, title: String) {
+        if let key = menuKeyEquivalent(keyCode: keyCode) {
+            item.title = title
+            item.keyEquivalent = key
+            item.keyEquivalentModifierMask = modifiers.intersection([.control, .option, .shift, .command])
+        } else {
+            item.title = "\(title) (\(shortcutDisplayString(keyCode: keyCode, modifierFlags: modifiers)))"
+            item.keyEquivalent = ""
+        }
     }
 }
 

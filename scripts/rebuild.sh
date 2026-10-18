@@ -660,5 +660,5 @@ fi
 
 print_summary ok "$headline" \
     "Replaced:   $WAS_WORDS" \
-    "Check it:   the first line of the menu bar menu shows the version below" \
+    "Check it:   Settings › General › Version shows the version below" \
     ${stamp_note:+"$stamp_note"}

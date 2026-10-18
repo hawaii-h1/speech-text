@@ -231,12 +231,7 @@ struct SettingsView: View {
                 }
                 SettingsDivider()
             }
-            SettingsRow(title: "Version", detail: AppVersion.displayString) {
-                if UpdateChecker.shared.isConfigured {
-                    Button("Check Now…") { UpdateChecker.shared.checkForUpdates() }
-                        .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
-                }
-            }
+            VersionRow()
             SettingsDivider()
             // The licences the bundled third-party code requires to travel with every copy
             // (scripts/third-party-notices.sh); opened in the system's text viewer.
@@ -1290,5 +1285,54 @@ private struct DemoStatus: View {
         .opacity(state == .idle ? 0 : 1)
         .frame(width: 86, alignment: .leading)
         .animation(.easeOut(duration: 0.2), value: state)
+    }
+}
+
+/// Settings › General › Version: the build in one line, copied when clicked — shown here
+/// and in About SpeechText since the status menu stopped showing it, and the line a
+/// bug report wants.
+private struct VersionRow: View {
+    @State private var copied = false
+    @State private var resetCopied: DispatchWorkItem?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Version")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SetupColor.label)
+                Button(action: copy) {
+                    HStack(spacing: 5) {
+                        Text(AppVersion.displayString)
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10, weight: .medium))
+                        if copied { Text("Copied") }
+                    }
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(SetupColor.label2)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+                .help("Copy this build's version")
+            }
+            Spacer(minLength: 12)
+            if UpdateChecker.shared.isConfigured {
+                Button("Check Now…") { UpdateChecker.shared.checkForUpdates() }
+                    .buttonStyle(SetupButtonStyle(kind: .secondary, height: 28))
+            }
+        }
+        .padding(.vertical, 11)
+    }
+
+    private func copy() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("SpeechText \(AppVersion.displayString)", forType: .string)
+        copied = true
+        resetCopied?.cancel()
+        let reset = DispatchWorkItem { copied = false }
+        resetCopied = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: reset)
     }
 }

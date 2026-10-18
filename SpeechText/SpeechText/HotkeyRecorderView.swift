@@ -202,6 +202,43 @@ func shortcutDisplayString(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags
     return parts.joined()
 }
 
+/// A key code as an `NSMenuItem.keyEquivalent`, so a menu draws a global shortcut in its
+/// right-hand column as it draws ⌘Q. Read from the ASCII-capable layout, not the current
+/// one: a menu equivalent is a character, and on a Ukrainian layout Q's would be "й".
+/// Nil for a key with no character a menu can draw, which keeps its title as it was.
+func menuKeyEquivalent(keyCode: UInt16) -> String? {
+    switch keyCode {
+    case 49: return " "
+    case 36: return "\r"
+    case 48: return "\t"
+    case 51: return "\u{8}"
+    case 53: return "\u{1b}"
+    case 123: return String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+    case 124: return String(UnicodeScalar(NSRightArrowFunctionKey)!)
+    case 125: return String(UnicodeScalar(NSDownArrowFunctionKey)!)
+    case 126: return String(UnicodeScalar(NSUpArrowFunctionKey)!)
+    default:
+        let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource().takeRetainedValue()
+        guard let layoutDataRef = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+            return nil
+        }
+        let layoutData = unsafeBitCast(layoutDataRef, to: CFData.self) as Data
+        var deadKeyState: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var length: Int = 0
+        layoutData.withUnsafeBytes { ptr in
+            let layoutPtr = ptr.bindMemory(to: UCKeyboardLayout.self).baseAddress!
+            UCKeyTranslate(layoutPtr, keyCode, UInt16(kUCKeyActionDisplay), 0,
+                           UInt32(LMGetKbdType()), UInt32(kUCKeyTranslateNoDeadKeysBit),
+                           &deadKeyState, chars.count, &length, &chars)
+        }
+        guard length > 0 else { return nil }
+        // Lowercase: an uppercase equivalent would add a ⇧ the shortcut may not have.
+        let character = String(utf16CodeUnits: chars, count: length).lowercased()
+        return character.unicodeScalars.allSatisfy({ $0.isASCII && $0.value > 0x20 }) ? character : nil
+    }
+}
+
 func keyCodeToString(_ keyCode: UInt16) -> String {
     switch keyCode {
     case 49: return "Space"

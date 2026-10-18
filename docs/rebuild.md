@@ -97,8 +97,8 @@ it.
 
 ## Which build is running
 
-Every build is stamped with the commit it came from, and the menu bar's first line
-shows it:
+Every build is stamped with the commit it came from, and Settings › General › Version
+shows it (`--status` prints the same):
 
 ```
 SpeechText 0.9.0 (build 47 · a18a7d1 · 2026-09-16 14:20)
@@ -229,7 +229,7 @@ changed; try it with `⌃⇧Q` (inline), `⌃⇧A` (AI) or `⌃⇧W` (record win
 
 ## When something looks wrong after a successful launch
 
-- **The menu shows an older version than you expected.** The stamp does not lie;
+- **Settings shows an older version than you expected.** The stamp does not lie;
   `--status` will say the same. Either the build did not come from HEAD, or something
   other than `/Applications/SpeechText.app` is running — the launch check should have
   caught the second, so suspect the first.
