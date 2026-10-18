@@ -21,11 +21,23 @@ Issues labelled [`good first issue`](../../labels/good%20first%20issue) and [`he
 
 ## What is unlikely to be accepted
 
-- New third-party dependencies. The app is Apple frameworks plus WhisperKit and FluidAudio for local speech models and Sparkle for updates, each imported by one file, and each a deliberate decision — see ROADMAP.md.
+- New third-party dependencies. The app is Apple frameworks plus four packages, each a deliberate decision with its own boundary: WhisperKit and FluidAudio for local speech models (FluidAudio also runs the voice activity detector), Sparkle for updates, and llama.cpp for AI Rewrite on this Mac — the last as a prebuilt binary package (`Packages/LlamaBinary/`) run in the SpeechTextLLM XPC service, which the app never links. Each is imported by one file per use — see the *Not planned* section of ROADMAP.md for the rule a fifth would have to meet.
 - Large refactors that arrive unannounced
 - Reformatting or restyling existing code
 - Features that expand the product's scope without a prior discussion
 - Anything that sends user data somewhere new
+
+## Your first pull request
+
+1. Clone the repository and turn on the hooks: `git config core.hooksPath .githooks` (see [Hooks](#hooks)).
+2. Open `SpeechText/SpeechText.xcodeproj` in Xcode, or run the tests from a terminal:
+
+   ```bash
+   xcodebuild test -project SpeechText/SpeechText.xcodeproj -scheme SpeechText -destination 'platform=macOS'
+   ```
+
+   The first build resolves the Swift packages and takes a while; after that the suite (about 710 tests) runs in a few seconds.
+3. Pick an issue labelled [`good first issue`](../../labels/good%20first%20issue), say in a comment that you are taking it, and open a pull request when it is ready. A draft pull request is a fine way to ask a question.
 
 ## Hooks
 
@@ -67,13 +79,29 @@ Short on purpose. Anything a machine can refuse for you is not on it:
 
 Everything else is checked for you. CI runs the test suite (which compiles the app too), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, fails when docs/adding-a-provider.md no longer matches the provider code, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, except the provider guide, and add the sign-off itself.
 
+## Review
+
+[`.github/CODEOWNERS`](.github/CODEOWNERS) names who reviews; for now that is the maintainer, who looks at every pull request. Expect a first response within a few days — this is one person's project, so it is not an SLA, and a nudge on the pull request after a week is welcome.
+
+- CI must be green before a merge. A red *DCO sign-off* is "do not merge" even where GitHub would let it through.
+- A pull request that lists something under *Needs a real-app run* is not blocked on you: the maintainer checks those items in a real build, with a real microphone and the apps the e2e run cannot read back. Say as precisely as you can what to check.
+- Review comments are about the change, not you. If the answer to a comment is "that was on purpose", say so and why; the code is full of decisions that look like oversights.
+
+## Issue and pull request numbers
+
+The history was rewritten once, on 2026-10-15, and moved to this repository; the one before it is kept as the private archive `yavno/speech-text-archive` ([docs/development.md](docs/development.md) has the story). Many `#NNN` references in code comments, CLAUDE.md and the docs were left as they were and point to the archive's issues and pull requests, not this repository's. If a reference does not resolve here — or resolves to something unrelated, since the two numberings overlap — it is probably in the archive; ask in an issue if you need what it says.
+
+## Formatting
+
+There is no automatic formatter yet. Match the surrounding code — its naming, its comment density, its idiom — and leave the lines you did not change alone.
+
 ## Language
 
 Everything in the repository is written in English: code, comments, commit messages, pull requests, issues and documentation — the same language as the app's UI. Words in other languages appear only as data, such as a Ukrainian transcript a test or an explanation quotes.
 
 ## Setting up
 
-[docs/development.md](docs/development.md) covers building, testing and the project layout. [`CLAUDE.md`](CLAUDE.md) is the full architecture reference — read the relevant section before changing the recording pipeline.
+[docs/architecture.md](docs/architecture.md) is a short overview of how the app is put together — start there. [docs/development.md](docs/development.md) covers building, testing and the project layout. [`CLAUDE.md`](CLAUDE.md) is the exhaustive architecture reference — read the relevant section before changing the recording pipeline.
 
 ## License
 
