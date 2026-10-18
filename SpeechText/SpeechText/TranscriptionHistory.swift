@@ -178,6 +178,15 @@ final class TranscriptionHistory {
     @ObservationIgnored private var pendingSave: DispatchWorkItem?
     /// How long a burst of mutations is allowed to coalesce into one write.
     private let saveCoalescingDelay: TimeInterval = 0.25
+    /// The entries of `history.json` this build cannot decode, kept as they were read and
+    /// written back with every save (`HistoryFile`). Main-thread-only, like `records`.
+    /// Retention leaves them alone — the build that can read them applies it at its own
+    /// launch — while Clear History, which asks first, takes them with everything else.
+    @ObservationIgnored private var undecodable: [UndecodableRecord] = []
+    /// `history.json` was there but could not be read at all, so a copy of it is owed before
+    /// a write replaces it. Set by `load()` before any write is queued; after that read and
+    /// cleared on `ioQueue` only.
+    @ObservationIgnored private var unreadableCopyOwed = false
 
     private init() {
         adoptPreRenameStore()
@@ -232,7 +241,8 @@ final class TranscriptionHistory {
         }
         let audio = (try? fm.contentsOfDirectory(at: recordingsDirectory, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]))
             ?? []
-        return size(historyFileURL) + audio.reduce(0) { $0 + size($1) }
+        let files = [historyFileURL] + HistoryFile.unreadableCopies(of: historyFileURL)
+        return (files + audio).reduce(0) { $0 + size($1) }
     }
 
     /// Full path of the archived audio for a record, if it still exists on disk.
@@ -468,15 +478,32 @@ final class TranscriptionHistory {
         save()
     }
 
+    /// Everything goes: the entries this build cannot read too, and any unreadable file
+    /// copied aside — Clear History asks first, and means every dictation on this Mac.
     func clear() {
         records.forEach(deleteAudio)
         records.removeAll()
+        undecodable.forEach { deleteAudio(named: $0.audioFileName) }
+        undecodable.removeAll()
+        let url = historyFileURL
+        // On the queue, behind any write in flight, so no copy is made after this.
+        ioQueue.async { [weak self] in
+            self?.unreadableCopyOwed = false
+            HistoryFile.unreadableCopies(of: url).forEach { try? FileManager.default.removeItem(at: $0) }
+        }
         save()
     }
 
     private func deleteAudio(_ record: TranscriptionRecord) {
         guard let url = audioURL(for: record) else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// An entry this build cannot decode names its audio only as its JSON did, so a name
+    /// that is not a bare file name is left alone.
+    private func deleteAudio(named name: String?) {
+        guard let name, !name.isEmpty, !name.contains("/") else { return }
+        try? FileManager.default.removeItem(at: recordingsDirectory.appendingPathComponent(name))
     }
 
     // MARK: Audio archive
@@ -523,13 +550,19 @@ final class TranscriptionHistory {
     // MARK: Persistence
 
     private func load() {
-        guard let data = try? Data(contentsOf: historyFileURL) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        do {
-            records = try decoder.decode([TranscriptionRecord].self, from: data)
-        } catch {
-            histLog.error("load failed: \(error.localizedDescription, privacy: .public)")
+        switch HistoryFile.read(historyFileURL) {
+        case .missing:
+            break
+        case .unreadable(let reason):
+            unreadableCopyOwed = true
+            histLog.error("history file unreadable (\(reason, privacy: .public)); it is copied aside before the first write replaces it")
+        case .read(let contents):
+            records = contents.records
+            undecodable = contents.undecodable
+            let kept = contents.undecodable.count
+            if kept > 0 {
+                histLog.error("\(kept) history entries this build cannot decode are kept as they are")
+            }
         }
     }
 
@@ -576,19 +609,267 @@ final class TranscriptionHistory {
 
     private func writeNow(records snapshot: [TranscriptionRecord], synchronously: Bool = false) {
         let url = historyFileURL
+        let kept = undecodable
         let write = { [weak self] in
             guard let self else { return }
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = .prettyPrinted
-            do {
-                self.ensureDirectories()
-                let data = try encoder.encode(snapshot)
-                try data.write(to: url, options: .atomic)
-            } catch {
-                histLog.error("save failed: \(error.localizedDescription, privacy: .public)")
-            }
+            self.ensureDirectories()
+            self.unreadableCopyOwed = HistoryFile.write(snapshot, keeping: kept, to: url,
+                                                        copyingUnreadableFirst: self.unreadableCopyOwed)
         }
         if synchronously { ioQueue.sync(execute: write) } else { ioQueue.async(execute: write) }
+    }
+}
+
+// MARK: - The file
+
+/// A `history.json` entry this build cannot decode — a status, a vendor or a ledger kind a
+/// newer build added, say — kept as the bytes it was read as, so a save writes it back
+/// unchanged and the build that wrote it finds it again.
+struct UndecodableRecord: Equatable {
+    /// The element exactly as it stood in the file.
+    let json: Data
+    /// Where it goes among the records, which are newest first: its own `date` where that
+    /// can be read, else the place of the element before it in the file.
+    let place: Date
+    /// Its archived audio, where that can be read — what Clear History deletes with it.
+    let audioFileName: String?
+}
+
+/// `history.json`, read and written one entry at a time. Decoded whole, as it was, one
+/// entry this build could not decode sank all of them, and the next dictation's save
+/// replaced the file with that one dictation — while a ⌘R build of an older branch shares
+/// the folder with the installed app, and `rebuild.sh --rollback` installs an older build.
+/// Skipping such entries alone would only move the loss: the older build's next save would
+/// delete exactly the entries it skipped. So they are kept as they were read and written
+/// back where they stood.
+enum HistoryFile {
+    struct Contents: Equatable {
+        var records: [TranscriptionRecord] = []
+        var undecodable: [UndecodableRecord] = []
+    }
+
+    enum Reading: Equatable {
+        /// No file (or an empty one) — a fresh start.
+        case missing
+        /// A file that is not a JSON array at all — truncated, overwritten, or one the disk
+        /// would not give up. Copied aside before the first write replaces it.
+        case unreadable(reason: String)
+        case read(Contents)
+    }
+
+    static func read(_ url: URL) -> Reading {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            return isNoSuchFile(error) ? .missing : .unreadable(reason: error.localizedDescription)
+        }
+        guard !data.isEmpty else { return .missing }
+        guard let contents = decode(data) else { return .unreadable(reason: "not a JSON array") }
+        return .read(contents)
+    }
+
+    /// The records, and every element that does not decode as one kept verbatim; nil when
+    /// `data` is not a JSON array at all. The whole array is tried first — what every file
+    /// is, so loading costs what it always did.
+    static func decode(_ data: Data) -> Contents? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let records = try? decoder.decode([TranscriptionRecord].self, from: data) {
+            return Contents(records: records)
+        }
+        let bytes = [UInt8](data)
+        guard let elements = elementRanges(in: bytes) else { return nil }
+        var contents = Contents()
+        var previous = Date.distantFuture
+        for range in elements {
+            let element = Data(bytes[range])
+            if let record = try? decoder.decode(TranscriptionRecord.self, from: element) {
+                contents.records.append(record)
+                previous = record.date
+                continue
+            }
+            // Kept only if it is JSON, so that what is written back still parses.
+            guard (try? JSONSerialization.jsonObject(with: element, options: .fragmentsAllowed)) != nil else {
+                return nil
+            }
+            let placement = try? decoder.decode(Placement.self, from: element)
+            let place = placement?.date ?? previous
+            contents.undecodable.append(UndecodableRecord(json: element, place: place,
+                                                          audioFileName: placement?.audioFileName))
+            previous = place
+        }
+        return contents
+    }
+
+    /// The file's bytes: the records as `JSONEncoder` writes them — exactly what it wrote
+    /// before, when nothing is kept — with every undecodable entry spliced back in verbatim,
+    /// placed by date among the records, newest first. A merge rather than a sort, so the
+    /// records keep their order and the kept entries theirs.
+    static func encode(_ records: [TranscriptionRecord], keeping undecodable: [UndecodableRecord]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .prettyPrinted
+        let encoded = try encoder.encode(records)
+        guard !undecodable.isEmpty else { return encoded }
+        let bytes = [UInt8](encoded)
+        guard let ranges = elementRanges(in: bytes), ranges.count == records.count else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        var elements: [ArraySlice<UInt8>] = []
+        elements.reserveCapacity(records.count + undecodable.count)
+        var next = 0
+        for entry in undecodable {
+            while next < records.count, records[next].date >= entry.place {
+                elements.append(bytes[ranges[next]])
+                next += 1
+            }
+            elements.append(ArraySlice(entry.json))
+        }
+        elements.append(contentsOf: ranges[next...].map { bytes[$0] })
+        // Laid out as `JSONEncoder` lays out an array, so the file reads as it always did.
+        var data = Data("[\n".utf8)
+        for (index, element) in elements.enumerated() {
+            data.append(contentsOf: Array((index == 0 ? "  " : ",\n  ").utf8))
+            data.append(contentsOf: element)
+        }
+        data.append(contentsOf: Array("\n]".utf8))
+        return data
+    }
+
+    /// One save. With `copyingUnreadableFirst` the unreadable original is copied aside
+    /// before it is replaced — and if the copy fails the write still goes ahead, since losing
+    /// this session's dictations too would help no one. Returns whether the copy is still
+    /// owed: only when neither it nor the write happened, so the original is still there.
+    static func write(_ records: [TranscriptionRecord], keeping undecodable: [UndecodableRecord],
+                      to url: URL, copyingUnreadableFirst: Bool, now: Date = Date()) -> Bool {
+        var owed = copyingUnreadableFirst
+        if owed {
+            do {
+                let copy = try preserveUnreadable(url, now: now)
+                owed = false
+                histLog.error("copied the unreadable history file aside as \(copy.lastPathComponent, privacy: .public)")
+            } catch {
+                histLog.error("could not copy the unreadable history file aside: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        do {
+            try encode(records, keeping: undecodable).write(to: url, options: .atomic)
+            owed = false
+        } catch {
+            histLog.error("save failed: \(error.localizedDescription, privacy: .public)")
+        }
+        return owed
+    }
+
+    /// Copies `url` aside as `history.json.unreadable-<UTC date>`, never over an earlier copy.
+    /// The time has no colons, which Finder would show as slashes.
+    @discardableResult
+    static func preserveUnreadable(_ url: URL, now: Date = Date()) throws -> URL {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate, .withTime, .withTimeZone]
+        let stem = "\(url.lastPathComponent)\(unreadableMarker)\(formatter.string(from: now))"
+        let folder = url.deletingLastPathComponent()
+        var copy = folder.appendingPathComponent(stem)
+        var attempt = 2
+        while FileManager.default.fileExists(atPath: copy.path) {
+            copy = folder.appendingPathComponent("\(stem)-\(attempt)")
+            attempt += 1
+        }
+        try FileManager.default.copyItem(at: url, to: copy)
+        return copy
+    }
+
+    /// Every copy `preserveUnreadable` has made of `url`.
+    static func unreadableCopies(of url: URL) -> [URL] {
+        let prefix = url.lastPathComponent + unreadableMarker
+        let folder = url.deletingLastPathComponent()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.filter { $0.hasPrefix(prefix) }.sorted().map { folder.appendingPathComponent($0) }
+    }
+
+    private static let unreadableMarker = ".unreadable-"
+
+    /// Where each element of a top-level JSON array lies in `bytes`, without the whitespace
+    /// around it; nil when `bytes` is not one array — truncated, unbalanced, or anything else
+    /// at the top. Strings are skipped whole, escapes included, since a dictation can hold
+    /// every character JSON gives a meaning to.
+    static func elementRanges(in bytes: [UInt8]) -> [Range<Int>]? {
+        let quote = UInt8(ascii: "\""), backslash = UInt8(ascii: "\\"), comma = UInt8(ascii: ",")
+        let openBrace = UInt8(ascii: "{"), closeBrace = UInt8(ascii: "}")
+        let openBracket = UInt8(ascii: "["), closeBracket = UInt8(ascii: "]")
+        func isSpace(_ byte: UInt8) -> Bool { byte == 0x20 || byte == 0x0A || byte == 0x0D || byte == 0x09 }
+        var index = 0
+        func skipSpace() { while index < bytes.count, isSpace(bytes[index]) { index += 1 } }
+
+        skipSpace()
+        guard index < bytes.count, bytes[index] == openBracket else { return nil }
+        index += 1
+        skipSpace()
+        var ranges: [Range<Int>] = []
+        if index < bytes.count, bytes[index] == closeBracket {
+            index += 1
+        } else {
+            while true {
+                let start = index
+                var depth = 0, inString = false, escaped = false
+                scan: while index < bytes.count {
+                    let byte = bytes[index]
+                    if inString {
+                        if escaped {
+                            escaped = false
+                        } else if byte == backslash {
+                            escaped = true
+                        } else if byte == quote {
+                            inString = false
+                        }
+                    } else if byte == quote {
+                        inString = true
+                    } else if byte == openBrace || byte == openBracket {
+                        depth += 1
+                    } else if byte == closeBrace || byte == closeBracket {
+                        if depth == 0 { break scan }
+                        depth -= 1
+                    } else if byte == comma, depth == 0 {
+                        break scan
+                    }
+                    index += 1
+                }
+                // Out of bytes, or a `}` closing nothing.
+                guard index < bytes.count, bytes[index] != closeBrace else { return nil }
+                var end = index
+                while end > start, isSpace(bytes[end - 1]) { end -= 1 }
+                guard end > start else { return nil }
+                ranges.append(start..<end)
+                let separator = bytes[index]
+                index += 1
+                if separator == closeBracket { break }
+                skipSpace()
+            }
+        }
+        skipSpace()
+        return index == bytes.count ? ranges : nil
+    }
+
+    private static func isNoSuchFile(_ error: Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSCocoaErrorDomain,
+           error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError { return true }
+        if error.domain == NSPOSIXErrorDomain, error.code == Int(ENOENT) { return true }
+        return (error.userInfo[NSUnderlyingErrorKey] as? NSError).map(isNoSuchFile) ?? false
+    }
+
+    /// What can still be read of an entry that does not decode: where it goes, and its audio.
+    private struct Placement: Decodable {
+        let date: Date?
+        let audioFileName: String?
+
+        private enum CodingKeys: String, CodingKey { case date, audioFileName }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            date = try? container.decodeIfPresent(Date.self, forKey: .date)
+            audioFileName = try? container.decodeIfPresent(String.self, forKey: .audioFileName)
+        }
     }
 }

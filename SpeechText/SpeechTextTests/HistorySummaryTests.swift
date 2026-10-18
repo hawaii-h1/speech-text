@@ -240,3 +240,227 @@ final class HistorySummaryTests: XCTestCase {
         XCTAssertNil(HistoryFormat.language("auto"))
     }
 }
+
+/// `history.json` read and written entry by entry: an entry this build cannot decode costs
+/// nothing — it is written back as it was read — and a file that cannot be read at all is
+/// copied aside before it is replaced. Every file here is in a temporary folder.
+final class HistoryFileTests: XCTestCase {
+    private var folder: URL!
+    private var url: URL { folder.appendingPathComponent("history.json") }
+    private let base = Date(timeIntervalSince1970: 1_790_000_000)
+
+    override func setUpWithError() throws {
+        folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HistoryFileTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    private func record(hoursAgo: Double, text: String = "one two three",
+                        status: TranscriptionRecord.Status = .success,
+                        events: [UsageEvent]? = nil) -> TranscriptionRecord {
+        TranscriptionRecord(id: UUID(), date: base.addingTimeInterval(-hoursAgo * 3600), text: text, status: status,
+                            errorMessage: nil, provider: "groq", locale: "uk", duration: 6,
+                            audioFileName: status == .success ? nil : "\(UUID().uuidString).flac",
+                            sttModel: "whisper-large-v3-turbo", usageEvents: events)
+    }
+
+    private func event(_ kind: UsageEvent.Kind, _ vendor: Provider) -> UsageEvent {
+        UsageEvent(date: base, kind: kind, vendor: vendor, model: "whisper-large-v3-turbo", succeeded: true,
+                   audioSeconds: 6, billedSeconds: 10)
+    }
+
+    /// What the app wrote before this change: the whole array through `JSONEncoder`.
+    private func encoded(_ records: [TranscriptionRecord]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .prettyPrinted
+        return try encoder.encode(records)
+    }
+
+    private func decodesAlone(_ json: Data) -> Bool {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(TranscriptionRecord.self, from: json)) != nil
+    }
+
+    private func ids(in data: Data) throws -> [String] {
+        let array = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        return array.map { $0["id"] as? String ?? "?" }
+    }
+
+    /// Replaces the one occurrence of `old`, so a fixture cannot quietly alter nothing.
+    private func replacingOnce(_ old: String, with new: String, in text: String) -> String {
+        XCTAssertEqual(text.components(separatedBy: old).count, 2, "exactly one \(old)")
+        return text.replacingOccurrences(of: old, with: new)
+    }
+
+    private struct Fixture {
+        let file: Data
+        let decodable: [TranscriptionRecord]
+        let all: [TranscriptionRecord]
+    }
+
+    /// Seven records as this build writes them, three of them then given a value it does
+    /// not know: a status, a vendor in the ledger (`TranscriptionRecord.provider` is a plain
+    /// string and would decode), and a ledger kind.
+    private func fixture() throws -> Fixture {
+        let a = record(hoursAgo: 0)
+        let newStatus = record(hoursAgo: 1, status: .empty)
+        let c = record(hoursAgo: 2, events: [event(.upload, .groq)])
+        let newVendor = record(hoursAgo: 3, events: [event(.upload, .ollama)])
+        let d = record(hoursAgo: 4, status: .failed)
+        let newKind = record(hoursAgo: 5, events: [event(.edit, .groq)])
+        let e = record(hoursAgo: 6)
+        let all = [a, newStatus, c, newVendor, d, newKind, e]
+        var text = try XCTUnwrap(String(data: encoded(all), encoding: .utf8))
+        text = replacingOnce(#""status" : "empty""#, with: #""status" : "queued""#, in: text)
+        text = replacingOnce(#""vendor" : "ollama""#, with: #""vendor" : "deepgram""#, in: text)
+        text = replacingOnce(#""kind" : "edit""#, with: #""kind" : "diarize""#, in: text)
+        return Fixture(file: Data(text.utf8), decodable: [a, c, d, e], all: all)
+    }
+
+    func testAnEntryThisBuildCannotDecodeCostsOnlyItself() throws {
+        let fixture = try fixture()
+        let contents = try XCTUnwrap(HistoryFile.decode(fixture.file))
+        XCTAssertEqual(contents.records, fixture.decodable)
+        XCTAssertEqual(contents.undecodable.count, 3)
+        for entry in contents.undecodable {
+            XCTAssertFalse(decodesAlone(entry.json), "the fixture really is undecodable")
+        }
+        XCTAssertEqual(contents.undecodable.map(\.place), [fixture.all[1], fixture.all[3], fixture.all[5]].map(\.date))
+        XCTAssertNotNil(fixture.all[1].audioFileName)
+        XCTAssertEqual(contents.undecodable[0].audioFileName, fixture.all[1].audioFileName,
+                       "its audio is still known, for Clear History")
+    }
+
+    func testAnEntryThisBuildCannotDecodeIsWrittenBackAsItWasRead() throws {
+        let fixture = try fixture()
+        let contents = try XCTUnwrap(HistoryFile.decode(fixture.file))
+        let written = try HistoryFile.encode(contents.records, keeping: contents.undecodable)
+        XCTAssertEqual(String(decoding: written, as: UTF8.self), String(decoding: fixture.file, as: UTF8.self),
+                       "the same bytes, in the same places")
+        let before = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture.file) as? NSArray)
+        let after = try XCTUnwrap(JSONSerialization.jsonObject(with: written) as? NSArray)
+        XCTAssertEqual(before, after)
+        XCTAssertEqual(HistoryFile.decode(written), contents, "and read again, nothing changed")
+    }
+
+    func testANewDictationGoesOnTopAndTheKeptEntriesKeepTheirPlace() throws {
+        let fixture = try fixture()
+        let contents = try XCTUnwrap(HistoryFile.decode(fixture.file))
+        let new = record(hoursAgo: -1)
+        // A new dictation, and the one after the first kept entry deleted.
+        let records = [new] + contents.records.filter { $0.id != fixture.all[2].id }
+        let written = try HistoryFile.encode(records, keeping: contents.undecodable)
+        let order = [new] + fixture.all.filter { $0.id != fixture.all[2].id }
+        XCTAssertEqual(try ids(in: written), order.map(\.id.uuidString))
+        for entry in contents.undecodable {
+            XCTAssertNotNil(written.range(of: entry.json), "kept byte for byte")
+        }
+        let again = try XCTUnwrap(HistoryFile.decode(written))
+        XCTAssertEqual(again.records, records)
+        XCTAssertEqual(again.undecodable.map(\.json), contents.undecodable.map(\.json))
+    }
+
+    func testWithNothingKeptTheFileIsWhatTheEncoderAlwaysWrote() throws {
+        let records = [record(hoursAgo: 0), record(hoursAgo: 1, status: .failed)]
+        XCTAssertEqual(try HistoryFile.encode(records, keeping: []), try encoded(records))
+        XCTAssertEqual(try HistoryFile.encode([], keeping: []), try encoded([]))
+        XCTAssertEqual(HistoryFile.decode(try encoded(records)), HistoryFile.Contents(records: records))
+    }
+
+    /// Only kept entries: the records' array is empty and theirs is the whole file.
+    func testAFileOfOnlyUndecodableEntriesSurvivesASaveWithNoRecords() throws {
+        let fixture = try fixture()
+        let contents = try XCTUnwrap(HistoryFile.decode(fixture.file))
+        let written = try HistoryFile.encode([], keeping: contents.undecodable)
+        XCTAssertEqual(try ids(in: written), [1, 3, 5].map { fixture.all[$0].id.uuidString })
+    }
+
+    /// A dictation holds every character JSON gives a meaning to.
+    func testStringsAreSkippedWholeWhenTheFileIsSplit() throws {
+        let tricky = #"He said "stop", then ] and } and [ { , — a path C:\Users\ — Привіт 👋🏽 \"#
+        let words = record(hoursAgo: 0, text: tricky)
+        let other = record(hoursAgo: 1, status: .empty)
+        var text = try XCTUnwrap(String(data: encoded([words, other]), encoding: .utf8))
+        text = replacingOnce(#""status" : "empty""#, with: #""status" : "queued""#, in: text)
+        let contents = try XCTUnwrap(HistoryFile.decode(Data(text.utf8)))
+        XCTAssertEqual(contents.records, [words])
+        XCTAssertEqual(contents.records.first?.text, tricky)
+        XCTAssertEqual(contents.undecodable.count, 1)
+
+        let array = Array(#"[ "a,]}\\", {"t":"\\\"]"} , [1,[2]],3 ]"#.utf8)
+        let ranges = try XCTUnwrap(HistoryFile.elementRanges(in: array))
+        XCTAssertEqual(ranges.map { String(decoding: array[$0], as: UTF8.self) },
+                       [#""a,]}\\""#, #"{"t":"\\\"]"}"#, "[1,[2]]", "3"])
+        XCTAssertEqual(HistoryFile.elementRanges(in: Array("  [ ]\n".utf8)), [])
+        // `JSONDecoder` takes a trailing comma, so such a file reads whole by the fast path;
+        // only one that also holds an undecodable entry reaches the split, which refuses it.
+        XCTAssertNil(HistoryFile.elementRanges(in: Array("[1,]".utf8)))
+    }
+
+    func testAFileThatIsNotOneWholeArrayIsUnreadable() throws {
+        let good = try XCTUnwrap(String(data: encoded([record(hoursAgo: 0)]), encoding: .utf8))
+        let goodElement = good.dropFirst().dropLast().trimmingCharacters(in: .whitespacesAndNewlines)
+        let broken = [
+            "[ \(goodElement), {\"id\":\"x\",\"te",   // cut off inside a string
+            "[ \(goodElement)",                       // no closing bracket
+            "[ \(goodElement), ",                     // cut off between entries
+            "[ \(goodElement) } ]",                   // a brace closing nothing
+            "[ \(goodElement), {\"status\": nope} ]", // an entry that is not JSON
+            "[ \(goodElement) ] trailing",
+            "{\"records\": []}",
+            "garbage",
+        ]
+        for text in broken {
+            XCTAssertNil(HistoryFile.decode(Data(text.utf8)), text)
+            try Data(text.utf8).write(to: url)
+            guard case .unreadable = HistoryFile.read(url) else {
+                XCTFail("read as something: \(text)")
+                continue
+            }
+        }
+    }
+
+    func testNoFileIsAFreshStart() throws {
+        XCTAssertEqual(HistoryFile.read(url), .missing)
+        XCTAssertEqual(HistoryFile.read(folder.appendingPathComponent("gone/history.json")), .missing)
+        try Data().write(to: url)
+        XCTAssertEqual(HistoryFile.read(url), .missing, "an empty file holds nothing to keep")
+        XCTAssertTrue(HistoryFile.unreadableCopies(of: url).isEmpty)
+    }
+
+    func testAnUnreadableFileIsCopiedAsideBeforeTheFirstWrite() throws {
+        let garbage = Data("[ {\"id\": \"cut off".utf8)
+        try garbage.write(to: url)
+        guard case .unreadable = HistoryFile.read(url) else { return XCTFail("read as something") }
+
+        let new = record(hoursAgo: 0)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let owed = HistoryFile.write([new], keeping: [], to: url, copyingUnreadableFirst: true, now: now)
+        XCTAssertFalse(owed)
+        let copies = HistoryFile.unreadableCopies(of: url)
+        XCTAssertEqual(copies.map(\.lastPathComponent), ["history.json.unreadable-2027-01-15T080000Z"])
+        XCTAssertEqual(try Data(contentsOf: copies[0]), garbage)
+        XCTAssertEqual(HistoryFile.read(url), .read(HistoryFile.Contents(records: [new])), "and the write went ahead")
+
+        // Another copy at the same moment never replaces the first.
+        let second = try HistoryFile.preserveUnreadable(url, now: now)
+        XCTAssertEqual(second.lastPathComponent, "history.json.unreadable-2027-01-15T080000Z-2")
+        XCTAssertEqual(try Data(contentsOf: copies[0]), garbage)
+        XCTAssertEqual(HistoryFile.unreadableCopies(of: url).count, 2)
+    }
+
+    func testTheCopyIsOwedUntilItIsMadeOrTheOriginalIsReplaced() throws {
+        // Neither a copy nor a write can be made in a folder that is not there.
+        let nowhere = folder.appendingPathComponent("gone/history.json")
+        XCTAssertTrue(HistoryFile.write([record(hoursAgo: 0)], keeping: [], to: nowhere, copyingUnreadableFirst: true))
+        XCTAssertFalse(HistoryFile.write([record(hoursAgo: 0)], keeping: [], to: nowhere, copyingUnreadableFirst: false))
+        // No original to copy, but the write replaced whatever was owed.
+        XCTAssertFalse(HistoryFile.write([record(hoursAgo: 0)], keeping: [], to: url, copyingUnreadableFirst: true))
+    }
+}

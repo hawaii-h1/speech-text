@@ -191,6 +191,15 @@ microphone, paste-back — only appear when it is actually running.
   signed for the keychain moves the API keys out of the preferences; an older build
   reads only the preferences, so it starts with none. Enter them again, or roll
   forward.
+- **History survives an older build only from builds that carry the guard.** A build
+  with it keeps every History entry it cannot decode — one with a status or a usage
+  entry a newer build added — byte for byte and writes it back where it stood, so
+  rolling forward shows it again; a `history.json` it cannot read at all is copied aside
+  as `history.json.unreadable-<date>` before it is replaced. An entry it *can* decode
+  still loses, at its next save, any field added after that build (a newer build's
+  usage ledger, say). And a backup — or a ⌘R build of a branch — from before the guard
+  still replaces a History it cannot read with its own next dictation, so copy
+  `~/Library/Application Support/SpeechText/history.json` first.
 - **Rollback swaps the binary only.** The working tree still holds the code that
   produced the bad build. Going back in the source as well is a git operation; the
   script deliberately does not touch your files.
