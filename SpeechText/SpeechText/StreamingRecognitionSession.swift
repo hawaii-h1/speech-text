@@ -52,6 +52,9 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// Counts the providers this segment has had, so a replaced one's late events —
     /// already in flight to main when it was dropped — are recognised and ignored.
     private var generation = 0
+    /// The generation whose provider has reported `.failed`. A socket can report one drop
+    /// more than once; only the first report is the drop.
+    private var failedGeneration = 0
     /// A stream dropped during this segment: whatever it shows since, the stop uploads.
     private var hadOutage = false
     /// Outages so far, and attempts made in the current one — `StreamReconnectPolicy`'s inputs.
@@ -125,6 +128,11 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// sent to. The provider buffers what `feed` sends until its session is ready — the
     /// same pre-session buffer a first connection relies on.
     private func attach(_ provider: StreamingTranscriber) {
+        // The socket being replaced is closed whatever state it is in: one left open would
+        // live until the server closed it, paid for and never fed. (`start()` attaches
+        // the provider the session was made with, which replaces nothing.)
+        let replaced = self.provider
+        if replaced !== provider { replaced.cancel() }
         generation += 1
         let generation = self.generation
         self.provider = provider
@@ -143,6 +151,13 @@ final class StreamingRecognitionSession: RecognitionSession {
     private func handle(_ event: StreamingSTTEvent, generation: Int) {
         // A provider replaced by a reconnect may still have an event on its way here.
         guard generation == self.generation else { return }
+        if case .failed = event {
+            // One drop, one reconnect. Each report of the same drop used to schedule a
+            // reconnect of its own — two new sockets, the first never fed nor closed —
+            // and count as another outage against the segment's limit.
+            guard failedGeneration != generation else { return }
+            failedGeneration = generation
+        }
         switch event {
         case .partial(let text): DictationTraceRecorder.record(.partial, text: text)
         case .committed(let text): DictationTraceRecorder.record(.committed, text: text)
@@ -218,6 +233,8 @@ final class StreamingRecognitionSession: RecognitionSession {
         committedText = joinedSegments(committedText, partialText)
         partialText = ""
         dlog("Engine", "stream: dropped (\(error.localizedDescription)) — reconnecting in \(delay)s, attempt \(attempts) of outage \(outages)")
+        // One reconnect in flight at a time.
+        reconnectTask?.cancel()
         reconnectTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self, !Task.isCancelled, !self.closing else { return }
@@ -300,6 +317,12 @@ final class StreamingRecognitionSession: RecognitionSession {
             self.closing = true
             self.reconnectTask?.cancel()
             self.reconnectTask = nil
+            // Nothing is fed from here on. The engine removes its tap asynchronously, and
+            // a buffer it delivers after the provider's `finish()` has taken the audio to
+            // commit would go out behind the commit, into a segment that never closes.
+            // Cleared after `closing`, so no reconnect can set it again, and before that
+            // `finish()`, so audio fed until now still goes ahead of the commit.
+            self.sendTarget.set(nil)
             return (self.connected, self.eventsTask, self.provider, self.hadOutage)
         }
         if tooLong {

@@ -88,6 +88,12 @@ final class OfflineRetry {
         if !texts.isEmpty {
             onTranscribed?(texts)
         }
+        // The network came back while this drain ran and its last retry still found none:
+        // no edge will come for what is left, so it is tried again — after the same settle.
+        if queue.drainOwed {
+            dlog("Network", "the network came back during the retry — retrying \(queue.pending.count) again")
+            scheduleDrain()
+        }
     }
 
     private func retry(_ recordID: UUID) async -> OfflineRetryQueue.Result {

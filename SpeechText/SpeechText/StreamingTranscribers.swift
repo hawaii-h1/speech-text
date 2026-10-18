@@ -206,7 +206,9 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         sendLock.lock()
         defer { sendLock.unlock() }
         lock.lock()
-        guard !isClosed, let task else {
+        // Nothing after the stop's commit (`awaitingCommit`): `finish()` has already taken
+        // the audio it commits, and a chunk sent now would open a segment never closed.
+        guard !isClosed, !awaitingCommit, let task else {
             lock.unlock()
             return
         }
@@ -458,14 +460,18 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         }
     }
 
+    /// Reports the stream broken, once. One drop is often reported twice — by the receive
+    /// loop's error and by a pending send's completion, on URLSession's queue — so the
+    /// stream is claimed closed in the same critical section that checks it; a check
+    /// released before `close` let both through, and each `.failed` opened a socket of its
+    /// own. The yield and the rest of the close run outside `lock`: this is reached from a
+    /// send's completion, under `sendLock`.
     private func fail(_ error: Error) {
-        lock.lock()
-        let alreadyClosed = isClosed
-        lock.unlock()
-        guard !alreadyClosed else { return }
+        let (claimed, task) = claimClose()
+        guard claimed else { return }
         dlog("ElevenLabs", "realtime: failed: \(error.localizedDescription)")
         continuation.yield(.failed(error))
-        close(with: error)
+        tearDown(task)
     }
 
     /// A `committed_transcript` while `finish()` is waiting. It is probably the reply
@@ -564,16 +570,25 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
     }
 
     private func close(with error: Error?) {
+        let (claimed, task) = claimClose()
+        guard claimed else { return }
+        tearDown(task)
+    }
+
+    /// Marks the stream closed and takes its socket, in one critical section. `claimed`
+    /// is false when it was already closed: whoever closed it does the rest.
+    private func claimClose() -> (claimed: Bool, task: URLSessionWebSocketTask?) {
         lock.lock()
-        guard !isClosed else {
-            lock.unlock()
-            return
-        }
+        defer { lock.unlock() }
+        guard !isClosed else { return (false, nil) }
         isClosed = true
         let task = self.task
         self.task = nil
-        lock.unlock()
+        return (true, task)
+    }
 
+    /// The rest of a close, outside `lock`.
+    private func tearDown(_ task: URLSessionWebSocketTask?) {
         resumeFinish()
         receiveLoop?.cancel()
         task?.cancel(with: .normalClosure, reason: nil)
@@ -742,7 +757,9 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         sendLock.lock()
         defer { sendLock.unlock() }
         lock.lock()
-        guard !isClosed, let task else {
+        // Nothing after the stop's commit (`awaitingCommit`): `finish()` has already taken
+        // the audio it commits, and a chunk sent now would open a segment never closed.
+        guard !isClosed, !awaitingCommit, let task else {
             lock.unlock()
             return
         }
@@ -1117,14 +1134,14 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         return error["message"] as? String
     }
 
+    /// Reports the stream broken, once — claimed closed in the check's own critical
+    /// section, as `ElevenLabsRealtimeTranscriber.fail` explains.
     private func fail(_ error: Error) {
-        lock.lock()
-        let alreadyClosed = isClosed
-        lock.unlock()
-        guard !alreadyClosed else { return }
+        let (claimed, task) = claimClose()
+        guard claimed else { return }
         dlog("OpenAI", "realtime: failed: \(error.localizedDescription)")
         continuation.yield(.failed(error))
-        close(with: error)
+        tearDown(task)
     }
 
     private func installFinishWait(_ cont: CheckedContinuation<Void, Never>) {
@@ -1148,16 +1165,25 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
     }
 
     private func close(with error: Error?) {
+        let (claimed, task) = claimClose()
+        guard claimed else { return }
+        tearDown(task)
+    }
+
+    /// Marks the stream closed and takes its socket, in one critical section. `claimed`
+    /// is false when it was already closed: whoever closed it does the rest.
+    private func claimClose() -> (claimed: Bool, task: URLSessionWebSocketTask?) {
         lock.lock()
-        guard !isClosed else {
-            lock.unlock()
-            return
-        }
+        defer { lock.unlock() }
+        guard !isClosed else { return (false, nil) }
         isClosed = true
         let task = self.task
         self.task = nil
-        lock.unlock()
+        return (true, task)
+    }
 
+    /// The rest of a close, outside `lock`.
+    private func tearDown(_ task: URLSessionWebSocketTask?) {
         resumeFinish()
         wakeReadyWaiter()
         receiveLoop?.cancel()

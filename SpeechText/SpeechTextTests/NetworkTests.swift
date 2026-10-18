@@ -189,6 +189,69 @@ final class OfflineRetryQueueTests: XCTestCase {
         XCTAssertFalse(queue.enqueue(c), "the running drain picks it up")
         XCTAssertEqual(queue.finished(a, .succeeded), c)
     }
+
+    /// A fast Wi-Fi roam: the network went and came back while a retry was out, and that
+    /// retry then reported no network — its error was from before the return. No edge is
+    /// left to start the next drain, so the one that ended owes one.
+    func testANetworkReturnDuringADrainIsNotLost() {
+        var queue = OfflineRetryQueue()
+        _ = queue.networkChanged(isUp: false)
+        _ = queue.enqueue(a); _ = queue.enqueue(b)
+        _ = queue.networkChanged(isUp: true)
+        XCTAssertEqual(queue.beginDrain(), a)
+        XCTAssertFalse(queue.networkChanged(isUp: false))
+        XCTAssertFalse(queue.networkChanged(isUp: true), "a drain is running")
+
+        XCTAssertNil(queue.finished(a, .offline))
+        XCTAssertEqual(queue.pending, [a, b])
+        XCTAssertTrue(queue.drainOwed)
+        XCTAssertEqual(queue.beginDrain(), a)
+        XCTAssertFalse(queue.drainOwed, "the drain it was owed has begun")
+    }
+
+    /// Only a return during the drain is owed one. No network with no return — a portal
+    /// whose path reports satisfied, say — waits for the next edge, as it always did; a
+    /// return followed by another loss before the drain ended has an edge still to come.
+    func testFindingNoNetworkOwesADrainOnlyForAReturnDuringIt() {
+        var queue = OfflineRetryQueue()
+        _ = queue.networkChanged(isUp: false)
+        _ = queue.enqueue(a)
+        _ = queue.networkChanged(isUp: true)
+        XCTAssertEqual(queue.beginDrain(), a)
+        XCTAssertNil(queue.finished(a, .offline))
+        XCTAssertFalse(queue.drainOwed, "no return during the drain")
+
+        _ = queue.networkChanged(isUp: false)
+        XCTAssertTrue(queue.networkChanged(isUp: true))
+        XCTAssertEqual(queue.beginDrain(), a)
+        _ = queue.networkChanged(isUp: false)
+        _ = queue.networkChanged(isUp: true)
+        _ = queue.networkChanged(isUp: false)
+        XCTAssertNil(queue.finished(a, .offline))
+        XCTAssertFalse(queue.drainOwed, "the network is down: its return will start the drain")
+        XCTAssertTrue(queue.networkChanged(isUp: true))
+    }
+
+    /// A return during a drain that then went well owes nothing.
+    func testAReturnDuringADrainThatEndsWellOwesNothing() {
+        var queue = OfflineRetryQueue()
+        _ = queue.networkChanged(isUp: false)
+        _ = queue.enqueue(a); _ = queue.enqueue(b)
+        _ = queue.networkChanged(isUp: true)
+        XCTAssertEqual(queue.beginDrain(), a)
+        _ = queue.networkChanged(isUp: false)
+        _ = queue.networkChanged(isUp: true)
+        XCTAssertEqual(queue.finished(a, .succeeded), b)
+        XCTAssertNil(queue.finished(b, .succeeded))
+        XCTAssertFalse(queue.drainOwed)
+
+        _ = queue.enqueue(c)
+        _ = queue.networkChanged(isUp: false)
+        _ = queue.networkChanged(isUp: true)
+        XCTAssertEqual(queue.beginDrain(), c)
+        XCTAssertNil(queue.finished(c, .offline))
+        XCTAssertFalse(queue.drainOwed, "the return before this drain was its own edge")
+    }
 }
 
 // MARK: - When a stream is reopened (NetworkFailure.swift › StreamReconnectPolicy)
@@ -227,6 +290,139 @@ final class StreamReconnectPolicyTests: XCTestCase {
         XCTAssertNotNil(policy.delay(attempt: 0, outage: 3))
         XCTAssertNil(policy.delay(attempt: 0, outage: 4))
         XCTAssertEqual(policy.delays.reduce(0, +), 26.5, accuracy: 0.01)
+    }
+}
+
+// MARK: - One socket at a time (StreamingRecognitionSession.swift)
+
+/// A socket the test drives by hand, counting what the session asks of it.
+private final class CountingStreamingTranscriber: StreamingTranscriber, @unchecked Sendable {
+    let sampleRate = AudioBufferWriter.uploadSampleRate
+    let events: AsyncStream<StreamingSTTEvent>
+    private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
+    private let lock = NSLock()
+    private var sent = 0
+    private var sentAfterFinish = 0
+    private var cancelled = 0
+    private var finishing = false
+    /// Run inside `finish()` once it has begun — where a tap buffer that arrives after
+    /// the stop lands, behind the commit.
+    var duringFinish: (() -> Void)?
+
+    init() {
+        (events, continuation) = AsyncStream<StreamingSTTEvent>.makeStream()
+    }
+
+    var sends: Int { lock.withLock { sent } }
+    var sendsAfterFinish: Int { lock.withLock { sentAfterFinish } }
+    var cancels: Int { lock.withLock { cancelled } }
+
+    func emit(_ event: StreamingSTTEvent) { continuation.yield(event) }
+
+    func connect(languages: [String]) {}
+    func send(pcm16: Data) {
+        lock.withLock {
+            sent += 1
+            if finishing { sentAfterFinish += 1 }
+        }
+    }
+    func finish() async {
+        lock.withLock { finishing = true }
+        duringFinish?()
+        continuation.finish()
+    }
+    func cancel() {
+        lock.withLock { cancelled += 1 }
+        continuation.finish()
+    }
+}
+
+@MainActor
+final class StreamingSessionSocketTests: XCTestCase {
+    private var opened: [CountingStreamingTranscriber] = []
+
+    private static let tapBuffer = AVAudioPCMBuffer(
+        pcmFormat: AVAudioFormat(standardFormatWithSampleRate: AudioBufferWriter.uploadSampleRate, channels: 1)!,
+        frameCapacity: 1)!
+
+    /// Long enough that a second report of the same drop is handled before the reconnect
+    /// fires, as it is with the app's half-second first wait.
+    private let wait: TimeInterval = 0.15
+
+    private func session(_ first: CountingStreamingTranscriber) -> StreamingRecognitionSession {
+        StreamingRecognitionSession(
+            provider: first, writer: AudioBufferWriter(), languages: [],
+            fallback: ScriptedSegment(text: ""),
+            reconnect: { [unowned self] in
+                MainActor.assumeIsolated {
+                    let next = CountingStreamingTranscriber()
+                    self.opened.append(next)
+                    return next
+                }
+            },
+            policy: StreamReconnectPolicy(delays: Array(repeating: wait, count: 8), maxOutages: 2))
+    }
+
+    private func waitUntil(_ condition: () -> Bool, seconds: TimeInterval = 2) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    private func settle(_ seconds: TimeInterval) async {
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
+
+    /// A socket that drops reports it from more than one thread — the receive loop's error
+    /// and a send's completion — and a report each used to open a socket of its own: the
+    /// first never got audio, was never closed, and the drop counted as two outages. One
+    /// drop is one reconnect, the socket it replaces is closed, and a later drop of the new
+    /// socket is still ridden out.
+    func testOneDropReportedTwiceOpensOneSocket() async throws {
+        let first = CountingStreamingTranscriber()
+        let session = session(first)
+        try session.start()
+        defer { session.cancel() }
+
+        first.emit(.partial("Кілька слів"))
+        first.emit(.failed(URLError(.networkConnectionLost)))
+        first.emit(.failed(URLError(.networkConnectionLost)))
+        await waitUntil { !opened.isEmpty }
+        await settle(wait * 3)
+
+        XCTAssertEqual(opened.count, 1, "one drop, one new socket")
+        XCTAssertGreaterThanOrEqual(first.cancels, 1, "the socket replaced is closed")
+        let second = try XCTUnwrap(opened.first)
+        XCTAssertEqual(second.cancels, 0)
+
+        // The second outage of the segment — the first counted once — is ridden out too.
+        second.emit(.partial("ще кілька"))
+        second.emit(.failed(URLError(.networkConnectionLost)))
+        await waitUntil { opened.count > 1 }
+        XCTAssertEqual(opened.count, 2, "a drop of the new socket is a drop of its own")
+        XCTAssertGreaterThanOrEqual(second.cancels, 1)
+    }
+
+    /// A tap buffer that arrives once the stop has begun — the engine stops its tap
+    /// asynchronously — is not sent: on the socket it would land behind the stop's commit,
+    /// in a segment that never closes.
+    func testAFeedAfterTheStopBeganIsNotSent() async throws {
+        let provider = CountingStreamingTranscriber()
+        let session = session(provider)
+        try session.start()
+
+        session.feed(native: Self.tapBuffer, pcm16: Data(count: 3_200))
+        XCTAssertEqual(provider.sends, 1)
+
+        provider.duringFinish = { [weak session] in
+            session?.feed(native: Self.tapBuffer, pcm16: Data(count: 3_200))
+        }
+        _ = await session.finish()
+        provider.duringFinish = nil
+
+        XCTAssertEqual(provider.sendsAfterFinish, 0)
+        XCTAssertEqual(provider.sends, 1)
     }
 }
 

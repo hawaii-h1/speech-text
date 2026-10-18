@@ -19,7 +19,8 @@ import Foundation
 /// up (the link dropped mid-upload and was back before the failure was written): it is
 /// tried once at once, since no edge will ever come for it. It runs one record at a
 /// time, oldest first, and a record that finds no network again stops the drain and
-/// waits for the next edge, with everything behind it.
+/// waits for the next edge, with everything behind it — unless that edge already came
+/// while the drain ran (`drainOwed`).
 struct OfflineRetryQueue {
     enum Result: Equatable {
         /// Transcribed: it leaves the queue, and its text goes to the clipboard.
@@ -41,6 +42,16 @@ struct OfflineRetryQueue {
     private(set) var networkIsUp: Bool?
     /// Records passed over as `busy` in the running drain.
     private var skipped: Set<UUID> = []
+    /// The network came back while a drain was running, so `networkChanged` started none.
+    /// Forgotten when the network goes again, whose return will start a drain itself.
+    private var returnedDuringDrain = false
+    /// A drain ended on "no network" with the network up, after it had come back while
+    /// that drain ran: a fast Wi-Fi roam, whose retry failed before the return and said so
+    /// after it. No edge is left to start the next drain, so the one that ended owes it —
+    /// one per return, never one per "no network": a captive portal reports the path as
+    /// satisfied, and draining again on every such result would retry every few seconds
+    /// for as long as it stood. True until the next drain begins or the network goes.
+    private(set) var drainOwed = false
 
     /// Adds a record. True when a drain should start now: the network already looks up,
     /// so no edge will come to start one.
@@ -55,6 +66,12 @@ struct OfflineRetryQueue {
     mutating func networkChanged(isUp: Bool) -> Bool {
         let cameBack = networkIsUp == false && isUp
         networkIsUp = isUp
+        if !isUp {
+            returnedDuringDrain = false
+            drainOwed = false
+        } else if cameBack, isDraining {
+            returnedDuringDrain = true
+        }
         return cameBack && !pending.isEmpty && !isDraining
     }
 
@@ -63,6 +80,8 @@ struct OfflineRetryQueue {
     mutating func beginDrain() -> UUID? {
         guard !isDraining, let first = pending.first else { return nil }
         isDraining = true
+        returnedDuringDrain = false
+        drainOwed = false
         return first
     }
 
@@ -75,7 +94,10 @@ struct OfflineRetryQueue {
         case .busy:
             skipped.insert(id)
         case .offline:
-            return endDrain()
+            let owed = returnedDuringDrain && networkIsUp == true
+            _ = endDrain()
+            drainOwed = owed
+            return nil
         }
         guard let next = pending.first(where: { !skipped.contains($0) }) else { return endDrain() }
         return next
@@ -84,6 +106,7 @@ struct OfflineRetryQueue {
     private mutating func endDrain() -> UUID? {
         isDraining = false
         skipped = []
+        returnedDuringDrain = false
         return nil
     }
 }
