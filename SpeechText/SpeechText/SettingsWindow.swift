@@ -867,7 +867,7 @@ struct SkinPreview: View {
             .frame(width: 100, height: 56)
             .clipShape(glass)
             ButtonRail {
-                PlasticButton(systemImage: "xmark", action: {})
+                PlasticButton(systemImage: "xmark", label: "Cancel", action: {})
             }
         }
         .frame(width: skin.overlayStripSize.width, height: skin.overlayStripSize.height)

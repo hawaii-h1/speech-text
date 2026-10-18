@@ -124,6 +124,10 @@ struct WaveformBarsView: View {
 /// A square icon button of the kind the minimal skin lines up above the text area.
 struct MinimalIconButton: View {
     let systemImage: String
+    /// What VoiceOver calls the button, and the state it reads after the name — see
+    /// `PlasticButton`.
+    let label: String
+    var value = ""
     var isOn = false
     var accent: Color = .accentColor
     var isEnabled = true
@@ -148,6 +152,8 @@ struct MinimalIconButton: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .help(help)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
         .pointingHandCursor(enabled: isEnabled) { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
         .animation(.easeInOut(duration: 0.2), value: isOn)
@@ -208,6 +214,7 @@ struct PlainTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.allowsUndo = true
         textView.textColor = .labelColor
+        textView.setAccessibilityLabel("Transcript")
         insertionHandler.textView = textView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true

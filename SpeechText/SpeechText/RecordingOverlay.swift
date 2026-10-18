@@ -64,6 +64,14 @@ struct RecordingOverlayView: View {
         isEditMode ? "Cancel (the selected text is left as it was)" : "Cancel (nothing is pasted)"
     }
     private var isBusy: Bool { isLoading || isPreparing }
+    /// VoiceOver reads the meter as one element in both skins: the kind of dictation,
+    /// then what it is doing — the mode glyph and the bars say nothing on their own.
+    private var meterLabel: String {
+        isEditMode ? "Edit selection" : isAIMode ? "AI dictation" : "Dictation"
+    }
+    private var meterState: String {
+        isPreparing ? "Starting" : isLoading ? "Working" : "Listening"
+    }
     private var hasText: Bool { !settledText.isEmpty || !movingText.isEmpty || confirmation != nil }
 
     var body: some View {
@@ -207,6 +215,7 @@ struct RecordingOverlayView: View {
             .frame(width: 24, height: 24)
             .help(isEditMode ? "Editing the selected text — say how to change it"
                   : isAIMode ? "AI dictation — rewritten before it is pasted" : "Dictation")
+            .accessibilityHidden(true)
 
             WaveformBarsView(
                 barLevels: barLevels,
@@ -219,6 +228,9 @@ struct RecordingOverlayView: View {
             )
             .frame(maxWidth: .infinity)
             .frame(height: 30)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(meterLabel)
+            .accessibilityValue(meterState)
 
             Button(action: onCancel) {
                 Image(systemName: "xmark")
@@ -232,6 +244,7 @@ struct RecordingOverlayView: View {
             }
             .buttonStyle(.plain)
             .help(cancelHelp)
+            .accessibilityLabel("Cancel")
             .pointingHandCursor { isHoveringCancel = $0 }
             .animation(.easeInOut(duration: 0.15), value: isHoveringCancel)
         }
@@ -312,6 +325,9 @@ struct RecordingOverlayView: View {
             }
             .frame(width: 100, height: 56)
             .clipShape(Self.glass)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(meterLabel)
+            .accessibilityValue(meterState)
 
             // Cancel is a button *of the device*: the same moulded plastic in the same
             // milled recess as the record window's rail, so the two techno surfaces
@@ -320,6 +336,7 @@ struct RecordingOverlayView: View {
             ButtonRail {
                 PlasticButton(
                     systemImage: "xmark",
+                    label: "Cancel",
                     help: cancelHelp,
                     action: onCancel
                 )

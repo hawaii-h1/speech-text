@@ -523,7 +523,7 @@ struct HomeTalkPicture: View {
                 .frame(width: 100, height: 56)
                 .clipShape(Self.stripGlass)
                 ButtonRail {
-                    PlasticButton(systemImage: "xmark", action: {})
+                    PlasticButton(systemImage: "xmark", label: "Cancel", action: {})
                 }
             }
             .frame(height: 56)
@@ -750,12 +750,12 @@ struct RecordWindowPicture: View {
                     .offset(x: 4, y: 215)
             }
             .offset(x: 12, y: 12)
-            TransportKnob(systemImage: "play", action: {})
+            TransportKnob(systemImage: "play", label: "Record", action: {})
                 .offset(x: 294.5 - TransportKnob.diameter / 2, y: 56 - TransportKnob.diameter / 2)
             ButtonRail {
-                PlasticButton(systemImage: "sparkles", action: {})
-                PlasticButton(systemImage: "text.insert", action: {})
-                PlasticButton(systemImage: "doc.on.doc", action: {})
+                PlasticButton(systemImage: "sparkles", label: "AI Rewrite", action: {})
+                PlasticButton(systemImage: "text.insert", label: "Insert", action: {})
+                PlasticButton(systemImage: "doc.on.doc", label: "Copy", action: {})
             }
             .offset(x: 304.5, y: 213 - (3 * PlasticButton.size + 2 * 4 + 8))
         }

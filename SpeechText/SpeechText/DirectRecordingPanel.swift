@@ -263,6 +263,7 @@ struct LCDTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.allowsUndo = true
         textView.textColor = NSColor(textColor)
+        textView.setAccessibilityLabel("Transcript")
         applyAccent(to: textView)
         insertionHandler.textView = textView
         scrollView.drawsBackground = false
@@ -461,6 +462,8 @@ struct DirectRecordingPanelView: View {
 
             TransportKnob(
                 systemImage: speechEngine.isRecording ? "pause" : "play",
+                label: "Record",
+                value: transportState,
                 tint: aiMode ? TechnoSkin.aiPhosphor.opacity(0.95) : .white.opacity(0.92),
                 isBusy: isBusy,
                 isEnabled: !isBusy,
@@ -494,12 +497,16 @@ struct DirectRecordingPanelView: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .stroke(.secondary.opacity(0.5), lineWidth: 1)
                         )
+                        .accessibilityLabel("Language")
+                        .accessibilityValue(langName)
 
                     Spacer()
 
                     ForEach(railActions) { item in
                         MinimalIconButton(
                             systemImage: item.systemImage,
+                            label: item.label,
+                            value: item.value,
                             isOn: item.isOn,
                             accent: item.accent,
                             isEnabled: item.isEnabled,
@@ -590,6 +597,8 @@ struct DirectRecordingPanelView: View {
         .buttonStyle(.plain)
         .disabled(isBusy)
         .help(transportHelp)
+        .accessibilityLabel("Record")
+        .accessibilityValue(transportState)
         .pointingHandCursor(enabled: !isBusy) { isHoveringTransport = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHoveringTransport)
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: expanded)
@@ -703,6 +712,21 @@ struct DirectRecordingPanelView: View {
         return "Start recording"
     }
 
+    /// What VoiceOver reads after the transport's name, in both skins.
+    private var transportState: String {
+        if speechEngine.isStartingEngine { return "Starting" }
+        if isRefining { return "Rewriting with AI" }
+        if speechEngine.isTranscribing { return "Transcribing" }
+        if speechEngine.isRecording { return "Recording" }
+        if speechEngine.isPaused { return "Paused" }
+        return "Not recording"
+    }
+
+    /// The language badge's code, spelled out for VoiceOver ("EN" → "English").
+    private var langName: String {
+        Locale.current.localizedString(forLanguageCode: langLabel.lowercased()) ?? langLabel
+    }
+
     private func refreshLangLabel() {
         let locale = resolvedLocale()
         langLabel = locale.components(separatedBy: "-").first.map { $0.uppercased() } ?? "?"
@@ -731,6 +755,11 @@ struct DirectRecordingPanelView: View {
     private struct RailAction: Identifiable {
         let id: String
         let systemImage: String
+        /// VoiceOver's name for the button, the same in both skins.
+        let label: String
+        /// The state VoiceOver reads after the name. Only a toggle has one: `isOn` is
+        /// also the paste and copy confirmation flash, which is not a state.
+        var value = ""
         var isOn = false
         var accent: Color = .accentColor
         var isEnabled = true
@@ -743,6 +772,8 @@ struct DirectRecordingPanelView: View {
             RailAction(
                 id: "ai",
                 systemImage: "sparkles",
+                label: "AI Rewrite",
+                value: aiMode ? "On" : "Off",
                 isOn: aiMode,
                 accent: skin == .techno ? TechnoSkin.aiPhosphor : Semantic.ai,
                 help: aiMode
@@ -753,6 +784,7 @@ struct DirectRecordingPanelView: View {
             RailAction(
                 id: "paste",
                 systemImage: showPasteCheck ? "checkmark" : "text.insert",
+                label: "Insert",
                 isOn: showPasteCheck,
                 accent: confirmation,
                 isEnabled: hasText,
@@ -762,6 +794,7 @@ struct DirectRecordingPanelView: View {
             RailAction(
                 id: "copy",
                 systemImage: showCopyCheck ? "checkmark" : "doc.on.doc",
+                label: "Copy",
                 isOn: showCopyCheck,
                 accent: confirmation,
                 isEnabled: hasText,
@@ -785,6 +818,8 @@ struct DirectRecordingPanelView: View {
             ForEach(railActions) { item in
                 PlasticButton(
                     systemImage: item.systemImage,
+                    label: item.label,
+                    value: item.value,
                     isOn: item.isOn,
                     accent: item.accent,
                     isEnabled: item.isEnabled,
@@ -806,6 +841,7 @@ struct DirectRecordingPanelView: View {
     private var closeButton: some View {
         PlasticButton(
             systemImage: "xmark",
+            label: "Close",
             help: "Close (the transcription is kept in History)",
             action: onDismiss
         )

@@ -489,6 +489,10 @@ struct ShellBackground: View {
 /// One of the small moulded buttons that sit in a rail on the shell.
 struct PlasticButton: View {
     let systemImage: String
+    /// What VoiceOver calls the button: a short name, not the tooltip's sentence.
+    let label: String
+    /// The state VoiceOver reads after the name ("On" for a toggle); empty for none.
+    var value = ""
     var isOn = false
     /// The lit colour when on; nil takes the display's phosphor.
     var accent: Color? = nil
@@ -534,6 +538,8 @@ struct PlasticButton: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .help(help)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
         .pointingHandCursor(enabled: isEnabled) { isHovering = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovering)
         .animation(.easeInOut(duration: 0.2), value: isOn)
@@ -574,6 +580,9 @@ struct ButtonRail<Content: View>: View {
 struct TransportKnob: View {
     /// SF Symbol shown on the cap. Ignored while `isBusy`.
     let systemImage: String
+    /// What VoiceOver calls the knob, and the state it reads after the name.
+    let label: String
+    var value = ""
     var tint: Color = .white.opacity(0.92)
     /// Replaces the glyph with a sweeping arc while a provider is working.
     var isBusy = false
@@ -606,6 +615,8 @@ struct TransportKnob: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .help(help)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
         .pointingHandCursor(enabled: isEnabled) { isHovering = $0 }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
@@ -734,8 +745,10 @@ struct TransportKnob: View {
     /// What the cap shows while a provider is working. Driven by a repeating animation
     /// rather than a state-per-frame loop: re-rendering the knob 60 times a second
     /// would re-rasterise every gradient and blur underneath it.
+    /// With Reduce Motion on, the arc stands still: it still tells the cap from a glyph.
     private struct BusyArc: View {
         let tint: Color
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @State private var spinning = false
 
         var body: some View {
@@ -745,7 +758,7 @@ struct TransportKnob: View {
                 .frame(width: 20, height: 20)
                 .rotationEffect(.degrees(spinning ? 360 : 0))
                 .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spinning)
-                .onAppear { spinning = true }
+                .onAppear { spinning = !reduceMotion }
         }
     }
 }

@@ -399,10 +399,14 @@ private struct DemoStrip: View {
     @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
 
     var body: some View {
-        switch skin {
-        case .techno: techno
-        case .minimal: minimal
+        Group {
+            switch skin {
+            case .techno: techno
+            case .minimal: minimal
+            }
         }
+        // A picture of the overlay: its ✕ does nothing, so VoiceOver should not find it.
+        .accessibilityHidden(true)
     }
 
     /// `RecordingOverlayView.technoStrip`, fed a scripted voice instead of the microphone.
@@ -424,7 +428,7 @@ private struct DemoStrip: View {
                 .frame(width: 100, height: 56)
                 .clipShape(glass)
                 ButtonRail {
-                    PlasticButton(systemImage: "xmark", action: {})
+                    PlasticButton(systemImage: "xmark", label: "Cancel", action: {})
                 }
             }
             .frame(width: skin.overlayStripSize.width, height: skin.overlayStripSize.height)
