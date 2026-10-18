@@ -7,7 +7,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 ## Now
 
 - **Distribution** — the signed, notarized `.dmg` and the in-app updater are in place, and 0.9.1 is packaged as a draft release; what is left is making the repository public, publishing that release, and a Homebrew cask. Until then the only way for anyone else to run SpeechText is to build it, which excludes almost everyone.
-- **Accuracy for technical speech** — library names, identifiers and mixed-language dictation are where every engine struggles. The Dictionary now sends its words to every engine that takes a list, replaces wrong spellings, and tells the LLM to keep them; what is still open is measuring it — Groq's Whisper prompt is on trial, and the engine × clip corpus (#80) is not yet run.
+- **Accuracy for technical speech** — library names, identifiers and mixed-language dictation are where every engine struggles. The Dictionary now sends its words to every engine that takes a list, replaces wrong spellings, and tells the LLM to keep them; what is still open is the verdict on Groq's Whisper prompt, which is on trial. The engine × clip corpus (#80) exists and has been run — it picked the local models' defaults — and measures each clip with and without the Dictionary's words; that comparison for Groq's prompt is still to be made and acted on.
 
 ## Next
 
@@ -22,7 +22,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 ## Done
 
-Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup; signed, notarized releases that update themselves; OpenAI as a speech engine; API keys in the keychain; dictations made offline saved and retried once the network is back; a main window with History, Usage and Prompts; a Dictionary whose words reach the engine, a replacement table and the AI prompt.
+Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup; signed, notarized releases that update themselves; OpenAI as a speech engine; API keys in the keychain; dictations made offline saved and retried once the network is back; a main window with History, Usage and Prompts; a Dictionary whose words reach the engine, a replacement table and the AI prompt; AI Rewrite built into the app on llama.cpp, with nothing else to install; a voice activity detector that keeps typing and room noise from being sent; the languages each model knows, shown before you download it; a lifecycle for models, so one a vendor retires is moved to its replacement; a weekly check of the catalogues against the vendors.
 
 ## Not planned
 
