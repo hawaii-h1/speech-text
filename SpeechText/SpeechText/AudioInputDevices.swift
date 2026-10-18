@@ -69,7 +69,7 @@ enum AudioInputDevices {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 
-    private static func read<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
+    private static func read<T: BitwiseCopyable>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
                                 into value: inout T) -> Bool {
         var addr = address(selector)
         var size = UInt32(MemoryLayout<T>.size)

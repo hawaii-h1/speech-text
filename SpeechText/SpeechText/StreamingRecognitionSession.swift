@@ -134,7 +134,7 @@ final class StreamingRecognitionSession: RecognitionSession {
         provider.connect(languages: languages)
         eventsTask = Task { [weak self] in
             for await event in provider.events {
-                await MainActor.run { self?.handle(event, generation: generation) }
+                await MainActor.run { [weak self] in self?.handle(event, generation: generation) }
             }
         }
         sendTarget.set(provider)

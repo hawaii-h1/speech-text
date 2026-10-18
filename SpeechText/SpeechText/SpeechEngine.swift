@@ -717,7 +717,7 @@ final class SpeechEngine {
                 // engine holds by then (and the abandoned upload would still be billed).
                 await withTaskCancellationHandler {
                     await pending.value
-                    await MainActor.run {
+                    await MainActor.run { [weak self] in
                         guard let self, !Task.isCancelled else { return }
                         if self.finalText.isEmpty {
                             self.finalText = self.liveText

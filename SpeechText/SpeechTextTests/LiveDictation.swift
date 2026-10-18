@@ -359,6 +359,11 @@ enum LiveDictation {
     /// session — off the main thread, which the session's events need free.
     private static func play(_ audio: TapAudio, into writer: AudioBufferWriter,
                              session: RecognitionSession, paced: Bool) async {
+        // Handed to the queue unchecked, as the app's tap thread holds them: the writer
+        // and the session's `feed` are written for the audio thread, and the caller is
+        // suspended on the continuation until the loop has ended.
+        nonisolated(unsafe) let writer = writer
+        nonisolated(unsafe) let session = session
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 let start = DispatchTime.now().uptimeNanoseconds

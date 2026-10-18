@@ -170,7 +170,7 @@ actor ParakeetPipelineCache {
     }
 
     func load(_ modelFolder: URL) async throws {
-        try await serialized { try await self.ensureLoaded(modelFolder) }
+        _ = try await serialized { try await self.ensureLoaded(modelFolder) }
     }
 
     func transcribe(audioFileURL: URL, modelFolder: URL, language: Language?) async throws -> String {

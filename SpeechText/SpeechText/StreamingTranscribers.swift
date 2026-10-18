@@ -379,9 +379,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             do {
                 message = try await task.receive()
             } catch {
-                lock.lock()
-                let closed = isClosed
-                lock.unlock()
+                let closed = lock.withLock { isClosed }
                 if !closed {
                     fail(error)
                 }
@@ -891,9 +889,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
             group.cancelAll()
         }
 
-        lock.lock()
-        let ready = sessionReady, closed = isClosed
-        lock.unlock()
+        let (ready, closed) = lock.withLock { (sessionReady, isClosed) }
         if closed { return false }
         guard ready else {
             dlog("OpenAI", "realtime: stopped before session.updated, none within \(STTTuning.streamSessionReadyTimeoutSeconds)s")
@@ -998,9 +994,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
             do {
                 message = try await task.receive()
             } catch {
-                lock.lock()
-                let closed = isClosed
-                lock.unlock()
+                let closed = lock.withLock { isClosed }
                 if !closed {
                     fail(error)
                 }

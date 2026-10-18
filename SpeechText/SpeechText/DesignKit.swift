@@ -381,7 +381,7 @@ struct LCDScreenShape: Shape {
     /// Unioned rather than merely overlaid: the two halves share an internal edge at
     /// the knob's waistline, and anything that strokes the shape — the inner shadow —
     /// would otherwise draw a seam straight across the glass.
-    nonisolated(unsafe) private static let designPath: Path = subpaths.reduce(into: Path()) { result, d in
+    private static let designPath: Path = subpaths.reduce(into: Path()) { result, d in
         var part = Path()
         SVGPathData.append(d, designSize: designSize,
                            in: CGRect(origin: .zero, size: designSize), to: &part)

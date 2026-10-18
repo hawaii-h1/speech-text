@@ -203,30 +203,38 @@ final class AppleRecognitionSession: RecognitionSession {
     }
 
     func finish() async -> RecognitionOutcome {
+        // Handed to the main queue unchecked: the closure below runs on main, and
+        // everything it touches — `isCancelled`, `isFeeding`, the chunk timer, the
+        // request's `endAudio`, `chunkFailed`, the transcript it logs,
+        // `finishContinuation`, `finishDeadline` — is otherwise only changed on main too
+        // (the recogniser's callbacks and the timer hop there), so this shares nothing
+        // across threads. The class is not `Sendable` as a whole: `feed` reads `request`
+        // from the audio thread.
+        nonisolated(unsafe) let session = self
         let cancelled: Bool = await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
-                guard !self.isCancelled else {
+                guard !session.isCancelled else {
                     continuation.resume(returning: true)
                     return
                 }
-                self.isFeeding = false
-                self.stopChunkTimer()
-                self.request?.endAudio()
-                guard !self.chunkFailed else {
+                session.isFeeding = false
+                session.stopChunkTimer()
+                session.request?.endAudio()
+                guard !session.chunkFailed else {
                     // The task already ended with an error: no final result is coming,
                     // and waiting out the deadline would only hold the notice back.
                     dlog("Engine", "apple: task already failed, not waiting for a final result")
                     continuation.resume(returning: false)
                     return
                 }
-                dlog("Engine", "apple: waiting ≤0.5s for final result, live=\(joinedTranscript(self.committedText, self.utterances.text).count) chars")
-                self.finishContinuation = continuation
+                dlog("Engine", "apple: waiting ≤0.5s for final result, live=\(joinedTranscript(session.committedText, session.utterances.text).count) chars")
+                session.finishContinuation = continuation
                 // 0.5s is the upper bound; the recognition callback resolves this early
                 // when a result with `isFinal` arrives, so the user isn't kept waiting on a timer.
-                let deadline = DispatchWorkItem { [weak self] in
-                    self?.resolveFinish(cancelled: false)
+                let deadline = DispatchWorkItem { [weak session = session] in
+                    session?.resolveFinish(cancelled: false)
                 }
-                self.finishDeadline = deadline
+                session.finishDeadline = deadline
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: deadline)
             }
         }
