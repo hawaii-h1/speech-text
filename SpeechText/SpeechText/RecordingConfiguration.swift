@@ -245,7 +245,7 @@ struct RecordingConfiguration {
                 && entries.map(\.trimmedTerm).joined(separator: ", ").count + 1 > Vocabulary.whisperPromptLimit
             let rankByUse = promptOverflows || capacities.contains { $0 < entries.count }
             configuration.vocabulary = CustomVocabulary.ranked(entries, now: Date(), rankByUse: rankByUse,
-                                                               historyTexts: CustomVocabulary.historyTexts)
+                                                               uses: CustomVocabulary.historyUses)
         }
         return configuration
     }

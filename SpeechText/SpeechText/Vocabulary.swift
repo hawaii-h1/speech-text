@@ -125,11 +125,18 @@ enum Vocabulary {
 
     /// How many of `texts` use the word, as written — the page's "in 12 dictations".
     static func uses(of entry: VocabularyEntry, in texts: [String]) -> Int {
-        let term = entry.trimmedTerm
-        guard !term.isEmpty else { return 0 }
+        useMatcher(for: entry.trimmedTerm).map { uses(of: $0, in: texts) } ?? 0
+    }
+
+    /// The word as `uses` looks for it: whole, as written. Nil for a blank one.
+    static func useMatcher(for term: String) -> NSRegularExpression? {
+        guard !term.isEmpty else { return nil }
         let pattern = #"(?<![\p{L}\p{N}_])"# + NSRegularExpression.escapedPattern(for: term) + #"(?![\p{L}\p{N}_])"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return 0 }
-        return texts.filter { regex.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }.count
+        return try? NSRegularExpression(pattern: pattern)
+    }
+
+    static func uses(of matcher: NSRegularExpression, in texts: [String]) -> Int {
+        texts.filter { matcher.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }.count
     }
 
     /// Words from the user's own dictations that look like names or terms — capitals
@@ -138,7 +145,22 @@ enum Vocabulary {
     /// least `minimumCount` times and not taught yet, most used first.
     static func suggestions(from texts: [String], excluding entries: [VocabularyEntry],
                             minimumCount: Int = 2, limit: Int = 8) -> [(term: String, count: Int)] {
+        suggestions(from: suggestionCandidates(from: texts, minimumCount: minimumCount),
+                    excluding: entries, limit: limit)
+    }
+
+    /// `suggestions` of the candidates `suggestionCandidates` found: the first `limit` of
+    /// them not taught yet. The cheap half — the Dictionary page runs it as words are typed.
+    static func suggestions(from candidates: [(term: String, count: Int)], excluding entries: [VocabularyEntry],
+                            limit: Int = 8) -> [(term: String, count: Int)] {
         let known = Set(entries.map { $0.trimmedTerm.lowercased() })
+        return Array(candidates.lazy.filter { !known.contains($0.term.lowercased()) }.prefix(limit))
+    }
+
+    /// Every word `suggestions` may offer from `texts`, taught or not, most used first —
+    /// the half that reads all of History. A taught word is left out afterwards rather than
+    /// skipped here: it changes no other word's count or place, so the order is the same.
+    static func suggestionCandidates(from texts: [String], minimumCount: Int = 2) -> [(term: String, count: Int)] {
         var counts: [String: Int] = [:]
         var named = Set<String>()
         var lowercase = Set<String>()
@@ -150,7 +172,7 @@ enum Vocabulary {
                 var sentenceStart = true
                 var seenHere = Set<String>()
                 for raw in line.split(whereSeparator: \.isWhitespace) {
-                    let word = raw.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+                    let word = raw.trimmingCharacters(in: notWordCharacters)
                     let letters = word.filter(\.isLetter)
                     // A bullet or a dash between words leaves the sentence where it was.
                     guard !letters.isEmpty else { continue }
@@ -158,7 +180,7 @@ enum Vocabulary {
                     if letters.allSatisfy(\.isLowercase) { lowercase.insert(word.lowercased()); continue }
                     guard letters.count >= 2,
                           word.allSatisfy({ $0.isLetter || $0.isNumber || "-_.".contains($0) }),
-                          !known.contains(word.lowercased()), seenHere.insert(word).inserted else { continue }
+                          seenHere.insert(word).inserted else { continue }
                     // A capital inside the word makes it a term wherever it stands; a capital
                     // only at the front counts in the middle of a sentence, never at its start,
                     // where every word wears one.
@@ -178,9 +200,11 @@ enum Vocabulary {
             return (word, count, index)
         }
         return found.sorted { ($1.count, $0.index) < ($0.count, $1.index) }
-            .prefix(limit)
             .map { ($0.term, $0.count) }
     }
+
+    /// What `suggestions` trims off a word's ends — made once, not once a word.
+    private static let notWordCharacters = CharacterSet.alphanumerics.inverted
 
     // MARK: Storage
 
@@ -201,5 +225,66 @@ enum Vocabulary {
 
     static func save(_ entries: [VocabularyEntry]) {
         UserDefaults.standard.set(encode(entries), forKey: SettingsKeys.vocabulary)
+    }
+}
+
+// MARK: - What History says, kept
+
+/// The Dictionary page's reading of History — the suggestions and each word's uses — kept
+/// until History changes. The page's body runs on every keystroke in its fields, and
+/// worked out afresh each time that was every word of every dictation split and counted,
+/// and a search of every dictation per word shown.
+///
+/// History is known to have changed by a fingerprint of the dictations a suggestion or a
+/// count reads (their number, the first and last, and each one's status and the length of
+/// what was delivered). One that changed without changing any of those — a rewrite
+/// replaced by another of exactly the same length — goes unseen until the next change, and
+/// a count or a suggestion is that much out of date meanwhile.
+final class VocabularyHistoryCache {
+    private var fingerprint: Int?
+    /// The delivered text of every successful dictation, newest first.
+    private var texts: [String] = []
+    private var candidates: [(term: String, count: Int)]?
+    /// By the word exactly as written: `uses` minds capitals.
+    private var useCounts: [String: Int] = [:]
+    private var matchers: [String: NSRegularExpression] = [:]
+
+    /// Brought up to date with `records`; read in full only when they changed.
+    func refresh(from records: [TranscriptionRecord]) {
+        var hasher = Hasher()
+        hasher.combine(records.count)
+        hasher.combine(records.first?.id)
+        hasher.combine(records.last?.id)
+        for record in records {
+            hasher.combine(record.status == .success ? record.deliveredText.utf8.count : -1)
+        }
+        let fingerprint = hasher.finalize()
+        guard fingerprint != self.fingerprint else { return }
+        self.fingerprint = fingerprint
+        texts = records.filter { $0.status == .success }.map(\.deliveredText)
+        candidates = nil
+        // A word's matcher outlives a change of History while the word is still asked
+        // about; one that was not since the last change (a prefix typed into the editor,
+        // a word deleted) is let go.
+        matchers = matchers.filter { useCounts[$0.key] != nil }
+        useCounts = [:]
+    }
+
+    /// `Vocabulary.suggestions` of the dictations last refreshed from.
+    func suggestions(excluding entries: [VocabularyEntry]) -> [(term: String, count: Int)] {
+        let candidates = candidates ?? Vocabulary.suggestionCandidates(from: texts)
+        self.candidates = candidates
+        return Vocabulary.suggestions(from: candidates, excluding: entries)
+    }
+
+    /// `Vocabulary.uses` of the dictations last refreshed from.
+    func uses(of entry: VocabularyEntry) -> Int {
+        let term = entry.trimmedTerm
+        if let count = useCounts[term] { return count }
+        let matcher = matchers[term] ?? Vocabulary.useMatcher(for: term)
+        matchers[term] = matcher
+        let count = matcher.map { Vocabulary.uses(of: $0, in: texts) } ?? 0
+        useCounts[term] = count
+        return count
     }
 }

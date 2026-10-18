@@ -462,3 +462,189 @@ final class UsageRequestsTests: XCTestCase {
         XCTAssertEqual(UsageFormat.audio(720), "12 min")
     }
 }
+
+/// The Dictionary and Prompts pages keep what they read from History until it changes,
+/// since their bodies run on every keystroke in their fields. What they keep must be what
+/// reading History afresh gives — after a dictation is added, a rewrite attached to one in
+/// place, a retry, a delete — and the words being typed must change only the cheap half.
+final class MainPagesHistoryCacheTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 2_000_000_000)
+
+    private func record(_ text: String, minutesAgo: Double = 0, status: TranscriptionRecord.Status = .success,
+                        refinement: TranscriptionRecord.Refinement? = nil) -> TranscriptionRecord {
+        TranscriptionRecord(id: UUID(), date: now.addingTimeInterval(-minutesAgo * 60), text: text, status: status,
+                            errorMessage: status == .failed ? "No connection" : nil, provider: "groq", locale: "uk",
+                            duration: 3, refinement: refinement)
+    }
+
+    private func rewrite(_ output: String, preset: String?, edit: Bool = false) -> TranscriptionRecord.Refinement {
+        TranscriptionRecord.Refinement(inputText: "input", outputText: output, presetName: preset,
+                                       provider: "anthropic", model: "claude-sonnet-5", editsSelection: edit)
+    }
+
+    private func texts(_ records: [TranscriptionRecord]) -> [String] {
+        records.filter { $0.status == .success }.map(\.deliveredText)
+    }
+
+    // MARK: Dictionary
+
+    func testTheDictionaryPageKeepsWhatAFreshReadGives() {
+        var records = [record("Send it to Olena in Figma."), record("Olena likes the JSON export."),
+                       record("The JSON is fine. Figma too."), record("", status: .failed), record("Ask Olena first.")]
+        let entries = [VocabularyEntry(term: "JSON"), VocabularyEntry(term: "Olena"), VocabularyEntry(term: "Petro")]
+        let cache = VocabularyHistoryCache()
+        func check(_ step: String, taught: [VocabularyEntry] = []) {
+            cache.refresh(from: records)
+            XCTAssertEqual(cache.suggestions(excluding: taught).map(\.term),
+                           Vocabulary.suggestions(from: texts(records), excluding: taught).map(\.term), step)
+            XCTAssertEqual(cache.suggestions(excluding: taught).map(\.count),
+                           Vocabulary.suggestions(from: texts(records), excluding: taught).map(\.count), step)
+            for entry in entries {
+                XCTAssertEqual(cache.uses(of: entry), Vocabulary.uses(of: entry, in: texts(records)), "\(step): \(entry.term)")
+            }
+        }
+        check("the first look")
+        check("a word taught, nothing else", taught: [VocabularyEntry(term: "olena")])
+        records.insert(record("Petro and Olena, then Petro again. Ask Petro."), at: 0)
+        check("a dictation added")
+        records[1].refinement = rewrite("Write to Petro about the JSON.", preset: "Email / Message")
+        check("a rewrite attached in place")
+        records[4].text = "Petro said the JSON is late."
+        records[4].status = .success
+        check("a retry succeeded in place")
+        records.remove(at: 2)
+        check("a dictation deleted")
+    }
+
+    func testATaughtWordLetsTheNextSuggestionUp() {
+        // Nine names, each said a different number of times, never at a sentence's start.
+        let names = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India"]
+        let texts = names.enumerated().flatMap { index, name in
+            Array(repeating: "Ask \(name) now.", count: 10 - index)
+        }
+        XCTAssertEqual(Vocabulary.suggestions(from: texts, excluding: []).map(\.term), Array(names.prefix(8)))
+        XCTAssertEqual(Vocabulary.suggestions(from: texts, excluding: [VocabularyEntry(term: "charlie")]).map(\.term),
+                       ["Alpha", "Bravo", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India"])
+        // A taught word said first takes no place from a tie after it.
+        let tie = ["Ask Figma, then Olena, then Petro.", "Then Petro and Olena and Figma."]
+        XCTAssertEqual(Vocabulary.suggestions(from: tie, excluding: [VocabularyEntry(term: "Figma")]).map(\.term),
+                       ["Olena", "Petro"])
+    }
+
+    func testAWordsUsesMindItsCapitals() {
+        let cache = VocabularyHistoryCache()
+        cache.refresh(from: [record("The JSON export."), record("A json file."), record("JSON again.")])
+        XCTAssertEqual(cache.uses(of: VocabularyEntry(term: "JSON")), 2)
+        XCTAssertEqual(cache.uses(of: VocabularyEntry(term: "json")), 1)
+        XCTAssertEqual(cache.uses(of: VocabularyEntry(term: " ")), 0)
+    }
+
+    // MARK: Prompts
+
+    func testThePromptsPageKeepsWhatAFreshCountGives() {
+        let email = PromptPreset(name: "Email / Message", whenToUse: "", instructions: "")
+        var records = [record("a", minutesAgo: 1, refinement: rewrite("A.", preset: "EMAIL / MESSAGE")),
+                       record("b", minutesAgo: 2, refinement: rewrite("B.", preset: "Notes")),
+                       record("c", minutesAgo: 3, refinement: rewrite("C.", preset: "Email / Message")),
+                       record("d", minutesAgo: 4, refinement: rewrite("D.", preset: "Instruction", edit: true)),
+                       record("e", minutesAgo: 5, refinement: rewrite("E.", preset: "email / message")),
+                       record("f", minutesAgo: 6, refinement: rewrite("F.", preset: "Email / Message")),
+                       record("g", minutesAgo: 7)]
+        let cache = PresetUsage.Cache()
+        func check(_ step: String) {
+            cache.refresh(from: records)
+            XCTAssertEqual(cache.uses, PresetUsage.uses(in: records), step)
+            XCTAssertEqual(cache.recent(email).map(\.id), PresetUsage.recent(email, in: records).map(\.id), step)
+        }
+        check("the first look")
+        // History is newest first, so the first three found are the latest three.
+        XCTAssertEqual(PresetUsage.recent(email, in: records).map(\.text), ["a", "c", "e"])
+        records.insert(record("h", refinement: rewrite("H.", preset: "Email / Message")), at: 0)
+        check("a rewrite added")
+        XCTAssertEqual(cache.recent(email).map(\.text), ["h", "a", "c"])
+        records[7].refinement = rewrite("G.", preset: "Email / Message")
+        check("a rewrite attached in place")
+        records[1].refinement = rewrite("A.", preset: "Notes")
+        check("a rewrite replaced in place")
+        records.remove(at: 0)
+        check("a dictation deleted")
+    }
+
+    // MARK: Timings
+
+    /// What the two pages paid on every keystroke before they kept what History says, and
+    /// pay now, at the History a year or two of dictations reaches. Printed, never asserted.
+    func testTimingsAtTwentyThousandRecords() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SPEECHTEXT_PERF"] == "1",
+                          "set SPEECHTEXT_PERF=1 to time History at scale")
+        let presets = ["Clean-up", "Email / Message", "Notes", "Bullets", "Translate", "Technical / Prompt"]
+        var records = SyntheticHistory.texts(count: 20_000).enumerated().map { index, text in
+            record(text, minutesAgo: Double(index),
+                   refinement: index % 4 == 0 ? rewrite(text, preset: presets[index % presets.count]) : nil)
+        }
+        let entries = SyntheticHistory.terms.prefix(12).map { VocabularyEntry(term: $0) }
+
+        // The Dictionary page, as its body read History on every keystroke.
+        let (_, dictionaryBefore) = SyntheticHistory.timed {
+            let texts = records.filter { $0.status == .success }.map(\.deliveredText)
+            _ = Vocabulary.suggestions(from: texts, excluding: entries)
+            _ = entries.map { Vocabulary.uses(of: $0, in: texts) }
+        }
+        // The same words found with the trimming set made once a word, as before.
+        let words = records.flatMap { $0.deliveredText.split(whereSeparator: \.isWhitespace) }
+        let (_, setEachWord) = SyntheticHistory.timed {
+            words.forEach { _ = $0.trimmingCharacters(in: CharacterSet.alphanumerics.inverted) }
+        }
+        let madeOnce = CharacterSet.alphanumerics.inverted
+        let (_, setOnce) = SyntheticHistory.timed { words.forEach { _ = $0.trimmingCharacters(in: madeOnce) } }
+
+        let dictionary = VocabularyHistoryCache()
+        let (_, dictionaryChange) = SyntheticHistory.timed {
+            dictionary.refresh(from: records)
+            _ = dictionary.suggestions(excluding: entries)
+            _ = entries.map { dictionary.uses(of: $0) }
+        }
+        // Typing a word to add changes nothing History is read for; renaming one in its
+        // editor makes one new word to look for.
+        let (_, dictionaryKeystroke) = SyntheticHistory.timed {
+            dictionary.refresh(from: records)
+            _ = dictionary.suggestions(excluding: entries)
+            _ = entries.map { dictionary.uses(of: $0) }
+        }
+        let renamed = VocabularyEntry(term: "Spee")
+        let (_, dictionaryRename) = SyntheticHistory.timed {
+            dictionary.refresh(from: records)
+            _ = dictionary.suggestions(excluding: entries + [renamed])
+            _ = (entries + [renamed]).map { dictionary.uses(of: $0) }
+        }
+
+        // The Prompts page, as its body counted History on every keystroke.
+        let email = PromptPreset(name: "Email / Message", whenToUse: "", instructions: "")
+        let (_, promptsBefore) = SyntheticHistory.timed {
+            _ = PresetUsage.uses(in: records)
+            _ = Array(records.filter { $0.refinement?.presetName?.caseInsensitiveCompare(email.name) == .orderedSame }
+                .sorted { $0.date > $1.date }.prefix(3))
+        }
+        let prompts = PresetUsage.Cache()
+        let (_, promptsChange) = SyntheticHistory.timed {
+            prompts.refresh(from: records)
+            _ = prompts.recent(email)
+        }
+        let (_, promptsKeystroke) = SyntheticHistory.timed {
+            prompts.refresh(from: records)
+            _ = prompts.recent(email)
+        }
+        records.insert(record("Olena sent the JSON."), at: 0)
+        let (_, promptsAdded) = SyntheticHistory.timed { prompts.refresh(from: records) }
+
+        print(String(format: """
+            perf Dictionary page (20000 records, 12 words shown): each keystroke before %.1f ms \
+            (of which the trimming set made once a word %.1f ms, made once %.1f ms); \
+            now a History change %.1f ms, a keystroke adding a word %.2f ms, renaming one %.1f ms
+            """, dictionaryBefore, setEachWord, setOnce, dictionaryChange, dictionaryKeystroke, dictionaryRename))
+        print(String(format: """
+            perf Prompts page (20000 records): each keystroke before %.1f ms; now a History change %.1f ms \
+            (a dictation added %.1f ms), a keystroke %.2f ms
+            """, promptsBefore, promptsChange, promptsAdded, promptsKeystroke))
+    }
+}

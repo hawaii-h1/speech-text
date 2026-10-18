@@ -116,12 +116,15 @@ enum AboutCredits {
 
 /// Lets `CustomVocabulary.ranked` count how often each term appears in History, so
 /// the terms a model is sent when it cannot take them all are the ones actually used.
-/// History is written on the main thread; read from anywhere else it gives nothing, and
-/// the terms keep their date order.
+/// The counts are kept between dictations (`HistoryTermCounts`), since every start asks.
+/// History is written on the main thread; read from anywhere else it gives nothing, the
+/// kept counts are left alone, and the terms keep their date order.
 func registerVocabularyHistory() {
-    CustomVocabulary.historyTexts = {
-        guard Thread.isMainThread else { return [] }
-        return TranscriptionHistory.shared.records.map(\.text)
+    let counts = HistoryTermCounts()
+    CustomVocabulary.historyUses = { needles in
+        guard Thread.isMainThread else { return [:] }
+        return counts.uses(of: needles,
+                           in: TranscriptionHistory.shared.records.lazy.map { (id: $0.id, text: $0.text) })
     }
 }
 

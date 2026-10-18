@@ -3111,6 +3111,171 @@ final class ThirdPartyNoticesTests: XCTestCase {
     }
 }
 
+// MARK: - History's counts, kept (CustomVocabulary.swift)
+
+/// `HistoryTermCounts` keeps between dictations what `CustomVocabulary.ranked` used to count
+/// afresh at every start. It must count exactly what the full count does, whatever History
+/// did in between — records added at the front, rewritten by a retry, trimmed from the end
+/// or deleted — and whatever the Dictionary asks for.
+final class HistoryTermCountsTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 2_000_000_000)
+    private func term(_ text: String, daysAgo: Double) -> VocabularyEntry {
+        VocabularyEntry(term: text, added: now.addingTimeInterval(-daysAgo * 86_400))
+    }
+
+    /// The count `ranked` made before it matched word by word: each record's `searchable`
+    /// text searched for each needle with Foundation's `range(of:)`, an occurrence beginning
+    /// at the space the last one ended on. Kept here as what the word-by-word count must give.
+    private func searchedCount(_ needles: Set<String>, in texts: [String]) -> [String: Int] {
+        let haystacks = texts.map(CustomVocabulary.searchable)
+        return Dictionary(uniqueKeysWithValues: needles.map { needle in
+            (needle, haystacks.reduce(0) { total, haystack in
+                var count = 0
+                var searchRange = haystack.startIndex..<haystack.endIndex
+                while let found = haystack.range(of: needle, range: searchRange) {
+                    count += 1
+                    searchRange = haystack.index(before: found.upperBound)..<haystack.endIndex
+                }
+                return total + count
+            })
+        })
+    }
+
+    func testWordsAreCountedAsSearchingTheTextCountedThem() {
+        let texts = ["a a a a", "A, a. A!", "API api-API rapid", "AC-42 ac 42 ac42 AC‑42", "Café cafe\u{301} CAFÉ cafe",
+                     "об'єкт об’єкт обʼєкт", "Нова пошта, нова — пошта; Нова Пошта", "", "…", "ok ok ok ok ok",
+                     "kubernetes cluster kubernetes kubernetes cluster", "x y x y x y x"]
+        let needles = Set(["a", "a a", "api", "ac 42", "ac42", "café", "об єкт", "нова пошта", "ok ok", "kubernetes",
+                           "kubernetes cluster", "x y x", "missing"].map(CustomVocabulary.searchable))
+        XCTAssertEqual(CustomVocabulary.uses(of: needles, in: texts), searchedCount(needles, in: texts))
+        XCTAssertEqual(CustomVocabulary.uses(of: needles, in: texts)[" a a "], 2 + 1, "\"a a\" occurs twice in \"a a a a\"")
+        let synthetic = SyntheticHistory.texts(count: 300)
+        let terms = Set(SyntheticHistory.terms.map(CustomVocabulary.searchable))
+        XCTAssertEqual(CustomVocabulary.uses(of: terms, in: synthetic), searchedCount(terms, in: synthetic))
+    }
+
+    func testKeptCountsAreAFreshCountWhateverHistoryDid() {
+        let counts = HistoryTermCounts()
+        var history: [(id: UUID, text: String)] = [
+            (UUID(), "Kubernetes, and kubernetes again"), (UUID(), "A rapid API change"),
+            (UUID(), "ac-42 shipped, AC 42 too"), (UUID(), "ok ok ok"), (UUID(), "Kubernetes"),
+        ]
+        var needles: Set<String> = [" kubernetes ", " api ", " ac 42 ", " ok "]
+        func check(_ step: String) {
+            XCTAssertEqual(counts.uses(of: needles, in: history),
+                           CustomVocabulary.uses(of: needles, in: history.map(\.text)), step)
+        }
+        check("the first look")
+        XCTAssertEqual(counts.uses(of: needles, in: history)[" ok "], 3, "a word said three times in a row counts three")
+        check("nothing changed")
+        history.insert((UUID(), "API, API and Kubernetes"), at: 0)
+        check("a dictation added")
+        history[2].text = "kubernetes once more"
+        check("a retry rewrote a record")
+        history.removeLast()
+        check("trimmed from the end")
+        history.remove(at: 1)
+        check("deleted in the middle")
+        needles.insert(" rapid ")
+        check("a word past its first week")
+        needles.remove(" api ")
+        needles.insert(" apis ")
+        check("a word renamed")
+        history.insert((UUID(), "rapid APIs"), at: 0)
+        check("a dictation added after the rename")
+        history = []
+        check("History cleared")
+    }
+
+    func testRankingWithKeptCountsIsTheRankingWithAFreshCount() {
+        let terms = [term("API", daysAgo: 20), term("Kubernetes", daysAgo: 30), term("AC-42", daysAgo: 40),
+                     term("—", daysAgo: 50), term("New", daysAgo: 1)]
+        let history: [(id: UUID, text: String)] = [(UUID(), "A rapid rapid change"),
+                                                    (UUID(), "kubernetes, and Kubernetes again"), (UUID(), "ac-42 shipped")]
+        let counts = HistoryTermCounts()
+        let kept = CustomVocabulary.ranked(terms, now: now, rankByUse: true, uses: { counts.uses(of: $0, in: history) })
+        XCTAssertEqual(kept, CustomVocabulary.ranked(terms, now: now, rankByUse: true, historyTexts: { history.map(\.text) }))
+        XCTAssertEqual(kept, ["New", "Kubernetes", "AC-42", "API", "—"])
+    }
+
+    func testHistoryIsNotAskedWhenNothingIsRankedByIt() {
+        let notAsked: (Set<String>) -> [String: Int] = { _ in XCTFail("History read"); return [:] }
+        let terms = [term("B", daysAgo: 30), term("A", daysAgo: 20)]
+        XCTAssertEqual(CustomVocabulary.ranked(terms, now: now, rankByUse: false, uses: notAsked), ["A", "B"])
+        // One older word has nothing to be ranked against.
+        let one = [term("Old", daysAgo: 30), term("New", daysAgo: 1)]
+        XCTAssertEqual(CustomVocabulary.ranked(one, now: now, rankByUse: true, uses: notAsked), ["New", "Old"])
+    }
+
+    /// What a dictation start paid before the counts were kept, and pays now, at the
+    /// History a year or two of dictations reaches. Printed, never asserted — a machine's
+    /// speed is not a test's business.
+    func testTimingsAtTwentyThousandRecords() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SPEECHTEXT_PERF"] == "1",
+                          "set SPEECHTEXT_PERF=1 to time History at scale")
+        var history = SyntheticHistory.texts(count: 20_000).map { (id: UUID(), text: $0) }
+        let needles = Set(SyntheticHistory.terms.map(CustomVocabulary.searchable))
+        let counts = HistoryTermCounts()
+        let (searched, searchedTime) = SyntheticHistory.timed { searchedCount(needles, in: history.map(\.text)) }
+        let (full, fullTime) = SyntheticHistory.timed { CustomVocabulary.uses(of: needles, in: history.map(\.text)) }
+        let (first, firstTime) = SyntheticHistory.timed { counts.uses(of: needles, in: history) }
+        let (_, sameTime) = SyntheticHistory.timed { counts.uses(of: needles, in: history) }
+        history.insert((UUID(), "Olena sent the JSON about Kubernetes to Petro."), at: 0)
+        let (added, addedTime) = SyntheticHistory.timed { counts.uses(of: needles, in: history) }
+        XCTAssertEqual(full, searched)
+        XCTAssertEqual(first, full)
+        XCTAssertEqual(added, CustomVocabulary.uses(of: needles, in: history.map(\.text)))
+        print(String(format: """
+            perf ranking (20000 records, %d older words): before, searched %.1f ms (a start made two: %.1f ms); \
+            now counted word by word %.1f ms, kept — first look %.1f ms, nothing changed %.2f ms, \
+            one dictation added %.2f ms
+            """, needles.count, searchedTime, 2 * searchedTime, fullTime, firstTime, sameTime, addedTime))
+    }
+}
+
+/// History at the scale a year or two of dictations reaches — Ukrainian and English, names
+/// and terms among ordinary words — made the same way on every run, for the timings
+/// `SPEECHTEXT_PERF=1` prints.
+enum SyntheticHistory {
+    /// Thirty Dictionary words, some said often, some rarely, some never.
+    static let terms = ["Olena", "Petro", "Figma", "Slack", "JSON", "iPhone", "SpeechText", "Kubernetes", "API",
+                        "AC-42", "Groq", "Scribe", "Parakeet", "WhisperKit", "FluidAudio", "Sparkle", "TestFlight",
+                        "Xcode", "GitHub", "Linear", "Notion", "Postgres", "Redis", "gRPC", "OAuth", "Київстар",
+                        "Монобанк", "Дія", "Укрпошта", "Нова пошта"]
+
+    private static let words = ["і", "що", "це", "ми", "треба", "зробити", "завтра", "сьогодні", "проєкт", "зустріч",
+                                "лист", "кластер", "перевір", "будь", "ласка", "дякую", "коли", "буде", "готово",
+                                "the", "and", "send", "it", "to", "with", "about", "release", "build", "please",
+                                "check", "tomorrow", "meeting", "notes", "draft", "a", "of", "for", "we", "need"]
+    private static let names = ["Olena", "Petro", "Figma", "Slack", "JSON", "iPhone", "SpeechText", "Kubernetes",
+                                "API", "AC-42", "Groq", "GitHub", "Київстар", "Дія", "Нова пошта", "Mykola", "Iryna"]
+
+    static func texts(count: Int) -> [String] {
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next(_ bound: Int) -> Int {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Int((state >> 33) % UInt64(bound))
+        }
+        return (0..<count).map { _ in
+            var sentence: [String] = []
+            for index in 0..<(8 + next(32)) {
+                var word = next(8) == 0 ? names[next(names.count)] : words[next(words.count)]
+                if index == 0 { word = word.prefix(1).uppercased() + word.dropFirst() }
+                if next(9) == 0 { word += next(3) == 0 ? "." : "," }
+                sentence.append(word)
+            }
+            return sentence.joined(separator: " ") + "."
+        }
+    }
+
+    /// `work`'s result, and how long it took in milliseconds.
+    static func timed<T>(_ work: () -> T) -> (T, Double) {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let result = work()
+        return (result, Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+    }
+}
+
 // MARK: - A chat reply that did not end (ChatClients.swift)
 
 /// What each cloud reply says about how it ended, read from literal bodies: a reply the

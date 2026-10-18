@@ -19,6 +19,9 @@ struct DictionaryView: View {
     @State private var newSpellings = ""
     @State private var editing: UUID?
     @State private var showsAllWords = false
+    /// What History says — suggestions, each word's uses — worked out again only when it
+    /// changes, not on every keystroke in the fields below.
+    @State private var historyCache = VocabularyHistoryCache()
 
     /// Three rows of four; the rest behind Show all.
     private static let wordsShown = 12
@@ -26,14 +29,15 @@ struct DictionaryView: View {
     private var history: TranscriptionHistory { .shared }
 
     var body: some View {
-        let texts = history.records.filter { $0.status == .success }.map(\.deliveredText)
-        GeometryReader { proxy in
+        // Read here, so the page follows History; worked through only when it changed.
+        historyCache.refresh(from: history.records)
+        return GeometryReader { proxy in
             ScrollViewReader { scroller in
             ScrollView {
                 VStack(alignment: .leading, spacing: 34) {
                     MainPageTitle(.dictionary)
-                    adder(suggestions: Vocabulary.suggestions(from: texts, excluding: entries))
-                    words(texts: texts)
+                    adder(suggestions: historyCache.suggestions(excluding: entries))
+                    words()
                     DictionaryReplacements()
                     DictionaryEffects(entries: entries)
                     HStack(spacing: 6) {
@@ -197,7 +201,7 @@ struct DictionaryView: View {
     // MARK: The words
 
     @ViewBuilder
-    private func words(texts: [String]) -> some View {
+    private func words() -> some View {
         let folded = !showsAllWords && entries.count > Self.wordsShown + 2
         let shown = folded ? Array(entries.prefix(Self.wordsShown)) : entries
         VStack(alignment: .leading, spacing: 12) {
@@ -212,7 +216,7 @@ struct DictionaryView: View {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6, alignment: .top), count: 4),
                               spacing: 6) {
                         ForEach(shown) { entry in
-                            DictionaryWordTile(entry: binding(entry.id), uses: Vocabulary.uses(of: entry, in: texts),
+                            DictionaryWordTile(entry: binding(entry.id), uses: historyCache.uses(of: entry),
                                                isEditing: Binding(get: { editing == entry.id },
                                                                   set: { editing = $0 ? entry.id : nil }),
                                                delete: { delete(entry.id) })

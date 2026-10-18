@@ -22,6 +22,9 @@ struct PromptsView: View {
     @State private var selection: UUID?
     @State private var confirmingRestore = false
     @State private var saveTask: Task<Void, Never>?
+    /// How often History says each prompt was chosen, counted again only when it changes —
+    /// not on every keystroke in the prompt being edited.
+    @State private var usage = PresetUsage.Cache()
     @AppStorage(SettingsKeys.llmProvider) private var llmProvider = LLMProviderType.groq.rawValue
     @AppStorage(SettingsKeys.localLLMModel) private var localLLMModel = Provider.local.defaultChatModel
     @AppStorage(SettingsKeys.promptsIntroHidden) private var introHidden = false
@@ -39,8 +42,10 @@ struct PromptsView: View {
     }
 
     var body: some View {
-        let uses = PresetUsage.uses(in: history.records)
-        GeometryReader { proxy in
+        // Read here, so the page follows History; counted only when it changed.
+        usage.refresh(from: history.records)
+        let uses = usage.uses
+        return GeometryReader { proxy in
             ScrollViewReader { scroller in
             ScrollView {
                 VStack(alignment: .leading, spacing: 34) {
@@ -108,7 +113,7 @@ struct PromptsView: View {
                                      makeDefault: { makeDefault(presets[index].id) },
                                      delete: { delete(presets[index].id) })
                         .id(presets[index].id)
-                    PromptRecentCard(preset: presets[index], records: PresetUsage.recent(presets[index], in: history.records))
+                    PromptRecentCard(preset: presets[index], records: usage.recent(presets[index]))
                 }
             }
             .padding(14)

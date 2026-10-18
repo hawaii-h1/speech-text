@@ -180,10 +180,11 @@ enum PresetUsage {
         return uses
     }
 
-    /// The latest dictations rewritten with `preset`, newest first.
+    /// The latest dictations rewritten with `preset`, newest first — as History keeps its
+    /// records, each added at the front with the time it was made, so the first found are
+    /// the latest and the search stops there.
     static func recent(_ preset: PromptPreset, in records: [TranscriptionRecord], limit: Int = 3) -> [TranscriptionRecord] {
-        Array(records.filter { chosenPreset($0)?.caseInsensitiveCompare(preset.name) == .orderedSame }
-            .sorted { $0.date > $1.date }
+        Array(records.lazy.filter { chosenPreset($0)?.caseInsensitiveCompare(preset.name) == .orderedSame }
             .prefix(limit))
     }
 
@@ -198,5 +199,58 @@ enum PresetUsage {
     private static func chosenPreset(_ record: TranscriptionRecord) -> String? {
         guard let refinement = record.refinement, !refinement.isSelectionEdit, refinement.succeeded else { return nil }
         return refinement.presetName
+    }
+
+    /// `uses` and `recent` for the Prompts page, kept until History changes: its body runs
+    /// on every keystroke in the prompt being edited, and counted afresh each time that was
+    /// every record read again.
+    ///
+    /// History is known to have changed by a fingerprint of what the two read (the number
+    /// of records, the first and last, and each one's status, text length and rewrite —
+    /// whether it was an edit, succeeded, its prompt's name and its length). One that
+    /// changed without changing any of those goes unseen until the next change, and a count
+    /// or a "last chosen for" is that much out of date meanwhile.
+    final class Cache {
+        private var fingerprint: Int?
+        /// The records a prompt was chosen for — a copy of its own, so History's array is
+        /// not held and still changes in place.
+        private var rewrites: [TranscriptionRecord] = []
+        private(set) var uses: [String: Use] = [:]
+        /// By the prompt's name exactly as written: `recent` matches it its own way.
+        private var recents: [String: [TranscriptionRecord]] = [:]
+
+        /// Brought up to date with `records`; counted again only when they changed.
+        func refresh(from records: [TranscriptionRecord]) {
+            var hasher = Hasher()
+            hasher.combine(records.count)
+            hasher.combine(records.first?.id)
+            hasher.combine(records.last?.id)
+            for record in records {
+                hasher.combine(record.status == .success)
+                hasher.combine(record.text.utf8.count)
+                if let refinement = record.refinement {
+                    hasher.combine(refinement.isSelectionEdit)
+                    hasher.combine(refinement.succeeded)
+                    hasher.combine(refinement.presetName)
+                    hasher.combine(refinement.outputText.utf8.count)
+                } else {
+                    hasher.combine(-1)
+                }
+            }
+            let fingerprint = hasher.finalize()
+            guard fingerprint != self.fingerprint else { return }
+            self.fingerprint = fingerprint
+            rewrites = records.filter { PresetUsage.chosenPreset($0) != nil }
+            uses = PresetUsage.uses(in: rewrites)
+            recents = [:]
+        }
+
+        /// `PresetUsage.recent` of the records last refreshed from.
+        func recent(_ preset: PromptPreset) -> [TranscriptionRecord] {
+            if let found = recents[preset.name] { return found }
+            let found = PresetUsage.recent(preset, in: rewrites)
+            recents[preset.name] = found
+            return found
+        }
     }
 }
