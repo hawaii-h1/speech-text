@@ -1289,6 +1289,7 @@ private struct HomeWayTile: View {
                     .overlay { glyph.foregroundStyle(isAI ? MainColor.aiInk : MainColor.okInk) }
                     .saturation(muted ? 0 : 1)
                     .opacity(muted ? 0.5 : 1)
+                    .accessibilityHidden(true)
                 Spacer(minLength: 8)
                 let keys = shortcutKeys(shortcutText(for: action))
                 HomeKeycaps(keys: keys, lit: HeldShortcuts.shared.down.contains(action),
@@ -1307,6 +1308,8 @@ private struct HomeWayTile: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .onTapGesture { actions.openSettings(.ai) }
                         .pointingHandCursor()
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { actions.openSettings(.ai) }
                 } else {
                     Text(description)
                         .font(.system(size: 13))

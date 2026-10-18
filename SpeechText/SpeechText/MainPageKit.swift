@@ -211,6 +211,9 @@ struct MainChip: View {
         .frame(height: 20)
         .background(Capsule().fill(fill))
         .fixedSize()
+        // The symbol only decorates the title.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
     }
 
     private var ink: Color {
@@ -240,6 +243,8 @@ struct MainSwitch<Item: Hashable>: View {
     let items: [(Item, String)]
     @Binding var selection: Item
     var height: CGFloat = 26
+    /// What VoiceOver calls the switch; empty for none.
+    var label = ""
 
     var body: some View {
         HStack(spacing: 0) {
@@ -268,6 +273,14 @@ struct MainSwitch<Item: Hashable>: View {
         .padding(3)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(MainColor.ink.opacity(0.06)))
         .fixedSize()
+        // VoiceOver gets the segmented control the capsule is drawn after: one element,
+        // the selected choice as its value.
+        .accessibilityRepresentation {
+            Picker(label, selection: $selection) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in Text(item.1).tag(item.0) }
+            }
+            .pickerStyle(.segmented)
+        }
     }
 }
 

@@ -374,6 +374,7 @@ private struct MainSidebarItem: View {
             .animation(.easeOut(duration: 0.15), value: hovering)
             .help(page.isComingLater ? "\(page.title) — coming soon" : page.title)
             .accessibilityLabel(page.title)
+            .accessibilityValue(isOpen ? "Open" : "")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

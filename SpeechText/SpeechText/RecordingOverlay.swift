@@ -407,6 +407,7 @@ struct StatusOverlayView: View {
                 .font(.system(size: 16, weight: skin == .techno ? .light : .medium))
                 .foregroundStyle(tint)
                 .frame(width: 24)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -420,6 +421,13 @@ struct StatusOverlayView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The notice's click opens History; VoiceOver gets it as a button of its own
+            // beside the action's, which keeps its title as its name.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(detail.map { "\(title). \($0)" } ?? title)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Opens History")
+            .accessibilityAction { onTap() }
 
             if let action {
                 Button(action.title, action: action.perform)

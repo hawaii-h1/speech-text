@@ -320,7 +320,8 @@ struct SettingsView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(SetupColor.label2)
             }
-            SettingsStepSlider(values: HistoryRetention.allCases, selection: selection, title: \.title, onChoose: choose)
+            SettingsStepSlider(values: HistoryRetention.allCases, selection: selection, title: \.title,
+                               label: title, onChoose: choose)
         }
         .padding(.vertical, 14)
     }

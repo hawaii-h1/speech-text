@@ -307,6 +307,8 @@ struct SettingsStepSlider<Value: Hashable>: View {
     let values: [Value]
     let selection: Value
     let title: (Value) -> String
+    /// What VoiceOver calls the slider; its value is the stop's name.
+    let label: String
     let onChoose: (Value) -> Void
 
     /// Where the knob is while it is being dragged.
@@ -343,7 +345,10 @@ struct SettingsStepSlider<Value: Hashable>: View {
         }
         .frame(height: 15 + 8 + knobHeight + 8)
         .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
         .accessibilityValue(title(values[shownIndex]))
+        // An adjustment is a release on the next stop: through `choose`, so a shorter
+        // History retention still asks before it deletes.
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: choose(min(selectedIndex + 1, values.count - 1))
