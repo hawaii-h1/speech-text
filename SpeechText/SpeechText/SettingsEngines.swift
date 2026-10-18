@@ -63,107 +63,16 @@ func macDescription(_ caps: SystemCapabilities) -> String {
     return "\(chip), \(Int(caps.memoryGB.rounded())) GB"
 }
 
-// MARK: - Words for the choices
+// The rows' words — every line, and the language notes they carry — are ModelRowWords.swift.
 
-/// What each local speech model is, in the words of someone choosing one.
-func speechModelLine(_ model: LocalSTTModel) -> String {
-    switch model.id {
-    case "openai_whisper-large-v3-v20240930": "As accurate as Turbo, about 30% slower. Needs 24 GB of memory."
-    case parakeetUltraModelID: "Parakeet v3 trained further: the same languages, as accurate on our tests."
-    case parakeetV3ModelID: "Great for English and Ukrainian, and the quickest to answer."
-    case "parakeet-redux": "Less than half the download of v3. More mistakes in Ukrainian, slower to answer."
-    case "phonon-2": "English only. Ukrainian comes out wrong."
-    case "openai_whisper-large-v3-v20240930_turbo_632MB": "Great for English and Ukrainian. Slower to answer than Parakeet."
-    case "openai_whisper-small_216MB": "Great for English. Makes mistakes in Ukrainian."
-    case "openai_whisper-base": "Good for English. Makes mistakes in Ukrainian."
-    case "openai_whisper-tiny": "Many mistakes. Only for a quick test."
-    default: model.summary
-    }
+/// A row's "No Spanish" badge, in the warning kind, while the model lacks one of the user's
+/// languages (#30) — on every row, not only the selected one, since tapping a local row
+/// starts a download. Apple's answer is asked of macOS.
+@MainActor
+func languageBadge(_ coverage: LanguageCoverage, spoken: [String]) -> SetupBadge? {
+    missingLanguageBadgeText(spoken: spoken, coverage: coverage, onDevice: AppleOnDeviceLanguages.supports)
+        .map { SetupBadge(text: $0, kind: .warn) }
 }
-
-func speechModelName(_ model: LocalSTTModel) -> String {
-    model.id == "openai_whisper-large-v3-v20240930_turbo_632MB" ? "Whisper Turbo" : model.displayName
-}
-
-/// An online speech model's name in a row, without the catalogue's picker suffix
-/// ("— live text"), which the line under it says in words.
-func onlineSpeechModelName(_ model: STTModelDescriptor) -> String {
-    model.displayName.components(separatedBy: " — ").first ?? model.displayName
-}
-
-func onlineSpeechModelLine(_ model: STTModelDescriptor) -> String {
-    switch model.id {
-    case "whisper-large-v3-turbo": "Fast and accurate. Text appears when you stop."
-    case "whisper-large-v3": "A little more careful on hard audio, a little slower."
-    case "scribe_v2": "Text appears when you stop."
-    case elevenLabsRealtimeModel: "Words appear as you speak."
-    case "gpt-transcribe": "Text appears when you stop."
-    case "gpt-4o-mini-transcribe": "Cheaper, a little less accurate."
-    case openAIRealtimeSTTModel: "Words appear as you speak."
-    default: model.isRealtime ? "Words appear as you speak." : "Text appears when you stop."
-    }
-}
-
-/// What each online speech service is good at.
-func onlineSpeechServiceLine(_ service: Provider) -> String {
-    switch service {
-    case .groq: "Fast Whisper. Text appears when you stop."
-    case .elevenLabs: "Strongest on accents and noise. Can show words as you speak."
-    case .openAI: "Can show words as you speak. Its key works for AI Rewrite too."
-    default: service.displayName
-    }
-}
-
-/// A chat model's name in a row, without the catalogue's picker notes ("(fastest)",
-/// "— balanced"), which the line under it says in words.
-func chatModelName(_ model: ChatModelDescriptor) -> String {
-    let name = model.displayName.components(separatedBy: " — ").first ?? model.displayName
-    return name.replacingOccurrences(of: #" \((fastest|preview)\)$"#, with: "", options: .regularExpression)
-}
-
-func chatModelLine(_ model: ChatModelDescriptor) -> String {
-    switch model.id {
-    case "openai/gpt-oss-120b": "Clean text in about a second."
-    case "openai/gpt-oss-20b": "The fastest, a little less careful."
-    case "qwen/qwen3.8-27b", "minimaxai/minimax-m2.7": "A preview — Groq may withdraw it."
-    case "claude-sonnet-5": "Fast, and writes well."
-    case "claude-opus-5": "Writes best. Slower, and costs more."
-    case "claude-haiku-4-5": "The fastest."
-    case "gpt-5.6-luna": "The fastest."
-    case "gpt-5.6-terra": "Balanced."
-    case "gpt-5.6-sol": "The flagship. Slower, and costs more."
-    default: ""
-    }
-}
-
-func onlineAIServiceLine(_ service: Provider) -> String {
-    switch service {
-    case .groq: "Fast, with a free plan. Its key works for speech too."
-    case .anthropic: "Claude. Careful writing, paid."
-    case .openAI: "ChatGPT's models, paid. Its key works for speech too."
-    default: service.displayName
-    }
-}
-
-/// What each local chat model is, in a line — from the rewrite evaluation on an M1 Pro.
-func aiModelLine(_ model: LocalChatModel, heavy: Bool) -> String {
-    let line = switch model.id {
-    case "gemma-4-12b-it-qat-q4_0": "The best in our Ukrainian test. Clean text in 2–4 seconds."
-    case "Qwen3.5-9B-Q4_K_M": "A step behind Gemma 4 12B, a little lighter."
-    case "Qwen3.5-4B-Q4_K_M": "Works, with some mistakes."
-    case "gpt-oss-20b-MXFP4": "OpenAI's open model. Close behind Gemma, and the fastest here."
-    case "Qwen3.8-27B-Q4_K_M": "The largest. About 8 seconds a dictation on an M1 Pro."
-    default: model.summary
-    }
-    guard heavy else { return line }
-    return "\(line) Needs \(Int((Double(model.memoryFloorBytes) / 1_073_741_824).rounded())) GB of memory."
-}
-
-/// Under the models on an Intel Mac, which has no GPU llama.cpp can use well.
-let intelChatWarning = "This Mac has an Intel processor: a model runs on it alone, and a rewrite can take a minute or more. An online service is much faster."
-
-/// Apple's recogniser, as a row beside the downloaded models.
-let appleDictationLine = "Built into macOS, nothing to download. Words appear as you speak, but not every language works on-device — Ukrainian among them."
 
 // MARK: - Speech to text
 
@@ -215,6 +124,7 @@ struct SpeechEngineSettings: View {
     // MARK: On this Mac
 
     @AppStorage(SettingsKeys.spokenLanguages) private var spokenLanguages = ""
+    private var spoken: [String] { parseSpokenLanguages(spokenLanguages) }
     private var recommended: LocalSTTModel? {
         recommendedLocalSTTModel(for: capabilities, languages: parseSpokenLanguages(spokenLanguages))
     }
@@ -246,7 +156,9 @@ struct SpeechEngineSettings: View {
                 .padding(.vertical, 6)
                 if showHeavyModels { ForEach(heavy) { localRow($0) } }
             }
-            SetupRow(title: "Apple Dictation", subtitle: "Built in", detail: appleDictationLine,
+            SetupRow(title: "Apple Dictation", subtitle: "Built in",
+                     languageBadge: languageBadge(sttModel(vendor: .apple, id: appleSpeechModelID).languages, spoken: spoken),
+                     detail: appleDictationLine,
                      isSelected: engine == .apple) { sttProvider = STTProviderType.apple.rawValue }
             HStack {
                 Text(store.hasAnyModel
@@ -270,6 +182,7 @@ struct SpeechEngineSettings: View {
         .onAppear {
             store.refresh()
             capabilities = SystemCapabilities.current()
+            AppleOnDeviceLanguages.refresh()
         }
         .onChange(of: waitingIsUsable) { _, usable in
             guard usable, let id = waitingFor else { return }
@@ -330,8 +243,9 @@ struct SpeechEngineSettings: View {
         } else {
             nil
         }
-        return SetupRow(title: speechModelName(model), subtitle: model.downloadSizeDescription, badge: badge,
-                        detail: speechModelLine(model),
+        return SetupRow(title: speechModelName(model), subtitle: speechModelSubtitle(model), badge: badge,
+                        languageBadge: languageBadge(model.languages, spoken: spoken),
+                        detail: speechModelLine(model, spoken: spoken),
                         isSelected: engine == .local && localModelID == model.id,
                         action: { pickLocal(model) }) {
             HStack(spacing: 8) {
@@ -438,11 +352,12 @@ struct SpeechEngineSettings: View {
         if selected || opened == card.service {
             NestedUnderRow {
                 ForEach(pickerSTTModels(of: card.service, selected: storedModel(card.service))) { model in
-                    SetupRow(title: onlineSpeechModelName(model),
+                    SetupRow(title: onlineSpeechModelName(model), subtitle: languageCountLabel(model.languages),
                              badge: lifecycleBadge(model.lifecycle)
                                 ?? (model.id == card.service.defaultSpeechModel
                                     ? SetupBadge(text: "Recommended", kind: .recommended) : nil),
-                             detail: onlineSpeechModelLine(model),
+                             languageBadge: languageBadge(model.languages, spoken: spoken),
+                             detail: onlineSpeechModelLine(model, spoken: spoken),
                              isSelected: storedModel(card.service) == model.id, compact: true) {
                         setStoredModel(model.id, for: card.service)
                         if keyed { sttProvider = card.engine.rawValue }
@@ -495,6 +410,7 @@ struct AIEngineSettings: View {
     @State private var store = LocalChatStore.shared
     @State private var capabilities = SystemCapabilities.current()
     @State private var showHeavyModels = false
+    @AppStorage(SettingsKeys.spokenLanguages) private var spokenLanguages = ""
     /// A model being downloaded to be used: AI Rewrite switches to it once it is on this
     /// Mac, never before — a rewrite meanwhile would fall back to the transcript.
     @State private var waitingFor: String?
@@ -639,7 +555,7 @@ struct AIEngineSettings: View {
             nil
         }
         return SetupRow(title: model.displayName, subtitle: model.downloadSizeDescription, badge: badge,
-                        detail: aiModelLine(model, heavy: heavy),
+                        detail: aiModelLine(model, heavy: heavy, spoken: parseSpokenLanguages(spokenLanguages)),
                         isSelected: pick == .local && localModelID == model.id,
                         action: { pickLocal(model) }) {
             HStack(spacing: 8) {

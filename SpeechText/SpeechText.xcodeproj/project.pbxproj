@@ -20,6 +20,12 @@
 		F9000000000000000000000E /* LocalChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000000000000000000000D /* LocalChatTests.swift */; };
 		F9000000000000000000000C /* RewriteEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000000000000000000000B /* RewriteEvaluation.swift */; };
 		F9000000000000000000000A /* LocalLlamaRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000009 /* LocalLlamaRuntime.swift */; };
+		AC30000000000000000000A1 /* ModelLanguages.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3000000000000000000001 /* ModelLanguages.swift */; };
+		AC30000000000000000000B1 /* ModelLanguages.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3000000000000000000001 /* ModelLanguages.swift */; };
+		AC30000000000000000000C1 /* ModelLanguages.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3000000000000000000001 /* ModelLanguages.swift */; };
+		AC30000000000000000000A2 /* ModelRowWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3000000000000000000002 /* ModelRowWords.swift */; };
+		AC30000000000000000000B2 /* ModelRowWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3000000000000000000002 /* ModelRowWords.swift */; };
+		AC30000000000000000000C2 /* ModelRowWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3000000000000000000002 /* ModelRowWords.swift */; };
 		F90000000000000000000008 /* LocalChatCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000005 /* LocalChatCatalog.swift */; };
 		F90000000000000000000007 /* LocalChatCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000005 /* LocalChatCatalog.swift */; };
 		F90000000000000000000006 /* LocalChatCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000005 /* LocalChatCatalog.swift */; };
@@ -65,6 +71,7 @@
 		D30000010000000000000006 /* DictationReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000003 /* DictationReplay.swift */; };
 		D30000010000000000000007 /* DictationReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000004 /* DictationReplayTests.swift */; };
 		C30000010000000000000100 /* LocalModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000100 /* LocalModelsTests.swift */; };
+		AC30000000000000000000B3 /* ModelLanguageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC3000000000000000000003 /* ModelLanguageTests.swift */; };
 		C10000010000000000000001 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
 		C30000010000000000000001 /* SystemCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* SystemCapabilities.swift */; };
 		C10000010000000000000002 /* LocalModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000002 /* LocalModelCatalog.swift */; };
@@ -264,6 +271,8 @@
 		F9000000000000000000000D /* LocalChatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatTests.swift; sourceTree = "<group>"; };
 		F9000000000000000000000B /* RewriteEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewriteEvaluation.swift; sourceTree = "<group>"; };
 		F90000000000000000000009 /* LocalLlamaRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLlamaRuntime.swift; sourceTree = "<group>"; };
+		AC3000000000000000000001 /* ModelLanguages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelLanguages.swift; sourceTree = "<group>"; };
+		AC3000000000000000000002 /* ModelRowWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRowWords.swift; sourceTree = "<group>"; };
 		F90000000000000000000005 /* LocalChatCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalChatCatalog.swift; sourceTree = "<group>"; };
 		F90000000000000000000001 /* ChatTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTemplates.swift; sourceTree = "<group>"; };
 		F7A001000000000000000001 /* HomeSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSummary.swift; sourceTree = "<group>"; };
@@ -289,6 +298,7 @@
 		D20000010000000000000003 /* DictationReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationReplay.swift; sourceTree = "<group>"; };
 		D20000010000000000000004 /* DictationReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationReplayTests.swift; sourceTree = "<group>"; };
 		C20000010000000000000100 /* LocalModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsTests.swift; sourceTree = "<group>"; };
+		AC3000000000000000000003 /* ModelLanguageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelLanguageTests.swift; sourceTree = "<group>"; };
 		C20000010000000000000001 /* SystemCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCapabilities.swift; sourceTree = "<group>"; };
 		C20000010000000000000002 /* LocalModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelCatalog.swift; sourceTree = "<group>"; };
 		C20000010000000000000004 /* LocalModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelStore.swift; sourceTree = "<group>"; };
@@ -560,6 +570,8 @@
 				A2000001000000000000000B /* SpeechText.entitlements */,
 				F90000000000000000000001 /* ChatTemplates.swift */,
 				F90000000000000000000005 /* LocalChatCatalog.swift */,
+				AC3000000000000000000002 /* ModelRowWords.swift */,
+				AC3000000000000000000001 /* ModelLanguages.swift */,
 				F90000000000000000000009 /* LocalLlamaRuntime.swift */,
 				F9000000000000000000000F /* LocalChatXPC.swift */,
 				F90000000000000000000011 /* LocalChatClient.swift */,
@@ -589,6 +601,7 @@
 				D8000001000000000000A001 /* LiveProviderTests.swift */,
 				B20000010000000000000001 /* PureLogicTests.swift */,
 				C20000010000000000000100 /* LocalModelsTests.swift */,
+				AC3000000000000000000003 /* ModelLanguageTests.swift */,
 				E6000100000000000000001A /* OnboardingTests.swift */,
 				F78001000000000000000010 /* NetworkTests.swift */,
 				F7A001000000000000000004 /* HomeSummaryTests.swift */,
@@ -854,6 +867,8 @@
 				D10000010000000000000005 /* DictationTrace.swift in Sources */,
 				F90000000000000000000002 /* ChatTemplates.swift in Sources */,
 				F90000000000000000000006 /* LocalChatCatalog.swift in Sources */,
+				AC30000000000000000000A2 /* ModelRowWords.swift in Sources */,
+				AC30000000000000000000A1 /* ModelLanguages.swift in Sources */,
 				F90000000000000000000010 /* LocalChatXPC.swift in Sources */,
 				F90000000000000000000012 /* LocalChatClient.swift in Sources */,
 				F90000000000000000000014 /* LocalChatStore.swift in Sources */,
@@ -894,6 +909,7 @@
 				B10000010000000000000200 /* SpellCheckedJoins.swift in Sources */,
 				B1000001000000000000C054 /* STTModelCatalog.swift in Sources */,
 				C30000010000000000000100 /* LocalModelsTests.swift in Sources */,
+				AC30000000000000000000B3 /* ModelLanguageTests.swift in Sources */,
 				C30000010000000000000001 /* SystemCapabilities.swift in Sources */,
 				C30000010000000000000002 /* LocalModelCatalog.swift in Sources */,
 				B1000001000000000000001C /* InsertionLedger.swift in Sources */,
@@ -933,6 +949,8 @@
 				D30000010000000000000008 /* DictationTrace.swift in Sources */,
 				F90000000000000000000003 /* ChatTemplates.swift in Sources */,
 				F90000000000000000000007 /* LocalChatCatalog.swift in Sources */,
+				AC30000000000000000000B2 /* ModelRowWords.swift in Sources */,
+				AC30000000000000000000B1 /* ModelLanguages.swift in Sources */,
 				F9000000000000000000000E /* LocalChatTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1001,6 +1019,8 @@
 				D80000030000000000000104 /* TextReplacements.swift in Sources */,
 				F90000000000000000000004 /* ChatTemplates.swift in Sources */,
 				F90000000000000000000008 /* LocalChatCatalog.swift in Sources */,
+				AC30000000000000000000C2 /* ModelRowWords.swift in Sources */,
+				AC30000000000000000000C1 /* ModelLanguages.swift in Sources */,
 				F9000000000000000000000A /* LocalLlamaRuntime.swift in Sources */,
 				F9000000000000000000000C /* RewriteEvaluation.swift in Sources */,
 );

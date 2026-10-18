@@ -541,6 +541,9 @@ struct SetupRow<Detail: View>: View {
     let title: String
     var subtitle: String?
     var badge: SetupBadge?
+    /// A language the model lacks ("No Spanish"), beside whatever `badge` says — a
+    /// recommendation or an install state never hides it.
+    var languageBadge: SetupBadge? = nil
     var detail: String?
     let isSelected: Bool
     var dimmed = false
@@ -571,6 +574,7 @@ struct SetupRow<Detail: View>: View {
                         Text("· \(subtitle)").font(.system(size: 13)).foregroundStyle(SetupColor.label2)
                     }
                     if let badge { badge.padding(.leading, 4) }
+                    if let languageBadge { languageBadge.padding(.leading, badge == nil ? 4 : 0) }
                 }
                 if let detail {
                     Text(detail).font(.system(size: 11.5)).foregroundStyle(SetupColor.label2)
@@ -597,9 +601,10 @@ struct SetupRow<Detail: View>: View {
 }
 
 extension SetupRow where Detail == EmptyView {
-    init(title: String, subtitle: String? = nil, badge: SetupBadge? = nil, detail: String? = nil,
-         isSelected: Bool, dimmed: Bool = false, compact: Bool = false, action: @escaping () -> Void) {
-        self.init(title: title, subtitle: subtitle, badge: badge, detail: detail, isSelected: isSelected,
+    init(title: String, subtitle: String? = nil, badge: SetupBadge? = nil, languageBadge: SetupBadge? = nil,
+         detail: String? = nil, isSelected: Bool, dimmed: Bool = false, compact: Bool = false,
+         action: @escaping () -> Void) {
+        self.init(title: title, subtitle: subtitle, badge: badge, languageBadge: languageBadge, detail: detail, isSelected: isSelected,
                   dimmed: dimmed, compact: compact, action: action, extra: { EmptyView() })
     }
 }

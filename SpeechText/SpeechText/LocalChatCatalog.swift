@@ -22,7 +22,13 @@ struct LocalChatModel: Identifiable, Hashable, Sendable {
     /// cache, macOS and whatever the user has open — a model that only just fits pages as
     /// soon as a browser tab loads, and a rewrite that stalls reads as the app hanging.
     let memoryFloorBytes: UInt64
+    /// Names no language: a row names only the user's own, through `languageNotes`.
     let summary: String
+    /// Weaknesses the rewrite evaluation measured, by language code, shown only to someone
+    /// who speaks it. None today: on llama.cpp no model drifted out of the dictated language
+    /// (docs/specs/2026-10-16-built-in-local-llm.md). Required, so a model added later is
+    /// asked the question.
+    let languageNotes: [String: LanguageNote]
 
     var downloadURL: URL {
         URL(string: "https://huggingface.co/\(repository)/resolve/\(revision)/\(file)")!
@@ -50,7 +56,8 @@ let localChatModels: [LocalChatModel] = [
         file: "Qwen3.8-27B-Q4_K_M.gguf",
         sha256: "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
         downloadBytes: 18_973_870_528, memoryFloorBytes: 32 * gigabyte,
-        summary: "The largest here. About 8 seconds a dictation on an M1 Pro, three times Gemma 4 12B's."
+        summary: "The largest here. About 8 seconds a dictation on an M1 Pro, three times Gemma 4 12B's.",
+        languageNotes: [:]
     ),
     LocalChatModel(
         id: "gpt-oss-20b-MXFP4", displayName: "gpt-oss 20B", family: .harmony,
@@ -58,7 +65,8 @@ let localChatModels: [LocalChatModel] = [
         file: "gpt-oss-20b-MXFP4.gguf",
         sha256: "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901",
         downloadBytes: 12_109_566_624, memoryFloorBytes: 24 * gigabyte,
-        summary: "OpenAI's open model. Mixture-of-experts with 3.6B active; it always reasons a little before answering."
+        summary: "OpenAI's open model. Mixture-of-experts with 3.6B active; it always reasons a little before answering.",
+        languageNotes: [:]
     ),
     LocalChatModel(
         id: "gemma-4-12b-it-qat-q4_0", displayName: "Gemma 4 12B", family: .gemma4,
@@ -66,7 +74,8 @@ let localChatModels: [LocalChatModel] = [
         file: "gemma-4-12b-it-qat-q4_0.gguf",
         sha256: "93567e57a8fe10b23569b9d9ec38cd005deedf71e29477c421a4b83f418a538b",
         downloadBytes: 6_975_879_296, memoryFloorBytes: 16 * gigabyte,
-        summary: "The best in our Ukrainian test: 40 of 42 rewrites right, about 2.4 s each on an M1 Pro."
+        summary: "The best in our rewrite test: 40 of 42 rewrites right, about 2.4 s each on an M1 Pro.",
+        languageNotes: [:]
     ),
     LocalChatModel(
         id: "Qwen3.5-9B-Q4_K_M", displayName: "Qwen3.5 9B", family: .qwen,
@@ -74,7 +83,8 @@ let localChatModels: [LocalChatModel] = [
         file: "Qwen3.5-9B-Q4_K_M.gguf",
         sha256: "cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13",
         downloadBytes: 5_627_044_256, memoryFloorBytes: 16 * gigabyte,
-        summary: "A step behind Gemma 4 12B, and a little lighter."
+        summary: "A step behind Gemma 4 12B, and a little lighter.",
+        languageNotes: [:]
     ),
     LocalChatModel(
         id: "Qwen3.5-4B-Q4_K_M", displayName: "Qwen3.5 4B", family: .qwen,
@@ -82,7 +92,8 @@ let localChatModels: [LocalChatModel] = [
         file: "Qwen3.5-4B-Q4_K_M.gguf",
         sha256: "25082a7dd3776cc3c741c6347d3bd04523f05796607b3fbc32fa3a25dfa1418c",
         downloadBytes: 2_707_513_696, memoryFloorBytes: 8 * gigabyte,
-        summary: "The one that fits 8 GB, with limits: it sometimes picks the wrong prompt. An online service rewrites better."
+        summary: "The one that fits 8 GB, with limits: it sometimes picks the wrong prompt. An online service rewrites better.",
+        languageNotes: [:]
     ),
 ]
 

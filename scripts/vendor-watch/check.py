@@ -7,6 +7,8 @@ library only, and Python 3.9 (the Command Line Tools' python3). Every request is
 here with urllib, so an API key never appears on a command line, and no error message
 ever carries a request header. docs/vendor-watch.md describes the report.
 
+Language lists (#30) are compared with their sources too, and never fail the release rule.
+
 Exit status: 0 nothing to act on before a release, 1 the release rule fails (a catalogue
 model the vendor no longer serves that is not deprecated or retired), 3 some vendor could
 not be checked (no key, no network, an error), 64 bad usage. The shell script adds 2, a
@@ -43,6 +45,28 @@ MODEL_PACKAGES = ["fluidaudio", "argmax-oss-swift"]
 MODEL_AUTHORS = ["FluidInference", "argmaxinc"]
 SPEECH_TASKS = {"automatic-speech-recognition", "voice-activity-detection", "audio-classification",
                 "audio-to-audio", "text-to-speech"}
+# A published language list (docs/design/model-details/) is read again by hand when its
+# source has no reader below and it was checked longer ago than this.
+LANGUAGE_RECHECK_DAYS = 180
+# ISO 639-3 to 639-1, for the codes ElevenLabs writes; the catalogue keeps 639-1 where one
+# exists and the 639-3 code otherwise (ast, ceb, fil, kea, luo, nso, umb, yue), so a code
+# missing here is compared as it is, and a new one shows up as added.
+ISO639_3_TO_1 = {
+    "afr": "af", "amh": "am", "ara": "ar", "hye": "hy", "asm": "as", "aze": "az", "bel": "be",
+    "ben": "bn", "bos": "bs", "bul": "bg", "mya": "my", "cat": "ca", "nya": "ny", "hrv": "hr",
+    "ces": "cs", "dan": "da", "nld": "nl", "eng": "en", "est": "et", "fin": "fi", "fra": "fr",
+    "ful": "ff", "glg": "gl", "lug": "lg", "kat": "ka", "deu": "de", "ell": "el", "guj": "gu",
+    "hau": "ha", "heb": "he", "hin": "hi", "hun": "hu", "isl": "is", "ibo": "ig", "ind": "id",
+    "gle": "ga", "ita": "it", "jpn": "ja", "jav": "jv", "kan": "kn", "kaz": "kk", "khm": "km",
+    "kor": "ko", "kur": "ku", "kir": "ky", "lao": "lo", "lav": "lv", "lin": "ln", "lit": "lt",
+    "ltz": "lb", "mkd": "mk", "msa": "ms", "mal": "ml", "mlt": "mt", "zho": "zh", "cmn": "zh",
+    "mri": "mi", "mar": "mr", "mon": "mn", "nep": "ne", "nor": "no", "oci": "oc", "ori": "or",
+    "pus": "ps", "fas": "fa", "pol": "pl", "por": "pt", "pan": "pa", "ron": "ro", "rus": "ru",
+    "srp": "sr", "sna": "sn", "snd": "sd", "sin": "si", "slk": "sk", "slv": "sl", "som": "so",
+    "spa": "es", "swa": "sw", "swe": "sv", "tam": "ta", "tgk": "tg", "tel": "te", "tha": "th",
+    "tur": "tr", "ukr": "uk", "urd": "ur", "uzb": "uz", "vie": "vi", "cym": "cy", "wol": "wo",
+    "xho": "xh", "zul": "zu", "yor": "yo",
+}
 SPEECH_NAME = re.compile(r"parakeet|whisper|asr|speech|stt|nemotron|canary|vad|voxtral|moonshine|phonon|"
                          r"transcri|diariz|audio", re.I)
 
@@ -267,6 +291,87 @@ def huggingface_sources(models):
     return results
 
 
+# MARK: - Language lists
+
+def whisper_languages(url):
+    """The `LANGUAGES` table of Whisper's tokenizer, from the file the catalogue cites."""
+    raw = url.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")
+    status, body = request(raw)
+    if status != 200:
+        raise NotChecked("HTTP %d from %s" % (status, raw))
+    table = re.search(r"^LANGUAGES = \{(.*?)^\}", body.decode("utf-8", "replace"), re.S | re.M)
+    if not table:
+        raise NotChecked("no LANGUAGES table in %s" % raw)
+    # Whisper writes Javanese "jw"; the catalogue writes the BCP-47 "jv".
+    return {"jv" if c == "jw" else c for c in re.findall(r'^\s*"([a-z]+)":', table.group(1), re.M)}
+
+
+def huggingface_languages(url):
+    """The `language` list of a Hugging Face model card."""
+    repo = url.split("huggingface.co/", 1)[1].strip("/")
+    languages = (get_json("https://huggingface.co/api/models/" + repo).get("cardData") or {}).get("language")
+    if not languages:
+        raise NotChecked("the model card of %s lists no language" % repo)
+    return set([languages] if isinstance(languages, str) else languages)
+
+
+def elevenlabs_languages(url):
+    """The list on an ElevenLabs documentation page, from its Markdown version: the line with
+    the most "Name (xyz)" codes is the full list (the others are its accuracy buckets)."""
+    status, body = request(url.rstrip("/") + ".md")
+    if status != 200:
+        raise NotChecked("HTTP %d from %s.md" % (status, url))
+    lines = body.decode("utf-8", "replace").splitlines()
+    codes = max((re.findall(r"\(([a-z]{3})\)", line) for line in lines), key=len, default=[])
+    if len(codes) < 20:
+        raise NotChecked("no language list found on %s" % url)
+    return {ISO639_3_TO_1.get(c, c) for c in codes}
+
+
+def language_reader(url):
+    if url.startswith("https://github.com/openai/whisper/"):
+        return whisper_languages
+    if url.startswith("https://huggingface.co/"):
+        return huggingface_languages
+    if url.startswith("https://elevenlabs.io/docs/"):
+        return elevenlabs_languages
+    return None
+
+
+def language_lists(catalogue, today):
+    """Each published language list the catalogue cites, read again from its source:
+    languages the source has that the catalogue lacks, and the reverse. A source with no
+    reader is listed for the weekly agent to read, and flagged once it is old."""
+    groups, unpublished = {}, []
+    for model in catalogue["speech"]:
+        languages = model.get("languages") or {}
+        name = "%s `%s`" % (VENDOR_NAMES.get(model["vendor"], model["vendor"]), model["id"])
+        if languages.get("kind") == "listed":
+            group = groups.setdefault(languages["source"], {"ours": set(), "checked": languages["checked"], "models": []})
+            group["ours"] |= set(languages["codes"])
+            group["checked"] = min(group["checked"], languages["checked"])
+            group["models"].append(name)
+        elif languages.get("kind") == "unpublished":
+            unpublished.append(name)
+    results = []
+    for source, group in sorted(groups.items()):
+        result = {"source": source, "models": group["models"], "checked": group["checked"]}
+        reader = language_reader(source)
+        if reader is None:
+            checked = datetime.date.fromisoformat(group["checked"])
+            result["manual"] = True
+            result["stale"] = (today - checked).days > LANGUAGE_RECHECK_DAYS
+        else:
+            try:
+                theirs = reader(source)
+                result["added"] = sorted(theirs - group["ours"])
+                result["dropped"] = sorted(group["ours"] - theirs)
+            except NotChecked as error:
+                result["error"] = str(error)
+        results.append(result)
+    return results, unpublished
+
+
 def new_repositories(since):
     out, errors = [], []
     for author in MODEL_AUTHORS:
@@ -433,7 +538,7 @@ def candidates(catalogue, served, previous):
 # MARK: - Report
 
 def report(args, catalogue, served, problems, result, new, absent, packages, sources,
-           repos, repo_errors, previous_date, today):
+           repos, repo_errors, previous_date, today, languages=([], [])):
     lines = ["# Vendor watch — %s" % today.isoformat(), "",
              "Catalogue: `%s`, prices checked %s. New IDs and repositories since %s."
              % (args.commit, catalogue["pricesChecked"], args.since), ""]
@@ -489,6 +594,32 @@ def report(args, catalogue, served, problems, result, new, absent, packages, sou
                   for v, i, ours, theirs in result["drift"]]
     else:
         lines.append("None.")
+    lines.append("")
+
+    lists, unpublished = languages
+    lines += ["## Language lists", "",
+              "Each list the catalogue cites, read again from its source. A language added or dropped "
+              "there changes the rows' count and their \"No …\" badges: update the codes and the date "
+              "in ModelLanguages.swift (or the model's entry).", ""]
+    for entry in lists:
+        models = ", ".join(entry["models"])
+        if "error" in entry:
+            state = "not checked: %s" % entry["error"]
+        elif entry.get("manual"):
+            state = ("**read it again by hand** (checked %s)" if entry["stale"] else "read by hand (checked %s)") \
+                % entry["checked"]
+        elif entry["added"] or entry["dropped"]:
+            parts = (["added at the source: %s" % ", ".join(entry["added"])] if entry["added"] else []) + \
+                    (["dropped at the source: %s" % ", ".join(entry["dropped"])] if entry["dropped"] else [])
+            state = "**%s**" % "; ".join(parts)
+        else:
+            state = "matches"
+        lines.append("- %s (%s): %s" % (entry["source"], models, state))
+    if not lists:
+        lines.append("The export carries no language lists.")
+    if unpublished:
+        lines += ["", "No published list (the weekly agent checks whether the vendor now publishes one): %s."
+                  % ", ".join(unpublished)]
     lines.append("")
 
     lines += ["## New at the vendor", ""]
@@ -598,8 +729,9 @@ def main():
     packages = package_releases(args.resolved)
     sources = huggingface_sources(catalogue["speech"] + catalogue["chat"])
     repos, repo_errors = new_repositories(args.since)
+    languages = language_lists(catalogue, today)
     text, gate, unchecked = report(args, catalogue, served, problems, result, new, absent, packages, sources,
-                                   repos, repo_errors, previous_date, today)
+                                   repos, repo_errors, previous_date, today, languages)
     if args.out:
         with open(args.out, "w") as out:
             out.write(text + "\n")

@@ -268,3 +268,28 @@ final class AppleRecognitionSession: RecognitionSession {
         resolveFinish(cancelled: true)
     }
 }
+
+// MARK: - Languages on this Mac
+
+/// Which of the user's languages Apple's recogniser takes on-device on this Mac — the answer
+/// `LanguageCoverage.decidedBySystem` stands for (#30). Asked of macOS, never written down:
+/// it follows the Dictation languages installed, so it differs from Mac to Mac. It does not
+/// need the Speech Recognition permission: on 2026-10-17, with the permission not yet asked,
+/// macOS answered true for en-US and uk-UA and false for es-ES ("No Assistant asset").
+enum AppleOnDeviceLanguages {
+    @MainActor private static var answers: [String: Bool] = [:]
+
+    /// True or false once macOS has said; nil for a code with no Apple locale, which then
+    /// stays silent. A locale macOS cannot recognise at all is false.
+    @MainActor static func supports(_ code: String) -> Bool? {
+        guard let locale = spokenLanguage(id: languageSubtag(code))?.localeIdentifier else { return nil }
+        if let known = answers[locale] { return known }
+        let answer = SFSpeechRecognizer(locale: Locale(identifier: locale))?.supportsOnDeviceRecognition ?? false
+        answers[locale] = answer
+        return answer
+    }
+
+    /// Forgets the answers, so a page that appears asks again — the user may have added a
+    /// Dictation language in System Settings meanwhile.
+    @MainActor static func refresh() { answers = [:] }
+}

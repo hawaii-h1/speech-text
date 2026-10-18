@@ -61,8 +61,36 @@ final class CatalogueExportTests: XCTestCase {
         XCTAssertTrue(export.chat.filter { $0.vendor != "local" }.allSatisfy { $0.source == nil })
     }
 
-    func testUntilLifecycleStatesLandEveryModelIsCurrent() {
-        XCTAssertTrue((export.speech.map(\.lifecycle) + export.chat.map(\.lifecycle)).allSatisfy { $0 == .current })
+    /// Each kind of coverage, as the script tells them apart.
+    func testLanguagesAreExportedByKind() {
+        let byID = Dictionary(uniqueKeysWithValues: export.speech.map { ("\($0.vendor)/\($0.id)", $0.languages) })
+        XCTAssertEqual(byID["apple/\(appleSpeechModelID)"]?.kind, "decidedBySystem")
+        XCTAssertEqual(byID["openAI/gpt-transcribe"]?.kind, "unpublished")
+        XCTAssertEqual(byID["elevenLabs/scribe_v2"]?.vendorSaysAtLeast, 90)
+        XCTAssertEqual(byID["local/phonon-2"]?.codes, ["en"])
+        XCTAssertTrue(export.speech.filter { $0.languages.kind == "listed" }
+            .allSatisfy { $0.languages.source?.hasPrefix("https://") == true && $0.languages.codes?.isEmpty == false })
+    }
+
+    /// Each model's lifecycle, as the script reads it — the catalogue's own state, not a
+    /// placeholder: a deprecated model before its shutdown, the same model retired after it.
+    func testTheLifecycleIsTheCataloguesOwn() throws {
+        func day(_ y: Int, _ m: Int, _ d: Int) -> Date { ModelRetirement.day(y, m, d).date! }
+        let before = CatalogueExport.current(on: day(2026, 10, 17))
+        let mini = try XCTUnwrap(before.speech.first { $0.id == "gpt-4o-mini-transcribe" })
+        XCTAssertEqual(mini.lifecycle, CatalogueExport.Lifecycle(state: "deprecated", shutdownDate: "2027-02-26"))
+        let after = CatalogueExport.current(on: day(2027, 3, 1))
+        XCTAssertEqual(after.speech.first { $0.id == "gpt-4o-mini-transcribe" }?.lifecycle,
+                       CatalogueExport.Lifecycle(state: "retired", shutdownDate: "2027-02-26"))
+        // Every entry the catalogue calls current is exported current.
+        for model in sttModelCatalog where model.lifecycle == .current {
+            XCTAssertEqual(before.speech.first { $0.vendor == model.vendor.rawValue && $0.id == model.id }?.lifecycle,
+                           .current, model.id)
+        }
+        XCTAssertEqual(CatalogueExport.lifecycle(.superseded(by: "x"), on: day(2026, 10, 17)),
+                       CatalogueExport.Lifecycle(state: "superseded", shutdownDate: nil))
+        XCTAssertEqual(CatalogueExport.lifecycle(.deprecated(.archived(replacement: nil)), on: day(2026, 10, 17)),
+                       CatalogueExport.Lifecycle(state: "retired", shutdownDate: nil))
     }
 
     /// The whole shape of one entry of each kind, written out as the script reads it.
@@ -72,14 +100,22 @@ final class CatalogueExportTests: XCTestCase {
         XCTAssertEqual(json["pricesChecked"] as? String, CatalogueExport.day(UsagePrices.checked))
         let speech = try XCTUnwrap(json["speech"] as? [[String: Any]])
         let realtime = try XCTUnwrap(speech.first { $0["id"] as? String == openAIRealtimeSTTModel })
-        XCTAssertEqual(Set(realtime.keys), ["vendor", "id", "displayName", "delivery", "uploadModel", "price", "lifecycle"])
+        XCTAssertEqual(Set(realtime.keys), ["vendor", "id", "displayName", "delivery", "uploadModel", "price", "lifecycle", "languages"])
         XCTAssertEqual(realtime["vendor"] as? String, "openAI")
         XCTAssertEqual(Set(try XCTUnwrap(realtime["price"] as? [String: Any]).keys),
                        ["kind", "perMinute", "keytermSurchargePerMinute"])
         XCTAssertEqual(try XCTUnwrap(realtime["lifecycle"] as? [String: Any])["state"] as? String, "current")
+        XCTAssertEqual(try XCTUnwrap(realtime["languages"] as? [String: Any]) as NSDictionary,
+                       ["kind": "unpublished"] as NSDictionary)
         let local = try XCTUnwrap(speech.first { $0["id"] as? String == parakeetV3ModelID })
-        XCTAssertEqual(Set(local.keys), ["vendor", "id", "displayName", "delivery", "engine", "source", "price", "lifecycle"])
+        XCTAssertEqual(Set(local.keys), ["vendor", "id", "displayName", "delivery", "engine", "source", "price", "lifecycle", "languages"])
         XCTAssertEqual(Set(try XCTUnwrap(local["source"] as? [String: Any]).keys), ["huggingFace", "requiredFiles"])
+        let languages = try XCTUnwrap(local["languages"] as? [String: Any])
+        XCTAssertEqual(Set(languages.keys), ["kind", "codes", "source", "checked"])
+        XCTAssertEqual(languages["kind"] as? String, "listed")
+        XCTAssertEqual(languages["source"] as? String, "https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml")
+        XCTAssertEqual(languages["checked"] as? String, "2026-10-17")
+        XCTAssertEqual((languages["codes"] as? [String])?.count, 25)
         let chat = try XCTUnwrap(json["chat"] as? [[String: Any]])
         let sonnet = try XCTUnwrap(chat.first { $0["id"] as? String == "claude-sonnet-5" })
         XCTAssertEqual(Set(sonnet.keys), ["vendor", "id", "displayName", "price", "lifecycle"])

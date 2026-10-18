@@ -864,6 +864,10 @@ private struct MicrophoneField: View {
 private struct SpokenLanguagesField: View {
     @AppStorage(SettingsKeys.spokenLanguages) private var stored = ""
     @AppStorage(SettingsKeys.openAISTTModel) private var openAISTTModel = Provider.openAI.defaultSpeechModel
+    // Every engine's stored model, so the warning below follows a pick on any of them.
+    @AppStorage(SettingsKeys.localSTTModel) private var localSTTModelID = Provider.local.defaultSpeechModel
+    @AppStorage(SettingsKeys.groqModel) private var groqModel = Provider.groq.defaultSpeechModel
+    @AppStorage(SettingsKeys.elevenLabsModel) private var elevenLabsModel = Provider.elevenLabs.defaultSpeechModel
     let stt: STTProviderType
     @State private var adding = false
 
@@ -886,6 +890,20 @@ private struct SpokenLanguagesField: View {
                     .foregroundStyle(SetupColor.label2)
                     .lineSpacing(1.5)
                     .fixedSize(horizontal: false, vertical: true)
+                if let warning = modelWarning {
+                    // Where a language is added, the user is not thinking of the engine (#30).
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("⚠︎ " + warning)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(SetupColor.warn)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Choose another model…") {
+                            NotificationCenter.default.post(name: .settingsShowCategory, object: SettingsCategory.speech)
+                        }
+                        .buttonStyle(SetupInlineLinkStyle())
+                    }
+                    .padding(.top, 4)
+                }
             }
             FlowLayout(spacing: 6) {
                 if selected.isEmpty {
@@ -935,6 +953,34 @@ private struct SpokenLanguagesField: View {
     private var appleLanguage: String {
         let locale = resolvedLocale()
         return HistoryFormat.language(locale) ?? locale
+    }
+
+    /// The selected speech model by name and what it knows — nil for a choice the launch
+    /// cleared, which waits for a pick and so warns about nothing.
+    private var selectedModel: (name: String, languages: LanguageCoverage)? {
+        switch stt {
+        case .apple:
+            return ("Apple Dictation", sttModel(vendor: .apple, id: appleSpeechModelID).languages)
+        case .local:
+            return localSTTModel(id: localSTTModelID).map { (speechModelName($0), $0.languages) }
+        case .groq, .elevenlabs, .openai:
+            let id = switch stt {
+            case .groq: groqModel
+            case .elevenlabs: elevenLabsModel
+            default: openAISTTModel
+            }
+            guard id != clearedModelChoice else { return nil }
+            let model = sttModel(vendor: stt.vendor, id: id)
+            return (onlineSpeechModelName(model), model.languages)
+        }
+    }
+
+    /// "Phonon-2 can't take Ukrainian." while the selected model lacks a listed language.
+    private var modelWarning: String? {
+        selectedModel.flatMap {
+            spokenLanguagesWarning(modelName: $0.name, spoken: selected, coverage: $0.languages,
+                                   onDevice: AppleOnDeviceLanguages.supports)
+        }
     }
 
     private var caption: String {

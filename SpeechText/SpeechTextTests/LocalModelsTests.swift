@@ -129,8 +129,8 @@ final class LocalSTTRecommendationTests: XCTestCase {
     }
 
     /// A model that knows only English is picked only for someone who said they speak
-    /// English alone — anyone else would be recommended confident nonsense. And its
-    /// summary has to say so before anything else.
+    /// English alone — anyone else would be recommended confident nonsense. And its row
+    /// says so before the user taps it: "English only" beside its size (#30).
     func testAnEnglishOnlyModelIsPickedOnlyForEnglishAlone() {
         for ram: UInt64 in [8, 16, 32, 64, 128, 512] {
             for languages in [[], ["uk"], ["uk", "en"], ["en", "de"], ["ja"]] {
@@ -139,7 +139,7 @@ final class LocalSTTRecommendationTests: XCTestCase {
                 XCTAssertNotEqual(bestQualityLocalSTTModel(for: caps, languages: languages)?.id, "phonon-2", "\(ram) GB, \(languages)")
             }
         }
-        XCTAssertTrue(localSTTModel(id: "phonon-2")?.summary.hasPrefix("English only") ?? false)
+        XCTAssertTrue(localSTTModel(id: "phonon-2").map(speechModelSubtitle)?.hasSuffix(" · English only") ?? false)
     }
 
 }
@@ -397,13 +397,18 @@ final class LocalModelLanguageTests: XCTestCase {
     /// Ultra and Redux are re-trainings of v3 and keep its 25 languages; Phonon-2 knows
     /// English alone; a Whisper model knows every language the app lists.
     func testEachModelKnowsTheLanguagesItWasTrainedOn() {
-        XCTAssertEqual(parakeetV3Languages.count, 25)
+        XCTAssertEqual(parakeetV3LanguageCodes.count, 25)
         for id in [parakeetV3ModelID, parakeetUltraModelID, "parakeet-redux"] {
-            XCTAssertEqual(localSTTModel(id: id)?.languages, parakeetV3Languages, id)
+            guard case .listed(let list) = localSTTModel(id: id)?.languages else { XCTFail(id); continue }
+            XCTAssertEqual(list.codes, parakeetV3LanguageCodes, id)
         }
-        XCTAssertEqual(localSTTModel(id: "phonon-2")?.languages, ["en"])
+        guard case .listed(let phonon) = localSTTModel(id: "phonon-2")?.languages else { return XCTFail("Phonon-2 lists its language") }
+        XCTAssertEqual(phonon.codes, ["en"])
         for model in localSTTModels where model.engine == .whisperKit {
-            XCTAssertNil(model.languages, model.id)
+            XCTAssertTrue([whisperLanguages, whisperV3Languages].contains(model.languages), model.id)
+            // Recommendations read these lists through `knows`, which compares exact codes:
+            // a Whisper model knows every language the app lets the user state.
+            XCTAssertTrue(model.knows(spokenLanguageCatalog.map(\.id)), model.id)
         }
     }
 

@@ -43,6 +43,12 @@ struct STTModelDescriptor: Identifiable, Hashable {
     /// The vendor's list price, checked on `UsagePrices.checked`. Required, so a model
     /// added without one fails to build rather than showing as free.
     let price: ListPrice<SpeechRates>
+    /// Which languages the model knows (`LanguageCoverage`): the vendor's list with its
+    /// source and date, `.unpublished`, or `.decidedBySystem` for Apple. Required, so a
+    /// model added without it fails to build; the rows' count and "No …" badge read it.
+    let languages: LanguageCoverage
+    /// Weaknesses we measured, by language code, shown only to someone who speaks it.
+    let languageNotes: [String: LanguageNote]
     /// Whether the model takes the user's vocabulary, and within what limits. `var` with
     /// a default so a descriptor built without it — every model that takes none, and an
     /// unlisted ID — sends nothing.
@@ -208,19 +214,22 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: appleSpeechModelID, vendor: .apple, displayName: "Apple on-device",
             delivery: .systemRecognizer, language: .localeRequired,
             batchUpload: .selectedModel(of: .groq), requirement: .none,
-            price: .free,
+            price: .free, languages: .decidedBySystem, languageNotes: [:],
             vocabulary: .termList(.appleContextualStrings)
         ),
 
         STTModelDescriptor(
             id: "whisper-large-v3-turbo", vendor: .groq, displayName: "Whisper Large V3 Turbo",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: groqKey,
-            price: .listed(SpeechRates(perHour: 0.04))
+            price: .listed(SpeechRates(perHour: 0.04)),
+            // Groq serves OpenAI's weights, so Whisper's own list.
+            languages: whisperV3Languages, languageNotes: [:]
         ),
         STTModelDescriptor(
             id: "whisper-large-v3", vendor: .groq, displayName: "Whisper Large V3",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: groqKey,
-            price: .listed(SpeechRates(perHour: 0.111))
+            price: .listed(SpeechRates(perHour: 0.111)),
+            languages: whisperV3Languages, languageNotes: [:]
         ),
 
         // The batch (upload) model IDs are exactly what the API's `unsupported_model`
@@ -233,6 +242,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: "scribe_v2", vendor: .elevenLabs, displayName: "Scribe v2",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: elevenLabsKey,
             price: .listed(SpeechRates(perHour: 0.22, keytermSurchargePerHour: 0.05)),
+            languages: scribeLanguages, languageNotes: [:],
             vocabulary: .termList(.scribeUpload)
         ),
         // Scribe's `language_code` is one value, so the realtime query string carries it
@@ -242,6 +252,9 @@ let sttModelCatalog: [STTModelDescriptor] = {
             delivery: .realtime(.init(sampleRate: 16_000, transcripts: .cumulative, serverVAD: true)),
             language: .single, batchUpload: .model("scribe_v2"), requirement: elevenLabsKey,
             price: .listed(SpeechRates(perHour: 0.39, keytermSurchargePerHour: 0.08)),
+            // UNVERIFIED: ElevenLabs gives the realtime model "90+ languages" and no list of
+            // its own (checked 2026-10-17), so Scribe v2's list stands in for it.
+            languages: scribeLanguages, languageNotes: [:],
             vocabulary: .termList(.scribeRealtime),
             settingsNote: "Words appear on the overlay as you speak and are pasted when you stop. If the stream drops, Scribe v2 transcribes the recording instead. Billed per streamed minute."
         ),
@@ -261,6 +274,8 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: "gpt-transcribe", vendor: .openAI, displayName: "GPT Transcribe",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey,
             price: .listed(SpeechRates(perMinute: 0.0045)),
+            // OpenAI publishes no language list for its gpt transcription models.
+            languages: .unpublished, languageNotes: [:],
             vocabulary: .termList(.openAIKeywords)
         ),
         // No vocabulary: `keywords` is documented for gpt-transcribe, and this model
@@ -271,6 +286,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: "gpt-4o-mini-transcribe", vendor: .openAI, displayName: "GPT-4o mini Transcribe",
             delivery: .upload, language: .single, batchUpload: .itself, requirement: openAIKey,
             price: .listed(SpeechRates(perMinute: 0.003)),
+            languages: .unpublished, languageNotes: [:],
             lifecycle: .deprecated(Deprecation(
                 announced: ModelRetirement.day(2026, 8, 26), shutdown: ModelRetirement.day(2027, 2, 26),
                 replacement: "gpt-transcribe",
@@ -281,6 +297,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
             delivery: .realtime(.init(sampleRate: 24_000, transcripts: .incremental, serverVAD: false)),
             language: .set, batchUpload: .model("gpt-transcribe"), requirement: openAIKey,
             price: .listed(SpeechRates(perMinute: 0.017)),
+            languages: .unpublished, languageNotes: [:],
             vocabulary: .termList(.openAIKeywords),
             settingsNote: "Words appear on the overlay as you speak and are pasted when you stop. If the stream drops, GPT Transcribe transcribes the recording instead. Billed per streamed minute."
         ),
@@ -294,6 +311,7 @@ let sttModelCatalog: [STTModelDescriptor] = {
             id: model.id, vendor: .local, displayName: model.displayName,
             delivery: .onDevice(model.engine), language: .single,
             batchUpload: .itself, requirement: .installedModel, price: .free,
+            languages: model.languages, languageNotes: model.languageNotes,
             lifecycle: model.lifecycle
         )
     }
@@ -346,6 +364,8 @@ func sttModel(vendor: Provider, id: String) -> STTModelDescriptor {
         delivery: template.delivery, language: template.language,
         batchUpload: template.batchUpload, requirement: template.requirement,
         price: archived?.price ?? (template.price == .free ? .free : .notPriced),
+        // Like its price: an ID nobody checked never warns about a language.
+        languages: .unpublished, languageNotes: [:],
         lifecycle: archived.map { .deprecated(.archived(replacement: $0.replacement)) } ?? .current
     )
 }

@@ -38,8 +38,14 @@ struct LocalSTTModel: Identifiable, Hashable {
     /// that takes longer than it did to speak is not usable. Settings still lets the user
     /// install a heavier model — it only says so.
     let memoryFloorBytes: UInt64
-    /// Shown under the model in Settings.
+    /// What a row says for an ID `speechModelLine` has no words of its own for. Names no
+    /// language: a row names only the user's own, through `languageNotes`.
     let summary: String
+    /// The languages the model was trained to transcribe — what it *knows*, not how well;
+    /// how well is `languageNotes`. Required, as every speech catalogue entry's is.
+    let languages: LanguageCoverage
+    /// Weaknesses we measured, by language code, shown only to someone who speaks it.
+    let languageNotes: [String: LanguageNote]
     /// Superseded at most, never deprecated: a launch that moved a stored choice to a
     /// local model would point it at files nobody downloaded. A newer local model is
     /// offered, and only downloaded once the user takes it.
@@ -54,17 +60,16 @@ struct LocalSTTModel: Identifiable, Hashable {
     /// FluidAudio refuses them there before downloading anything. A model above the
     /// running macOS is not offered (`isOffered(on:)`).
     var minimumSystemVersion = 14
-    /// The languages the model was trained to transcribe, as ISO-639-1 codes — what it
-    /// *knows*, not how well: how well is a measurement, not a fact. nil means every
-    /// language the app lists (Whisper's ~99 include all of `spokenLanguageCatalog`).
-    var languages: Set<String>? = nil
 
     /// Whether the model knows every language the user said they speak. With none stated
     /// the app does not know what will be dictated, so a model that knows only some
-    /// languages is not picked for them.
+    /// languages is not picked for them. Exact codes, as the stated list holds them (every
+    /// one of `spokenLanguageCatalog` is in Whisper's lists); a coverage that is not a list
+    /// counts as knowing every language.
     func knows(_ stated: [String]) -> Bool {
-        guard let languages else { return true }
-        return stated.isEmpty ? languages.count > 1 : Set(stated).isSubset(of: languages)
+        guard case .listed(let list) = languages else { return true }
+        let codes = Set(list.codes)
+        return stated.isEmpty ? codes.count > 1 : Set(stated).isSubset(of: codes)
     }
 
     var downloadSizeDescription: String {
@@ -95,13 +100,6 @@ enum ParakeetVersion: Hashable, Sendable {
     case phonon2
 }
 
-/// The 25 languages of NVIDIA's Parakeet TDT 0.6B v3, from its model card, which Ultra
-/// and Redux keep.
-let parakeetV3Languages: Set<String> = [
-    "bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it",
-    "lt", "lv", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
-]
-
 /// The local models a Mac is offered, in catalogue order.
 func offeredLocalSTTModels(for capabilities: SystemCapabilities) -> [LocalSTTModel] {
     localSTTModels.filter { $0.isOffered(on: capabilities) }
@@ -123,11 +121,12 @@ let parakeetUltraModelID = "parakeet-ultra"
 /// HuggingFace tree API on 2026-09-16 (each Parakeet measured from an install: v3 on
 /// 2026-09-21, Ultra, Redux and Phonon-2 on 2026-10-16).
 ///
-/// A model may know only some languages — Phonon-2 knows English alone — as long as its
-/// summary says so in its first words: dictating Ukrainian into an English model produces
-/// confident nonsense, and the user has to know that before choosing it (the owner's
-/// call, 2026-10-16, which dropped the rule that every entry be multilingual). Such a
-/// model is never among the tier picks while they ignore "Languages I speak".
+/// A model may know only some languages — Phonon-2 knows English alone — as long as the
+/// user can see it before choosing: dictating Ukrainian into an English model produces
+/// confident nonsense (the owner's call, 2026-10-16, which dropped the rule that every
+/// entry be multilingual). The row's subtitle gives the count ("English only") and a "No …"
+/// badge names each of the user's languages it lacks (#30). Such a model is picked only
+/// for someone whose stated languages it knows (`knows`).
 ///
 /// The ladder stops at 1.6 GB, and that is not an oversight. Speech models do not scale
 /// with the Mac the way chat models do: there is no larger open model with Ukrainian and a
@@ -142,7 +141,8 @@ let localSTTModels: [LocalSTTModel] = [
         displayName: "Whisper Large v3",
         downloadBytes: 1_619_531_263,
         memoryFloorBytes: 24 * gigabyte,
-        summary: "The full model, unquantised. In our Ukrainian and English test it made exactly the same mistakes as Turbo and answered ~30% slower."
+        summary: "The full model, unquantised. In our test it made exactly the same mistakes as Turbo and answered ~30% slower.",
+        languages: whisperV3Languages, languageNotes: [:]
     ),
     LocalSTTModel(
         id: "openai_whisper-large-v3-v20240930_turbo_632MB",
@@ -150,7 +150,8 @@ let localSTTModels: [LocalSTTModel] = [
         displayName: "Whisper Large v3 Turbo",
         downloadBytes: 645_668_913,
         memoryFloorBytes: 8 * gigabyte,
-        summary: "Near-full accuracy at a fraction of the wait. The right choice on almost every Apple Silicon Mac."
+        summary: "Near-full accuracy at a fraction of the wait.",
+        languages: whisperV3Languages, languageNotes: [:]
     ),
     LocalSTTModel(
         id: parakeetUltraModelID,
@@ -160,9 +161,9 @@ let localSTTModels: [LocalSTTModel] = [
         // vocabulary.
         downloadBytes: 632_314_500,
         memoryFloorBytes: 8 * gigabyte,
-        summary: "Parakeet v3 trained further by moondream: the same 25 European languages, Ukrainian among them, at the same speed. On our recordings it was as accurate as v3 overall — better on whispered speech and technical terms, once worse on a single word.",
-        parakeetVersion: .ultra,
-        languages: parakeetV3Languages
+        summary: "Parakeet v3 trained further by moondream: the same languages, at the same speed. On our recordings it was as accurate as v3 overall — better on whispered speech and technical terms, once worse on a single word.",
+        languages: parakeetLanguages(repository: "FluidInference/parakeet-ultra-coreml"), languageNotes: [:],
+        parakeetVersion: .ultra
     ),
     LocalSTTModel(
         id: parakeetV3ModelID,
@@ -173,9 +174,9 @@ let localSTTModels: [LocalSTTModel] = [
         // int8 rebuild, neither of which is downloaded.
         downloadBytes: 483_257_242,
         memoryFloorBytes: 8 * gigabyte,
-        summary: "NVIDIA's Parakeet, 25 European languages. On our Ukrainian test it matched the best cloud engine word for word, in a third of a second — and it is smaller than Turbo.",
-        parakeetVersion: .v3,
-        languages: parakeetV3Languages
+        summary: "NVIDIA's Parakeet. On our test it matched the best cloud engine word for word, in a third of a second — and it is smaller than Turbo.",
+        languages: parakeetV3Languages, languageNotes: [:],
+        parakeetVersion: .v3
     ),
     LocalSTTModel(
         id: "phonon-2",
@@ -186,10 +187,13 @@ let localSTTModels: [LocalSTTModel] = [
         // this one is expanded again on every load.
         downloadBytes: 378_228_114,
         memoryFloorBytes: 8 * gigabyte,
-        summary: "English only — Ukrainian and every other language come out wrong. Fermion Research's compressed Parakeet v3, as accurate as v3 on our English recordings.",
+        summary: "Fermion Research's compressed Parakeet v3, as accurate as v3 on its own language and the quickest to load.",
+        // English only, as FluidAudio's Documentation/ASR/Phonon2.md says too. Its subtitle says
+        // so, and every other language gets the row's "No …" badge.
+        languages: parakeetLanguages(repository: "FluidInference/phonon-2-coreml", codes: ["en"]),
+        languageNotes: [:],
         parakeetVersion: .phonon2,
-        minimumSystemVersion: 15,
-        languages: ["en"]
+        minimumSystemVersion: 15
     ),
     LocalSTTModel(
         id: "parakeet-redux",
@@ -198,10 +202,12 @@ let localSTTModels: [LocalSTTModel] = [
         // Measured from an install on 2026-10-16.
         downloadBytes: 220_455_773,
         memoryFloorBytes: 8 * gigabyte,
-        summary: "Parakeet v3 in less than half the download, from moondream: the same 25 languages, but on our Ukrainian recordings it made more mistakes than v3 and took about a second to answer where v3 takes a quarter. For a full disk.",
+        summary: "Parakeet v3 in less than half the download, from moondream: the same languages, but it took about a second to answer where v3 takes a quarter. For a full disk.",
+        languages: parakeetLanguages(repository: "FluidInference/parakeet-redux-coreml"),
+        languageNotes: ["uk": LanguageNote(text: "More mistakes in Ukrainian than Parakeet v3.",
+                                           measured: "#80 corpus, 2026-10-16, M1 Pro: mean WER 0.226 against v3's 0.180")],
         parakeetVersion: .redux,
-        minimumSystemVersion: 15,
-        languages: parakeetV3Languages
+        minimumSystemVersion: 15
     ),
     LocalSTTModel(
         id: "openai_whisper-small_216MB",
@@ -209,7 +215,10 @@ let localSTTModels: [LocalSTTModel] = [
         displayName: "Whisper Small",
         downloadBytes: 217_350_763,
         memoryFloorBytes: 4 * gigabyte,
-        summary: "English only in practice: in our test it answered Ukrainian in Russian spelling and missed up to every word. Fine for English dictation."
+        summary: "Small and quick.",
+        languages: whisperLanguages,
+        languageNotes: ["uk": LanguageNote(text: "Makes mistakes in Ukrainian.",
+                                           measured: "2026-09-17, M1 Pro: answered Ukrainian in Russian spelling, 38–100% WER")]
     ),
     LocalSTTModel(
         id: "openai_whisper-base",
@@ -217,7 +226,10 @@ let localSTTModels: [LocalSTTModel] = [
         displayName: "Whisper Base",
         downloadBytes: 146_719_453,
         memoryFloorBytes: 2 * gigabyte,
-        summary: "English only in practice, like Small. The default on Intel Macs, which have no Neural Engine — Ukrainian speakers there are better served by a cloud engine."
+        summary: "Smaller still. The default on Intel Macs, which have no Neural Engine.",
+        languages: whisperLanguages,
+        languageNotes: ["uk": LanguageNote(text: "Makes mistakes in Ukrainian.",
+                                           measured: "2026-09-17, M1 Pro: answered Ukrainian in Russian spelling, 38–100% WER")]
     ),
     LocalSTTModel(
         id: "openai_whisper-tiny",
@@ -225,7 +237,8 @@ let localSTTModels: [LocalSTTModel] = [
         displayName: "Whisper Tiny",
         downloadBytes: 76_635_397,
         memoryFloorBytes: 1 * gigabyte,
-        summary: "Fast everywhere and accurate nowhere. Useful to prove the pipeline works before a real download."
+        summary: "Fast everywhere and accurate nowhere. Useful to prove the pipeline works before a real download.",
+        languages: whisperLanguages, languageNotes: [:]
     ),
 ]
 

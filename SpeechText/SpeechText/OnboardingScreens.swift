@@ -472,6 +472,8 @@ private struct DemoStrip: View {
 
 private struct SpeechScreen: View {
     @Bindable var model: OnboardingModel
+    @AppStorage(SettingsKeys.spokenLanguages) private var spokenLanguages = ""
+    private var spoken: [String] { parseSpokenLanguages(spokenLanguages) }
 
     private var appleSilicon: Bool { model.capabilities.isAppleSilicon }
 
@@ -485,7 +487,7 @@ private struct SpeechScreen: View {
                                     why: appleSilicon && model.recommendedSpeechModel != nil ? "Best choice for your Mac." : nil,
                                     facts: appleSilicon
                                         ? "Private and free. Your voice stays on your Mac; works offline after one download."
-                                        : "Private and free, but slow on this Mac and English only.",
+                                        : intelSpeechPlaceFacts,
                                     isSelected: model.speechPath == .local) { model.speechPath = .local }
                     SetupChoiceCard(glyph: .cloud, name: "Online service",
                                     why: appleSilicon ? nil : "Best choice for your Mac.",
@@ -513,6 +515,7 @@ private struct SpeechScreen: View {
                 }
                 // macOS asks for Speech Recognition at the first Apple dictation — Try it, here.
                 SetupRow(title: "Apple Dictation", subtitle: "Built in",
+                         languageBadge: languageBadge(sttModel(vendor: .apple, id: appleSpeechModelID).languages, spoken: spoken),
                          detail: appleDictationLine + " macOS asks to allow Speech Recognition the first time.",
                          isSelected: model.speechUsesApple) { model.pickAppleDictation() }
                 if let pending = model.pendingSpeechSwitch, let target = localSTTModel(id: pending) {
@@ -546,8 +549,9 @@ private struct SpeechScreen: View {
                 nil
             }
         }
-        return SetupRow(title: speechModelName(speech), subtitle: speech.downloadSizeDescription, badge: badge,
-                        detail: speechModelLine(speech), isSelected: !model.speechUsesApple && model.speechModelID == speech.id,
+        return SetupRow(title: speechModelName(speech), subtitle: speechModelSubtitle(speech), badge: badge,
+                        languageBadge: languageBadge(speech.languages, spoken: spoken),
+                        detail: speechModelLine(speech, spoken: spoken), isSelected: !model.speechUsesApple && model.speechModelID == speech.id,
                         action: { model.pickSpeechModel(speech.id) }) {
             switch state {
             case .downloading(let f):
@@ -772,7 +776,7 @@ private struct AIScreen: View {
             else if model.bestAIModel?.id == llm.id { SetupBadge(text: "Best quality", kind: .quality) }
             else { nil }
         return SetupRow(title: llm.displayName, subtitle: llm.downloadSizeDescription, badge: badge,
-                        detail: aiModelLine(llm, heavy: heavy), isSelected: selected, dimmed: heavy,
+                        detail: aiModelLine(llm, heavy: heavy, spoken: storedSpokenLanguages()), isSelected: selected, dimmed: heavy,
                         action: { model.aiModelID = llm.id }) {
             if case .downloading(let f) = state {
                 SetupProgressBar(fraction: f).padding(.top, 6)

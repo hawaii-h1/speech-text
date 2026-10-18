@@ -5,8 +5,8 @@
 # Compares the app's model catalogues with what each vendor serves now (#20) and prints a
 # Markdown report: catalogue models a vendor no longer serves, shutdowns a vendor's API
 # announces, retired models whose retention is over, prices that differ from an API that
-# states them, new vendor models, newer FluidAudio / WhisperKit releases and changed
-# Hugging Face repositories. docs/vendor-watch.md describes it.
+# states them, language lists that changed at their source, new vendor models, newer
+# FluidAudio / WhisperKit releases and changed Hugging Face repositories. docs/vendor-watch.md describes it.
 #
 #   scripts/check-vendor-models.sh [--catalogue <file>] [--out <file>] [--since yyyy-mm-dd]
 #

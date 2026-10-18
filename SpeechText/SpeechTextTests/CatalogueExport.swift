@@ -30,6 +30,19 @@ struct CatalogueExport: Encodable, Equatable {
         let source: Source?
         let price: SpeechPrice
         let lifecycle: Lifecycle
+        /// What the model knows (`LanguageCoverage`), so the script can compare a published
+        /// list with the vendor's source.
+        let languages: Languages
+    }
+
+    /// `listed` (with the codes, the page they were read from, when, and the vendor's own
+    /// "90+" where it gives one), `unpublished` or `decidedBySystem`.
+    struct Languages: Encodable, Equatable {
+        let kind: String
+        let codes: [String]?
+        let source: String?
+        let checked: String?
+        let vendorSaysAtLeast: Int?
     }
 
     struct ChatModel: Encodable, Equatable {
@@ -75,12 +88,13 @@ struct CatalogueExport: Encodable, Equatable {
 }
 
 extension CatalogueExport {
-    /// The catalogues as they are compiled into this build.
-    static func current() -> CatalogueExport {
+    /// The catalogues as they are compiled into this build, their lifecycle states read on
+    /// `day` (a deprecated model past its shutdown is retired).
+    static func current(on day: Date = Date()) -> CatalogueExport {
         CatalogueExport(
-            pricesChecked: day(UsagePrices.checked),
-            speech: sttModelCatalog.map(speechModel),
-            chat: chatModelCatalog.map(chatModel)
+            pricesChecked: Self.day(UsagePrices.checked),
+            speech: sttModelCatalog.map { speechModel($0, on: day) },
+            chat: chatModelCatalog.map { chatModel($0, on: day) }
         )
     }
 
@@ -90,14 +104,24 @@ extension CatalogueExport {
         return try encoder.encode(self)
     }
 
-    /// The model-lifecycle work (current / superseded / deprecated / retired, with the
-    /// vendor's shutdown date) is being added to the catalogues in parallel. Until it
-    /// lands every model is current; whichever change merges second points these two at
-    /// the descriptors' own fields.
-    static func lifecycle(of model: STTModelDescriptor) -> Lifecycle { .current }
-    static func lifecycle(of model: ChatModelDescriptor) -> Lifecycle { .current }
+    /// A descriptor's `ModelLifecycle` as the script reads it. *Retired* is not a state of
+    /// its own in the catalogue: it is how a deprecated model reads once its shutdown date
+    /// has passed (`ModelLifecycle.status(on:)`), and an archived one, whose dates are not
+    /// kept, is retired with no date.
+    static func lifecycle(_ lifecycle: ModelLifecycle, on day: Date) -> Lifecycle {
+        switch lifecycle {
+        case .current:
+            return .current
+        case .superseded:
+            return Lifecycle(state: "superseded", shutdownDate: nil)
+        case .deprecated(let deprecation):
+            guard let shutdown = deprecation.shutdown.date else { return Lifecycle(state: "retired", shutdownDate: nil) }
+            return Lifecycle(state: day < shutdown ? "deprecated" : "retired",
+                             shutdownDate: Self.day(deprecation.shutdown))
+        }
+    }
 
-    static func speechModel(_ model: STTModelDescriptor) -> SpeechModel {
+    static func speechModel(_ model: STTModelDescriptor, on day: Date = Date()) -> SpeechModel {
         var delivery = ""
         var engine: LocalSTTEngine?
         switch model.delivery {
@@ -118,10 +142,22 @@ extension CatalogueExport {
         return SpeechModel(vendor: model.vendor.rawValue, id: model.id, displayName: model.displayName,
                            delivery: delivery, uploadModel: uploadModel, engine: engine?.rawValue,
                            source: engine.flatMap { source(of: model.id, engine: $0) },
-                           price: price, lifecycle: lifecycle(of: model))
+                           price: price, lifecycle: lifecycle(model.lifecycle, on: day), languages: languages(model.languages))
     }
 
-    static func chatModel(_ model: ChatModelDescriptor) -> ChatModel {
+    static func languages(_ coverage: LanguageCoverage) -> Languages {
+        switch coverage {
+        case .listed(let list):
+            Languages(kind: "listed", codes: list.codes, source: list.source.absoluteString,
+                      checked: day(list.checked), vendorSaysAtLeast: list.vendorSaysAtLeast)
+        case .unpublished:
+            Languages(kind: "unpublished", codes: nil, source: nil, checked: nil, vendorSaysAtLeast: nil)
+        case .decidedBySystem:
+            Languages(kind: "decidedBySystem", codes: nil, source: nil, checked: nil, vendorSaysAtLeast: nil)
+        }
+    }
+
+    static func chatModel(_ model: ChatModelDescriptor, on day: Date = Date()) -> ChatModel {
         let price: ChatPrice = switch model.price {
         case .free: ChatPrice(kind: "free", inputPerMillion: nil, cachedInputPerMillion: nil, outputPerMillion: nil)
         case .notPriced: ChatPrice(kind: "notPriced", inputPerMillion: nil, cachedInputPerMillion: nil, outputPerMillion: nil)
@@ -136,7 +172,7 @@ extension CatalogueExport {
             Source(huggingFace: $0.repository, path: nil, requiredFiles: [$0.file])
         } : nil
         return ChatModel(vendor: model.provider.vendor.rawValue, id: model.id, displayName: model.displayName,
-                         source: source, price: price, lifecycle: lifecycle(of: model))
+                         source: source, price: price, lifecycle: lifecycle(model.lifecycle, on: day))
     }
 
     /// Where each local engine's models come from: WhisperKit's are folders of
