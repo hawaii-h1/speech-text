@@ -10,7 +10,7 @@ import Foundation
 ///   utterance, and the partials that follow hold only the new words ("Завтра ми поїдемо
 ///   до моря" → "Якщо"). Taken as a revision, the earlier sentence is gone. A partial that
 ///   does not continue the one before it is therefore a new utterance, and the earlier one
-///   moves into `settled`.
+///   moves into `settled` (`isNewUtterance` says what "continue" means).
 /// - **An empty final.** At `endAudio()` the recogniser can answer `isFinal` with no text
 ///   at all, after partials that had plenty. An empty result never erases words already
 ///   heard.
@@ -53,10 +53,22 @@ struct AppleUtterances: Equatable {
     /// ("Кова" → "Коваленко"), and a reset starts shorter than the utterance it follows.
     /// Both must fail before words are kept as a separate utterance: taking a revision for
     /// a reset would paste its words twice.
+    ///
+    /// A word that begins like the first word is not enough on its own, since a short one
+    /// begins half the language: after "I went to the store" and a pause, "It" is a new
+    /// sentence, and so is "Але" after "А ми вже вдома". So a word grown or shrunk counts as
+    /// the same only while the result spells at least half as many letters as the one it
+    /// would replace: the same audio heard again ("За ми" → "Завтра", "I am" → "I'm")
+    /// spells about as much, a new utterance starts with a word or two.
     static func isNewUtterance(_ incoming: String, after current: String) -> Bool {
         let old = transcriptWords(current), new = transcriptWords(incoming)
         guard old.count >= 2, let first = old.first?.text, let next = new.first?.text,
-              new.count < old.count else { return false }
-        return !(first.hasPrefix(next) || next.hasPrefix(first))
+              new.count < old.count, first != next else { return false }
+        guard first.hasPrefix(next) || next.hasPrefix(first) else { return true }
+        return letters(in: new) * 2 < letters(in: old)
+    }
+
+    private static func letters(in words: [TranscriptWord]) -> Int {
+        words.reduce(0) { $0 + $1.text.count }
     }
 }

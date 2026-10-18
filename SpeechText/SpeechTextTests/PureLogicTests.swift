@@ -2997,6 +2997,52 @@ final class AppleUtterancesTests: XCTestCase {
         XCTAssertEqual(heard(["Так", "Ні"]).text, "Ні")
     }
 
+    /// A sentence after a pause whose first word only begins like the last one's ("I" →
+    /// "It", "The" → "Then", "There" → "The") is a new utterance, and the one before it is
+    /// kept — a prefix of a short word matched almost anything, and lost the sentence.
+    func testAResetWhoseFirstWordBeginsLikeTheLastOnesKeepsTheSentenceBeforeIt() {
+        let sentences = [
+            ("I went to the store", "It was closed"),
+            ("A dog barked at the cat", "And then it ran away"),
+            ("The store was closed", "Then we went home"),
+            ("There was nobody at home", "The door was locked"),
+            ("І ми пішли до парку", "Ідемо далі"),
+            ("А ми підемо додому", "Але не сьогодні"),
+            ("Я купив хліб і молоко", "Якщо буде час"),
+        ]
+        for (before, after) in sentences {
+            let firstWord = String(after.prefix { !$0.isWhitespace })
+            let utterances = heard([before, firstWord, after])
+            XCTAssertEqual(utterances.settled, before, after)
+            XCTAssertEqual(utterances.text, "\(before) \(after)")
+        }
+    }
+
+    /// The same audio heard again: a short first word merged with the next into a longer
+    /// one spells about as much, so it is a revision, not a sentence said twice.
+    func testAShortFirstWordMergedIntoALongerOneIsARevision() {
+        XCTAssertEqual(heard(["А ле", "Але"]).text, "Але")
+        XCTAssertEqual(heard(["I am going", "I'm going"]).text, "I'm going")
+        XCTAssertEqual(heard(["A round the corner", "Around the corner"]).text, "Around the corner")
+    }
+
+    /// en-plain's sentences (Audio/en-plain.json) with a pause before each, unpunctuated as
+    /// the on-device recogniser writes them: "If" begins like "I", and the second
+    /// sentence was lost to it.
+    func testEveryEnglishSentenceIsKeptAcrossPauses() {
+        let sentences = [
+            "Today I am checking how the app recognizes ordinary English speech",
+            "I am speaking calmly at a normal pace without long pauses",
+            "If everything works this text will appear in the document without a single mistake",
+        ]
+        var results: [String] = []
+        for sentence in sentences {
+            let words = sentence.split(separator: " ")
+            results += [String(words[0]), words.prefix(4).joined(separator: " "), sentence]
+        }
+        XCTAssertEqual(heard(results + [""]).text, sentences.joined(separator: " "))
+    }
+
     func testAFinalThatRestatesEverythingIsNotDoubled() {
         let utterances = heard([
             "Завтра ми поїдемо до моря", "Якщо погода",
@@ -3017,6 +3063,17 @@ final class AppleUtterancesTests: XCTestCase {
             layer.ingest(committed: utterances.settled, partial: utterances.current)
         }
         XCTAssertEqual(layer.text, "Завтра ми поїдемо до моря Якщо погода буде теплою")
+    }
+
+    func testTheSpanLayerKeepsTheSentenceBeforeAResetOnAShortWord() {
+        var utterances = AppleUtterances()
+        var layer = TranscriptSpanLayer()
+        layer.beginSegment()
+        for result in ["I went to the store", "It", "It was closed", ""] {
+            utterances.receive(result)
+            layer.ingest(committed: utterances.settled, partial: utterances.current)
+        }
+        XCTAssertEqual(layer.text, "I went to the store It was closed")
     }
 }
 
