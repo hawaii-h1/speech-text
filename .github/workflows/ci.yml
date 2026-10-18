@@ -1,7 +1,11 @@
 name: CI
 
-# Pull requests only: main takes nothing but merged PRs, whose head already
-# passed these jobs.
+# Every pull request, and every push to main. A pull request's head has passed
+# these jobs by the time it merges, but the squash that lands it is a new commit:
+# two green pull requests that each passed alone can combine into a red main, and
+# the README's CI badge reads main's latest run, so a workflow that never ran on
+# main showed nothing true. The jobs that only mean something for a pull request
+# (`dco`, `base`) are skipped on a push.
 #
 # Once this repository is public, nothing here may run on the organisation's
 # self-hosted Mac. A pull request is code, and on a public repository anyone may
@@ -28,10 +32,19 @@ name: CI
 # can reach.
 on:
   pull_request:
+  push:
+    branches: [main]
+
+# Nothing here writes to the repository: a job that needs more says so itself.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request's branch makes the older run moot. On main the
+  # opposite holds: each push is a commit someone may need to find the red one
+  # in, so a run is never cancelled for the next.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -40,7 +53,7 @@ jobs:
     # code. Public: it gets a disposable Mac.
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'macos-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Hosted images carry several Xcodes; the self-hosted Mac uses the one it
       # has and must not be asked for a sudo password. The job runs in both
@@ -62,7 +75,7 @@ jobs:
       # pins all three, so its hash is exactly the right key. It is a no-op on
       # the self-hosted Mac, which has them already.
       - name: Cache the resolved packages
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .swiftpm-cache
           key: spm-${{ runner.os }}-${{ hashFiles('SpeechText/SpeechText.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -92,7 +105,7 @@ jobs:
     # Greps a tracked file. No Mac involved.
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: DEVELOPMENT_TEAM must be empty
         run: |
@@ -108,7 +121,7 @@ jobs:
     # Reads the first two lines of every Swift file (lines 2–3 of a Package.swift). No Mac involved.
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Every Swift file opens with the SPDX header
         run: |
@@ -141,7 +154,7 @@ jobs:
     # updated with it. Shell and grep only. No Mac involved.
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: The guide matches the provider code
         run: scripts/check-provider-guide.sh
@@ -152,7 +165,7 @@ jobs:
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
@@ -160,10 +173,19 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
           missing=""
           for sha in $(git rev-list "$BASE..$HEAD"); do
+            # Dependabot writes no Signed-off-by and cannot be told to, and a bot
+            # cannot certify origin anyway. Its commits are exempt only in a pull
+            # request Dependabot itself opened: an author email alone can be
+            # written by anyone.
+            if [ "$PR_AUTHOR" = "dependabot[bot]" ] \
+               && [ "$(git show -s --format=%ae "$sha")" = "49699333+dependabot[bot]@users.noreply.github.com" ]; then
+              continue
+            fi
             if ! git show -s --format=%B "$sha" | grep -qi '^Signed-off-by: .\+ <.\+@.\+>'; then
               missing="$missing$(git show -s --format='  %h %s' "$sha")"$'\n'
             fi

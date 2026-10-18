@@ -1,0 +1,22 @@
+# Keeps the pinned actions in .github/workflows/ current. Every `uses:` there is a
+# full commit SHA with its tag in a trailing comment, so a bump is a reviewable
+# one-line diff that Dependabot opens as a pull request.
+#
+# There is deliberately no `swift` (SwiftPM) entry. WhisperKit, FluidAudio, Sparkle
+# and llama.cpp are pinned on purpose (Package.resolved, Packages/LlamaBinary/):
+# moving one means regenerating Resources/ThirdPartyNotices.txt
+# (scripts/third-party-notices.sh) and re-running the evaluations, which a bot's
+# pull request cannot do. Those move by hand, with a release.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci

@@ -42,8 +42,12 @@ on:
       - SpeechText/SpeechText.xcodeproj/project.pbxproj
   workflow_dispatch:
 
+# Read-only by default. The one thing here that writes is opening the draft
+# release, and it is a job of its own (`release`) that exists only for a tag, so a
+# pull request's run — which builds the branch's own scripts — never holds a token
+# that can write to the repository.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -68,7 +72,7 @@ jobs:
           echo "::error::This pull request landed on a self-hosted runner. Refusing to build it."
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The build number is the commit count.
           fetch-depth: 0
@@ -164,18 +168,6 @@ jobs:
           fi
           scripts/package-release.sh --out "$RUNNER_TEMP/release"
 
-      - name: Keep the image
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: SpeechText-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/release/*.dmg
-            ${{ runner.temp }}/release/*.sha256
-            ${{ runner.temp }}/release/build.log
-          retention-days: 14
-          if-no-files-found: ignore
-
       - name: The release notes
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -188,7 +180,7 @@ jobs:
             $0 ~ "^## \\[" v "\\]" { on = 1; next }
             on && /^## \[/ { exit }
             on { print }
-          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          ' CHANGELOG.md > "$RUNNER_TEMP/release/notes.md"
 
       - name: Write the appcast
         if: startsWith(github.ref, 'refs/tags/')
@@ -204,25 +196,24 @@ jobs:
           scripts/make-appcast.sh \
             --dmg "$RUNNER_TEMP/release/SpeechText-$version.dmg" \
             --tag "$GITHUB_REF_NAME" \
-            --notes "$RUNNER_TEMP/notes.md" \
+            --notes "$RUNNER_TEMP/release/notes.md" \
             --out "$RUNNER_TEMP/release"
 
-      - name: Open a draft release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          # appcast.xml is what installed copies of the app read: publishing the draft is
-          # what makes this version the answer at .../releases/latest/download/appcast.xml.
-          gh release create "$GITHUB_REF_NAME" \
-            "$RUNNER_TEMP/release/SpeechText-$version.dmg" \
-            "$RUNNER_TEMP/release/SpeechText-$version.dmg.sha256" \
-            "$RUNNER_TEMP/release/appcast.xml" \
-            --draft --verify-tag \
-            --title "SpeechText $version" \
-            --notes-file "$RUNNER_TEMP/notes.md"
+      # Everything the release job publishes is kept here, because it runs on a
+      # different job (and so a different workspace) than the one that built it.
+      - name: Keep the image
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: SpeechText-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/release/*.dmg
+            ${{ runner.temp }}/release/*.sha256
+            ${{ runner.temp }}/release/appcast.xml
+            ${{ runner.temp }}/release/notes.md
+            ${{ runner.temp }}/release/build.log
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Remove the signing keychain and the notary key
         if: always()
@@ -234,3 +225,40 @@ jobs:
             rm -f "$RUNNER_TEMP/keychains-before"
           fi
           if [ -f "$keychain" ]; then security delete-keychain "$keychain"; fi
+
+  release:
+    name: Draft release
+    # Only the draft's creation needs to write to the repository, so only this job
+    # may. It checks nothing out and runs none of the repository's code: it takes
+    # what `package` built and hands it to `gh`. Tags are pushed by people who may
+    # push to the repository, so this is always the self-hosted Mac, as the signing
+    # is.
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: self-hosted
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch what was packaged
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: SpeechText-${{ github.sha }}
+          path: ${{ runner.temp }}/release
+
+      - name: Open a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # No checkout, so there is no .git for `gh` to find the repository in.
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # appcast.xml is what installed copies of the app read: publishing the draft is
+          # what makes this version the answer at .../releases/latest/download/appcast.xml.
+          gh release create "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/release/SpeechText-$version.dmg" \
+            "$RUNNER_TEMP/release/SpeechText-$version.dmg.sha256" \
+            "$RUNNER_TEMP/release/appcast.xml" \
+            --draft --verify-tag \
+            --title "SpeechText $version" \
+            --notes-file "$RUNNER_TEMP/release/notes.md"
