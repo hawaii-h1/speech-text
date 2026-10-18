@@ -32,6 +32,44 @@ struct KeyShortcut: Hashable {
     }
 }
 
+/// What the shortcut recorder does with a key pressed while it listens.
+enum ShortcutKeyPress: Equatable {
+    /// Take it. `modifiers` holds ⌘⌥⌃⇧ only, so what is stored and drawn is what Carbon
+    /// registers.
+    case record(keyCode: UInt16, modifiers: NSEvent.ModifierFlags)
+    /// A bare ⎋: leave the recorder, since every global shortcut is off meanwhile.
+    case giveUp
+    /// Not a shortcut: a modifier key on its own, or a key that needs a modifier and has none.
+    case ignore
+
+    /// The four modifiers a global shortcut can carry. `deviceIndependentFlagsMask`
+    /// would also pass Caps Lock, fn, the numeric pad and help — flags a keyboard sets
+    /// on its own (every arrow key and F-key carries fn) and Carbon drops, which
+    /// registered a bare key no other app receives.
+    static let shortcutModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+
+    /// Key codes of the modifier keys themselves (left and right ⌘⇧⌥⌃, Caps Lock, fn).
+    static let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+
+    /// F1–F20 by name: they type nothing, so unlike a letter they are usable as a shortcut
+    /// alone — and the layout has no character to draw them with (it answers U+0010).
+    static let functionKeyNames: [UInt16: String] = {
+        let codes = [kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
+                     kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20]
+        return Dictionary(uniqueKeysWithValues: codes.enumerated().map { (UInt16($1), "F\($0 + 1)") })
+    }()
+
+    static func decide(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> ShortcutKeyPress {
+        guard !modifierKeyCodes.contains(keyCode) else { return .ignore }
+        let modifiers = flags.intersection(shortcutModifiers)
+        if modifiers.isEmpty {
+            if keyCode == UInt16(kVK_Escape) { return .giveUp }
+            guard functionKeyNames[keyCode] != nil else { return .ignore }
+        }
+        return .record(keyCode: keyCode, modifiers: modifiers)
+    }
+}
+
 /// The app's four global shortcuts, with where each is stored and what it is until
 /// the user changes it.
 enum ShortcutAction: CaseIterable, Hashable {

@@ -1966,6 +1966,71 @@ final class ShortcutConflictTests: XCTestCase {
     }
 }
 
+final class ShortcutKeyPressTests: XCTestCase {
+    private let ctrlShift: NSEvent.ModifierFlags = [.control, .shift]
+    private let letterQ = UInt16(kVK_ANSI_Q)
+
+    private func decide(_ keyCode: Int, _ flags: NSEvent.ModifierFlags) -> ShortcutKeyPress {
+        ShortcutKeyPress.decide(keyCode: UInt16(keyCode), flags: flags)
+    }
+
+    func testControlShiftLetterIsRecordedWithTheSameCarbonModifiers() {
+        guard case .record(let keyCode, let modifiers) = decide(kVK_ANSI_Q, ctrlShift) else {
+            return XCTFail("⌃⇧Q must be recorded")
+        }
+        XCTAssertEqual(keyCode, letterQ)
+        XCTAssertEqual(KeyShortcut(keyCode: UInt32(keyCode), modifiers: modifiers),
+                       KeyShortcut(keyCode: UInt32(letterQ), carbonModifiers: UInt32(controlKey | shiftKey)))
+    }
+
+    func testStrayFlagsAreDroppedFromWhatIsRecorded() {
+        let flags: NSEvent.ModifierFlags = [.control, .shift, .capsLock, .function, .numericPad, .help]
+        XCTAssertEqual(decide(kVK_ANSI_Q, flags), .record(keyCode: letterQ, modifiers: ctrlShift))
+    }
+
+    func testCapsLockAloneDoesNotMakeALetterAShortcut() {
+        XCTAssertEqual(decide(kVK_ANSI_Q, .capsLock), .ignore)
+        XCTAssertEqual(decide(kVK_ANSI_Q, [.capsLock, .function, .numericPad, .help]), .ignore)
+    }
+
+    func testBareEscapeGivesUpEvenWithCapsLockOn() {
+        XCTAssertEqual(decide(kVK_Escape, []), .giveUp)
+        XCTAssertEqual(decide(kVK_Escape, .capsLock), .giveUp)
+        XCTAssertEqual(decide(kVK_Escape, [.capsLock, .function]), .giveUp)
+    }
+
+    func testEscapeWithARealModifierIsAShortcut() {
+        XCTAssertEqual(decide(kVK_Escape, .command), .record(keyCode: UInt16(kVK_Escape), modifiers: .command))
+    }
+
+    func testAnArrowAloneIsRefusedWhateverTheKeyboardFlags() {
+        // Arrow keys carry fn and the numeric-pad flag on their own.
+        XCTAssertEqual(decide(kVK_LeftArrow, [.function, .numericPad]), .ignore)
+        XCTAssertEqual(decide(kVK_Home, .function), .ignore)
+        XCTAssertEqual(decide(kVK_PageDown, [.function, .capsLock]), .ignore)
+        XCTAssertEqual(decide(kVK_Space, []), .ignore)
+    }
+
+    func testControlShiftArrowIsRecorded() {
+        XCTAssertEqual(decide(kVK_RightArrow, [.control, .shift, .function, .numericPad]),
+                       .record(keyCode: UInt16(kVK_RightArrow), modifiers: ctrlShift))
+    }
+
+    func testFunctionKeysAreTheOneBareException() {
+        XCTAssertEqual(decide(kVK_F5, .function), .record(keyCode: UInt16(kVK_F5), modifiers: []))
+        XCTAssertEqual(decide(kVK_F20, []), .record(keyCode: UInt16(kVK_F20), modifiers: []))
+        XCTAssertEqual(ShortcutKeyPress.functionKeyNames.count, 20)
+        XCTAssertEqual(ShortcutKeyPress.functionKeyNames[UInt16(kVK_F5)], "F5")
+        XCTAssertEqual(ShortcutKeyPress.functionKeyNames[UInt16(kVK_F13)], "F13")
+        XCTAssertEqual(ShortcutKeyPress.functionKeyNames[UInt16(kVK_F20)], "F20")
+    }
+
+    func testAModifierKeyOnItsOwnIsIgnored() {
+        XCTAssertEqual(decide(kVK_Shift, .shift), .ignore)
+        XCTAssertEqual(decide(kVK_CapsLock, .capsLock), .ignore)
+    }
+}
+
 // MARK: - The OpenAI tier
 
 final class OpenAISTTTests: XCTestCase {

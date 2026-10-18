@@ -133,16 +133,18 @@ struct HotkeyRecorderView: View {
         // would start a dictation instead of arriving here as a duplicate.
         NotificationCenter.default.post(name: .hotkeyRecorderDidStart, object: nil)
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
-            guard !modifierKeyCodes.contains(event.keyCode) else { return event }
-
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            // A bare ⎋ gives up, since everything is paused until this stops listening.
-            if mods.isEmpty && event.keyCode == 53 {
+            let press = ShortcutKeyPress.decide(keyCode: event.keyCode, flags: event.modifierFlags)
+            let mods: NSEvent.ModifierFlags
+            switch press {
+            case .ignore:
+                return event
+            case .giveUp:
+                // Everything is paused until this stops listening.
                 stopListening()
                 return nil
+            case .record(_, let recorded):
+                mods = recorded
             }
-            guard !mods.isEmpty else { return event }
 
             // One of our own shortcuts twice cannot work, so it is refused. A system
             // shortcut is only warned about (below the row, once saved): the ones macOS
@@ -250,9 +252,11 @@ func keyCodeToString(_ keyCode: UInt16) -> String {
     case 124: return "\u{2192}"
     case 125: return "\u{2193}"
     case 126: return "\u{2191}"
+    case let code where ShortcutKeyPress.functionKeyNames[code] != nil:
+        return ShortcutKeyPress.functionKeyNames[code]!
     default:
-        let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-        guard let layoutDataRef = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+        let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue()
+        guard let source, let layoutDataRef = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return "Key\(keyCode)"
         }
         let layoutData = unsafeBitCast(layoutDataRef, to: CFData.self) as Data
