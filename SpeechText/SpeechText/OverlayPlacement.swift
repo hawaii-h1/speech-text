@@ -100,6 +100,20 @@ enum OverlayPlacement {
         return Placement(strip: settledStrip, growth: growth)
     }
 
+    /// Between a notice and the overlay it sits beside.
+    static let noticeGap: CGFloat = 8
+
+    /// Where a notice (or the hold tip) of `size` opens beside `overlay` — the overlay's
+    /// frame, or the strip's when it is gone: right-aligned with it, on the side facing the
+    /// middle of the screen (above an overlay in the bottom half, below one in the top
+    /// half), which is always the side with more room, and kept on the screen.
+    static func noticeOrigin(_ size: CGSize, beside overlay: CGRect, in screen: CGRect) -> CGPoint {
+        let y = overlay.midY <= screen.midY
+            ? overlay.maxY + noticeGap
+            : overlay.minY - noticeGap - size.height
+        return clamped(CGPoint(x: overlay.maxX - size.width, y: y), size: size, in: screen)
+    }
+
     /// `origin` moved inside `screen`. A panel bigger than the screen keeps its bottom-left
     /// corner on it.
     static func clamped(_ origin: CGPoint, size: CGSize, in screen: CGRect) -> CGPoint {

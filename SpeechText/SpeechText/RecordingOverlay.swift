@@ -463,8 +463,7 @@ struct StatusOverlayView: View {
 final class StatusOverlayPanel: NSPanel {
     static let panelWidth: CGFloat = 340
 
-    /// `overlay` is the recording overlay's frame when it is still on screen.
-    init(above overlay: NSRect? = nil) {
+    init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -478,26 +477,27 @@ final class StatusOverlayPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isMovableByWindowBackground = true
         hasShadow = true
-
-        positionWhereTheOverlayWas()
-        // Shown while the overlay is still up (a refused mode switch), the notice sits
-        // above it rather than on top of it.
-        if let overlay {
-            setFrameOrigin(NSPoint(x: frame.minX, y: overlay.maxY + 8))
-        }
     }
 
-    /// The notice takes the recording overlay's place — it usually replaces it on screen —
-    /// so it opens at the overlay's spot, kept whole on the screen like the overlay is.
-    private func positionWhereTheOverlayWas() {
-        // Right-aligned with where the strip was, the way the default corner is.
-        let strip = AppSkin.current.overlayStripSize
-        let saved = OverlayPlacement.decode(UserDefaults.standard.string(forKey: SettingsKeys.overlayOrigin) ?? "")
-            .map { CGPoint(x: $0.x + strip.width - frame.width, y: $0.y) }
-        guard let placed = OverlayPlacement.placement(saved: saved, OverlayGeometry(strip: frame.size),
-                                                      screens: NSScreen.screens.map(\.visibleFrame),
-                                                      main: NSScreen.main?.visibleFrame) else { return }
-        setFrameOrigin(placed.strip)
+    /// Beside the recording overlay — its frame while it is still up, otherwise the strip at
+    /// the spot the user left it — never over it: above an overlay in the bottom half of the
+    /// screen, below one in the top half (`OverlayPlacement.noticeOrigin`). Called once its
+    /// content is in.
+    func place(beside overlay: NSRect?) {
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        let anchor: CGRect
+        if let overlay {
+            anchor = overlay
+        } else {
+            let strip = AppSkin.current.overlayStripSize
+            let saved = OverlayPlacement.decode(UserDefaults.standard.string(forKey: SettingsKeys.overlayOrigin) ?? "")
+            guard let placed = OverlayPlacement.placement(saved: saved, OverlayGeometry(strip: strip),
+                                                          screens: screens, main: NSScreen.main?.visibleFrame)
+            else { return }
+            anchor = CGRect(origin: placed.strip, size: strip)
+        }
+        let screen = screens.first { $0.intersects(anchor) } ?? NSScreen.main?.visibleFrame ?? anchor
+        setFrameOrigin(OverlayPlacement.noticeOrigin(frame.size, beside: anchor, in: screen))
     }
 }
 
@@ -820,13 +820,10 @@ final class HoldTipPanel: NSPanel {
         hasShadow = true
     }
 
-    /// Above the overlay, right-aligned with it; below it when there is no room above.
+    /// Beside the overlay, as a notice is (`OverlayPlacement.noticeOrigin`).
     func place(beside overlay: NSRect) {
         let visible = NSScreen.screens.first { $0.frame.intersects(overlay) }?.visibleFrame
             ?? NSScreen.main?.visibleFrame ?? overlay
-        var origin = NSPoint(x: overlay.maxX - frame.width, y: overlay.maxY + 8)
-        if origin.y + frame.height > visible.maxY { origin.y = overlay.minY - 8 - frame.height }
-        origin.x = min(max(origin.x, visible.minX), visible.maxX - frame.width)
-        setFrameOrigin(origin)
+        setFrameOrigin(OverlayPlacement.noticeOrigin(frame.size, beside: overlay, in: visible))
     }
 }

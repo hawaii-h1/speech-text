@@ -2183,7 +2183,7 @@ final class AppState {
                     action: StatusOverlayAction? = nil) {
         hideStatus()
 
-        let panel = StatusOverlayPanel(above: (overlayPanel ?? confirmationPanel).flatMap { $0.isVisible ? $0.frame : nil })
+        let panel = StatusOverlayPanel()
         panel.contentView = NSHostingView(rootView: StatusOverlayView(
             icon: icon,
             title: title,
@@ -2195,6 +2195,7 @@ final class AppState {
                 self?.openHistoryWindow()
             }
         ))
+        panel.place(beside: (overlayPanel ?? confirmationPanel).flatMap { $0.isVisible ? $0.frame : nil })
         panel.orderFrontRegardless()
         statusPanel = panel
 

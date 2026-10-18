@@ -1891,6 +1891,36 @@ final class OverlayPlacementTests: XCTestCase {
         XCTAssertNil(OverlayPlacement.decode("a,b"))
     }
 
+    // MARK: Notices
+
+    private let notice = CGSize(width: 340, height: 60)
+
+    /// In the bottom half a notice opens above the overlay, right-aligned with it.
+    func testANoticeOpensAboveAnOverlayInTheBottomHalf() {
+        let overlay = CGRect(x: 1192, y: 20, width: 300, height: 44)
+        XCTAssertEqual(OverlayPlacement.noticeOrigin(notice, beside: overlay, in: laptop),
+                       CGPoint(x: 1492 - 340, y: 64 + 8))
+    }
+
+    /// In the top half it opens below, so it never covers the overlay nor leaves the screen.
+    func testANoticeOpensBelowAnOverlayInTheTopHalf() {
+        let overlay = CGRect(x: 600, y: 880, width: 300, height: 44)
+        XCTAssertEqual(OverlayPlacement.noticeOrigin(notice, beside: overlay, in: laptop),
+                       CGPoint(x: 900 - 340, y: 880 - 8 - 60))
+    }
+
+    /// An overlay too tall to leave room on either side holds the notice at the screen's edge.
+    func testANoticeWithNoRoomIsHeldAtTheEdge() {
+        let tall = CGRect(x: 600, y: 20, width: 300, height: 860)
+        XCTAssertEqual(OverlayPlacement.noticeOrigin(notice, beside: tall, in: laptop).y, 944 - 60)
+    }
+
+    /// A strip at the left edge keeps the wider notice on the screen.
+    func testANoticeStaysOnTheScreen() {
+        let overlay = CGRect(x: 0, y: 20, width: 142, height: 56)
+        XCTAssertEqual(OverlayPlacement.noticeOrigin(notice, beside: overlay, in: laptop).x, 0)
+    }
+
     /// The overlay's bright half spans segments, unlike `segmentStableText`: a pause does
     /// not wipe the transcript the user is reading.
     func testStableTextSpansSegments() {
