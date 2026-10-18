@@ -78,9 +78,14 @@ struct PasteService {
         // the snapshot taken now would be of that rather than of the user's clipboard.
         restorePendingClipboardNow(pasteboard)
         let saved = saveClipboard(pasteboard)
+        pasteboardWrites += 1
         let before = pasteboard.changeCount
         simulateCommandKey("c", name: "⌘C")
-        awaitChange(of: pasteboard, since: before) { changed in
+        awaitChange(of: pasteboard, since: before, late: {
+            // Taken for nothing selected, but the copy did land, over the user's clipboard.
+            dlog("Edit", "selection: the ⌘C landed late — the clipboard is put back")
+            restoreClipboard(pasteboard, items: saved)
+        }) { changed in
             guard changed else {
                 dlog("Edit", "selection: ⌘C changed nothing — nothing selected")
                 completion(nil)
@@ -121,13 +126,31 @@ struct PasteService {
 
     /// Cuts the selection of the app in front with a ⌘X, keeping what was cut and putting
     /// the user's clipboard back.
-    static func cutSelection(completion: @escaping (CutResult) -> Void) {
+    ///
+    /// A ⌘X that lands after `completion` said `.nothing` has still taken the text out of
+    /// the document. If what it put on the pasteboard `isSelection`, the user's clipboard
+    /// is put back and `landedLate` is handed the cut, to put it back where it was; a
+    /// change that is not the selection is someone else's copy and is left alone.
+    static func cutSelection(isSelection: @escaping (String) -> Bool,
+                             landedLate: @escaping ([NSPasteboardItem]) -> Void,
+                             completion: @escaping (CutResult) -> Void) {
         let pasteboard = NSPasteboard.general
         restorePendingClipboardNow(pasteboard)
         let saved = saveClipboard(pasteboard)
+        pasteboardWrites += 1
         let before = pasteboard.changeCount
         simulateCommandKey("x", name: "⌘X")
-        awaitChange(of: pasteboard, since: before) { changed in
+        awaitChange(of: pasteboard, since: before, late: {
+            let text = pasteboard.string(forType: .string) ?? ""
+            guard isSelection(text) else {
+                dlog("Edit", "cut: the pasteboard changed late to \(text.count) chars that are not the selection — left alone")
+                return
+            }
+            dlog("Edit", "cut: the ⌘X landed late (\(text.count) chars) — the clipboard is put back")
+            let items = saveClipboard(pasteboard)
+            restoreClipboard(pasteboard, items: saved)
+            landedLate(items)
+        }) { changed in
             guard changed else {
                 dlog("Edit", "cut: ⌘X changed nothing")
                 completion(.nothing)
@@ -141,9 +164,10 @@ struct PasteService {
     }
 
     /// Polls the pasteboard until a ⌘C or ⌘X lands. The copy happens in another process
-    /// with no signal of its own.
+    /// with no signal of its own. Once the poll has given up, `late` runs if the key lands
+    /// after all (`watchForLateChange`).
     private static func awaitChange(of pasteboard: NSPasteboard, since before: Int, attempt: Int = 0,
-                                    completion: @escaping (Bool) -> Void) {
+                                    late: @escaping () -> Void, completion: @escaping (Bool) -> Void) {
         // ~600 ms in 20 ms steps: Chromium takes its time. An app with nothing selected
         // leaves the pasteboard alone, so running out means nothing was there.
         let maxAttempts = 30
@@ -152,11 +176,42 @@ struct PasteService {
             return
         }
         guard attempt < maxAttempts else {
+            // Read before the completion runs: what it writes is ours, not the key's.
+            let writes = pasteboardWrites
             completion(false)
+            watchForLateChange(of: pasteboard, since: before, writes: writes,
+                               until: ProcessInfo.processInfo.systemUptime + lateChangeSeconds, landed: late)
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-            awaitChange(of: pasteboard, since: before, attempt: attempt + 1, completion: completion)
+            awaitChange(of: pasteboard, since: before, attempt: attempt + 1, late: late, completion: completion)
+        }
+    }
+
+    /// How long after `awaitChange` gave up a ⌘C or ⌘X is still watched for.
+    private static let lateChangeSeconds: TimeInterval = 3
+
+    /// Bumped by every write of ours to the pasteboard and by every ⌘C or ⌘X posted: a
+    /// change after it is not the late key's.
+    private static var pasteboardWrites = 0
+
+    /// After `awaitChange` gave up, the key may still land — an app slower than 600 ms, a
+    /// beach ball — and with nothing watching, a ⌘C left the user's clipboard holding the
+    /// selection, and a ⌘X took text out of the document with nothing but the clipboard
+    /// holding it, while the edit had concluded that nothing could be cut. So the
+    /// pasteboard is watched a while longer, on the main run loop. A change with no write
+    /// of ours in between is taken for the key; a write of ours ends the watch, since the
+    /// change would then be ours.
+    private static func watchForLateChange(of pasteboard: NSPasteboard, since before: Int, writes: Int,
+                                           until deadline: TimeInterval, landed: @escaping () -> Void) {
+        guard writes == pasteboardWrites else { return }
+        guard pasteboard.changeCount == before else {
+            landed()
+            return
+        }
+        guard ProcessInfo.processInfo.systemUptime < deadline else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            watchForLateChange(of: pasteboard, since: before, writes: writes, until: deadline, landed: landed)
         }
     }
 
@@ -167,6 +222,7 @@ struct PasteService {
         if pendingRestore == nil || pasteboard.changeCount != stagedChangeCount {
             savedClipboard = saveClipboard(pasteboard)
         }
+        pasteboardWrites += 1
         pasteboard.clearContents()
         pasteboard.writeObjects(copies(of: items))
         markTransient(pasteboard)
@@ -251,6 +307,7 @@ struct PasteService {
         pendingRestore?.cancel()
         pendingRestore = nil
         savedClipboard = nil
+        pasteboardWrites += 1
         pasteboard.clearContents()
         return pasteboard
     }
@@ -414,6 +471,7 @@ struct PasteService {
         if pendingRestore == nil || pasteboard.changeCount != stagedChangeCount {
             savedClipboard = saveClipboard(pasteboard)
         }
+        pasteboardWrites += 1
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         markTransient(pasteboard)
@@ -482,6 +540,7 @@ struct PasteService {
 
     /// Restore previously saved clipboard contents.
     private static func restoreClipboard(_ pasteboard: NSPasteboard, items: [NSPasteboardItem]) {
+        pasteboardWrites += 1
         pasteboard.clearContents()
         if !items.isEmpty {
             pasteboard.writeObjects(items)
@@ -490,6 +549,12 @@ struct PasteService {
 
     /// Activate a specific app (used to switch back to user's app before pasting)
     static func activateApp(_ app: NSRunningApplication) {
+        // An app that quit cannot be brought back — and the AppleScript fallback below
+        // would *launch* it again, after which the ⌘V goes to whatever is in front.
+        guard !app.isTerminated else {
+            dlog("Paste", "Not activating \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?")): it quit")
+            return
+        }
         dlog("Paste", "Activating: \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?"))")
 
         // Try NSRunningApplication.activate first

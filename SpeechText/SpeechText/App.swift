@@ -719,17 +719,24 @@ final class AppState {
     private var statusDismissItem: DispatchWorkItem?
     private var directRecordingPanel: DirectRecordingPanelWindow?
     private var directRecordingSpeechEngine: SpeechEngine?
+    /// The open Record Window's text view, for a dictation handed to it while it is open.
+    private var directRecordingInsertion: TextInsertionHandler?
     /// The block observer on the Record Window's `willClose`. Kept so it can be removed:
     /// `removeObserver(self, …)` does nothing for a block observer, and a leaked one from
     /// a previous panel cleared the *new* panel's references when the old one closed.
     private var directRecordingCloseObserver: NSObjectProtocol?
-    /// The app the user was in when the recording started. An inline dictation's *origin*
-    /// — it is pasted where it ended (`pasteDestination`), and here only when that was
-    /// SpeechText's own window. The Edit shortcut and the Record Window paste here.
+    /// The app the user was last in when a recording started — the Edit shortcut's and
+    /// the Record Window's target, which they paste into. Kept when a recording starts in
+    /// SpeechText's own window, so the Record Window's Insert keeps its app.
     var previousApp: NSRunningApplication?
+    /// Where the current inline dictation started (`InlineDelivery.origin`): pasted into
+    /// only when the stop found SpeechText's own window in front. Nil when the dictation
+    /// started there too — it then goes to the Record Window, not to `previousApp`, the
+    /// app of some earlier recording.
+    private var dictationOrigin: NSRunningApplication?
     /// Where the current inline dictation goes: the app in front when the user stopped,
     /// fixed at the stop (`InlineDelivery.destination`). Every step after the stop is
-    /// handed this app, not `previousApp` — the paste, the AI prompt's `<context>`,
+    /// handed this app, not `dictationOrigin` — the paste, the AI prompt's `<context>`,
     /// History and the trace. Nil until the stop.
     private var pasteDestination: NSRunningApplication?
 
@@ -829,12 +836,24 @@ final class AppState {
         let timer = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.dictationTapTimer = nil
+            // The microphone is an edit's now: `dictationPhase` would read its recording
+            // as the tapped dictation's, and the cancel would end the edit's instead.
+            guard !self.isEditMode else { return }
             let action = self.hotkeyGesture.tapWindowExpired(in: self.dictationPhase, at: ProcessInfo.processInfo.systemUptime)
             dlog("Hotkey", "dictation tap stood alone → \(action)")
             self.perform(action)
         }
         dictationTapTimer = timer
         DispatchQueue.main.asyncAfter(deadline: .now() + DictationHotkeyGesture.doubleTapWindow, execute: timer)
+    }
+
+    /// Drops a tap still waiting for its second half, with its timer: the dictation it
+    /// belonged to is over, and the timer would otherwise cancel whatever records next —
+    /// an edit started within the window, whose recording it took for the dictation's.
+    private func cancelDictationTap() {
+        dictationTapTimer?.cancel()
+        dictationTapTimer = nil
+        hotkeyGesture.reset()
     }
 
     /// The menu's items: a press with nothing held.
@@ -888,6 +907,7 @@ final class AppState {
         // Written at the stop, before the LLM: a cancel during the rewrite leaves it there.
         let savedInHistory = isRefining && speechEngine.lastRecordID != nil
         dlog("App", "cancelling mid-flight (\(reason)\(savedInHistory ? ", the transcript stays in History" : ""))")
+        cancelDictationTap()
         transcriptionWaitTask?.cancel()
         transcriptionWaitTask = nil
         refinementTask?.cancel()
@@ -919,16 +939,19 @@ final class AppState {
         if isTestDictation {
             // The result goes to the setup window; there is no app to paste into.
             previousApp = nil
+            dictationOrigin = nil
             dictationTest.began(ai: isAIMode)
-        } else if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
-            previousApp = front
+        } else {
+            dictationOrigin = InlineDelivery.origin(
+                front: front, frontIsSpeechText: front?.bundleIdentifier == Bundle.main.bundleIdentifier)
+            if let dictationOrigin { previousApp = dictationOrigin }
         }
         pasteDestination = nil
         focusContext = nil
         let locale = resolvedLocale()
         // The same settings the engine snapshots a moment later, read the same way.
         showsLiveTranscript = RecordingConfiguration.current(locale: locale).hasLiveText
-        dlog("App", "startRecording: previousApp=\(previousApp?.localizedName ?? "nil"), locale=\(locale), aiMode=\(isAIMode), liveTranscript=\(showsLiveTranscript)")
+        dlog("App", "startRecording: origin=\(dictationOrigin?.localizedName ?? "nil"), locale=\(locale), aiMode=\(isAIMode), liveTranscript=\(showsLiveTranscript)")
         if isAIMode { LLMConfiguration.prewarmIfLocal() }
 
         speechEngine.recordsEmptyOutcomes = true
@@ -1005,7 +1028,7 @@ final class AppState {
                 aiMode: isAIMode,
                 removesDisfluencies: UserDefaults.standard.object(forKey: SettingsKeys.removeDisfluencies) as? Bool ?? true,
                 dashStyle: .current,
-                app: previousApp?.localizedName))
+                app: dictationOrigin?.localizedName))
             : nil
     }
 
@@ -1032,10 +1055,10 @@ final class AppState {
         pasteDestination = isTestDictation ? nil : InlineDelivery.destination(
             front: front,
             frontIsSpeechText: front?.bundleIdentifier == Bundle.main.bundleIdentifier,
-            origin: previousApp)
+            origin: dictationOrigin)
         let destination = pasteDestination?.localizedName ?? "nil"
-        if pasteDestination?.processIdentifier != previousApp?.processIdentifier {
-            dlog("App", "paste target: \(destination) (started in \(previousApp?.localizedName ?? "nil"))")
+        if pasteDestination?.processIdentifier != dictationOrigin?.processIdentifier {
+            dlog("App", "paste target: \(destination) (started in \(dictationOrigin?.localizedName ?? "nil"))")
         } else {
             dlog("App", "paste target: \(destination)")
         }
@@ -1148,8 +1171,8 @@ final class AppState {
     /// that is about to be pasted: a failure or an empty result went nowhere.
     private func recordApps() {
         guard !isTestDictation, let id = speechEngine.lastRecordID else { return }
-        TranscriptionHistory.shared.recordApps(id: id, origin: previousApp?.localizedName,
-                                               originBundleID: previousApp?.bundleIdentifier,
+        TranscriptionHistory.shared.recordApps(id: id, origin: dictationOrigin?.localizedName,
+                                               originBundleID: dictationOrigin?.bundleIdentifier,
                                                destination: pasteDestination?.localizedName,
                                                destinationBundleID: pasteDestination?.bundleIdentifier)
     }
@@ -1306,28 +1329,42 @@ final class AppState {
 
         // The origin only when the stop chose nothing — the engine ended the recording on
         // its own, which does not pass through `stopRecording`.
-        guard let app = pasteDestination ?? previousApp else {
+        guard let app = pasteDestination ?? dictationOrigin else {
             dlog("App", "deliver: no destination, showing record panel")
             dismissOverlayConfirmation()
             showDirectRecordingPanel(withText: text)
             return
         }
 
-        // Paste into the destination. If the focused element is a known non-text role
-        // (button, table, list, etc.), fall back to the Record Window instead.
+        // Paste into the destination — once it is the app in front: the ⌘V goes to whatever
+        // is. If it quit, would not come forward, or its focused element is a known
+        // non-text role (button, table, list, etc.), fall back to the Record Window instead.
         let alreadyFocused = app.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier
 
         let tryPaste = { [weak self] in
-            if PasteService.canLikelyPasteText(in: app) {
-                PasteService.pasteAtCursor(text)
-                self?.confirmOverlay(app.localizedName.map { "Pasted into \($0)" } ?? "Pasted")
-            } else {
+            let front = NSWorkspace.shared.frontmostApplication
+            let check = InlineDelivery.pasteCheck(quit: app.isTerminated,
+                                                  inFront: front?.processIdentifier == app.processIdentifier,
+                                                  takesText: PasteService.canLikelyPasteText(in: app))
+            guard check == .paste else {
+                dlog("App", "deliver: not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front) — showing record panel")
                 self?.dismissOverlayConfirmation()
                 self?.showDirectRecordingPanel(withText: text)
+                if check == .quit || check == .notInFront {
+                    self?.showStatus(icon: "exclamationmark.triangle.fill",
+                                     title: "Couldn't paste into \(app.localizedName ?? "the app")",
+                                     detail: check == .quit
+                                         ? "It quit before the text was ready. The text is in the Record Window."
+                                         : "It didn't come to the front. The text is in the Record Window.",
+                                     tint: .orange)
+                }
+                return
             }
+            PasteService.pasteAtCursor(text)
+            self?.confirmOverlay(app.localizedName.map { "Pasted into \($0)" } ?? "Pasted")
         }
 
-        if alreadyFocused {
+        if alreadyFocused || app.isTerminated {
             tryPaste()
         } else {
             PasteService.activateApp(app)
@@ -1342,17 +1379,37 @@ final class AppState {
     func pasteTextToTarget(_ text: String) {
         dlog("App", "pasteTextToTarget: \(text.count) chars, previousApp=\(previousApp?.localizedName ?? "nil")")
 
-        // Re-activate the app the user was in before recording
-        if let app = previousApp {
-            PasteService.activateApp(app)
-        } else {
-            dlog("App", "pasteTextToTarget: no previousApp saved")
+        // With no app to bring back, the ⌘V would land in the Record Window itself — the
+        // app in front — and double its text.
+        guard let app = previousApp, !app.isTerminated else {
+            dlog("App", "pasteTextToTarget: no app to insert into (\(previousApp == nil ? "none saved" : "it quit"))")
+            showStatus(icon: "exclamationmark.triangle.fill", title: "No app to insert into",
+                       detail: "The app the Record Window was opened from is gone. Copy the text instead.",
+                       tint: .orange)
+            return
         }
+
+        // Re-activate the app the user was in before recording
+        PasteService.activateApp(app)
 
         // Wait for the app to regain focus, then paste. A blind wait on purpose: focus
         // moves in another process and nothing tells us when its text field is ready
         // for ⌘V. No completion can replace this 0.5s.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            let front = NSWorkspace.shared.frontmostApplication
+            let check = InlineDelivery.pasteCheck(quit: app.isTerminated,
+                                                  inFront: front?.processIdentifier == app.processIdentifier,
+                                                  takesText: true)
+            guard check == .paste else {
+                dlog("App", "pasteTextToTarget: not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front)")
+                self?.showStatus(icon: "exclamationmark.triangle.fill",
+                                 title: "Couldn't insert into \(app.localizedName ?? "the app")",
+                                 detail: check == .quit
+                                     ? "It quit. The text is still in the Record Window."
+                                     : "It didn't come to the front. The text is still in the Record Window.",
+                                 tint: .orange)
+                return
+            }
             PasteService.pasteAtCursor(text)
         }
     }
@@ -1489,6 +1546,10 @@ final class AppState {
 
     /// Reads the selection and opens the microphone for an instruction, together.
     private func startEdit() {
+        // A dictation tapped and cancelled (⎋, ✕) just before this press may still be
+        // waiting for its second tap: once its window ran out it would cancel this
+        // edit's recording, which it takes for its own.
+        cancelDictationTap()
         let front = NSWorkspace.shared.frontmostApplication
         guard front?.bundleIdentifier != Bundle.main.bundleIdentifier else {
             editGesture.reset()
@@ -1651,6 +1712,7 @@ final class AppState {
     /// nothing the user does while the LLM works can make the rewrite land on the wrong
     /// text. The rewrite is then pasted at the caret the cut leaves.
     private func takeSelection(_ selection: CapturedSelection) {
+        guard editAppIsInFront() else { return }
         guard !selectionIsCurrent else {
             removeSelection(selection)
             return
@@ -1687,6 +1749,8 @@ final class AppState {
     /// Cuts the selection, and checks that what was cut is what was read: a click
     /// elsewhere since then would otherwise have taken other text out of the document.
     private func removeSelection(_ selection: CapturedSelection) {
+        // Again: the read before this takes up to 0.6 s, time enough for a ⌘Tab.
+        guard editAppIsInFront() else { return }
         editRemoval = .removing
         let generation = editGeneration
         var confirmed = false
@@ -1700,7 +1764,13 @@ final class AppState {
             case .unconfirmed: break
             }
         }
-        PasteService.cutSelection { [weak self] cut in
+        let app = previousApp
+        let isSelection = { [confirmed] (cut: String) in
+            SelectionEdit.cutMatches(cut, selection: selection.text, selectionConfirmed: confirmed)
+        }
+        PasteService.cutSelection(isSelection: isSelection, landedLate: { [weak self] items in
+            self?.putBackLateCut(items, in: app)
+        }) { [weak self] cut in
             guard let self, self.isEditMode, self.editGeneration == generation else {
                 // The edit was cancelled while the ⌘X was landing: nothing may go missing.
                 if case .cut(let items, _) = cut { PasteService.pasteItems(items) }
@@ -1728,6 +1798,42 @@ final class AppState {
             }
             self.advanceEdit()
         }
+    }
+
+    /// A ⌘X that landed after the edit had taken the field for one that cannot be cut: its
+    /// text is out of the document, while the edit — running on, finished or cancelled —
+    /// takes it for still there. It goes back where it was cut, the one write that is right
+    /// in every one of those states; the rewrite still ends on the clipboard, as for a
+    /// read-only field. Only into its app still in front — never by bringing that app back
+    /// seconds later — and otherwise onto the clipboard, with a notice.
+    private func putBackLateCut(_ items: [NSPasteboardItem], in app: NSRunningApplication?) {
+        let front = NSWorkspace.shared.frontmostApplication
+        if let app, InlineDelivery.pasteCheck(quit: app.isTerminated,
+                                              inFront: front?.processIdentifier == app.processIdentifier,
+                                              takesText: true) == .paste {
+            dlog("Edit", "the late cut goes back where it was")
+            PasteService.pasteItems(items)
+            return
+        }
+        dlog("Edit", "the late cut stays on the clipboard — \(app?.localizedName ?? "its app") is not in front")
+        PasteService.copyToClipboard(items: items)
+        showStatus(icon: "doc.on.clipboard", title: "The selected text is on the clipboard",
+                   detail: "\(app?.localizedName ?? "The app") took it out late, once it wasn't in front. Paste it back with ⌘V.",
+                   tint: .orange, duration: 10)
+    }
+
+    /// Whether the app the edit began in is still in front, so a ⌘C or ⌘X reaches it. If
+    /// the user switched to another app while speaking, the edit ends here without
+    /// touching either app's text — nothing has been cut yet — and says so.
+    private func editAppIsInFront() -> Bool {
+        let front = NSWorkspace.shared.frontmostApplication
+        guard !SelectionEdit.takesSelection(editing: previousApp?.processIdentifier,
+                                            front: front?.processIdentifier) else { return true }
+        dlog("Edit", "\(front?.localizedName ?? "nil") is in front, not \(previousApp?.localizedName ?? "nil") — the selection is not taken")
+        abortEdit(icon: "character.cursor.ibeam", title: "The selection was in another app",
+                  detail: "\(previousApp?.localizedName ?? "Its app") wasn't in front when the instruction ended. Nothing was edited.",
+                  tint: .secondary)
+        return false
     }
 
     /// Sends the selection to the LLM and writes the answer where it was.
@@ -1819,7 +1925,8 @@ final class AppState {
     }
 
     /// Runs `paste` in the edit's app, bringing it back to the front first if it has to.
-    /// With the app gone, `fallback` leaves the text on the clipboard instead.
+    /// With the app gone, or still not in front once it was asked to come back — the ⌘V
+    /// would go to whichever app is — `fallback` leaves the text on the clipboard instead.
     private func deliverToEditTarget(_ app: NSRunningApplication?, fallback: @escaping () -> Void,
                                      paste: @escaping () -> Void) {
         guard let app, !app.isTerminated else {
@@ -1830,10 +1937,26 @@ final class AppState {
         }
         if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
             paste()
-        } else {
-            PasteService.activateApp(app)
-            // Blind wait, as for every paste into an app brought back to the front.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: paste)
+            return
+        }
+        PasteService.activateApp(app)
+        // Blind wait, as for every paste into an app brought back to the front.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            let front = NSWorkspace.shared.frontmostApplication
+            let check = InlineDelivery.pasteCheck(quit: app.isTerminated,
+                                                  inFront: front?.processIdentifier == app.processIdentifier,
+                                                  takesText: true)
+            guard check == .paste else {
+                dlog("Edit", "not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front) — the text goes to the clipboard")
+                fallback()
+                self?.showStatus(icon: "doc.on.clipboard", title: "The text is on the clipboard",
+                                 detail: check == .quit
+                                     ? "The app it came from is gone."
+                                     : "\(app.localizedName ?? "The app") didn't come back to the front, so nothing was pasted into it.",
+                                 tint: .orange, duration: 8)
+                return
+            }
+            paste()
         }
     }
 
@@ -2293,8 +2416,23 @@ final class AppState {
         }
     }
 
+    /// Opens the Record Window — with `text`, a dictation that could not be pasted, and
+    /// no recording; without, recording at once. One already open is never replaced: what
+    /// was dictated or typed there lives only in it, and a recording may be running.
+    /// `text` is added after what it holds, and it comes forward.
     func showDirectRecordingPanel(withText text: String? = nil) {
-        hideDirectRecordingPanel()
+        if let panel = directRecordingPanel {
+            if let text {
+                dlog("App", "record window already open — \(text.count) chars added after its text")
+                appendToDirectRecordingPanel(text)
+            } else {
+                dlog("App", "record window already open — brought forward")
+            }
+            panel.orderFrontRegardless()
+            panel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
 
         // Save the app the user was in before opening the panel
         if text == nil {
@@ -2310,11 +2448,14 @@ final class AppState {
             engine.editedText = text
         }
         directRecordingSpeechEngine = engine
+        let insertion = TextInsertionHandler()
+        directRecordingInsertion = insertion
 
         let panel = DirectRecordingPanelWindow()
         let hostingView = NSHostingView(rootView: DirectRecordingPanelView(
             speechEngine: engine,
             appState: self,
+            insertionHandler: insertion,
             autoStartRecording: text == nil,
             onDismiss: { [weak self] in
                 self?.hideDirectRecordingPanel()
@@ -2335,7 +2476,19 @@ final class AppState {
             self.releaseDirectRecordingEngine()
             self.removeDirectRecordingCloseObserver()
             self.directRecordingPanel = nil
+            self.directRecordingInsertion = nil
         }
+    }
+
+    /// Adds `text` after what the open Record Window holds, spaced as its own segments
+    /// are, as one undoable step.
+    private func appendToDirectRecordingPanel(_ text: String) {
+        guard !text.isEmpty, directRecordingInsertion?.append(text) == nil,
+              let engine = directRecordingSpeechEngine else { return }
+        // No text view to insert into yet: the text the editor will be built from.
+        let existing = engine.editedText
+        let gap = existing.last.map { !$0.isWhitespace } == true ? " " : ""
+        engine.editedText = existing + gap + text
     }
 
     private func hideDirectRecordingPanel() {
@@ -2345,6 +2498,7 @@ final class AppState {
             panel.close()
         }
         directRecordingPanel = nil
+        directRecordingInsertion = nil
     }
 
     /// Lets the Record Window's engine finish what it is doing and forgets it: a live

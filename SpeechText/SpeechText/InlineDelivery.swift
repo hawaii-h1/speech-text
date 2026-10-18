@@ -16,6 +16,14 @@ import Foundation
 /// that is not a decision: the overlay, the status notices, the Record Window fallback,
 /// the LLM call, the paste itself.
 enum InlineDelivery {
+    /// The app an inline dictation started in: the one in front at its start — none when
+    /// that was SpeechText's own window (the main window, Settings), since the app never
+    /// pastes into itself. A dictation that starts there and ends there goes to the Record
+    /// Window, never to whichever app an earlier dictation was in.
+    static func origin<App>(front: App?, frontIsSpeechText: Bool) -> App? {
+        frontIsSpeechText ? nil : front
+    }
+
     /// Where an inline dictation is pasted: the app in front when the user stopped, in
     /// whatever app that is — not the one it started in (#77). With nothing to paste
     /// before the stop there is nothing spread across two apps, so the only question is
@@ -33,6 +41,32 @@ enum InlineDelivery {
     static func destination<App>(front: App?, frontIsSpeechText: Bool, origin: App?) -> App? {
         guard let front, !frontIsSpeechText else { return origin }
         return front
+    }
+
+    /// Whether a ⌘V may be posted into the app the text is for, once it was asked to the
+    /// front and the blind wait is over. A posted ⌘V goes to whatever app is in front, and
+    /// that may not be this one: since macOS 14 activation is a request another app can
+    /// decline without `activate()` saying so, and an app that quit — during an AI
+    /// rewrite, which takes seconds — cannot come forward at all. The paste would land in
+    /// whichever app the user is in while the overlay named another.
+    ///
+    /// Asked by every paste into another app: the stop's (`AppState.deliver`), the Edit
+    /// shortcut's rewrite and put-back, and the Record Window's Insert.
+    enum PasteCheck: Equatable {
+        case paste
+        /// The app quit since it was chosen.
+        case quit
+        /// Another app is in front.
+        case notInFront
+        /// Its focused element takes no text (a button, a list).
+        case takesNoText
+    }
+
+    /// `takesText` is asked only of an app in front: it is a round trip to that app.
+    static func pasteCheck(quit: Bool, inFront: Bool, takesText: @autoclosure () -> Bool) -> PasteCheck {
+        if quit { return .quit }
+        guard inFront else { return .notInFront }
+        return takesText() ? .paste : .takesNoText
     }
 
     /// What a stop's result comes to, once the engine has gone idle.

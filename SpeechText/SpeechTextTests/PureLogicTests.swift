@@ -1352,6 +1352,31 @@ final class PasteDestinationTests: XCTestCase {
     func testNothingInFrontFallsBackToTheOrigin() {
         XCTAssertEqual(InlineDelivery.destination(front: String?.none, frontIsSpeechText: false, origin: "Mail"), "Mail")
     }
+
+    func testTheAppInFrontAtTheStartIsTheOrigin() {
+        XCTAssertEqual(InlineDelivery.origin(front: "Mail", frontIsSpeechText: false), "Mail")
+    }
+
+    /// Started from the main window or Settings: no origin — not the app an earlier
+    /// dictation was in — so a stop there too goes to the Record Window.
+    func testADictationStartedInSpeechTextHasNoOrigin() {
+        XCTAssertNil(InlineDelivery.origin(front: "SpeechText", frontIsSpeechText: true))
+        let origin = InlineDelivery.origin(front: "SpeechText", frontIsSpeechText: true)
+        XCTAssertNil(InlineDelivery.destination(front: "SpeechText", frontIsSpeechText: true, origin: origin))
+        XCTAssertEqual(InlineDelivery.destination(front: "Notes", frontIsSpeechText: false, origin: origin), "Notes")
+    }
+
+    /// The ⌘V goes to whatever is in front, so it is posted only when that is the app the
+    /// text is for — and the focused element is asked about only then.
+    func testAPasteIsPostedOnlyIntoTheAppInFront() {
+        XCTAssertEqual(InlineDelivery.pasteCheck(quit: false, inFront: true, takesText: true), .paste)
+        XCTAssertEqual(InlineDelivery.pasteCheck(quit: false, inFront: true, takesText: false), .takesNoText)
+        XCTAssertEqual(InlineDelivery.pasteCheck(quit: false, inFront: false, takesText: true), .notInFront)
+        XCTAssertEqual(InlineDelivery.pasteCheck(quit: true, inFront: false, takesText: true), .quit)
+        var asked = false
+        _ = InlineDelivery.pasteCheck(quit: false, inFront: false, takesText: { asked = true; return true }())
+        XCTAssertFalse(asked, "the focused element of an app not in front was asked about")
+    }
 }
 
 // MARK: - Finalizing pass (FinalizePass.swift)

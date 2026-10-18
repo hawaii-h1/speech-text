@@ -213,6 +213,17 @@ enum SelectionEdit {
         case tooLong
     }
 
+    /// Whether the selection may be read again and cut once the instruction is over: only
+    /// while the app the edit began in is still the one in front. A ⌘C and a ⌘X go to
+    /// whichever app is in front, and the rewrite is pasted into the app the edit began
+    /// in — so with another app in front (⌘Tab works while the shortcut is held, #79) the
+    /// edit would cut text out of one app and paste its rewrite into the other. Generic
+    /// over the process identifier, so a test needs no running app.
+    static func takesSelection<ID: Equatable>(editing app: ID?, front: ID?) -> Bool {
+        guard let app else { return false }
+        return app == front
+    }
+
     static func target(read: CapturedSelection, current: CapturedSelection?) -> Target {
         guard let current else { return .nothingSelected }
         guard current.text.count <= maxCharacters else { return .tooLong }

@@ -156,6 +156,17 @@ final class TextInsertionHandler {
         return record
     }
 
+    /// Adds `text` after everything the view holds, spaced as `insert` spaces it, and
+    /// leaves the caret after it — one undoable step, the text already there untouched.
+    /// For a dictation handed to a Record Window that is already open
+    /// (`AppState.showDirectRecordingPanel`).
+    @discardableResult
+    func append(_ text: String) -> InsertionRecord? {
+        guard let textView else { return nil }
+        textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+        return insert(text)
+    }
+
     /// The text view's whole content as one record, for a pass over all of it.
     func wholeText() -> InsertionRecord? {
         guard let textView else { return nil }
@@ -314,6 +325,9 @@ struct LCDTextEditor: NSViewRepresentable {
 struct DirectRecordingPanelView: View {
     @Bindable var speechEngine: SpeechEngine
     var appState: AppState
+    /// Where segments land in the text view — and, kept by `AppState`, a dictation handed
+    /// to the panel while it is open (`TextInsertionHandler.append`).
+    let insertionHandler: TextInsertionHandler
     var autoStartRecording: Bool = true
     let onDismiss: () -> Void
 
@@ -360,8 +374,6 @@ struct DirectRecordingPanelView: View {
     @State private var refineStatus: String?
     /// Set when the last refinement failed, so the status line can be shown in red.
     @State private var refineFailed = false
-
-    private let insertionHandler = TextInsertionHandler()
 
     private var hasText: Bool {
         !speechEngine.editedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

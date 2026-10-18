@@ -314,6 +314,49 @@ final class PasteDestinationReplayTests: XCTestCase {
         XCTAssertTrue(textEdit.pastes.isEmpty)
     }
 
+    /// The app the dictation ended in quit while the model worked: the ⌘V would land in
+    /// whatever is in front now, so nothing is pasted anywhere and the rewrite goes to the
+    /// Record Window.
+    func testARewriteForAnAppThatQuitGoesToTheRecordWindow() async {
+        let mail = FakeApp("Mail"), slack = FakeApp("Slack"), textEdit = FakeApp("TextEdit")
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: mail, [
+            .committed("скажи всім що я запізнюсь"),
+            .switchTo(slack),
+        ], llm: .rewrites("Запізнюся на кілька хвилин."),
+           whileRewriting: [.switchTo(textEdit), .appQuits(slack)])
+
+        XCTAssertTrue(run.destination === slack)
+        XCTAssertEqual(run.recordWindow, "Запізнюся на кілька хвилин. ")
+        XCTAssertTrue(slack.pastes.isEmpty)
+        XCTAssertTrue(textEdit.pastes.isEmpty)
+        XCTAssertTrue(mail.pastes.isEmpty)
+    }
+
+    /// Asked back to the front, the app stays behind the one the user moved to (macOS 14
+    /// lets it decline): the ⌘V is not posted into the app that is in front instead.
+    func testADestinationThatDoesNotComeForwardGetsNoPasteAndNeitherDoesTheAppInFront() async {
+        let mail = FakeApp("Mail"), slack = FakeApp("Slack"), textEdit = FakeApp("TextEdit")
+        slack.declinesActivation = true
+        let run = await DictationReplay.run(DictationReplay.Setup(aiMode: true), in: mail, [
+            .committed("скажи всім що я запізнюсь"),
+            .switchTo(slack),
+        ], llm: .rewrites("Запізнюся на кілька хвилин."), whileRewriting: [.switchTo(textEdit)])
+
+        XCTAssertEqual(run.recordWindow, "Запізнюся на кілька хвилин. ")
+        XCTAssertTrue(slack.pastes.isEmpty)
+        XCTAssertTrue(textEdit.pastes.isEmpty)
+    }
+
+    /// Still in front at the stop, it needs no bringing back, and is pasted into.
+    func testADestinationAlreadyInFrontIsPastedIntoWithoutBeingAsked() async {
+        let slack = FakeApp("Slack")
+        slack.declinesActivation = true
+        let run = await DictationReplay.run(in: slack, [.committed("Привіт.")])
+
+        assertDocument(slack.document, "Привіт.")
+        XCTAssertNil(run.recordWindow)
+    }
+
     /// The password-manager exclusion is judged on the app the text goes to: started in
     /// Mail, stopped in 1Password — no context at all.
     func testStoppingInAPasswordManagerSendsNoContext() async {
@@ -346,6 +389,33 @@ final class PasteDestinationReplayTests: XCTestCase {
 
         XCTAssertTrue(run.destination === textEdit)
         assertDocument(textEdit.document, "Відкрив налаштування посеред диктування.")
+    }
+
+    /// Started and stopped with SpeechText's own window in front: there is no app the
+    /// dictation belongs to, so it goes to the Record Window — not into TextEdit, where
+    /// an earlier dictation happened to start.
+    func testADictationStartedAndStoppedInSpeechTextGoesToTheRecordWindow() async {
+        let earlier = FakeApp("TextEdit")
+        let run = await DictationReplay.run(DictationReplay.Setup(startsInSpeechText: true), in: earlier, [
+            .committed("Надиктував з головного вікна."),
+        ])
+
+        XCTAssertNil(run.destination)
+        XCTAssertEqual(run.recordWindow, "Надиктував з головного вікна. ")
+        XCTAssertTrue(earlier.pastes.isEmpty)
+    }
+
+    /// Started in SpeechText, stopped in another app: pasted there, as any dictation is.
+    func testADictationStartedInSpeechTextIsPastedWhereItEnded() async {
+        let earlier = FakeApp("TextEdit"), notes = FakeApp("Notes")
+        let run = await DictationReplay.run(DictationReplay.Setup(startsInSpeechText: true), in: earlier, [
+            .committed("Почав у налаштуваннях."),
+            .switchTo(notes),
+        ])
+
+        XCTAssertTrue(run.destination === notes)
+        assertDocument(notes.document, "Почав у налаштуваннях.")
+        XCTAssertTrue(earlier.pastes.isEmpty)
     }
 }
 
@@ -544,6 +614,12 @@ final class RecordedTraceTests: XCTestCase {
             let trace = try DictationTrace.decode(Data(contentsOf: file))
             let run = await DictationReplay.run(trace)
             let name = file.lastPathComponent
+            // Recorded with no app to paste into: the stop's text went to the Record Window.
+            if run.destination == nil {
+                XCTAssertEqual(run.recordWindow.map { [$0] } ?? [], DictationReplay.recordedPastes(trace),
+                               "\(name): the Record Window's text differs from the recording")
+                continue
+            }
             let pastedInto = run.destination ?? run.app
             if let expected = trace.expectedDocument {
                 XCTAssertEqual(pastedInto.document, expected, "\(name): the document")
@@ -617,6 +693,24 @@ final class RecordedTraceTests: XCTestCase {
         let run = await DictationReplay.run(trace)
         XCTAssertEqual(run.destination?.name, "Slack")
         XCTAssertEqual(run.destination?.pastes, DictationReplay.recordedPastes(trace))
+        XCTAssertTrue(run.app.pastes.isEmpty)
+    }
+
+    /// A dictation started and stopped in SpeechText's own window records no app, and
+    /// replays into the Record Window, as it went — not into a stand-in TextEdit.
+    func testATraceWithNoAppReplaysIntoTheRecordWindow() async throws {
+        let recorder = DictationTraceRecorder(setup: DictationTrace.Setup(app: nil))
+        recorder.record(.committed, text: "Почав і закінчив у налаштуваннях.")
+        recorder.record(.stop)
+        recorder.record(.stopPaste, text: "Почав і закінчив у налаштуваннях. ")
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let trace = try DictationTrace.decode(Data(contentsOf: XCTUnwrap(recorder.write(into: directory))))
+
+        let run = await DictationReplay.run(trace)
+        XCTAssertNil(run.destination)
+        XCTAssertEqual(run.recordWindow.map { [$0] }, DictationReplay.recordedPastes(trace))
         XCTAssertTrue(run.app.pastes.isEmpty)
     }
 
@@ -755,6 +849,32 @@ final class DictationHotkeyGestureTests: XCTestCase {
         _ = g.tapWindowExpired(in: .recording(ai: false), at: 10.45)
         XCTAssertEqual(g.press(.inline, in: .idle, at: 10.5), .start(ai: false))
         XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 13), .stop)
+    }
+
+    /// A tap, then ⎋ or ✕ inside its window, then the Edit shortcut: the tap belongs to
+    /// a dictation that is over, and its window running out during the edit's recording
+    /// must not read that recording as the tapped one and cancel it.
+    func testATapWhoseDictationEndedOtherwiseCancelsNothingLater() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        _ = g.release(.inline, in: .recording(ai: false), at: 10.1)
+        XCTAssertTrue(g.awaitsSecondTap)
+        // ⎋ → `AppState.cancelInlineFlow`; the edit starts with the engine `.starting`.
+        g.reset()
+        XCTAssertFalse(g.awaitsSecondTap)
+        XCTAssertNil(g.owner)
+        XCTAssertEqual(g.tapWindowExpired(in: .starting(ai: false), at: 10.45), .ignore)
+        XCTAssertEqual(g.press(.inline, in: .idle, at: 11), .start(ai: false))
+    }
+
+    /// A held dictation cancelled with ⎋: the owner is let go with it, so its key's
+    /// release, still to come, stops nothing that started meanwhile.
+    func testResetForgetsTheOwner() {
+        var g = DictationHotkeyGesture(holdToTalk: true)
+        _ = g.press(.inline, in: .idle, at: 10)
+        XCTAssertEqual(g.owner, .inline)
+        g.reset()
+        XCTAssertEqual(g.release(.inline, in: .recording(ai: false), at: 12), .ignore)
     }
 
     func testAHeldDictationSwitchesModeAndStopsOnTheOwnersRelease() {
@@ -1145,6 +1265,15 @@ final class SelectionEditTests: XCTestCase {
         XCTAssertEqual(SelectionEdit.target(read: selection("quick"), current: nil), .nothingSelected)
         let long = String(repeating: "a", count: SelectionEdit.maxCharacters + 1)
         XCTAssertEqual(SelectionEdit.target(read: selection("quick"), current: selection(long)), .tooLong)
+    }
+
+    /// ⌘Tab while speaking the instruction: the ⌘C and the ⌘X would reach the app now in
+    /// front, and the rewrite the one the edit began in — so neither is touched.
+    func testTheSelectionIsTakenOnlyFromTheAppTheEditBeganIn() {
+        XCTAssertTrue(SelectionEdit.takesSelection(editing: Int32(501), front: Int32(501)))
+        XCTAssertFalse(SelectionEdit.takesSelection(editing: Int32(501), front: Int32(733)))
+        XCTAssertFalse(SelectionEdit.takesSelection(editing: Int32(501), front: nil))
+        XCTAssertFalse(SelectionEdit.takesSelection(editing: Int32?.none, front: Int32(501)))
     }
 
     // No Edit cancel is silent.

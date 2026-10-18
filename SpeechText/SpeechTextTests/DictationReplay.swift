@@ -42,6 +42,11 @@ final class FakeApp {
     private(set) var focusedField = "document"
     /// Every paste, in order.
     private(set) var pastes: [String] = []
+    /// The app quit (`.appQuits`): it cannot be brought forward or pasted into.
+    private(set) var hasQuit = false
+    /// Asked to come to the front, it stays where it is — as macOS 14's cooperative
+    /// activation lets an app decline without `activate()` saying so.
+    var declinesActivation = false
 
     init(_ name: String = "TextEdit", bundleID: String? = nil, windowTitle: String? = nil) {
         self.name = name
@@ -81,12 +86,14 @@ final class FakeApp {
         focusedField = name
     }
 
+    func quit() { hasQuit = true }
+
     // MARK: The stop's paste
 
-    /// The stop's paste (`AppState.deliver`): bring the app forward, then ⌘V at the caret.
-    /// The trailing space is `deliver`'s, so a dictation continued into the same field
-    /// does not start glued to this one.
-    func activateAndPaste(_ text: String) {
+    /// The stop's ⌘V at the caret (`AppState.deliver`, once the app is in front). The
+    /// trailing space is `deliver`'s, so a dictation continued into the same field does
+    /// not start glued to this one.
+    func paste(_ text: String) {
         let pasted = text + " "
         pastes.append(pasted)
         var field = fields[focusedField] ?? Field()
@@ -181,6 +188,11 @@ final class DictationReplay {
         /// `RecordingConfiguration.longestTrustedStreamSegment`: Scribe's, as the replays
         /// are Scribe-shaped; nil for OpenAI's.
         var longestTrustedSegment: Double? = STTTuning.streamLongestTrustedSegmentSeconds
+        /// The dictation started with SpeechText's own window in front (the main window,
+        /// Settings): it has no origin (`InlineDelivery.origin`), and the app `run` is
+        /// given is the one an earlier dictation was in — `previousApp` — which this one
+        /// must leave alone.
+        var startsInSpeechText = false
     }
 
     enum Step {
@@ -204,6 +216,8 @@ final class DictationReplay {
         case switchTo(FakeApp)
         /// The user brought one of SpeechText's own windows (Settings, History) to the front.
         case openSpeechTextWindow
+        /// The app quit — closed by the user, or crashed.
+        case appQuits(FakeApp)
         /// The microphone went away (unplugged, a device that would not settle), and the
         /// engine ended the recording itself, for this reason
         /// (`SpeechEngine.endRecording(microphoneLost:)` → `AppState.handleMicrophoneLost`).
@@ -226,7 +240,8 @@ final class DictationReplay {
     }
 
     struct Result {
-        /// The app the dictation started in.
+        /// The app the dictation started in — or, with `Setup.startsInSpeechText`, the one
+        /// an earlier dictation was in.
         let app: FakeApp
         let stop: InlineDelivery.StopResult?
         /// The app the stop chose to paste into — nil for the Record Window.
@@ -255,6 +270,8 @@ final class DictationReplay {
     /// The app in front, and whether it is SpeechText's own window instead.
     private var front: FakeApp?
     private var speechTextInFront = false
+    /// `AppState.dictationOrigin`.
+    private let origin: FakeApp?
     private var destination: FakeApp?
     private var context: FocusContext?
     private var recordWindow: String?
@@ -272,6 +289,9 @@ final class DictationReplay {
         self.app = app
         self.aiMode = setup.aiMode
         self.front = app
+        // AppState.startRecording.
+        self.speechTextInFront = setup.startsInSpeechText
+        self.origin = InlineDelivery.origin(front: app, frontIsSpeechText: setup.startsInSpeechText)
     }
 
     /// One dictation from hotkey to paste, started in `app`. `atStop` is what the server
@@ -340,9 +360,12 @@ final class DictationReplay {
 
     /// A recorded `DictationTrace`, replayed into apps of the same names.
     static func run(_ trace: DictationTrace) async -> Result {
+        // No app: the dictation started in SpeechText's own window (`AppState.beginTrace`
+        // records `dictationOrigin`), so it has no origin to fall back to.
         let setup = Setup(aiMode: trace.setup.aiMode,
                           removesDisfluencies: trace.setup.removesDisfluencies,
-                          dashStyle: trace.setup.dashStyle ?? .emDash)
+                          dashStyle: trace.setup.dashStyle ?? .emDash,
+                          startsInSpeechText: trace.setup.app == nil)
 
         var steps: [Step] = []
         var atStop: [StreamingSTTEvent] = []
@@ -464,6 +487,9 @@ final class DictationReplay {
             speechTextInFront = false
         case .openSpeechTextWindow:
             speechTextInFront = true
+        case .appQuits(let quitting):
+            quitting.quit()
+            if front === quitting { front = nil }
         case .microphoneLost:
             // The stop, which `run` performs.
             break
@@ -493,7 +519,7 @@ final class DictationReplay {
     private func stop(llm: LLM, whileRewriting: [Step], microphoneLost: String? = nil,
                       whileTranscribing: [Step] = []) async -> InlineDelivery.StopResult {
         // AppState.choosePasteDestination: fixed now, before anything else.
-        destination = InlineDelivery.destination(front: front, frontIsSpeechText: speechTextInFront, origin: app)
+        destination = InlineDelivery.destination(front: front, frontIsSpeechText: speechTextInFront, origin: origin)
         // SpeechEngine.stopRecording: the tap is removed, the phase leaves `.recording`.
         _ = session.pause()
         // AppState.stopRecording → readFocusContext, from the destination, AI mode only.
@@ -524,16 +550,28 @@ final class DictationReplay {
         return result
     }
 
-    /// `AppState.deliver`: the destination is brought forward and pasted into, or the text
-    /// goes to the Record Window when there is none.
+    /// `AppState.deliver`: the destination is brought forward — unless it is in front
+    /// already, or quit — and pasted into once `InlineDelivery.pasteCheck` finds it in
+    /// front; otherwise, or with no destination, the text goes to the Record Window.
     private func deliver(_ text: String) {
         guard let destination else {
             recordWindow = text + " "
             return
         }
-        destination.activateAndPaste(text)
-        front = destination
-        speechTextInFront = false
+        // PasteService.activateApp, and the blind wait.
+        let inFront = front === destination && !speechTextInFront
+        if !inFront, !destination.hasQuit, !destination.declinesActivation {
+            front = destination
+            speechTextInFront = false
+        }
+        let check = InlineDelivery.pasteCheck(quit: destination.hasQuit,
+                                              inFront: front === destination && !speechTextInFront,
+                                              takesText: true)
+        guard check == .paste else {
+            recordWindow = text + " "
+            return
+        }
+        destination.paste(text)
     }
 
     /// `AppState.cancelInlineFlow` → `SpeechEngine.cancelRecording`.

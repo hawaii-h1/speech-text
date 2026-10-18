@@ -206,6 +206,14 @@ struct DictationHotkeyGesture {
         case .idle, .busy: return .ignore
         }
     }
+
+    /// The dictation ended some other way — ⎋, ✕, a menu item — or an edit took the
+    /// microphone: a tap still waiting for its second half no longer belongs to anything,
+    /// and its window running out must not cancel whatever records next.
+    mutating func reset() {
+        owner = nil
+        tapped = nil
+    }
 }
 
 // MARK: - Holding only the letter
