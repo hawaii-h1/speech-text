@@ -1304,8 +1304,13 @@ private struct VersionRow: View {
                 Button(action: copy) {
                     HStack(spacing: 5) {
                         Text(AppVersion.displayString)
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 10, weight: .medium))
+                        // Both glyphs stay laid out, one hidden: they are
+                        // different heights, and swapping them moved the row.
+                        ZStack {
+                            Image(systemName: "doc.on.doc").opacity(copied ? 0 : 1)
+                            Image(systemName: "checkmark").opacity(copied ? 1 : 0)
+                        }
+                        .font(.system(size: 10, weight: .medium))
                         if copied { Text("Copied") }
                     }
                     .font(.system(size: 11.5))
