@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With hold to talk, a tap followed by ⎋ and then the Edit shortcut no longer cancels the edit.
 - **Apple Dictation keeps every word while the menu bar menu is open.** A dictation longer than a minute lost everything said after the minute if the SpeechText menu was open when Apple's recogniser had to start its next chunk.
 - **An Apple dictation is pasted even when the recogniser reports an error after your words.** It used to end in "Transcription failed", with the text in the Record Window instead of where you were typing.
+- **Apple Dictation keeps listening after a recognition error in the middle of a dictation.** When the recogniser stopped with an error after it had already heard words, everything you said until its next restart, up to 50 seconds later, was lost with no notice; it now starts listening again at once and keeps what it had heard.
 - A recording whose audio file can't be written no longer leaves part of it in the temporary folder.
 - **A speech model download that would fill your disk is refused before it starts**, and Settings says how much space to free.
 - **Settings stays responsive while a model downloads**, and installing a speech model no longer leaves two models in memory.
