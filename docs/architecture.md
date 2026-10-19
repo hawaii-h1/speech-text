@@ -112,7 +112,7 @@ These have no SwiftUI views, no `AppState`, no `SpeechEngine`, and never import 
 | `RecordingOverlay.swift`, `OverlayPlacement.swift` | The inline overlay and status notices |
 | `DirectRecordingPanel.swift` | The Record Window |
 | `MainWindow.swift`, `HomeView.swift`, `HistoryView.swift`, `UsageView.swift`, `PromptsView.swift`, `DictionaryView.swift`, `MainPageKit.swift` | The main window and its pages |
-| `SettingsWindow.swift`, `MenuBarView.swift` (`SettingsView`), `SettingsEngines.swift` | Settings |
+| `SettingsWindow.swift`, `SettingsView.swift` (`SettingsView`), `SettingsEngines.swift` | Settings |
 | `Onboarding*.swift` | First-run setup |
 | `Theme.swift`, `DesignKit.swift`, `PixelDisplay.swift`, `MinimalChrome.swift` | The two skins, minimal and techno |
 
