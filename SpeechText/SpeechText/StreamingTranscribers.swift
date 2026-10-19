@@ -80,8 +80,19 @@ func makeStreamingTranscriber(configuration: RecordingConfiguration) -> Streamin
 /// does: the server does not promise to keep audio sent ahead of that message, and
 /// the first syllable of a dictation is exactly what must not be lost.
 ///
-/// `@unchecked Sendable`, which `StreamingTranscriber` relies on: its mutable state is
-/// guarded by `lock`, and its socket sends are ordered by `sendLock`.
+/// `@unchecked Sendable`, which `StreamingTranscriber` relies on, and the checking is
+/// this map's to do, field by field:
+///
+/// - `lock` guards everything the audio thread, the receive loop, `finish()` and the
+///   timers share: `task`, `receiveLoop`, the audio held (`pendingAudio`,
+///   `preSessionMessages`, `preSessionBytes`), `sessionStarted`, `isClosed`, and the
+///   stop's wait — `awaitingCommit`, `commitArrived`, `finishContinuation`, `settle` and
+///   the two timers, `commitGrace` and `holdDeadline`.
+/// - `sendLock` guards no field. It orders the socket's sends, so a batch is not split
+///   by a chunk from another thread, and is always taken before `lock`, never under it.
+/// - `lastCommittedText` is touched only by `handle`, which runs serially on the receive
+///   loop, so it needs no lock.
+/// - The rest is `let`, and `continuation` may be yielded to from any thread.
 final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable {
     let sampleRate: Double = 16_000
     let events: AsyncStream<StreamingSTTEvent>
@@ -167,9 +178,9 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         lock.unlock()
         task.resume()
 
-        receiveLoop = Task { [weak self] in
+        adoptReceiveLoop(Task { [weak self] in
             await self?.runReceiveLoop(task)
-        }
+        })
     }
 
     /// The socket's address. Every value is percent-encoded by hand: `URLComponents`
@@ -303,7 +314,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
                 try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamFinishTimeoutSeconds * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 dlog("ElevenLabs", "realtime: no commit reply within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have")
-                self?.settleFinish()
+                self?.endFinishWait()
             }
             // The group waits for both children on exit; the timeout resumes the
             // continuation, and the continuation's arrival cancels the timeout.
@@ -311,7 +322,9 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             group.cancelAll()
         }
 
-        resumeFinish()
+        // Already ended by whoever woke the wait; this only makes sure, through the one
+        // place that decides how it ends.
+        endFinishWait()
         close(with: nil)
     }
 
@@ -436,8 +449,11 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             let text = json["text"] as? String ?? ""
             dlog("ElevenLabs", "realtime: committed \(text.count) chars")
             lastCommittedText = text
-            noteCommitReply()
+            // Yielded before the settle hears of it: a wait that ended in between would
+            // otherwise close the stream with this commit's text still unsent, and the
+            // stop would paste without it.
             continuation.yield(.committed(text))
+            noteCommitReply()
             commitReplyArrived()
         case "committed_transcript_with_timestamps", "committed_transcript_entities":
             break
@@ -446,7 +462,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             // further is coming for it, so stop waiting; the stream itself is fine —
             // unless a partial is held, whose words now have no commit to carry them.
             dlog("ElevenLabs", "realtime: \(json["error"] as? String ?? "commit throttled")")
-            settleFinish()
+            endFinishWait()
         case "auth_error", "quota_exceeded", "rate_limited", "session_time_limit_exceeded",
              "error", "invalid_request":
             // The documented error variants. Only these end the stream: failing on
@@ -473,11 +489,15 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
     /// own. The yield and the rest of the close run outside `lock`: this is reached from a
     /// send's completion, under `sendLock`.
     private func fail(_ error: Error) {
-        let (claimed, task) = claimClose()
-        guard claimed else { return }
+        guard let claim = claimClose() else { return }
+        report(error, closing: claim)
+    }
+
+    /// The rest of a failure claimed under `lock`, outside it.
+    private func report(_ error: Error, closing claim: ClosedSocket) {
         dlog("ElevenLabs", "realtime: failed: \(error.localizedDescription)")
         continuation.yield(.failed(error))
-        tearDown(task)
+        tearDown(claim)
     }
 
     /// A `committed_transcript` while `finish()` is waiting. It is probably the reply
@@ -486,7 +506,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
     /// pass without a partial showing that another segment is open.
     private func commitReplyArrived() {
         lock.lock()
-        guard awaitingCommit, !isClosed else {
+        guard awaitingCommit, !isClosed, settle?.isOver != true else {
             lock.unlock()
             return
         }
@@ -494,7 +514,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         commitGrace = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamCommitGraceSeconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            self?.resumeFinish()
+            self?.endFinishWait()
         }
         lock.unlock()
     }
@@ -503,6 +523,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
     /// passed on (`StreamFinishSettle`): if another commit follows, that commit carries
     /// the words; if none does, it was the server decoding the committed segment again,
     /// and the deadline settles it. The grace is cancelled — the server is still talking.
+    /// Once the wait has ended it is dropped instead: the stop has taken its text.
     private func holdAfterCommitReply(_ text: String) -> Bool {
         lock.lock()
         guard !isClosed, var state = settle, state.holds(partial: text) else {
@@ -510,13 +531,18 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             return false
         }
         settle = state
+        guard !state.isOver else {
+            lock.unlock()
+            dlog("ElevenLabs", "realtime: dropping a partial that came after the wait ended (\(text.count) chars)")
+            return true
+        }
         commitGrace?.cancel()
         commitGrace = nil
         if holdDeadline == nil {
             holdDeadline = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamCommitAfterPartialSeconds * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                self?.settleFinish()
+                self?.endFinishWait()
             }
         }
         lock.unlock()
@@ -534,21 +560,35 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         lock.unlock()
     }
 
-    /// The wait is over — the hold's deadline, the finish timeout or a throttled commit.
-    /// A partial still held is the one case nothing settles: the server re-decoding the
-    /// segment it committed, or the final segment's words with their commit late or never
-    /// coming. Neither guess is safe — one pastes the dictation twice, the other drops its
-    /// last words — so the stream fails and the stop uploads the segment.
-    private func settleFinish() {
+    /// Ends the wait — the grace after a commit reply, the hold's deadline, the finish
+    /// timeout, a throttled commit and `finish()` itself all come here, on threads of
+    /// their own. A partial still held is the one case nothing settles: the server
+    /// re-decoding the segment it committed, or the final segment's words with their
+    /// commit late or never coming. Neither guess is safe — one pastes the dictation
+    /// twice, the other drops its last words — so the stream fails and the stop uploads
+    /// the segment.
+    ///
+    /// Decided in one critical section with the close it may claim: checked and acted on
+    /// apart, a partial held in between was let go with the wait, and the stop pasted
+    /// text missing its last words with no failure reported. The yield and the teardown
+    /// run after `lock` is released, as `fail`'s do.
+    private func endFinishWait() {
         lock.lock()
-        let unresolved = settle?.isUnresolved ?? false
-        lock.unlock()
-        guard unresolved else {
-            resumeFinish()
+        guard !isClosed else {
+            lock.unlock()
             return
         }
+        guard settle?.end() == true else {
+            let cont = endWaitLocked()
+            lock.unlock()
+            cont?.resume()
+            return
+        }
+        let claim = claimCloseLocked()
+        lock.unlock()
         dlog("ElevenLabs", "realtime: no commit followed the held partial — uploading the segment instead")
-        fail(TranscriptionError.realtime(.elevenLabs, "unresolved_tail", "a partial followed the stop's commit and no commit carried it"))
+        report(TranscriptionError.realtime(.elevenLabs, "unresolved_tail", "a partial followed the stop's commit and no commit carried it"),
+               closing: claim)
     }
 
     private func installFinishWait(_ cont: CheckedContinuation<Void, Never>) {
@@ -562,8 +602,17 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         lock.unlock()
     }
 
+    /// Lets `finish()` go on, for a close: the stream is over whatever was held.
     private func resumeFinish() {
         lock.lock()
+        let cont = endWaitLocked()
+        lock.unlock()
+        cont?.resume()
+    }
+
+    /// Marks the wait over and takes the continuation to resume. Caller holds `lock`
+    /// and resumes it after releasing it.
+    private func endWaitLocked() -> CheckedContinuation<Void, Never>? {
         if awaitingCommit { commitArrived = true }
         commitGrace?.cancel()
         commitGrace = nil
@@ -571,35 +620,56 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         holdDeadline = nil
         let cont = finishContinuation
         finishContinuation = nil
-        lock.unlock()
-        cont?.resume()
+        return cont
     }
 
     private func close(with error: Error?) {
-        let (claimed, task) = claimClose()
-        guard claimed else { return }
-        tearDown(task)
+        guard let claim = claimClose() else { return }
+        tearDown(claim)
     }
 
-    /// Marks the stream closed and takes its socket, in one critical section. `claimed`
-    /// is false when it was already closed: whoever closed it does the rest.
-    private func claimClose() -> (claimed: Bool, task: URLSessionWebSocketTask?) {
+    /// Stores the receive loop `connect` started — unless the stream closed meanwhile (a
+    /// send that failed at once), when nothing would cancel it but this.
+    private func adoptReceiveLoop(_ loop: Task<Void, Never>) {
+        lock.lock()
+        let closed = isClosed
+        if !closed { receiveLoop = loop }
+        lock.unlock()
+        if closed { loop.cancel() }
+    }
+
+    /// Marks the stream closed and takes its socket and receive loop, in one critical
+    /// section. nil when it was already closed: whoever closed it does the rest.
+    private func claimClose() -> ClosedSocket? {
         lock.lock()
         defer { lock.unlock() }
-        guard !isClosed else { return (false, nil) }
+        guard !isClosed else { return nil }
+        return claimCloseLocked()
+    }
+
+    /// `claimClose` for a caller that already holds `lock` and has seen it open.
+    private func claimCloseLocked() -> ClosedSocket {
         isClosed = true
-        let task = self.task
-        self.task = nil
-        return (true, task)
+        let claim = ClosedSocket(task: task, receiveLoop: receiveLoop)
+        task = nil
+        receiveLoop = nil
+        return claim
     }
 
     /// The rest of a close, outside `lock`.
-    private func tearDown(_ task: URLSessionWebSocketTask?) {
+    private func tearDown(_ claim: ClosedSocket) {
         resumeFinish()
-        receiveLoop?.cancel()
-        task?.cancel(with: .normalClosure, reason: nil)
+        claim.receiveLoop?.cancel()
+        claim.task?.cancel(with: .normalClosure, reason: nil)
         continuation.finish()
     }
+}
+
+/// What a close takes out from under a realtime transcriber's `lock`, to be cancelled
+/// once it is released.
+private struct ClosedSocket {
+    let task: URLSessionWebSocketTask?
+    let receiveLoop: Task<Void, Never>?
 }
 
 // MARK: - Settling the stop's commit
@@ -621,15 +691,27 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
 /// is `isUnresolved` — the provider then fails the stream and the segment is uploaded,
 /// because guessing either way loses: an echo kept doubles the text, a tail dropped
 /// truncates it. Pure, so the replay harness settles a scripted stop the same way.
+///
+/// The end of the wait is part of the state, not a separate check: the grace after a
+/// commit, the hold's deadline, the finish timeout and a throttled commit each end it on
+/// a thread of their own, and a partial can be held between a look at `isUnresolved`
+/// and the wait being let go — the stop then pasted a dictation missing its last words
+/// and reported nothing. `end()` decides both at once, and once it has, nothing more is
+/// held.
 struct StreamFinishSettle {
     private(set) var replied = false
     private(set) var held: String?
+    /// The wait has ended (`end()`); the stop has already taken the stream's text.
+    private(set) var isOver = false
 
-    /// Whether `text` is held back rather than passed on: a partial with words in it,
-    /// after a commit reply. Before one it is the final segment taking shape.
+    /// Whether `text` is kept back rather than passed on: a partial with words in it,
+    /// after a commit reply. Before one it is the final segment taking shape. After the
+    /// wait has ended such a partial is kept back but not held — dropped: passed on, it
+    /// would be joined onto the text the stop pastes, which is the doubled dictation
+    /// again, and held, it would be a hold nothing will ever settle.
     mutating func holds(partial text: String) -> Bool {
         guard replied, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        held = text
+        if !isOver { held = text }
         return true
     }
 
@@ -639,7 +721,14 @@ struct StreamFinishSettle {
         held = nil
     }
 
-    /// The wait ended with a partial that no commit carried.
+    /// The wait is over. True when it ended with a partial no commit carried — the
+    /// stream must then fail, so the stop uploads the segment.
+    mutating func end() -> Bool {
+        isOver = true
+        return held != nil
+    }
+
+    /// The wait ended, or would end now, with a partial that no commit carried.
     var isUnresolved: Bool { held != nil }
 }
 
@@ -672,8 +761,17 @@ struct StreamFinishSettle {
 /// `StreamingRecognitionSession` resamples for this provider instead of handing over
 /// the 16 kHz bytes the upload file is made of.
 ///
-/// `@unchecked Sendable`, which `StreamingTranscriber` relies on: its mutable state is
-/// guarded by `lock`, and its socket sends are ordered by `sendLock`.
+/// `@unchecked Sendable`, which `StreamingTranscriber` relies on, with the same kind of
+/// map as `ElevenLabsRealtimeTranscriber`'s:
+///
+/// - `lock` guards `task`, `receiveLoop`, `languages`, the audio held (`pendingAudio`,
+///   `preSessionMessages`, `preSessionBytes`), `sessionReady`, `isClosed`, the ready wait
+///   (`readyContinuation`, `readyWaitExpired`) and the stop's (`awaitingCommit`,
+///   `commitArrived`, `finishContinuation`).
+/// - `sendLock` guards no field: it orders the socket's sends, taken before `lock`.
+/// - `deltas` and `completedText` are touched only by `handle`, on the receive loop, so
+///   they need no lock.
+/// - The rest is `let`, and `continuation` may be yielded to from any thread.
 final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable {
     /// Fixed by the service — see the class comment.
     let sampleRate: Double = 24_000
@@ -701,7 +799,8 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
     private var sessionReady = false
     private var isClosed = false
     /// The languages `connect` was given, kept until `session.created` asks for the
-    /// configuration. Written once before the socket opens, read on the receive loop.
+    /// configuration. Written under `lock` before the socket opens, read under it on the
+    /// receive loop.
     private var languages: [String] = []
     /// Resumed by the transcript of the commit `finish()` asked for.
     private var finishContinuation: CheckedContinuation<Void, Never>?
@@ -757,9 +856,9 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         lock.unlock()
         task.resume()
 
-        receiveLoop = Task { [weak self] in
+        adoptReceiveLoop(Task { [weak self] in
             await self?.runReceiveLoop(task)
-        }
+        })
     }
 
     func send(pcm16: Data) {
@@ -1146,11 +1245,10 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
     /// Reports the stream broken, once — claimed closed in the check's own critical
     /// section, as `ElevenLabsRealtimeTranscriber.fail` explains.
     private func fail(_ error: Error) {
-        let (claimed, task) = claimClose()
-        guard claimed else { return }
+        guard let claim = claimClose() else { return }
         dlog("OpenAI", "realtime: failed: \(error.localizedDescription)")
         continuation.yield(.failed(error))
-        tearDown(task)
+        tearDown(claim)
     }
 
     private func installFinishWait(_ cont: CheckedContinuation<Void, Never>) {
@@ -1174,29 +1272,38 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
     }
 
     private func close(with error: Error?) {
-        let (claimed, task) = claimClose()
-        guard claimed else { return }
-        tearDown(task)
+        guard let claim = claimClose() else { return }
+        tearDown(claim)
     }
 
-    /// Marks the stream closed and takes its socket, in one critical section. `claimed`
-    /// is false when it was already closed: whoever closed it does the rest.
-    private func claimClose() -> (claimed: Bool, task: URLSessionWebSocketTask?) {
+    /// As `ElevenLabsRealtimeTranscriber.adoptReceiveLoop`.
+    private func adoptReceiveLoop(_ loop: Task<Void, Never>) {
+        lock.lock()
+        let closed = isClosed
+        if !closed { receiveLoop = loop }
+        lock.unlock()
+        if closed { loop.cancel() }
+    }
+
+    /// Marks the stream closed and takes its socket and receive loop, in one critical
+    /// section. nil when it was already closed: whoever closed it does the rest.
+    private func claimClose() -> ClosedSocket? {
         lock.lock()
         defer { lock.unlock() }
-        guard !isClosed else { return (false, nil) }
+        guard !isClosed else { return nil }
         isClosed = true
-        let task = self.task
-        self.task = nil
-        return (true, task)
+        let claim = ClosedSocket(task: task, receiveLoop: receiveLoop)
+        task = nil
+        receiveLoop = nil
+        return claim
     }
 
     /// The rest of a close, outside `lock`.
-    private func tearDown(_ task: URLSessionWebSocketTask?) {
+    private func tearDown(_ claim: ClosedSocket) {
         resumeFinish()
         wakeReadyWaiter()
-        receiveLoop?.cancel()
-        task?.cancel(with: .normalClosure, reason: nil)
+        claim.receiveLoop?.cancel()
+        claim.task?.cancel(with: .normalClosure, reason: nil)
         continuation.finish()
     }
 }

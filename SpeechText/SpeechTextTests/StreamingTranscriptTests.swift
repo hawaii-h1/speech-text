@@ -407,6 +407,43 @@ final class StreamFinishSettleTests: XCTestCase {
         XCTAssertFalse(settle.holds(partial: "  "))
         XCTAssertFalse(settle.isUnresolved)
     }
+
+    /// The race the end of the wait lost: a partial held as the grace ran out. Ending the
+    /// wait sees it, so the stream fails and the segment is uploaded rather than pasted
+    /// without its last words.
+    func testEndingTheWaitWithAPartialHeldIsUnresolved() {
+        var settle = StreamFinishSettle()
+        settle.committed()
+        XCTAssertTrue(settle.holds(partial: "Друге речення"))
+        XCTAssertTrue(settle.end())
+    }
+
+    func testEndingTheWaitWithNothingHeldIsSettled() {
+        var settle = StreamFinishSettle()
+        settle.committed()
+        XCTAssertFalse(settle.end())
+        XCTAssertTrue(settle.isOver)
+    }
+
+    /// The other order: the wait ended first. The partial is not passed on — joined onto
+    /// the stop's text it would double the dictation — nor held, where nothing would
+    /// ever settle it, so ending the wait again still says settled.
+    func testAPartialAfterTheWaitEndedIsDroppedNotHeld() {
+        var settle = StreamFinishSettle()
+        settle.committed()
+        XCTAssertFalse(settle.end())
+        XCTAssertTrue(settle.holds(partial: "Всі так раптом домовились, що вони..."))
+        XCTAssertFalse(settle.isUnresolved)
+        XCTAssertFalse(settle.end())
+    }
+
+    /// With no commit reply the wait ended on the timeout, and a partial is the final
+    /// segment taking shape: it is passed on, as before.
+    func testAPartialAfterTheWaitEndedWithNoReplyIsPassedOn() {
+        var settle = StreamFinishSettle()
+        XCTAssertFalse(settle.end())
+        XCTAssertFalse(settle.holds(partial: "Друге речення"))
+    }
 }
 
 // MARK: - Open segment clock (#164)

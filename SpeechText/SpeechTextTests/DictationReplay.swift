@@ -148,7 +148,7 @@ final class ScriptedStreamingTranscriber: StreamingTranscriber, @unchecked Senda
             }
             continuation.yield(event)
         }
-        if settle.isUnresolved {
+        if settle.end() {
             continuation.yield(.failed(StreamBroke()))
         }
         continuation.finish()

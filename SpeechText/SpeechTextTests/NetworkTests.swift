@@ -305,9 +305,14 @@ private final class CountingStreamingTranscriber: StreamingTranscriber, @uncheck
     private var sentAfterFinish = 0
     private var cancelled = 0
     private var finishing = false
+    private var finishHook: (() -> Void)?
     /// Run inside `finish()` once it has begun — where a tap buffer that arrives after
-    /// the stop lands, behind the commit.
-    var duringFinish: (() -> Void)?
+    /// the stop lands, behind the commit. Held under `lock` like the counts: the test
+    /// sets it on main and `finish()` reads it off main.
+    var duringFinish: (() -> Void)? {
+        get { lock.withLock { finishHook } }
+        set { lock.withLock { finishHook = newValue } }
+    }
 
     init() {
         (events, continuation) = AsyncStream<StreamingSTTEvent>.makeStream()
@@ -327,8 +332,13 @@ private final class CountingStreamingTranscriber: StreamingTranscriber, @uncheck
         }
     }
     func finish() async {
-        lock.withLock { finishing = true }
-        duringFinish?()
+        // Taken under `lock` and run outside it: the hook feeds the session, whose
+        // `send` takes the same lock.
+        let hook = lock.withLock { () -> (() -> Void)? in
+            finishing = true
+            return finishHook
+        }
+        hook?()
         continuation.finish()
     }
     func cancel() {
