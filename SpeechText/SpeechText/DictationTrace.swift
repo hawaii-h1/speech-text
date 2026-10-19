@@ -130,7 +130,7 @@ final class DictationTraceRecorder {
             try trace.encoded().write(to: url, options: .atomic)
             return url
         } catch {
-            dlog("Trace", "could not write the trace: \(error.localizedDescription)")
+            dlog("Trace", "could not write the trace: \(error.localizedDescription)", level: .error)
             return nil
         }
     }

@@ -130,7 +130,7 @@ final class AppleRecognitionSession: RecognitionSession {
             }
             if let error {
                 let nsErr = error as NSError
-                dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)")
+                dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)", level: .error)
                 DispatchQueue.main.async {
                     guard self.chunkToken == token else { return }
                     self.chunkDidFail(nsErr)
@@ -159,7 +159,7 @@ final class AppleRecognitionSession: RecognitionSession {
             description: error.localizedDescription, hasText: hasText,
             permissionDenied: permissionDenied, locale: locale) {
             if !hasText {
-                dlog("Engine", "recognitionTask failed before any text: onDevice=\(recognizer?.supportsOnDeviceRecognition == true), permissionDenied=\(permissionDenied)")
+                dlog("Engine", "recognitionTask failed before any text: onDevice=\(recognizer?.supportsOnDeviceRecognition == true), permissionDenied=\(permissionDenied)", level: .error)
             }
             lastError = failure.message
             onEvent?(.failure(failure))
@@ -277,7 +277,7 @@ final class AppleRecognitionSession: RecognitionSession {
                 guard !session.chunkFailed else {
                     // The task already ended with an error: no final result is coming,
                     // and waiting out the deadline would only hold the notice back.
-                    dlog("Engine", "apple: task already failed, not waiting for a final result")
+                    dlog("Engine", "apple: task already failed, not waiting for a final result", level: .notice)
                     continuation.resume(returning: false)
                     return
                 }

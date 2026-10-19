@@ -313,7 +313,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             group.addTask { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamFinishTimeoutSeconds * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                dlog("ElevenLabs", "realtime: no commit reply within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have")
+                dlog("ElevenLabs", "realtime: no commit reply within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have", level: .notice)
                 self?.endFinishWait()
             }
             // The group waits for both children on exit; the timeout resumes the
@@ -421,7 +421,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         guard let data = raw.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["message_type"] as? String else {
-            dlog("ElevenLabs", "realtime: unreadable message of \(raw.utf8.count) bytes")
+            dlog("ElevenLabs", "realtime: unreadable message of \(raw.utf8.count) bytes", level: .notice)
             return
         }
 
@@ -439,7 +439,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             // segment, so drop it. An echo that is re-heard rather than repeated gets
             // past this test; after the stop, `holdAfterCommitReply` catches it.
             guard !Self.isEchoOfCommitted(partial: text, lastCommitted: lastCommittedText) else {
-                dlog("ElevenLabs", "realtime: ignoring partial echoing the committed segment")
+                dlog("ElevenLabs", "realtime: ignoring partial echoing the committed segment", level: .debug)
                 return
             }
             if !text.isEmpty { lastCommittedText = "" }
@@ -461,7 +461,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             // Our commit was ignored (too little audio since the last one). Nothing
             // further is coming for it, so stop waiting; the stream itself is fine —
             // unless a partial is held, whose words now have no commit to carry them.
-            dlog("ElevenLabs", "realtime: \(json["error"] as? String ?? "commit throttled")")
+            dlog("ElevenLabs", "realtime: \(json["error"] as? String ?? "commit throttled")", level: .notice)
             endFinishWait()
         case "auth_error", "quota_exceeded", "rate_limited", "session_time_limit_exceeded",
              "error", "invalid_request":
@@ -471,7 +471,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             // recording pays for the streamed minutes *and* a batch re-upload.
             let detail = json["error"] as? String ?? raw
             // log-privacy: ok — the vendor's error message, not a transcript
-            dlog("ElevenLabs", "realtime: \(type): \(detail.prefix(200))")
+            dlog("ElevenLabs", "realtime: \(type): \(detail.prefix(200))", level: .error)
             fail(TranscriptionError.realtime(.elevenLabs, type, detail))
         default:
             // Unknown but well-formed — the server's vocabulary is open (three purely
@@ -495,7 +495,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
 
     /// The rest of a failure claimed under `lock`, outside it.
     private func report(_ error: Error, closing claim: ClosedSocket) {
-        dlog("ElevenLabs", "realtime: failed: \(error.localizedDescription)")
+        dlog("ElevenLabs", "realtime: failed: \(error.localizedDescription)", level: .error)
         continuation.yield(.failed(error))
         tearDown(claim)
     }
@@ -546,7 +546,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
             }
         }
         lock.unlock()
-        dlog("ElevenLabs", "realtime: holding a partial after the commit reply (\(text.count) chars)")
+        dlog("ElevenLabs", "realtime: holding a partial after the commit reply (\(text.count) chars)", level: .debug)
         return true
     }
 
@@ -586,7 +586,7 @@ final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Send
         }
         let claim = claimCloseLocked()
         lock.unlock()
-        dlog("ElevenLabs", "realtime: no commit followed the held partial — uploading the segment instead")
+        dlog("ElevenLabs", "realtime: no commit followed the held partial — uploading the segment instead", level: .notice)
         report(TranscriptionError.realtime(.elevenLabs, "unresolved_tail", "a partial followed the stop's commit and no commit carried it"),
                closing: claim)
     }
@@ -963,7 +963,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
             group.addTask { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(STTTuning.streamFinishTimeoutSeconds * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                dlog("OpenAI", "realtime: no transcript within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have")
+                dlog("OpenAI", "realtime: no transcript within \(STTTuning.streamFinishTimeoutSeconds)s — using what we have", level: .notice)
                 self?.resumeFinish()
             }
             await group.next()
@@ -1017,7 +1017,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         let (ready, closed) = lock.withLock { (sessionReady, isClosed) }
         if closed { return false }
         guard ready else {
-            dlog("OpenAI", "realtime: stopped before session.updated, none within \(STTTuning.streamSessionReadyTimeoutSeconds)s")
+            dlog("OpenAI", "realtime: stopped before session.updated, none within \(STTTuning.streamSessionReadyTimeoutSeconds)s", level: .notice)
             fail(TranscriptionError.realtime(.openAI, "no_session", "session.updated did not arrive before the stop"))
             return false
         }
@@ -1140,7 +1140,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         guard let data = raw.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else {
-            dlog("OpenAI", "realtime: unreadable message of \(raw.utf8.count) bytes")
+            dlog("OpenAI", "realtime: unreadable message of \(raw.utf8.count) bytes", level: .notice)
             return
         }
 
@@ -1192,7 +1192,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
         case "conversation.item.input_audio_transcription.failed":
             let detail = Self.errorDetail(in: json) ?? raw
             // log-privacy: ok — the vendor's error message, not a transcript
-            dlog("OpenAI", "realtime: transcription failed: \(detail.prefix(200))")
+            dlog("OpenAI", "realtime: transcription failed: \(detail.prefix(200))", level: .error)
             fail(TranscriptionError.realtime(.openAI, "transcription_failed", detail))
         case "error":
             let error = json["error"] as? [String: Any] ?? [:]
@@ -1204,12 +1204,12 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
                 // it, so stop waiting; the stream itself is fine and the stop falls back
                 // to the upload, which has the whole segment on disk.
                 // log-privacy: ok — the vendor's error message, not a transcript
-                dlog("OpenAI", "realtime: \(detail.prefix(160))")
+                dlog("OpenAI", "realtime: \(detail.prefix(160))", level: .notice)
                 resumeFinish()
                 return
             }
             // log-privacy: ok — the vendor's error message, not a transcript
-            dlog("OpenAI", "realtime: error \(code): \(detail.prefix(200))")
+            dlog("OpenAI", "realtime: error \(code): \(detail.prefix(200))", level: .error)
             fail(TranscriptionError.realtime(.openAI, code, detail))
         default:
             // The realtime vocabulary is large and mostly about conversations rather
@@ -1246,7 +1246,7 @@ final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable
     /// section, as `ElevenLabsRealtimeTranscriber.fail` explains.
     private func fail(_ error: Error) {
         guard let claim = claimClose() else { return }
-        dlog("OpenAI", "realtime: failed: \(error.localizedDescription)")
+        dlog("OpenAI", "realtime: failed: \(error.localizedDescription)", level: .error)
         continuation.yield(.failed(error))
         tearDown(claim)
     }

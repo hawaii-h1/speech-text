@@ -10,15 +10,12 @@ struct DebugLogView: View {
     @State private var debugLog = DebugLog.shared
     @State private var autoScroll = true
     @State private var filterText = ""
+    @State private var minimumLevel = DebugLog.Level.debug
     @AppStorage(SettingsKeys.recordDictationTraces) private var recordTraces = false
 
     private var filteredEntries: [DebugLog.Entry] {
-        if filterText.isEmpty { return debugLog.entries }
-        let query = filterText.lowercased()
-        return debugLog.entries.filter {
-            $0.category.lowercased().contains(query) ||
-            $0.message.lowercased().contains(query)
-        }
+        if filterText.isEmpty && minimumLevel == .debug { return debugLog.entries }
+        return DebugLog.filtered(debugLog.entries, minimumLevel: minimumLevel, matching: filterText)
     }
 
     var body: some View {
@@ -44,6 +41,16 @@ struct DebugLogView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 200)
 
+            Picker("Show", selection: $minimumLevel) {
+                Text("All").tag(DebugLog.Level.debug)
+                Text("Hide debug").tag(DebugLog.Level.info)
+                Text("Notices and above").tag(DebugLog.Level.notice)
+                Text("Errors and faults").tag(DebugLog.Level.error)
+            }
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel("Show levels")
+
             Spacer()
 
             Text("\(filteredEntries.count) entries")
@@ -61,21 +68,17 @@ struct DebugLogView: View {
                 NSWorkspace.shared.open(directory)
             }
 
+            Toggle("Debug lines", isOn: $debugLog.keepsDebugEntries)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help("Keep debug lines — every partial, every key event posted — in this window. They push older lines out of the last 1000. On in a debug build; the system log gets them either way.")
+
             Toggle("Auto-scroll", isOn: $autoScroll)
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
             Button("Copy") {
-                let text: String
-                if filterText.isEmpty {
-                    text = debugLog.formatted()
-                } else {
-                    let df = DateFormatter()
-                    df.dateFormat = "HH:mm:ss.SSS"
-                    text = filteredEntries.map {
-                        "\(df.string(from: $0.timestamp)) [\($0.category)] \($0.message)"
-                    }.joined(separator: "\n")
-                }
+                let text = DebugLog.formatted(filteredEntries)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
@@ -100,6 +103,9 @@ struct DebugLogView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 85, alignment: .leading)
 
+                    levelMarker(entry.level)
+                        .frame(width: 12)
+
                     Text(entry.category)
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(categoryColor(entry.category))
@@ -107,6 +113,7 @@ struct DebugLogView: View {
 
                     Text(entry.message)
                         .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(entry.level == .debug ? .secondary : .primary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -137,6 +144,31 @@ struct DebugLogView: View {
 
     private func formatTime(_ date: Date) -> String {
         Self.timeFormatter.string(from: date)
+    }
+
+    /// A mark for the levels worth finding by eye; nothing for debug and info.
+    @ViewBuilder
+    private func levelMarker(_ level: DebugLog.Level) -> some View {
+        switch level {
+        case .debug, .info:
+            Color.clear
+                .accessibilityHidden(true)
+        case .notice:
+            Image(systemName: "circle.fill")
+                .font(.system(size: 6))
+                .foregroundStyle(.orange)
+                .accessibilityLabel("Notice")
+        case .error:
+            Image(systemName: "xmark.octagon.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.red)
+                .accessibilityLabel("Error")
+        case .fault:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.purple)
+                .accessibilityLabel("Fault")
+        }
     }
 
     private func categoryColor(_ category: String) -> Color {

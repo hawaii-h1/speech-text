@@ -189,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if E2EMode.audioInputs == nil {
                 appState.speechEngine.requestMicrophoneAccess { granted in
                     if !granted {
-                        dlog("App", "Microphone access denied")
+                        dlog("App", "Microphone access denied", level: .error)
                     }
                 }
             }
@@ -929,7 +929,7 @@ final class AppState {
         let engine = UserDefaults.standard.string(forKey: SettingsKeys.sttProvider).flatMap(STTProviderType.init) ?? .apple
         if let key = engine.vendor.descriptor.speechModel?.settingsKey,
            UserDefaults.standard.string(forKey: key) == clearedModelChoice {
-            dlog("App", "startRecording: no model chosen for \(key) — refused")
+            dlog("App", "startRecording: no model chosen for \(key) — refused", level: .notice)
             show(modelChoiceNotice(settingsKey: key, role: .speech,
                                    migrations: storedModelMigrations(in: .standard)))
             return
@@ -983,14 +983,14 @@ final class AppState {
         if speechEngine.isStartingEngine || speechEngine.isRecording { showModelNoticeOnce() }
         // The overlay was ordered front above, but draws only once this returns.
         let held = ProcessInfo.processInfo.systemUptime - began
-        dlog("App", "\(held > 0.25 ? "⚠ " : "")startRecording held the main thread \(Int(held * 1000)) ms — the overlay draws after it")
+        dlog("App", "\(held > 0.25 ? "⚠ " : "")startRecording held the main thread \(Int(held * 1000)) ms — the overlay draws after it", level: held > 0.25 ? .notice : .info)
     }
 
     /// The engine ended the dictation itself: the rest of an ordinary stop, without a
     /// second engine stop, and without a paste target or a focus context — the result
     /// is a failure, which goes to neither.
     private func handleRecognitionFailure(_ message: String) {
-        dlog("App", "recognition failed before any text — ending the dictation: \(message)")
+        dlog("App", "recognition failed before any text — ending the dictation: \(message)", level: .error)
         DictationTraceRecorder.record(.stop)
         waitForTranscription()
     }
@@ -1000,7 +1000,7 @@ final class AppState {
     /// the text goes to the app in front now, as if the user had stopped there, and the
     /// result is handled as any stop's is.
     private func handleMicrophoneLost(_ message: String) {
-        dlog("App", "the microphone was lost — ending the dictation: \(message)")
+        dlog("App", "the microphone was lost — ending the dictation: \(message)", level: .error)
         choosePasteDestination()
         DictationTraceRecorder.record(.stop)
         if isAIMode {
@@ -1010,7 +1010,7 @@ final class AppState {
     }
 
     private func handleStartFailure(_ message: String) {
-        dlog("App", "startRecording failed: \(message)")
+        dlog("App", "startRecording failed: \(message)", level: .error)
         DictationTraceRecorder.current = nil
         hideOverlay()
         showStatus(
@@ -1110,7 +1110,7 @@ final class AppState {
             // A failed transcription used to end here silently — the user just saw nothing
             // happen and lost everything they said. Always surface it.
             let rawError = speechEngine.errorMessage ?? ""
-            dlog("App", "handleTranscriptionResult: error — \(rawError)")
+            dlog("App", "handleTranscriptionResult: error — \(rawError)", level: .error)
             hideOverlay()
             if let recordID = speechEngine.offlineRecordID {
                 // Not an error to read: nothing is lost, it is waiting in History.
@@ -1210,7 +1210,7 @@ final class AppState {
     /// sent, or — on any failure — replaced by the raw transcript.
     private func refine(_ aiInput: String) {
         guard TextRefinementService.isConfigured else {
-            dlog("App", "handleTranscriptionResult: AI mode but LLM not configured — pasting raw transcript")
+            dlog("App", "handleTranscriptionResult: AI mode but LLM not configured — pasting raw transcript", level: .notice)
             hideOverlay()
             let type = LLMConfiguration.providerType
             showStatus(
@@ -1270,7 +1270,7 @@ final class AppState {
                 }
                 // Never lose the dictation: fall back to the raw transcript, but say so
                 // rather than pasting unrewritten text with no explanation.
-                dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript")
+                dlog("App", "refinement failed (\(error.localizedDescription)) — pasting raw transcript", level: .error)
                 if case LLMError.noModelChosen? = error as? LLMError,
                    let key = LLMConfiguration.providerType.vendor.descriptor.chatModel?.settingsKey {
                     let notice = modelChoiceNotice(settingsKey: key, role: .chat,
@@ -1320,7 +1320,7 @@ final class AppState {
         let text = dictation + " "
         DictationTraceRecorder.record(.stopPaste, text: text)
         if !PasteService.isAccessibilityGranted {
-            dlog("App", "deliver: no accessibility, showing record panel")
+            dlog("App", "deliver: no accessibility, showing record panel", level: .notice)
             dismissOverlayConfirmation()
             PasteService.promptAccessibility()
             showDirectRecordingPanel(withText: text)
@@ -1330,7 +1330,7 @@ final class AppState {
         // The origin only when the stop chose nothing — the engine ended the recording on
         // its own, which does not pass through `stopRecording`.
         guard let app = pasteDestination ?? dictationOrigin else {
-            dlog("App", "deliver: no destination, showing record panel")
+            dlog("App", "deliver: no destination, showing record panel", level: .notice)
             dismissOverlayConfirmation()
             showDirectRecordingPanel(withText: text)
             return
@@ -1347,7 +1347,7 @@ final class AppState {
                                                   inFront: front?.processIdentifier == app.processIdentifier,
                                                   takesText: PasteService.canLikelyPasteText(in: app))
             guard check == .paste else {
-                dlog("App", "deliver: not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front) — showing record panel")
+                dlog("App", "deliver: not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front) — showing record panel", level: .notice)
                 self?.dismissOverlayConfirmation()
                 self?.showDirectRecordingPanel(withText: text)
                 if check == .quit || check == .notInFront {
@@ -1382,7 +1382,7 @@ final class AppState {
         // With no app to bring back, the ⌘V would land in the Record Window itself — the
         // app in front — and double its text.
         guard let app = previousApp, !app.isTerminated else {
-            dlog("App", "pasteTextToTarget: no app to insert into (\(previousApp == nil ? "none saved" : "it quit"))")
+            dlog("App", "pasteTextToTarget: no app to insert into (\(previousApp == nil ? "none saved" : "it quit"))", level: .notice)
             showStatus(icon: "exclamationmark.triangle.fill", title: "No app to insert into",
                        detail: "The app the Record Window was opened from is gone. Copy the text instead.",
                        tint: .orange)
@@ -1401,7 +1401,7 @@ final class AppState {
                                                   inFront: front?.processIdentifier == app.processIdentifier,
                                                   takesText: true)
             guard check == .paste else {
-                dlog("App", "pasteTextToTarget: not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front)")
+                dlog("App", "pasteTextToTarget: not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front)", level: .notice)
                 self?.showStatus(icon: "exclamationmark.triangle.fill",
                                  title: "Couldn't insert into \(app.localizedName ?? "the app")",
                                  detail: check == .quit
@@ -1597,7 +1597,7 @@ final class AppState {
         speechEngine.onSavedOffline = nil
         speechEngine.onStartFailure = { [weak self] message in
             guard let self, self.isEditMode, self.editGeneration == generation else { return }
-            dlog("Edit", "microphone failed to start: \(message)")
+            dlog("Edit", "microphone failed to start: \(message)", level: .error)
             self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't start recording",
                            detail: self.friendlySTTError(message))
         }
@@ -1606,14 +1606,14 @@ final class AppState {
         // the edit just ends, once the stop has written its History row.
         speechEngine.onRecognitionFailure = { [weak self] message in
             guard let self, self.isEditMode, self.editGeneration == generation else { return }
-            dlog("Edit", "recognition failed before any instruction: \(message)")
+            dlog("Edit", "recognition failed before any instruction: \(message)", level: .error)
             self.abortEditOnceStopped(generation: generation, message: message)
         }
         // So did a microphone that went away while the instruction was spoken. The edit
         // ends the same way rather than rewriting the selection to half an instruction.
         speechEngine.onMicrophoneLost = { [weak self] message in
             guard let self, self.isEditMode, self.editGeneration == generation else { return }
-            dlog("Edit", "the microphone was lost during the instruction: \(message)")
+            dlog("Edit", "the microphone was lost during the instruction: \(message)", level: .error)
             self.abortEditOnceStopped(generation: generation, message: message)
         }
         // Saying nothing is a request to polish, and the edit writes its own record.
@@ -1678,7 +1678,7 @@ final class AppState {
             guard !Task.isCancelled, self.isEditMode, self.editGeneration == generation else { return }
             self.transcriptionWaitTask = nil
             if let error = self.speechEngine.errorMessage {
-                dlog("Edit", "instruction failed: \(error)")
+                dlog("Edit", "instruction failed: \(error)", level: .error)
                 self.abortEdit(icon: "exclamationmark.triangle.fill", title: "Couldn't understand the instruction",
                                detail: self.friendlySTTError(error))
                 return
@@ -1778,11 +1778,11 @@ final class AppState {
             }
             switch cut {
             case .nothing:
-                dlog("Edit", "the selection could not be cut — the rewrite will go to the clipboard")
+                dlog("Edit", "the selection could not be cut — the rewrite will go to the clipboard", level: .notice)
                 self.editRemoval = .notRemovable
             case .cut(let items, let text):
                 guard SelectionEdit.cutMatches(text, selection: selection.text, selectionConfirmed: confirmed) else {
-                    dlog("Edit", "cut \(text.count) chars that are not the selection (read \(selection.record == nil ? "with ⌘C" : "through AX")), read \(selection.text.count) — putting them back")
+                    dlog("Edit", "cut \(text.count) chars that are not the selection (read \(selection.record == nil ? "with ⌘C" : "through AX")), read \(selection.text.count) — putting them back", level: .notice)
                     PasteService.pasteItems(items)
                     self.abortEdit(icon: "text.badge.xmark", title: "Couldn't confirm the selection",
                                    detail: "What was cut wasn't the text that was read, so it was put back. Nothing was edited.")
@@ -1873,7 +1873,7 @@ final class AppState {
                     recordID: recordID, selection: selection.text, output: "", error: error.localizedDescription,
                     presetName: nil, provider: type.rawValue, model: LLMConfiguration.model(for: type),
                     context: context)
-                dlog("Edit", "rewrite failed: \(error.localizedDescription)")
+                dlog("Edit", "rewrite failed: \(error.localizedDescription)", level: .error)
                 self.refinementTask = nil
                 self.abortEdit(icon: "sparkles", title: "AI edit failed", detail: error.localizedDescription)
             }
@@ -1947,7 +1947,7 @@ final class AppState {
                                                   inFront: front?.processIdentifier == app.processIdentifier,
                                                   takesText: true)
             guard check == .paste else {
-                dlog("Edit", "not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front) — the text goes to the clipboard")
+                dlog("Edit", "not pasting into \(app.localizedName ?? "?") (\(check), \(front?.localizedName ?? "nil") in front) — the text goes to the clipboard", level: .notice)
                 fallback()
                 self?.showStatus(icon: "doc.on.clipboard", title: "The text is on the clipboard",
                                  detail: check == .quit

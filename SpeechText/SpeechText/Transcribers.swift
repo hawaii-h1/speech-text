@@ -367,7 +367,7 @@ struct OpenAICompatibleTranscriber: BatchTranscriber {
                                               model: model, language: language, prompt: prompt, keywords: keywords)
 
         let startTime = CFAbsoluteTimeGetCurrent()
-        dlog(log, "transcribe: sending request…")
+        dlog(log, "transcribe: sending request…", level: .debug)
         let (data, response) = try await Self.session.data(for: request)
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         dlog(log, "transcribe: response received in \(String(format: "%.2f", elapsed))s, size=\(data.count) bytes")
@@ -640,13 +640,13 @@ func validatedHTTPResponse(_ response: URLResponse,
                            invalidResponse: Error,
                            httpError: (Int, String) -> Error) throws -> HTTPURLResponse {
     guard let http = response as? HTTPURLResponse else {
-        if let nonHTTPMessage { dlog(category, nonHTTPMessage) }
+        if let nonHTTPMessage { dlog(category, nonHTTPMessage, level: .error) }
         throw invalidResponse
     }
     guard (200 ... 299).contains(http.statusCode) else {
         let body = String(data: data, encoding: .utf8) ?? "Unknown error"
         // log-privacy: ok — the vendor's error reply, which says what was wrong with the request
-        dlog(category, "\(label): HTTP \(http.statusCode): \(body.prefix(bodyLimit))")
+        dlog(category, "\(label): HTTP \(http.statusCode): \(body.prefix(bodyLimit))", level: .error)
         throw httpError(http.statusCode, body)
     }
     return http

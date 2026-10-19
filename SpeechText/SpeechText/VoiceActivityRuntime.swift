@@ -35,7 +35,7 @@ final class SileroVoiceActivityDetector: VoiceActivityDetector {
 func registerVoiceActivity(modelURL: URL? = Bundle.main.url(forResource: sileroVoiceActivityModel,
                                                              withExtension: "mlmodelc")) -> Task<Void, Never>? {
     guard let modelURL else {
-        dlog("Engine", "voice activity: the model is not in the app — every segment is sent")
+        dlog("Engine", "voice activity: the model is not in the app — every segment is sent", level: .error)
         return nil
     }
     return Task.detached(priority: .utility) {
@@ -48,7 +48,7 @@ func registerVoiceActivity(modelURL: URL? = Bundle.main.url(forResource: sileroV
             dlog("Engine", String(format: "voice activity: Silero VAD loaded in %.0f ms",
                                   Date().timeIntervalSince(start) * 1000))
         } catch {
-            dlog("Engine", "voice activity: the model would not load — every segment is sent: \(error.localizedDescription)")
+            dlog("Engine", "voice activity: the model would not load — every segment is sent: \(error.localizedDescription)", level: .error)
         }
     }
 }

@@ -88,7 +88,7 @@ enum VoiceActivity {
                                   reading.segmentSeconds, Date().timeIntervalSince(start) * 1000))
             return reading
         } catch {
-            dlog("Engine", "voice activity: the detector failed — the segment is kept: \(error.localizedDescription)")
+            dlog("Engine", "voice activity: the detector failed — the segment is kept: \(error.localizedDescription)", level: .error)
             return nil
         }
     }

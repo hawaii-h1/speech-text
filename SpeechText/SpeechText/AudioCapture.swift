@@ -144,7 +144,7 @@ final class DeviceCapture: AudioCapture {
                 // Said once: a render that fails keeps failing, and the recording would
                 // otherwise be silent with nothing in the Debug Log.
                 if !self.lock.withLock({ defer { self.reportedRenderFailure = true }; return self.reportedRenderFailure }) {
-                    dlog("Engine", "⚠ microphone render failed: \(status) (\(frames) frames)")
+                    dlog("Engine", "⚠ microphone render failed: \(status) (\(frames) frames)", level: .error)
                 }
                 return
             }

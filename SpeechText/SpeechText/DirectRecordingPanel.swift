@@ -207,7 +207,7 @@ final class TextInsertionHandler {
     func replaceSpan(_ span: TranscriptSpanID, with text: String) -> Bool {
         guard let textView else { return false }
         guard let range = ledger.resolve(span: span, in: textView.string) else {
-            dlog("Span", "replaceSpan \(span): refused — the text there is not what we inserted")
+            dlog("Span", "replaceSpan \(span): refused — the text there is not what we inserted", level: .notice)
             return false
         }
         guard textView.shouldChangeText(in: range, replacementString: text) else { return false }
@@ -964,7 +964,7 @@ struct DirectRecordingPanelView: View {
                                                     presets: PromptPresetStore.load(),
                                                     allowsSummary: !pending.wholeText) {
                     let share = Int((Double(result.text.count) / Double(source.count) * 100).rounded())
-                    dlog("Refine", "refused: \(result.presetName ?? "no preset") left \(share)% of \(source.count) chars")
+                    dlog("Refine", "refused: \(result.presetName ?? "no preset") left \(share)% of \(source.count) chars", level: .notice)
                     refineStatus = "AI cut this to \(share)% of its length — kept what you dictated"
                     refineFailed = true
                     if let recordID {

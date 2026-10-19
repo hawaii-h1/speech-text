@@ -599,3 +599,70 @@ final class ShortcutKeyPressTests: XCTestCase {
         XCTAssertEqual(decide(kVK_CapsLock, .capsLock), .ignore)
     }
 }
+
+// MARK: - Debug Log levels (DebugLog)
+
+/// The Debug Log's levels: their order, what the window's filter keeps, what Copy writes,
+/// and which entries the in-memory buffer keeps. Each test logs into a fresh `DebugLog`
+/// on the main thread, where `log` appends at once.
+final class DebugLogLevelTests: XCTestCase {
+
+    func testTheLevelsRunFromDebugToFaultAndMapOntoTheSystemLogs() {
+        XCTAssertEqual(DebugLog.Level.allCases, [.debug, .info, .notice, .error, .fault])
+        XCTAssertEqual(DebugLog.Level.allCases.sorted(), DebugLog.Level.allCases)
+        XCTAssertEqual(DebugLog.Level.allCases.map(\.osLogType), [.debug, .info, .default, .error, .fault])
+    }
+
+    func testAnEntryWithNoLevelIsInfo() {
+        let log = DebugLog()
+        log.log("Engine", "phase: idle → starting")
+        XCTAssertEqual(log.entries.map(\.level), [.info])
+    }
+
+    func testDebugEntriesAreKeptOnlyWhileAskedFor() {
+        let log = DebugLog()
+        log.keepsDebugEntries = false
+        log.log("Span", "partial", level: .debug)
+        log.log("Engine", "phase", level: .info)
+        log.log("Groq", "HTTP 500", level: .error)
+        XCTAssertEqual(log.entries.map(\.category), ["Engine", "Groq"], "a debug line is dropped")
+
+        log.keepsDebugEntries = true
+        log.log("Span", "partial", level: .debug)
+        XCTAssertEqual(log.entries.last?.level, .debug)
+    }
+
+    func testTheWindowsFilterKeepsALevelAndAboveThatMatchTheQuery() {
+        let log = DebugLog()
+        log.keepsDebugEntries = true
+        log.log("Span", "partial 3", level: .debug)
+        log.log("Engine", "phase: idle → starting")
+        log.log("Engine", "⚠ slow start", level: .notice)
+        log.log("Groq", "transcribe: HTTP 500", level: .error)
+        log.log("Engine", "no configuration", level: .fault)
+
+        func shown(_ level: DebugLog.Level, _ query: String = "") -> [String] {
+            DebugLog.filtered(log.entries, minimumLevel: level, matching: query).map(\.message)
+        }
+        XCTAssertEqual(shown(.debug).count, 5)
+        XCTAssertEqual(shown(.info).count, 4, "Hide debug")
+        XCTAssertEqual(shown(.notice), ["⚠ slow start", "transcribe: HTTP 500", "no configuration"])
+        XCTAssertEqual(shown(.error), ["transcribe: HTTP 500", "no configuration"])
+        XCTAssertEqual(shown(.debug, "groq"), ["transcribe: HTTP 500"], "the category matches, ignoring case")
+        XCTAssertEqual(shown(.error, "slow"), [], "a match below the level stays hidden")
+    }
+
+    func testCopyWritesTheLevelBesideTheCategory() {
+        let log = DebugLog()
+        log.log("Engine", "phase: idle → starting")
+        log.log("Groq", "transcribe: HTTP 500", level: .error)
+        let lines = log.formatted().components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines[0].hasSuffix(" INFO   [Engine] phase: idle → starting"), lines[0])
+        XCTAssertTrue(lines[1].hasSuffix(" ERROR  [Groq] transcribe: HTTP 500"), lines[1])
+        XCTAssertNotNil(lines[1].range(of: #"^\d\d:\d\d:\d\d\.\d{3} "#, options: .regularExpression))
+        // A filtered Copy is written the same way.
+        XCTAssertEqual(DebugLog.formatted(DebugLog.filtered(log.entries, minimumLevel: .error, matching: "")),
+                       lines[1])
+    }
+}

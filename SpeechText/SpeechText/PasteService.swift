@@ -274,7 +274,7 @@ struct PasteService {
         }
         if selectedRange(of: element) != range {
             guard setSelectedRange(range, of: element), selectedRange(of: element) == range else {
-                dlog("Edit", "select: selecting \(range.location)+\(range.length) did not read back")
+                dlog("Edit", "select: selecting \(range.location)+\(range.length) did not read back", level: .notice)
                 return .unconfirmed
             }
         }
@@ -520,7 +520,7 @@ struct PasteService {
         }
         let items = savedClipboard ?? []
         restoreClipboard(pasteboard, items: items)
-        dlog("Paste", "Clipboard restored")
+        dlog("Paste", "Clipboard restored", level: .debug)
     }
 
     /// Save current clipboard contents so they can be restored later.
@@ -552,7 +552,7 @@ struct PasteService {
         // An app that quit cannot be brought back — and the AppleScript fallback below
         // would *launch* it again, after which the ⌘V goes to whatever is in front.
         guard !app.isTerminated else {
-            dlog("Paste", "Not activating \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?")): it quit")
+            dlog("Paste", "Not activating \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?")): it quit", level: .notice)
             return
         }
         dlog("Paste", "Activating: \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?"))")
@@ -569,7 +569,7 @@ struct PasteService {
             var err: NSDictionary?
             script?.executeAndReturnError(&err)
             if let err {
-                dlog("Paste", "AppleScript activate failed: \(err)")
+                dlog("Paste", "AppleScript activate failed: \(err)", level: .error)
             } else {
                 dlog("Paste", "AppleScript activate succeeded")
             }
@@ -694,7 +694,7 @@ struct PasteService {
             return nil
         }
         if let found, found != fallback {
-            dlog("Paste", "⌘\(wanted.uppercased()) is key \(found) in this layout")
+            dlog("Paste", "⌘\(wanted.uppercased()) is key \(found) in this layout", level: .debug)
         }
         return found ?? fallback
     }
@@ -712,6 +712,6 @@ struct PasteService {
 
         keyDown?.post(tap: .cgSessionEventTap)
         keyUp?.post(tap: .cgSessionEventTap)
-        dlog("Paste", "CGEvent \(name) posted")
+        dlog("Paste", "CGEvent \(name) posted", level: .debug)
     }
 }

@@ -223,11 +223,11 @@ struct TranscriptSpanLayer {
         if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
             guard spans[index].text != text else { return }
             spans[index].text = text
-            log("partial \(id), \(text.count) chars")
+            log("partial \(id), \(text.count) chars", level: .debug)
         } else {
             let span = append(text: text, state: .provisional)
             provisionalID = span.id
-            log("partial \(span.id), \(text.count) chars")
+            log("partial \(span.id), \(text.count) chars", level: .debug)
         }
     }
 
@@ -351,5 +351,5 @@ struct TranscriptSpanLayer {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func log(_ message: String) { dlog("Span", message) }
+    private func log(_ message: String, level: DebugLog.Level = .info) { dlog("Span", message, level: level) }
 }

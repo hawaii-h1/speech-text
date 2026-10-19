@@ -558,7 +558,7 @@ final class OnboardingModel {
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
         } catch {
-            dlog("Setup", "login item: \(error.localizedDescription)")
+            dlog("Setup", "login item: \(error.localizedDescription)", level: .error)
         }
         UserDefaults.standard.set(true, forKey: SettingsKeys.hasRegisteredLaunchAtLogin)
         launchAtLogin = SMAppService.mainApp.status == .enabled

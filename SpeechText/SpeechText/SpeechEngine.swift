@@ -66,7 +66,7 @@ final class SpeechEngine {
     var finalText = "" {
         didSet {
             if oldValue != finalText {
-                dlog("Engine", "finalText updated: \(finalText.count) chars")
+                dlog("Engine", "finalText updated: \(finalText.count) chars", level: .debug)
             }
         }
     }
@@ -81,7 +81,7 @@ final class SpeechEngine {
     private(set) var pendingInsertionSpans: [TranscriptSpanID] = []
     var errorMessage: String? {
         didSet {
-            if let msg = errorMessage { dlog("Engine", "⚠ errorMessage: \(msg)") }
+            if let msg = errorMessage { dlog("Engine", "⚠ errorMessage: \(msg)", level: .error) }
         }
     }
     /// Callers parked in `awaitTranscription()`. Resumed from `phase`'s didSet — the
@@ -200,7 +200,7 @@ final class SpeechEngine {
         // inline flow asks first, to offer the picker (`AppState.startRecording`).
         guard !configuration.modelChoiceMissing else {
             let message = "Choose a model for \(configuration.provider.vendor.modelChoiceTarget) in Settings to dictate."
-            dlog("Engine", "startRecording: no model chosen for \(configuration.provider.rawValue) — refused")
+            dlog("Engine", "startRecording: no model chosen for \(configuration.provider.rawValue) — refused", level: .notice)
             errorMessage = message
             onStartFailure?(message)
             return
@@ -235,7 +235,7 @@ final class SpeechEngine {
     private func pauseRecording(thenResume resumeLocale: String?) {
         dlog("Engine", "pauseRecording: phase=\(phase), provider=\(providerType.rawValue)")
         guard isRecording, let audioEngine, let session, let configuration else {
-            dlog("Engine", "pauseRecording: guard failed (phase=\(phase), audioEngine=\(self.audioEngine != nil), session=\(self.session != nil))")
+            dlog("Engine", "pauseRecording: guard failed (phase=\(phase), audioEngine=\(self.audioEngine != nil), session=\(self.session != nil))", level: .notice)
             return
         }
         stopAudioEngine(audioEngine)
@@ -334,7 +334,7 @@ final class SpeechEngine {
     /// and recognition session.
     private func setupRecordingSession() {
         guard let configuration else {
-            dlog("Engine", "setupRecordingSession: no configuration — startRecording was never called")
+            dlog("Engine", "setupRecordingSession: no configuration — startRecording was never called", level: .fault)
             return
         }
         let locale = configuration.locale
@@ -400,7 +400,7 @@ final class SpeechEngine {
                 // until the stop, it made the whole dictation a failure, handed to the
                 // Record Window instead of pasted. The session logged the error itself.
                 guard failure.endsRecording else {
-                    dlog("Engine", "recognition error after text — not a failure, the recording goes on")
+                    dlog("Engine", "recognition error after text — not a failure, the recording goes on", level: .notice)
                     return
                 }
                 self.errorMessage = failure.message
@@ -453,7 +453,7 @@ final class SpeechEngine {
             dlog("Engine", "\(what) on the main thread: \(StartTimer.ms(elapsed)) (\(timer.summary))")
             return
         }
-        dlog("Engine", "⚠ slow \(what) held the main thread \(StartTimer.ms(elapsed)) (\(timer.summary))")
+        dlog("Engine", "⚠ slow \(what) held the main thread \(StartTimer.ms(elapsed)) (\(timer.summary))", level: .notice)
         seLog.warning("slow \(what, privacy: .public) held the main thread \(StartTimer.ms(elapsed), privacy: .public) (\(timer.summary, privacy: .public))")
     }
 
@@ -490,7 +490,7 @@ final class SpeechEngine {
                 dlog("Engine", "microphone: file \(clip?.lastPathComponent ?? "(silence)")")
                 return capture
             } catch {
-                dlog("Engine", "⚠ could not read \(clip?.path ?? "?"): \(error.localizedDescription) — silence")
+                dlog("Engine", "⚠ could not read \(clip?.path ?? "?"): \(error.localizedDescription) — silence", level: .error)
                 return try! FileCapture(url: nil)
             }
         }
@@ -499,7 +499,7 @@ final class SpeechEngine {
         let resolution = AudioInputDevices.resolve(configuration?.microphone ?? .automatic)
         let resolved = ProcessInfo.processInfo.systemUptime - resolveBegan
         if resolved > Self.slowStartThreshold {
-            dlog("Engine", "⚠ resolving the microphone took \(StartTimer.ms(resolved))")
+            dlog("Engine", "⚠ resolving the microphone took \(StartTimer.ms(resolved))", level: .notice)
         }
         microphone = resolution
         guard let device = resolution.device else {
@@ -507,7 +507,7 @@ final class SpeechEngine {
             return EngineCapture()
         }
         guard let id = AudioInputDevices.deviceID(forUID: device.uid) else {
-            dlog("Engine", "microphone: \(device.name) is gone — system input")
+            dlog("Engine", "microphone: \(device.name) is gone — system input", level: .notice)
             microphone = MicrophoneResolution()
             return EngineCapture()
         }
@@ -521,7 +521,7 @@ final class SpeechEngine {
             if resolution.avoided != nil { onMicrophoneSubstituted?(resolution) }
             return capture
         } catch {
-            dlog("Engine", "microphone: could not open \(device.name) (\(error.localizedDescription)) — system input")
+            dlog("Engine", "microphone: could not open \(device.name) (\(error.localizedDescription)) — system input", level: .error)
             microphone = MicrophoneResolution()
             return EngineCapture()
         }
@@ -579,7 +579,7 @@ final class SpeechEngine {
                 let timing = "waited \(StartTimer.ms(began - queued)) for the queue, started in \(StartTimer.ms(finished - began))"
                     + (timer.map { ", \(StartTimer.ms(now - $0.began)) after the start began" } ?? "")
                 if let timer, now - timer.began > 1 {
-                    dlog("Engine", "⚠ microphone live late: \(timing)")
+                    dlog("Engine", "⚠ microphone live late: \(timing)", level: .notice)
                     seLog.warning("microphone live late: \(timing, privacy: .public)")
                 } else {
                     dlog("Engine", "microphone live: \(timing)")
@@ -597,14 +597,14 @@ final class SpeechEngine {
             // The session opens before the audio engine, so its task can fail before the
             // microphone is live: that is a start failure, and ends like one — no audio
             // was taken, so there is nothing for History to keep.
-            dlog("Engine", "recognition failed before the microphone opened — a start failure")
+            dlog("Engine", "recognition failed before the microphone opened — a start failure", level: .error)
             onStartFailure?(failure.message)
             phase = .idle
             cleanup()
         case .recording:
             // The ordinary stop: `finish()` returns the error at once, and `recordOutcome`
             // writes the History row with the audio taken so far.
-            dlog("Engine", "recognition failed before any text — ending the recording")
+            dlog("Engine", "recognition failed before any text — ending the recording", level: .error)
             stopRecording()
             onRecognitionFailure?(failure.message)
         case .idle, .paused, .finishing:
@@ -622,7 +622,7 @@ final class SpeechEngine {
         // Only a live recording: a stop ignores any other phase, and the owner must not be
         // told of a stop that never happened.
         guard case .recording = phase else { return }
-        dlog("Engine", "the microphone was lost — ending the recording: \(reason)")
+        dlog("Engine", "the microphone was lost — ending the recording: \(reason)", level: .error)
         errorMessage = nil
         stopRecording(explainingEmptyBy: reason)
         onMicrophoneLost?(reason)
@@ -642,7 +642,7 @@ final class SpeechEngine {
             // The new device offers no usable input. Ending the recording here hands the
             // user what was said so far, with the reason; leaving `.recording` standing
             // with no tap was a dead microphone they only found out about at the stop.
-            dlog("Engine", "restartAudioEngine: no usable input after the device change — stopping")
+            dlog("Engine", "restartAudioEngine: no usable input after the device change — stopping", level: .error)
             if phase == .starting {
                 // `stopRecording` ignores `.starting`: end it as a start failure instead.
                 let message = errorMessage ?? "No audio input device available"
@@ -843,7 +843,7 @@ final class SpeechEngine {
             pendingInsertionSpans = spanLayer.segmentStableSpans.map(\.id)
         } else {
             pendingInsertionSpans = []
-            dlog("Span", "pending insertion is not what the spans spell — inserted untracked")
+            dlog("Span", "pending insertion is not what the spans spell — inserted untracked", level: .notice)
         }
         pendingInsertionText = text
     }
@@ -876,7 +876,7 @@ final class SpeechEngine {
         // History row stays explainable after the fact.
         let failure = outcome.error ?? (superseded ? nil : errorMessage)
         if outcome.error != nil, !outcome.text.isEmpty {
-            dlog("Engine", "segment has \(outcome.text.count) chars and a recognition error — kept as a success, the error only logged")
+            dlog("Engine", "segment has \(outcome.text.count) chars and a recognition error — kept as a success, the error only logged", level: .notice)
         } else if let error = outcome.error, !superseded {
             errorMessage = error
         }
@@ -965,7 +965,7 @@ final class SpeechEngine {
         audioEngine.installTap { [weak self] buffer in
             if !reportedFormatMismatch, buffer.format.sampleRate != hwFormat.sampleRate {
                 reportedFormatMismatch = true
-                dlog("Engine", "⚠ tap delivers \(Int(buffer.format.sampleRate)) Hz, prepared for \(Int(hwFormat.sampleRate)) Hz")
+                dlog("Engine", "⚠ tap delivers \(Int(buffer.format.sampleRate)) Hz, prepared for \(Int(hwFormat.sampleRate)) Hz", level: .notice)
             }
             let pcm = writer.append(buffer)
             session.feed(native: buffer, pcm16: pcm)
@@ -1032,7 +1032,7 @@ final class SpeechEngine {
             recentDeviceRestarts = recentDeviceRestarts.filter { now.timeIntervalSince($0) < Self.deviceRestartWindow }
             recentDeviceRestarts.append(now)
             guard recentDeviceRestarts.count <= Self.deviceRestartBudget else {
-                dlog("Engine", "handleAudioConfigChange: \(recentDeviceRestarts.count) device changes in \(Int(Self.deviceRestartWindow)) s — stopping")
+                dlog("Engine", "handleAudioConfigChange: \(recentDeviceRestarts.count) device changes in \(Int(Self.deviceRestartWindow)) s — stopping", level: .error)
                 recentDeviceRestarts.removeAll()
                 if phase == .starting {
                     // `stopRecording` ignores `.starting`; no audio was taken, so this

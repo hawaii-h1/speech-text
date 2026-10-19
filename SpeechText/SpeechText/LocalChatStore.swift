@@ -60,7 +60,7 @@ final class LocalChatStore {
                                                    alreadyOnDisk: GGUFDownload.bytesOnDisk(in: staging),
                                                    freeDiskBytes: SystemCapabilities.current().freeDiskBytes) {
             states[model.id] = .failed(shortfall.localizedDescription)
-            dlog("LocalModel", "download of \(model.id) refused: \(shortfall.localizedDescription)")
+            dlog("LocalModel", "download of \(model.id) refused: \(shortfall.localizedDescription)", level: .notice)
             return
         }
         let destination = localChatModelFile(for: model)

@@ -381,7 +381,7 @@ struct OpenAICompatibleChatClient: ChatClient {
 
         let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
         if decoded.choices.first?.finish_reason == "length" {
-            dlog("LLM", "\(label): cut off at the output cap\(decoded.usageLog)")
+            dlog("LLM", "\(label): cut off at the output cap\(decoded.usageLog)", level: .notice)
         }
         let text = try decoded.replyText()
         dlog("LLM", "\(label): done in \(String(format: "%.2f", elapsed))s, \(text.count) chars\(decoded.usageLog)")
@@ -499,9 +499,9 @@ struct AnthropicChatClient: ChatClient {
 
         switch decoded.stop_reason {
         case "refusal":
-            dlog("LLM", "Anthropic: refusal (\(decoded.stop_details?.category ?? "unknown"))")
+            dlog("LLM", "Anthropic: refusal (\(decoded.stop_details?.category ?? "unknown"))", level: .error)
         case let reason? where MessagesResponse.cutOffReasons.contains(reason):
-            dlog("LLM", "Anthropic: cut off (\(reason))\(usage.map { ", \($0.logLine)" } ?? "")")
+            dlog("LLM", "Anthropic: cut off (\(reason))\(usage.map { ", \($0.logLine)" } ?? "")", level: .notice)
         default:
             break
         }

@@ -93,7 +93,7 @@ final class HistoryRetry {
                                        model: configuration.batchModel, event: billed)
             return .succeeded(trimmed)
         } catch {
-            dlog("History", "retry \(recordID.uuidString.prefix(8)) failed: \(error.localizedDescription)")
+            dlog("History", "retry \(recordID.uuidString.prefix(8)) failed: \(error.localizedDescription)", level: .error)
             history.markRetryFailed(id: recordID, error: error.localizedDescription,
                                     event: NetworkFailure.isOffline(error) ? nil : event(nil, succeeded: false))
             return NetworkFailure.isOffline(error) ? .offline : .failed(error.localizedDescription)

@@ -84,7 +84,7 @@ An app that watches the keyboard by other means cannot be detected; if a shortcu
 | Models on this Mac | `~/Library/Application Support/SpeechText/Models/` |
 | Settings | the `app.speech-text.SpeechText` preferences domain |
 | API keys | the keychain in a release build (Settings › API Keys to change or remove them) |
-| Log | status menu › Debug Log… — the last 1000 entries, in memory only. Every entry also goes to the system log: open Console and search for `app.speech-text.SpeechText` |
+| Log | status menu › Debug Log… — the last 1000 entries, in memory only; its menu shows all of them, hides debug lines, or only notices and above or errors and faults. Every entry also goes to the system log under its category (Engine, Paste, Groq, ElevenLabs, …): open Console and search for `app.speech-text.SpeechText`, or run `log stream --info --predicate 'subsystem == "app.speech-text.SpeechText"'` (add `AND category == "Engine"` for one part, or `AND messageType >= error` for failures only) |
 
 ## Reporting a problem
 

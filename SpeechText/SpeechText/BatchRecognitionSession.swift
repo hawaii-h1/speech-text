@@ -56,7 +56,7 @@ final class BatchRecognitionSession: RecognitionSession {
             dlog("Engine", "BatchRecognitionSession.finish: no audio in this segment")
             return RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: Task.isCancelled)
         } catch {
-            dlog("Engine", "BatchRecognitionSession.finish: could not write audio file: \(error.localizedDescription)")
+            dlog("Engine", "BatchRecognitionSession.finish: could not write audio file: \(error.localizedDescription)", level: .error)
             return RecognitionOutcome(text: "", error: error.localizedDescription,
                                       audioFileURL: nil, cancelled: Task.isCancelled)
         }
@@ -94,7 +94,7 @@ final class BatchRecognitionSession: RecognitionSession {
             return RecognitionOutcome(text: text, error: nil, audioFileURL: fileURL, cancelled: false, usage: usage,
                                       speakingSeconds: reading?.voicedSpanSeconds)
         } catch {
-            dlog("Engine", "BatchRecognitionSession.finish: error: \(error.localizedDescription)")
+            dlog("Engine", "BatchRecognitionSession.finish: error: \(error.localizedDescription)", level: .error)
             if Task.isCancelled {
                 AudioBufferWriter.cleanup(fileURL: fileURL)
                 return .cancelled

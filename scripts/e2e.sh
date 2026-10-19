@@ -220,8 +220,10 @@ LAUNCH_ARGS=()   # extra launch arguments for the next launch only
 launch() {  # launch <scenario> <clip>[,<clip>…]
     local name="$1" inputs="" clip
     for clip in ${2//,/ }; do inputs="${inputs:+$inputs,}$(clip_path "$clip")"; done
+    # Every dlog category is its own os.Logger category, so the whole subsystem is
+    # streamed; --info leaves out the .debug lines, which no verdict reads.
     log stream --info --style compact \
-        --predicate "subsystem == \"$DOMAIN\" AND category == \"Debug\"" > "$OUT/$name.log" 2>&1 &
+        --predicate "subsystem == \"$DOMAIN\"" > "$OUT/$name.log" 2>&1 &
     LOG_PID=$!
     sleep 1
     # Through `open`, so launchd starts it and TCC asks about the app, not this shell.

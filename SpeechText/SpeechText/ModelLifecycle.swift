@@ -243,7 +243,7 @@ func migrateStoredModels(in defaults: UserDefaults, now: Date = Date()) -> [Mode
             defaults.set(target, forKey: key)
             moved.append(ModelMigration(settingsKey: key, from: raw, to: target, reason: .deprecated, date: now))
         case .clear:
-            dlog("Settings", "\(key)=\"\(raw)\" leads to no model on offer — cleared for the user to pick")
+            dlog("Settings", "\(key)=\"\(raw)\" leads to no model on offer — cleared for the user to pick", level: .notice)
             defaults.set(clearedModelChoice, forKey: key)
             moved.append(ModelMigration(settingsKey: key, from: raw, to: nil, reason: .unavailable, date: now))
         }

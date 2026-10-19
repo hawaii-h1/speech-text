@@ -120,7 +120,7 @@ final class AudioBufferWriter {
         isConvertingLive = downsampler != nil
         lock.unlock()
         if downsampler == nil {
-            dlog("Audio", "prepare: no converter for \(sourceFormat) — keeping native copies, converting at stop")
+            dlog("Audio", "prepare: no converter for \(sourceFormat) — keeping native copies, converting at stop", level: .notice)
         }
     }
 
@@ -249,7 +249,7 @@ final class AudioBufferWriter {
                     // erroring again is the likely case — and the converted bytes are
                     // fine. Rewrite the file from them alone: losing the tail beats
                     // losing the recording.
-                    dlog("Audio", "writeAudioFile: native tail failed to downsample (\(error.localizedDescription)) — dropping it, keeping \(capturedFrames) converted frames")
+                    dlog("Audio", "writeAudioFile: native tail failed to downsample (\(error.localizedDescription)) — dropping it, keeping \(capturedFrames) converted frames", level: .error)
                     tempURL = try Self.writeWithCodecFallback(preferred: codec) { codec, url in
                         let outputFile = try Self.makeOutputFile(codec: codec, at: url)
                         try Self.writeConverted(pcm16: capturedPCM, frames: capturedFrames, to: outputFile)
@@ -261,7 +261,7 @@ final class AudioBufferWriter {
                     // Only reachable when nothing was converted live: a native WAV cannot
                     // also hold the 16 kHz bytes.
                     guard capturedFrames == 0, let capturedFormat else { throw error }
-                    dlog("Audio", "writeAudioFile: downsample failed (\(error.localizedDescription)) — falling back to native format")
+                    dlog("Audio", "writeAudioFile: downsample failed (\(error.localizedDescription)) — falling back to native format", level: .error)
                     tempURL = try Self.writeAttempt(codec: .wav) { url in
                         try Self.writeNative(buffers: capturedBuffers, format: capturedFormat, to: url)
                     }
@@ -296,7 +296,7 @@ final class AudioBufferWriter {
             return try writeAttempt(codec: preferred) { try write(preferred, $0) }
         } catch {
             guard preferred != .wav else { throw error }
-            dlog("Audio", "writeAudioFile: \(preferred.fileExtension) encoding failed (\(error.localizedDescription)) — falling back to wav")
+            dlog("Audio", "writeAudioFile: \(preferred.fileExtension) encoding failed (\(error.localizedDescription)) — falling back to wav", level: .error)
             return try writeAttempt(codec: .wav) { try write(.wav, $0) }
         }
     }

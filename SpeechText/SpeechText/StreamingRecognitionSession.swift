@@ -223,7 +223,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             attempts = 0
         }
         guard let delay = policy.delay(attempt: attempts, outage: outages) else {
-            dlog("Engine", "stream: giving up after \(attempts) reconnect attempt(s), outage \(outages) — batch fallback at stop")
+            dlog("Engine", "stream: giving up after \(attempts) reconnect attempt(s), outage \(outages) — batch fallback at stop", level: .error)
             return false
         }
         attempts += 1
@@ -235,7 +235,7 @@ final class StreamingRecognitionSession: RecognitionSession {
         // a restatement of any of it replaces rather than doubles.
         committedText = joinedSegments(committedText, partialText)
         partialText = ""
-        dlog("Engine", "stream: dropped (\(error.localizedDescription)) — reconnecting in \(delay)s, attempt \(attempts) of outage \(outages)")
+        dlog("Engine", "stream: dropped (\(error.localizedDescription)) — reconnecting in \(delay)s, attempt \(attempts) of outage \(outages)", level: .notice)
         // One reconnect in flight at a time.
         reconnectTask?.cancel()
         reconnectTask = Task { @MainActor [weak self] in
@@ -268,7 +268,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             guard let converted = resampled(native) else {
                 DispatchQueue.main.async {
                     guard self.failure == nil else { return }
-                    dlog("Engine", "stream: cannot convert \(native.format.sampleRate) Hz to \(self.sampleRate) Hz — stream discarded, batch fallback at stop")
+                    dlog("Engine", "stream: cannot convert \(native.format.sampleRate) Hz to \(self.sampleRate) Hz — stream discarded, batch fallback at stop", level: .error)
                     self.markFailed("Could not convert audio for streaming")
                 }
                 return
@@ -287,7 +287,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             // natively, but the stream can no longer be fed, so the stop must upload the file.
             DispatchQueue.main.async {
                 guard self.failure == nil else { return }
-                dlog("Engine", "stream: live conversion unavailable — stream will be discarded, batch fallback at stop")
+                dlog("Engine", "stream: live conversion unavailable — stream will be discarded, batch fallback at stop", level: .error)
                 self.markFailed("Could not convert audio for streaming")
             }
         }
@@ -341,7 +341,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             await MainActor.run {
                 DictationTraceRecorder.record(.segmentTooLong, text: String(format: "%.1f", (longest.longestSeconds * 10).rounded(.up) / 10))
             }
-            dlog("Engine", "StreamingRecognitionSession.finish: a segment ran \(String(format: "%.1f", longest.longestSeconds))s, over \(longestTrustedSegment ?? 0)s — the upload answers")
+            dlog("Engine", "StreamingRecognitionSession.finish: a segment ran \(String(format: "%.1f", longest.longestSeconds))s, over \(longestTrustedSegment ?? 0)s — the upload answers", level: .notice)
             provider.cancel()
             await events?.value
         } else if hadOutage {
@@ -387,7 +387,7 @@ final class StreamingRecognitionSession: RecognitionSession {
 
         let reason = failure ?? (hadOutage ? "dropped during the segment"
             : tooLong ? "kept a segment open too long" : "returned nothing")
-        dlog("Engine", "StreamingRecognitionSession.finish: stream \(reason) — falling back to batch upload")
+        dlog("Engine", "StreamingRecognitionSession.finish: stream \(reason) — falling back to batch upload", level: .notice)
         // The partial text on screen described a stream that is being discarded.
         await MainActor.run { session.onEvent?(.live(committed: "", partial: "")) }
         // Answered unless the socket broke: a stream that came back with nothing was a

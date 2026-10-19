@@ -25,7 +25,7 @@ enum AppInstaller {
         do {
             try process.run()
         } catch {
-            dlog("Install", "hdiutil info: \(error.localizedDescription)")
+            dlog("Install", "hdiutil info: \(error.localizedDescription)", level: .error)
             return []
         }
         // Read before waiting: a full pipe would otherwise block hdiutil forever.
@@ -70,7 +70,7 @@ enum AppInstaller {
             let installed = try install()
             relaunch(installed)
         } catch {
-            dlog("Install", "move failed: \(error.localizedDescription)")
+            dlog("Install", "move failed: \(error.localizedDescription)", level: .error)
             let failure = NSAlert()
             failure.alertStyle = .warning
             failure.messageText = "SpeechText couldn't move itself to Applications"
@@ -133,7 +133,7 @@ enum AppInstaller {
         // This copy is still running under the same identifier until it quits.
         configuration.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
-            if let error { dlog("Install", "relaunch failed: \(error.localizedDescription)") }
+            if let error { dlog("Install", "relaunch failed: \(error.localizedDescription)", level: .error) }
             DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }

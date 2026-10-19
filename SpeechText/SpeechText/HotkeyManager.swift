@@ -156,7 +156,7 @@ final class HotkeyManager {
                     // pressed while a start held the thread lands after the fact.
                     let waited = GetCurrentEventTime() - pressedAt
                     if waited > 0.2 {
-                        dlog("Hotkey", "⚠ shortcut \(hotKeyID.id) \(isDown ? "press" : "release") reached the app \(Int(waited * 1000)) ms late — the main thread was busy")
+                        dlog("Hotkey", "⚠ shortcut \(hotKeyID.id) \(isDown ? "press" : "release") reached the app \(Int(waited * 1000)) ms late — the main thread was busy", level: .notice)
                     }
                     if let action = ShortcutAction.allCases.first(where: { HotkeyManager.hotKeyID($0) == hotKeyID.id }) {
                         HeldShortcuts.shared.set(action, isDown: isDown)
@@ -178,7 +178,7 @@ final class HotkeyManager {
             &eventHandlerRef
         )
         if handlerStatus != noErr {
-            dlog("Hotkey", "InstallEventHandler failed (status \(handlerStatus)) — no shortcut will fire")
+            dlog("Hotkey", "InstallEventHandler failed (status \(handlerStatus)) — no shortcut will fire", level: .error)
         }
 
         var failures: [ShortcutAction: OSStatus] = [:]
@@ -195,7 +195,7 @@ final class HotkeyManager {
                 // an error here and then simply never fires — indistinguishable from a
                 // broken app unless it is said out loud.
                 failures[action] = status
-                dlog("Hotkey", "\(action.title) shortcut (key code \(shortcut.keyCode)) could not be registered: status \(status) — another app may already own it")
+                dlog("Hotkey", "\(action.title) shortcut (key code \(shortcut.keyCode)) could not be registered: status \(status) — another app may already own it", level: .error)
             }
         }
         HotkeyRegistrationStatus.shared.failures = failures
@@ -221,7 +221,7 @@ final class HotkeyManager {
                                              EventHotKeyID(signature: Self.signature, id: Self.escapeHotKeyID),
                                              GetApplicationEventTarget(), 0, &ref)
             if status == noErr { escapeRef = ref } else {
-                dlog("Hotkey", "⎋ could not be registered: status \(status)")
+                dlog("Hotkey", "⎋ could not be registered: status \(status)", level: .error)
             }
         } else if !shouldExist, let ref = escapeRef {
             UnregisterEventHotKey(ref)

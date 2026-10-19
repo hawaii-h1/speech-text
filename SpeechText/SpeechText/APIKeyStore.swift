@@ -96,7 +96,7 @@ final class APIKeyStore: @unchecked Sendable {
                     try keychain?.write(value, for: key)
                 }
             } catch {
-                dlog("Keys", "could not save \(key) to the keychain: \(error)")
+                dlog("Keys", "could not save \(key) to the keychain: \(error)", level: .error)
             }
         case .defaults:
             // Written even when empty: an absent key is what lets `open` adopt one from a
@@ -146,7 +146,7 @@ final class APIKeyStore: @unchecked Sendable {
             } catch {
                 // Nothing can be decided about a key the keychain would not read: keep
                 // every copy, use the current domain's for this session.
-                dlog("Keys", "could not read \(key) from the keychain: \(error)")
+                dlog("Keys", "could not read \(key) from the keychain: \(error)", level: .error)
                 report.failed.append(key)
                 loaded[key] = current ?? ""
                 continue
@@ -166,7 +166,7 @@ final class APIKeyStore: @unchecked Sendable {
                     report.moved.append(key)
                     loaded[key] = candidate
                 } catch {
-                    dlog("Keys", "could not move \(key) into the keychain: \(error)")
+                    dlog("Keys", "could not move \(key) into the keychain: \(error)", level: .error)
                     report.failed.append(key)
                     loaded[key] = candidate
                     continue

@@ -271,5 +271,12 @@ Match the surrounding code. A few conventions the codebase holds to:
 - Every source file opens with the two-line SPDX header (`SPDX-FileCopyrightText` / `SPDX-License-Identifier: GPL-3.0-or-later`).
 - Comments explain *why*, not *what*. A measured constant gets a comment saying what it was measured against.
 - Latency and quality constants live in `STTTuning`, not scattered across files.
-- Use `dlog("Category", "message")` for diagnostics — it goes to both the in-app Debug Log window and `os.Logger`.
+- Use `dlog("Category", "message")` for diagnostics — it goes to both the in-app Debug Log window and `os.Logger`, under its own category (`log stream --predicate 'subsystem == "app.speech-text.SpeechText" AND category == "ElevenLabs"'`). Give it a level when the default, `.info`, is wrong: `dlog("Groq", "…", level: .error)`.
+  - `.error` — a failure: an HTTP error, a socket that broke, a start that failed, a permission denied, an error caught and handled by falling back.
+  - `.fault` — a state the code believes cannot happen. Sparingly.
+  - `.notice` (the system log's *Default*) — degraded but carrying on: a slow main thread, a late shortcut, a fallback taken, a value reset. A `⚠` in the message is usually a notice.
+  - `.debug` — anything said many times a dictation: every partial, every posted key event. The system log keeps these only for a `log stream --level debug` running at the time, and the Debug Log window keeps them only in a debug build or while its **Debug lines** switch is on (for the session; never stored), so they cannot push the failures out of its last 1000 entries.
+  - `.info` — everything else: what the app is doing (phase changes, the paste target, a session started).
+
+  The level never changes what a message may say: every entry is public in the system log, so a message holds counts and lengths, never the user's words (`scripts/check-log-privacy.sh`).
 - No new third-party dependencies. The four there are each imported by one file per use — WhisperKit by `LocalWhisperRuntime.swift`, FluidAudio by `LocalParakeetRuntime.swift` and `VoiceActivityRuntime.swift`, Sparkle by `UpdateChecker.swift`, llama.cpp by `LocalLlamaRuntime.swift` (compiled into the service and the evaluation tool, not the app) — keep them there, because the test bundle compiles app sources directly and cannot resolve packages. If you think you need another dependency, open an issue first.

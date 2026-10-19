@@ -425,13 +425,13 @@ func normalizeStoredProviders(in defaults: UserDefaults,
 
     if let raw = defaults.string(forKey: SettingsKeys.sttProvider),
        STTProviderType(rawValue: raw) == nil {
-        dlog("Settings", "sttProvider=\"\(raw)\" is not a known engine — resetting to Apple")
+        dlog("Settings", "sttProvider=\"\(raw)\" is not a known engine — resetting to Apple", level: .notice)
         defaults.set(STTProviderType.apple.rawValue, forKey: SettingsKeys.sttProvider)
     }
 
     if let raw = defaults.string(forKey: SettingsKeys.llmProvider),
        LLMProviderType(rawValue: raw) == nil {
-        dlog("Settings", "llmProvider=\"\(raw)\" is not a known provider — resetting to Groq")
+        dlog("Settings", "llmProvider=\"\(raw)\" is not a known provider — resetting to Groq", level: .notice)
         defaults.set(LLMProviderType.groq.rawValue, forKey: SettingsKeys.llmProvider)
     }
 

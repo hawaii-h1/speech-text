@@ -68,7 +68,7 @@ func registerLocalSTT() {
             do {
                 try await prewarmLocalModel(model, with: runtime)
             } catch {
-                dlog("LocalModel", "prewarm of \(modelID) failed: \(error.localizedDescription)")
+                dlog("LocalModel", "prewarm of \(modelID) failed: \(error.localizedDescription)", level: .error)
             }
         }
     }

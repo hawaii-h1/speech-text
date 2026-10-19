@@ -107,7 +107,7 @@ final class LocalModelStore {
         if let shortfall = localModelDiskShortfall(downloadBytes: model.downloadBytes,
                                                    freeDiskBytes: SystemCapabilities.current().freeDiskBytes) {
             states[model.id] = .failed(shortfall.localizedDescription)
-            dlog("LocalModel", "install of \(model.id) refused: \(shortfall.localizedDescription)")
+            dlog("LocalModel", "install of \(model.id) refused: \(shortfall.localizedDescription)", level: .notice)
             return
         }
 
@@ -158,7 +158,7 @@ final class LocalModelStore {
                 do {
                     try await prewarmLocalModel(model, with: runtime)
                 } catch {
-                    dlog("LocalModel", "prewarm of \(model.id) failed: \(error.localizedDescription)")
+                    dlog("LocalModel", "prewarm of \(model.id) failed: \(error.localizedDescription)", level: .error)
                 }
                 // Downloaded and not taken (Settings closed before it was ready): the model
                 // dictations use is loaded again, and this one goes.
@@ -180,7 +180,7 @@ final class LocalModelStore {
                 await MainActor.run { [weak self] in
                     self?.states[model.id] = .failed(error.localizedDescription)
                     self?.tasks[model.id] = nil
-                    dlog("LocalModel", "install of \(model.id) failed: \(error.localizedDescription)")
+                    dlog("LocalModel", "install of \(model.id) failed: \(error.localizedDescription)", level: .error)
                 }
             }
         }

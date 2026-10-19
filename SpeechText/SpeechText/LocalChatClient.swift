@@ -155,7 +155,7 @@ final class LocalChatConnection: @unchecked Sendable {
         ]
         guard let body = try? JSONEncoder().encode(request) else { return }
         (current().remoteObjectProxyWithErrorHandler { _ in } as? LocalChatServiceProtocol)?.prewarm(body) { error in
-            if let error { dlog("LLM", "prewarm \(model.id) failed: \(error)") }
+            if let error { dlog("LLM", "prewarm \(model.id) failed: \(error)", level: .error) }
         }
     }
 
