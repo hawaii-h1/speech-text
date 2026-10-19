@@ -21,6 +21,11 @@ import Foundation
 ///   stream's first partial, its socket is closed and the session told the network went
 ///   away (`StreamCloser`), so the reconnect runs as after a Wi-Fi drop (OA4, #51)
 ///   without switching the Mac's network off.
+/// - `-SPTAppleFailAfter <seconds>` — once per launch, that long after the first Apple
+///   chunk's first words, the chunk then current fails as a real task error would
+///   (kAFAssistantErrorDomain 1101; `AppleRecognitionSession.failChunkForE2E`), so the
+///   rotation after an error (`AppleErrorRotation`) runs without a recogniser that fails
+///   on cue.
 enum E2EMode {
     static let bundleIdentifier = "app.speech-text.SpeechText.e2e"
 
@@ -70,6 +75,26 @@ enum E2EMode {
 
     private static var streamCloserUsed = false
 
+    /// `-SPTAppleFailAfter`'s seconds; nil when the argument is absent or not positive.
+    static let appleFailAfter: TimeInterval? = {
+        let seconds = UserDefaults.standard.double(forKey: "SPTAppleFailAfter")
+        return seconds > 0 ? seconds : nil
+    }()
+
+    private static var appleFailureUsed = false
+
+    /// `-SPTAppleFailAfter`'s seconds the first time it is asked in an e2e launch with the
+    /// argument — an Apple chunk's first words — and nil every other time, so one chunk in
+    /// the launch fails and no other.
+    static func appleFailureOnce() -> TimeInterval? {
+        guard isActive, let seconds = appleFailAfter else { return nil }
+        let first = lock.withLock { () -> Bool in
+            defer { appleFailureUsed = true }
+            return !appleFailureUsed
+        }
+        return first ? seconds : nil
+    }
+
     /// `provider`, or — the first time in an e2e launch with `-SPTCloseStreamAfter` — the
     /// same provider behind a `StreamCloser`. Only the first: the reconnect builds its
     /// transcriber straight from `makeStreamingTranscriber`, so it is never closed again.
@@ -97,6 +122,7 @@ enum E2EMode {
     #else
     static let isActive = false
     static let closeStreamAfter: TimeInterval? = nil
+    static let appleFailAfter: TimeInterval? = nil
     static let audioInputs: [URL]? = nil
     static let keysFile: URL? = nil
     #endif

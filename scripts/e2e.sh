@@ -46,7 +46,7 @@ DATA="$HOME/Library/Application Support/SpeechText-e2e"
 OUT="${SPT_E2E_OUT:-/tmp/speechtext-e2e/$(date +%Y-%m-%d_%H-%M-%S)}"
 KEYS="$WORK/keys"
 
-ALL_SCENARIOS="plain hold double-tap tap-cancels ai switch-to-ai switch-to-plain esc-cancel two-in-a-row switch-app stream-drop edit smoke-plain-text smoke-script-editor"
+ALL_SCENARIOS="plain hold double-tap tap-cancels ai switch-to-ai switch-to-plain esc-cancel two-in-a-row switch-app stream-drop apple-error edit smoke-plain-text smoke-script-editor"
 
 ENGINE="groq"; ONLY=""; TRACES=0; BUILD=1; SETUP=0; KEEP=0
 while [ $# -gt 0 ]; do
@@ -435,6 +435,29 @@ scenario_stream_drop() {
     verdict stream-drop "$doc" --expected "$(clip_field $clip expected)" --pastes 1 \
         --logged "closing the stream's socket now" --logged "reconnecting in" \
         --logged "stream dropped during the segment"
+}
+
+# Apple's recognition task failing 4 s after the first words (-SPTAppleFailAfter, debug
+# builds only): the session starts a fresh chunk at once instead of at its 50 s rotation,
+# so the 10 s of speech after the error is heard and pasted with the rest. The Debug Log
+# must show the fresh chunk hearing words; without the rotation the paste would hold only
+# what came before the error. The Apple engine only: the others have no chunks.
+scenario_apple_error() {
+    local clip=uk-plain dur doc
+    case "$ENGINE" in
+        apple) ;;
+        *) local row="| apple-error | skipped | | | no Apple chunks on $ENGINE | |"
+           echo "$row"; RESULTS+=("$row"); return 0 ;;
+    esac
+    dur="$(clip_seconds $clip)"
+    LAUNCH_ARGS=(-SPTAppleFailAfter 4)
+    begin apple-error $clip
+    doc="$(new_doc textedit)"; OPEN_DOCS+=("$doc")
+    "$KEYS" tap:ctrl+shift+q "sleep:$(echo "$dur + 1" | bc)" tap:ctrl+shift+q
+    wait_for_change "$doc" "" 40
+    verdict apple-error "$doc" --expected "$(clip_field $clip expected)" --pastes 1 \
+        --logged "failing the Apple chunk now" --logged "chunk failed after text, rotating" \
+        --logged "the chunk after an error rotation hears words"
 }
 
 # Started plain, switched to AI Rewrite half-way by the other shortcut, stopped by it.

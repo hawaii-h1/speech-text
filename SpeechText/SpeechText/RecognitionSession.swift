@@ -28,8 +28,8 @@ struct RecognitionFailure: Equatable {
     /// task is over — so listening on only takes audio no one transcribes: #69's overlay
     /// listened for twelve seconds after a failure 44 ms in. The engine ends the
     /// recording at once instead. With text already there the recording goes on as it
-    /// always has: that text is kept for the stop, and Apple's next 50 s chunk rotation
-    /// opens a fresh task.
+    /// always has: that text is kept for the stop, and Apple's session opens a fresh task
+    /// at once rather than at its next 50 s chunk rotation (`AppleErrorRotation`).
     var endsRecording: Bool
 
     /// kAFAssistantErrorDomain 216: the task was cancelled — by a chunk rotation, a stop

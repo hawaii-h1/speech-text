@@ -97,6 +97,11 @@ These decisions were made on #82.
   (`URLError(.networkConnectionLost)`), so the reconnect and the upload fallback run as
   after a Wi-Fi drop. The socket really closes; the error is made up. The Mac's network,
   which other work on it may be using, is never switched off.
+- **A failing Apple recogniser on cue.** `-SPTAppleFailAfter <seconds>` (the `apple-error`
+  scenario): once per launch, that long after the first Apple chunk's first words, the
+  chunk's recognition task is cancelled and the session is handed the error a real
+  failure gives (kAFAssistantErrorDomain 1101). The session then has to start a fresh
+  chunk at once, not at its 50 s rotation. The task really stops; the error is made up.
 
 None of this is compiled into a Release build.
 
@@ -115,6 +120,7 @@ None of this is compiled into a Release build.
 | `two-in-a-row` | two dictations into one document (two clips) | two pastes, each ending in a space |
 | `switch-app` | started in TextEdit, stopped in Script Editor | pasted once, into Script Editor; TextEdit empty |
 | `stream-drop` | a realtime engine only (skipped on the others): ⌃⇧Q, the 19 s `uk-plain`, the socket closed 4 s after the first partial (`-SPTCloseStreamAfter 4`), ⌃⇧Q | pasted once; the Debug Log has the close, the reconnect and the upload fallback |
+| `apple-error` | the Apple engine only (skipped on the others): ⌃⇧Q, the 19 s `uk-plain`, the recognition task failed 4 s after the first words (`-SPTAppleFailAfter 4`), ⌃⇧Q | pasted once; the Debug Log has the failure, the rotation after it and the fresh chunk hearing words. The WER shows whether the speech after the failure was pasted too |
 | `edit` | text selected, ⌃⇧E, “Translate this into English.” (made with `say`), ⌃⇧E | the selection replaced; History has the edit |
 | `smoke-plain-text` | `plain` into a plain-text TextEdit document | pasted once |
 | `smoke-script-editor` | `plain` into Script Editor | pasted once |

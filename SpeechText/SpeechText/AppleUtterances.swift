@@ -72,3 +72,80 @@ struct AppleUtterances: Equatable {
         words.reduce(0) { $0 + $1.text.count }
     }
 }
+
+/// When a chunk whose recognition task failed after the segment already had words is
+/// replaced. A task that reported an error takes no more audio, so every word said until
+/// the next chunk starts is lost — up to the whole 50 s rotation
+/// (`AppleRecognitionSession.rotate`). The session therefore starts a fresh chunk at once,
+/// within two bounds, because a fresh chunk can fail again straight away (its assets
+/// gone, a recogniser in a bad state) and a rotation must never become a loop of new tasks:
+///
+/// - **No chunk is replaced before it has lived `minimumChunkSeconds` (1 s).** A failure
+///   sooner than that is rotated once the second is up — deferred, not refused — so the
+///   session asks for at most one new task a second however fast its chunks fail, and a
+///   chunk that heard words and then failed early costs a second of speech, not the rest
+///   of its 50 s.
+/// - **`barrenRotationLimit` (3) error rotations in a row whose failed chunk heard no words
+///   of its own are allowed; the next such failure is left to the 50 s rotation already
+///   armed** — the behaviour from before — until a chunk hears words again, which resets
+///   the count (`heardWords`). Three fresh tasks a second apart that each died without a
+///   word mean the recogniser is not recovering by itself; more would only churn, while
+///   the 50 s rotation still gives it a fresh try every 50 s.
+///
+/// Pure logic, in every target: the session hands in its clock (`systemUptime`), the tests
+/// a fake one.
+struct AppleErrorRotation: Equatable {
+    static let minimumChunkSeconds: TimeInterval = 1
+    static let barrenRotationLimit = 3
+
+    enum Decision: Equatable {
+        /// Start a fresh chunk this many seconds from now; 0 is at once.
+        case rotate(after: TimeInterval)
+        /// Leave the dead chunk to the 50 s rotation.
+        case leaveToTimer
+        /// Paused, finishing or cancelled: nothing is fed any more, so there is nothing to
+        /// rotate to.
+        case notFeeding
+    }
+
+    /// Error rotations in a row whose failed chunk had heard no words of its own.
+    private(set) var barrenRotations = 0
+    /// When the current chunk started; nil before the first.
+    private var chunkStart: TimeInterval?
+    private var chunkHasWords = false
+    /// An error rotation was decided and its chunk has not started yet.
+    private var errorRotationPending = false
+    /// The current chunk was started by an error rotation.
+    private var chunkFollowsError = false
+
+    /// Every chunk's start: the session's first, and every rotation's, the timer's too.
+    mutating func chunkStarted(at now: TimeInterval) {
+        chunkStart = now
+        chunkHasWords = false
+        chunkFollowsError = errorRotationPending
+        errorRotationPending = false
+    }
+
+    /// The current chunk has heard words: the recogniser works, so the run of barren
+    /// rotations is over. True only for the first words of a chunk an error rotation
+    /// started — the proof that the rotation brought the dictation back.
+    @discardableResult
+    mutating func heardWords() -> Bool {
+        let first = chunkFollowsError && !chunkHasWords
+        chunkHasWords = true
+        barrenRotations = 0
+        return first
+    }
+
+    /// The current chunk's task failed while the segment had words.
+    mutating func decide(at now: TimeInterval, isFeeding: Bool) -> Decision {
+        guard isFeeding else { return .notFeeding }
+        if !chunkHasWords {
+            guard barrenRotations < Self.barrenRotationLimit else { return .leaveToTimer }
+            barrenRotations += 1
+        }
+        errorRotationPending = true
+        let age = chunkStart.map { now - $0 } ?? Self.minimumChunkSeconds
+        return .rotate(after: max(0, Self.minimumChunkSeconds - age))
+    }
+}

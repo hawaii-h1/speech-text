@@ -9,7 +9,9 @@ import Speech
 
 /// SFSpeechRecognitionTask stops accepting audio after roughly a minute. Left alone,
 /// every word spoken past that point is silently dropped. The session rotates to a fresh
-/// recognition task before the limit and stitches the chunks together.
+/// recognition task before the limit and stitches the chunks together — and at once when
+/// a chunk's task fails after the segment has words, since a failed task takes no more
+/// audio either (`AppleErrorRotation`).
 ///
 /// State is main-thread only, except `request`, which `feed` reads from the audio thread
 /// while a rotation swaps it on main — the same unsynchronised handoff the engine did.
@@ -34,6 +36,8 @@ final class AppleRecognitionSession: RecognitionSession {
     /// Incremented on every rotation so callbacks from retired chunks can be discarded.
     private var chunkToken = 0
     private var chunkTimer: Timer?
+    /// When a chunk that failed after the segment had words is replaced.
+    private var errorRotation = AppleErrorRotation()
     /// Comfortably under SFSpeechRecognitionTask's ~60s ceiling.
     private let chunkDuration: TimeInterval = 50
     /// False once the mic stopped feeding this segment (pause / finish), so a rotation
@@ -78,6 +82,7 @@ final class AppleRecognitionSession: RecognitionSession {
 
     private func startChunk(_ recognizer: SFSpeechRecognizer) {
         chunkFailed = false
+        errorRotation.chunkStarted(at: ProcessInfo.processInfo.systemUptime)
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
@@ -102,6 +107,14 @@ final class AppleRecognitionSession: RecognitionSession {
                     if self.utterances.settled != before.settled {
                         dlog("Engine", "apple: a new utterance began — keeping the \(transcriptWords(before.current).count) words before it")
                     }
+                    if !self.utterances.text.isEmpty {
+                        if self.errorRotation.heardWords() {
+                            dlog("Engine", "apple: the chunk after an error rotation hears words (\(self.utterances.text.count) chars)")
+                        }
+                        #if DEBUG
+                        self.armFailureForE2E()
+                        #endif
+                    }
                     // What the recogniser has moved past is committed: it will not revise it.
                     self.onEvent?(.live(committed: joinedTranscript(self.committedText, self.utterances.settled),
                                         partial: self.utterances.current))
@@ -120,30 +133,7 @@ final class AppleRecognitionSession: RecognitionSession {
                 dlog("Engine", "recognitionTask error: code=\(nsErr.code), domain=\(nsErr.domain), desc=\(error.localizedDescription)")
                 DispatchQueue.main.async {
                     guard self.chunkToken == token else { return }
-                    // The task is over: a `finish()` that starts after this has nothing
-                    // to wait for.
-                    self.chunkFailed = true
-                    if self.finalText.isEmpty {
-                        self.finalText = joinedTranscript(self.committedText, self.utterances.text)
-                    }
-                    // Text from the whole segment, earlier chunks included: a fresh chunk
-                    // that fails right after a rotation is not a recording without text.
-                    let hasText = !joinedTranscript(self.committedText, self.utterances.text)
-                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    let permissionDenied = Self.speechPermissionDenied
-                    if let failure = RecognitionFailure.apple(
-                        domain: nsErr.domain, code: nsErr.code,
-                        description: error.localizedDescription, hasText: hasText,
-                        permissionDenied: permissionDenied, locale: self.locale) {
-                        if !hasText {
-                            dlog("Engine", "recognitionTask failed before any text: onDevice=\(self.recognizer?.supportsOnDeviceRecognition == true), permissionDenied=\(permissionDenied)")
-                        }
-                        self.lastError = failure.message
-                        self.onEvent?(.failure(failure))
-                    }
-                    // Nothing more is coming after an error: a `finish()` waiting on this
-                    // task gets its answer now rather than at the 0.5 s deadline.
-                    self.resolveFinish(cancelled: false)
+                    self.chunkDidFail(nsErr)
                 }
             }
         }
@@ -151,12 +141,69 @@ final class AppleRecognitionSession: RecognitionSession {
         scheduleChunkRotation()
     }
 
+    /// The current chunk's task reported `error`. Main thread, for the current chunk only:
+    /// the callback has already discarded a retired chunk's.
+    private func chunkDidFail(_ error: NSError) {
+        // The task is over: a `finish()` that starts after this has nothing to wait for.
+        chunkFailed = true
+        if finalText.isEmpty {
+            finalText = joinedTranscript(committedText, utterances.text)
+        }
+        // Text from the whole segment, earlier chunks included: a fresh chunk that fails
+        // right after a rotation is not a recording without text.
+        let hasText = !joinedTranscript(committedText, utterances.text)
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let permissionDenied = Self.speechPermissionDenied
+        if let failure = RecognitionFailure.apple(
+            domain: error.domain, code: error.code,
+            description: error.localizedDescription, hasText: hasText,
+            permissionDenied: permissionDenied, locale: locale) {
+            if !hasText {
+                dlog("Engine", "recognitionTask failed before any text: onDevice=\(recognizer?.supportsOnDeviceRecognition == true), permissionDenied=\(permissionDenied)")
+            }
+            lastError = failure.message
+            onEvent?(.failure(failure))
+            // An error before any text ends the recording (the engine acts on the event).
+            // After text the recording goes on, so a task that takes no more audio is
+            // replaced — unless the permission is gone, which no fresh task gets back.
+            if !failure.endsRecording, !permissionDenied {
+                rotateAfterError()
+            }
+        }
+        // Nothing more is coming after an error: a `finish()` waiting on this task gets
+        // its answer now rather than at the 0.5 s deadline.
+        resolveFinish(cancelled: false)
+    }
+
+    /// A failed task takes no more audio, so every word until the next chunk would be
+    /// lost: the chunk is replaced now, or as soon as `AppleErrorRotation` allows, rather
+    /// than at the 50 s timer. A deferred rotation is the chunk timer brought forward, so
+    /// a pause, a stop or a cancel stops it as they stop the timer, and `rotate()` asks
+    /// `isFeeding` again whenever it runs. `rotate()` commits the dead chunk's words once
+    /// and re-arms the 50 s timer for the new chunk.
+    private func rotateAfterError() {
+        let heard = utterances.text.count
+        switch errorRotation.decide(at: ProcessInfo.processInfo.systemUptime, isFeeding: isFeeding) {
+        case .rotate(let delay) where delay > 0:
+            dlog("Engine", "apple: chunk failed after text, rotating in \(String(format: "%.1f", delay)) s (the chunk heard \(heard) chars; \(errorRotation.barrenRotations) of \(AppleErrorRotation.barrenRotationLimit) rotations without words)")
+            scheduleChunkRotation(after: delay)
+        case .rotate:
+            dlog("Engine", "apple: chunk failed after text, rotating now (the chunk heard \(heard) chars; \(errorRotation.barrenRotations) of \(AppleErrorRotation.barrenRotationLimit) rotations without words)")
+            rotate()
+        case .leaveToTimer:
+            dlog("Engine", "apple: chunk failed after text, left to the 50 s rotation (\(AppleErrorRotation.barrenRotationLimit) rotations in a row heard no words)")
+        case .notFeeding:
+            break
+        }
+    }
+
     /// In the main run loop's common modes, not only the default one: while the status
     /// menu is open (or a window is dragged) the run loop is in event tracking, a default
     /// mode timer waits it out, and past the recogniser's minute every word is dropped.
-    private func scheduleChunkRotation() {
+    /// `after` brings it forward for a chunk that failed (`rotateAfterError`).
+    private func scheduleChunkRotation(after interval: TimeInterval? = nil) {
         chunkTimer?.invalidate()
-        let timer = Timer(timeInterval: chunkDuration, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: interval ?? chunkDuration, repeats: false) { [weak self] _ in
             self?.rotate()
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -283,6 +330,32 @@ final class AppleRecognitionSession: RecognitionSession {
         chunkToken += 1
         resolveFinish(cancelled: true)
     }
+
+    #if DEBUG
+    /// scripts/e2e.sh's apple-error scenario (`-SPTAppleFailAfter`): the first time a
+    /// chunk hears words in an e2e launch with it, the chunk then current fails that long
+    /// after. A no-op otherwise.
+    private func armFailureForE2E() {
+        guard let seconds = E2EMode.appleFailureOnce() else { return }
+        dlog("E2E", "failing the Apple chunk in \(seconds) s (-SPTAppleFailAfter)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            self?.failChunkForE2E()
+        }
+    }
+
+    /// The current chunk fails as a real task error would: its task cancelled and its late
+    /// callbacks retired by the token, as `cancel()` retires them, so nothing more comes
+    /// from it — then the error path, with kAFAssistantErrorDomain 1101 and the
+    /// description such an error has.
+    private func failChunkForE2E() {
+        guard isFeeding, !chunkFailed else { return }
+        dlog("E2E", "failing the Apple chunk now (-SPTAppleFailAfter)")
+        chunkToken += 1
+        task?.cancel()
+        task = nil
+        chunkDidFail(NSError(domain: "kAFAssistantErrorDomain", code: 1101))
+    }
+    #endif
 }
 
 // MARK: - Languages on this Mac

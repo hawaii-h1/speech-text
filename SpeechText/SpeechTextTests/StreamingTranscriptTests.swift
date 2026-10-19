@@ -609,3 +609,150 @@ final class AppleUtterancesTests: XCTestCase {
         XCTAssertEqual(layer.text, "I went to the store It was closed")
     }
 }
+
+/// A chunk whose task failed after the segment had words is replaced at once, within the
+/// bounds that keep a recogniser failing on every task from becoming a loop of new ones —
+/// on a fake clock, as the session's `systemUptime` would read.
+final class AppleErrorRotationTests: XCTestCase {
+    private let limit = AppleErrorRotation.barrenRotationLimit
+
+    func testTheFirstErrorAfterWordsRotatesAtOnce() {
+        var rotation = AppleErrorRotation()
+        rotation.chunkStarted(at: 100)
+        rotation.heardWords()
+        XCTAssertEqual(rotation.decide(at: 120, isFeeding: true), .rotate(after: 0))
+        XCTAssertEqual(rotation.barrenRotations, 0)
+    }
+
+    /// The first chunk is the session's start, not a rotation: it is held to the same
+    /// minimum life.
+    func testAChunkIsNotReplacedBeforeItHasLivedTheMinimum() {
+        var rotation = AppleErrorRotation()
+        rotation.chunkStarted(at: 100)
+        rotation.heardWords()
+        XCTAssertEqual(rotation.decide(at: 100.25, isFeeding: true), .rotate(after: 0.75))
+
+        rotation.chunkStarted(at: 101)
+        XCTAssertEqual(rotation.decide(at: 101, isFeeding: true), .rotate(after: 1))
+
+        rotation.chunkStarted(at: 102)
+        XCTAssertEqual(rotation.decide(at: 103.5, isFeeding: true), .rotate(after: 0))
+    }
+
+    /// However fast the chunks fail, a fresh one starts at most once a minimum, and the
+    /// barren ones stop after the limit: a bounded number of tasks, then the 50 s timer.
+    func testChunksThatFailAtOnceAreRotatedAtMostOnceAMinimumAndThenLeftToTheTimer() {
+        var rotation = AppleErrorRotation()
+        var now: TimeInterval = 0
+        rotation.chunkStarted(at: now)
+        rotation.heardWords()
+        now = 30
+        XCTAssertEqual(rotation.decide(at: now, isFeeding: true), .rotate(after: 0))
+        var started = 0
+        for _ in 0..<10 {
+            rotation.chunkStarted(at: now)
+            now += 0.01
+            switch rotation.decide(at: now, isFeeding: true) {
+            case .rotate(let delay):
+                XCTAssertEqual(delay, AppleErrorRotation.minimumChunkSeconds - 0.01, accuracy: 1e-9)
+                now += delay
+                started += 1
+            case .leaveToTimer, .notFeeding:
+                break
+            }
+        }
+        XCTAssertEqual(started, limit)
+        XCTAssertEqual(rotation.barrenRotations, limit)
+    }
+
+    /// `barrenRotationLimit` rotations in a row whose chunk heard nothing are allowed; the
+    /// next such failure is not.
+    func testTheStreakBound() {
+        var rotation = AppleErrorRotation()
+        rotation.chunkStarted(at: 0)
+        rotation.heardWords()
+        var now: TimeInterval = 10
+        XCTAssertEqual(rotation.decide(at: now, isFeeding: true), .rotate(after: 0))
+        for barren in 1...limit {
+            rotation.chunkStarted(at: now)
+            now += 5
+            XCTAssertEqual(rotation.decide(at: now, isFeeding: true), .rotate(after: 0), "barren rotation \(barren)")
+            XCTAssertEqual(rotation.barrenRotations, barren)
+        }
+        rotation.chunkStarted(at: now)
+        now += 5
+        XCTAssertEqual(rotation.decide(at: now, isFeeding: true), .leaveToTimer)
+
+        // The 50 s rotation starts another chunk; one that hears nothing is still left.
+        rotation.chunkStarted(at: now + 45)
+        XCTAssertEqual(rotation.decide(at: now + 60, isFeeding: true), .leaveToTimer)
+        XCTAssertEqual(rotation.barrenRotations, limit)
+    }
+
+    /// A chunk that hears words proves the recogniser works: the run is over, whether that
+    /// chunk later fails or lasts until the timer.
+    func testAChunkThatHeardWordsResetsTheStreak() {
+        var rotation = AppleErrorRotation()
+        rotation.chunkStarted(at: 0)
+        rotation.heardWords()
+        var now: TimeInterval = 10
+        XCTAssertEqual(rotation.decide(at: now, isFeeding: true), .rotate(after: 0))
+        for _ in 1...limit {
+            rotation.chunkStarted(at: now)
+            now += 5
+            _ = rotation.decide(at: now, isFeeding: true)
+        }
+        rotation.chunkStarted(at: now)
+        now += 5
+        XCTAssertEqual(rotation.decide(at: now, isFeeding: true), .leaveToTimer)
+
+        // The 50 s timer's chunk hears words, then fails: rotated at once, streak cleared.
+        rotation.chunkStarted(at: now + 45)
+        rotation.heardWords()
+        XCTAssertEqual(rotation.barrenRotations, 0)
+        XCTAssertEqual(rotation.decide(at: now + 70, isFeeding: true), .rotate(after: 0))
+        XCTAssertEqual(rotation.barrenRotations, 0)
+
+        // And the full allowance of barren rotations is there again.
+        now += 70
+        for barren in 1...limit {
+            rotation.chunkStarted(at: now)
+            now += 2
+            XCTAssertEqual(rotation.decide(at: now, isFeeding: true), .rotate(after: 0))
+            XCTAssertEqual(rotation.barrenRotations, barren)
+        }
+    }
+
+    func testNothingRotatesWhenTheSessionIsNoLongerFed() {
+        var rotation = AppleErrorRotation()
+        rotation.chunkStarted(at: 0)
+        rotation.heardWords()
+        XCTAssertEqual(rotation.decide(at: 10, isFeeding: false), .notFeeding)
+        rotation.chunkStarted(at: 10)
+        XCTAssertEqual(rotation.decide(at: 20, isFeeding: false), .notFeeding)
+        XCTAssertEqual(rotation.barrenRotations, 0, "a pause or a stop counts nothing")
+    }
+
+    /// The first words of the chunk an error rotation started are reported once — the
+    /// session's proof in the Debug Log that the dictation came back. A timer's chunk, or
+    /// a later result, is not.
+    func testTheFirstWordsAfterAnErrorRotationAreReportedOnce() {
+        var rotation = AppleErrorRotation()
+        rotation.chunkStarted(at: 0)
+        XCTAssertFalse(rotation.heardWords(), "the session's first chunk")
+        XCTAssertEqual(rotation.decide(at: 10, isFeeding: true), .rotate(after: 0))
+        rotation.chunkStarted(at: 10)
+        XCTAssertTrue(rotation.heardWords())
+        XCTAssertFalse(rotation.heardWords())
+
+        rotation.chunkStarted(at: 60)
+        XCTAssertFalse(rotation.heardWords(), "a chunk the 50 s timer started")
+
+        // A deferred rotation reports its chunk too, once it starts.
+        rotation.chunkStarted(at: 110)
+        rotation.heardWords()
+        XCTAssertEqual(rotation.decide(at: 110.5, isFeeding: true), .rotate(after: 0.5))
+        rotation.chunkStarted(at: 111)
+        XCTAssertTrue(rotation.heardWords())
+    }
+}
