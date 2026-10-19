@@ -19,7 +19,10 @@ enum StreamingSTTEvent {
 /// A provider that transcribes audio as it is being captured, over a persistent
 /// connection, instead of taking a finished file. Audio is pushed as 16-bit PCM at
 /// `sampleRate`; text comes back through `events` while the user is still speaking.
-protocol StreamingTranscriber: AnyObject {
+///
+/// `Sendable`, because a recognition session uses one from three places at once: the
+/// audio thread sends to it, main reads its events, and the stop finishes it off main.
+protocol StreamingTranscriber: AnyObject, Sendable {
     /// The sample rate `send(pcm16:)` expects. The engine converts the mic feed to it.
     var sampleRate: Double { get }
     var events: AsyncStream<StreamingSTTEvent> { get }
@@ -76,6 +79,9 @@ func makeStreamingTranscriber(configuration: RecordingConfiguration) -> Streamin
 /// the socket messages it will become, on the audio thread — and flushed the moment it
 /// does: the server does not promise to keep audio sent ahead of that message, and
 /// the first syllable of a dictation is exactly what must not be lost.
+///
+/// `@unchecked Sendable`, which `StreamingTranscriber` relies on: its mutable state is
+/// guarded by `lock`, and its socket sends are ordered by `sendLock`.
 final class ElevenLabsRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable {
     let sampleRate: Double = 16_000
     let events: AsyncStream<StreamingSTTEvent>
@@ -665,6 +671,9 @@ struct StreamFinishSettle {
 /// (16 kHz is "below minimum", 48 kHz "above maximum"), which is why
 /// `StreamingRecognitionSession` resamples for this provider instead of handing over
 /// the 16 kHz bytes the upload file is made of.
+///
+/// `@unchecked Sendable`, which `StreamingTranscriber` relies on: its mutable state is
+/// guarded by `lock`, and its socket sends are ordered by `sendLock`.
 final class OpenAIRealtimeTranscriber: StreamingTranscriber, @unchecked Sendable {
     /// Fixed by the service — see the class comment.
     let sampleRate: Double = 24_000

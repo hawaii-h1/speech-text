@@ -490,7 +490,7 @@ final class OnboardingModel {
 
     func allowMicrophone() {
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 self?.refreshPermissions()
                 NSApp.activate(ignoringOtherApps: true)
             }

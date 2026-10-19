@@ -140,9 +140,12 @@ final class StreamingRecognitionSession: RecognitionSession {
         // A new socket opens a segment of its own.
         segments.segmentClosed()
         provider.connect(languages: languages)
-        eventsTask = Task { [weak self] in
+        // The session goes to the main actor unchecked, and still weak: it is not
+        // `Sendable`, but its main-thread state is touched only in `handle`, on main.
+        let weakSession = MainActorWeakRef(self)
+        eventsTask = Task {
             for await event in provider.events {
-                await MainActor.run { [weak self] in self?.handle(event, generation: generation) }
+                await MainActor.run { weakSession.object?.handle(event, generation: generation) }
             }
         }
         sendTarget.set(provider)
@@ -310,20 +313,27 @@ final class StreamingRecognitionSession: RecognitionSession {
     func finish() async -> RecognitionOutcome {
         // Snapshot under main-actor isolation: `cancel()` nils `eventsTask` on main, a
         // reconnect replaces `provider` there, and this function runs off it.
+        //
+        // The session is handed to main unchecked for that reason: it is not `Sendable`,
+        // but its main-thread state is read and written below only inside
+        // `MainActor.run`. Off main this function touches only what the session holds as
+        // `let`s — the writer, the fallback, the meter and the lock-held segment clock —
+        // as it did before.
+        nonisolated(unsafe) let session = self
         let stopped = Date()
         let longest = segments.clock
         let tooLong = longest.exceeded(longestTrustedSegment)
         let (connected, events, provider, hadOutage) = await MainActor.run { () -> (Bool, Task<Void, Never>?, StreamingTranscriber, Bool) in
-            self.closing = true
-            self.reconnectTask?.cancel()
-            self.reconnectTask = nil
+            session.closing = true
+            session.reconnectTask?.cancel()
+            session.reconnectTask = nil
             // Nothing is fed from here on. The engine removes its tap asynchronously, and
             // a buffer it delivers after the provider's `finish()` has taken the audio to
             // commit would go out behind the commit, into a segment that never closes.
             // Cleared after `closing`, so no reconnect can set it again, and before that
             // `finish()`, so audio fed until now still goes ahead of the commit.
-            self.sendTarget.set(nil)
-            return (self.connected, self.eventsTask, self.provider, self.hadOutage)
+            session.sendTarget.set(nil)
+            return (session.connected, session.eventsTask, session.provider, session.hadOutage)
         }
         if tooLong {
             // The text at the end of a segment this long is where the model was caught
@@ -351,7 +361,8 @@ final class StreamingRecognitionSession: RecognitionSession {
         let (text, failure) = await MainActor.run {
             // A partial still pending at the stop is the next segment, and may finish a
             // word the last commit cut — joined like any other segment.
-            (joinedSegments(committedText, partialText).trimmingCharacters(in: .whitespacesAndNewlines), self.failure)
+            (joinedSegments(session.committedText, session.partialText).trimmingCharacters(in: .whitespacesAndNewlines),
+             session.failure)
         }
 
         // The socket's ledger entry: the audio it was sent, and whether it held.
@@ -378,7 +389,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             : tooLong ? "kept a segment open too long" : "returned nothing")
         dlog("Engine", "StreamingRecognitionSession.finish: stream \(reason) — falling back to batch upload")
         // The partial text on screen described a stream that is being discarded.
-        await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
+        await MainActor.run { session.onEvent?(.live(committed: "", partial: "")) }
         // Answered unless the socket broke: a stream that came back with nothing was a
         // working request, not a refused one.
         let streamUsage = streamEvent(answered: failure == nil && !hadOutage)
@@ -428,7 +439,9 @@ final class StreamingRecognitionSession: RecognitionSession {
         }
         guard let dropped else { return (nil, reading) }
         // The overlay may still show what the stream said; it is not what the stop pastes.
-        await MainActor.run { onEvent?(.live(committed: "", partial: "")) }
+        // Unchecked as in `finish()`: `onEvent` is main-thread state, read only on main.
+        nonisolated(unsafe) let session = self
+        await MainActor.run { session.onEvent?(.live(committed: "", partial: "")) }
         return (dropped, reading)
     }
 
@@ -444,11 +457,15 @@ final class StreamingRecognitionSession: RecognitionSession {
     }
 }
 
-/// The provider `feed` sends to, shared between main (which swaps it on a reconnect)
-/// and the audio thread (which reads it for every buffer). The lock is held only to
-/// read or write the reference — never across a `send`, which takes the provider's own
-/// locks. A buffer that read the old provider just before a swap goes to a closed
-/// socket, whose `send` does nothing.
+/// A weak reference to an object that is not `Sendable`, carried into a
+/// `MainActor.run` hop and read only there, on main, where every other use of the
+/// object happens too. Swift 6.2 can say this with `nonisolated(unsafe) weak let`;
+/// the project still builds with Swift 6.0 tools (Xcode 16), so it is a box.
+final class MainActorWeakRef<Object: AnyObject>: @unchecked Sendable {
+    weak var object: Object?
+    init(_ object: Object?) { self.object = object }
+}
+
 /// The session's `OpenSegmentClock`: fed on the audio thread, told on main that the
 /// server closed a segment.
 private final class OpenSegmentBox: @unchecked Sendable {
@@ -478,6 +495,11 @@ private final class OpenSegmentBox: @unchecked Sendable {
     }
 }
 
+/// The provider `feed` sends to, shared between main (which swaps it on a reconnect)
+/// and the audio thread (which reads it for every buffer). The lock is held only to
+/// read or write the reference — never across a `send`, which takes the provider's own
+/// locks. A buffer that read the old provider just before a swap goes to a closed
+/// socket, whose `send` does nothing. `@unchecked Sendable`: `provider` is held under `lock`.
 private final class TranscriberBox: @unchecked Sendable {
     private let lock = NSLock()
     private var provider: StreamingTranscriber?

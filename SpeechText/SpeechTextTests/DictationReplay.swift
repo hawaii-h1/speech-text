@@ -107,12 +107,20 @@ final class FakeApp {
 
 /// Hands the session whatever the test scripts, the way `ElevenLabsRealtimeTranscriber`
 /// would have received it from the server.
-final class ScriptedStreamingTranscriber: StreamingTranscriber {
+///
+/// `@unchecked Sendable`: its only mutable state, `eventsAtFinish`, is held under `lock` —
+/// the replay sets it on main and the stop reads it off main.
+final class ScriptedStreamingTranscriber: StreamingTranscriber, @unchecked Sendable {
     let sampleRate = AudioBufferWriter.uploadSampleRate
     let events: AsyncStream<StreamingSTTEvent>
     private let continuation: AsyncStream<StreamingSTTEvent>.Continuation
+    private let lock = NSLock()
+    private var scriptedAtFinish: [StreamingSTTEvent] = []
     /// What the server sends in answer to the stop's final commit.
-    var eventsAtFinish: [StreamingSTTEvent] = []
+    var eventsAtFinish: [StreamingSTTEvent] {
+        get { lock.withLock { scriptedAtFinish } }
+        set { lock.withLock { scriptedAtFinish = newValue } }
+    }
 
     init() {
         var continuation: AsyncStream<StreamingSTTEvent>.Continuation!

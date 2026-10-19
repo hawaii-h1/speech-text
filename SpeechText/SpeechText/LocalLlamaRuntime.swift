@@ -290,12 +290,16 @@ enum LlamaBackend {
 /// work, and at the pool's default priority it ran at half llama.cpp's own speed
 /// (Gemma 4 12B on an M1 Pro: 10 tokens/s against 20). The queue also keeps jobs strictly
 /// one at a time, which one context requires.
+///
+/// `@unchecked Sendable` because the queue, not a lock, is what protects it: `loaded` —
+/// its one mutable field, and the non-`Sendable` llama.cpp state behind it — is touched
+/// only inside `run`, on `queue`, and only `Sendable` values come back out.
 final class LocalLlamaRuntime: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.speech-text.llama", qos: .userInitiated)
     /// Touched only on `queue`.
     private var loaded: LlamaModel?
 
-    private func run<T>(_ work: @escaping () throws -> T) async throws -> T {
+    private func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { continuation.resume(with: Result { try work() }) }
         }
@@ -349,7 +353,7 @@ final class LocalLlamaRuntime: @unchecked Sendable {
     /// whether it came while the job ran or while the job waited its turn.
     func complete(system: String, user: String, maxTokens: Int,
                   sampling: LlamaSampling = .rewrite, date: Date = Date(),
-                  shouldCancel: @escaping () -> Bool = { false }) async throws -> LlamaCompletion {
+                  shouldCancel: @escaping @Sendable () -> Bool = { false }) async throws -> LlamaCompletion {
         try await run {
             guard let model = self.loaded else { throw LlamaError.loadFailed("no model loaded") }
             let prompt = ChatTemplates.render(model.family, system: system, user: user, date: date)

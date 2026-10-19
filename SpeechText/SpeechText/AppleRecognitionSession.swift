@@ -247,16 +247,17 @@ final class AppleRecognitionSession: RecognitionSession {
         }
         guard !cancelled else { return .cancelled }
 
+        // On main again, for the same reason the hand-off above is safe.
         return await MainActor.run {
-            var text = finalText
+            var text = session.finalText
             if text.isEmpty {
-                let live = joinedTranscript(committedText, utterances.text)
+                let live = joinedTranscript(session.committedText, session.utterances.text)
                 dlog("Engine", "apple: finalText empty, using live text (\(live.count) chars)")
                 text = live
             }
             text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             dlog("Engine", "apple: done, finalText=\(text.count) chars")
-            return RecognitionOutcome(text: text, error: lastError, audioFileURL: nil, cancelled: false)
+            return RecognitionOutcome(text: text, error: session.lastError, audioFileURL: nil, cancelled: false)
         }
     }
 

@@ -38,7 +38,7 @@ struct ParakeetRuntime: LocalSTTRuntime {
     /// put the model in `/tmp/parakeet-tdt-0.6b-v3`. So the staging folder is named for
     /// the repo, and `LocalModelStore` renames it to the catalogue ID on the way in —
     /// which here are the same string, but the store's move is what guarantees it.
-    func download(variant: String, into base: URL, progress: @escaping (Double) -> Void) async throws -> URL {
+    func download(variant: String, into base: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let build = try ParakeetBuild(modelID: variant)
         // `ModelHub.download`, not `AsrModels.download`: the latter also *loads* every
         // bundle on the Neural Engine as it fetches it, whatever compute units the model
@@ -159,7 +159,7 @@ actor ParakeetPipelineCache {
     private var tail: Task<Void, Never>?
 
     /// Runs `job` after every job queued before it, success or failure.
-    private func serialized<T>(_ job: @escaping () async throws -> T) async throws -> T {
+    private func serialized<T: Sendable>(_ job: @escaping () async throws -> T) async throws -> T {
         let previous = tail
         let task = Task<T, Error> {
             await previous?.value

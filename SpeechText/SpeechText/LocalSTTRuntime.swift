@@ -20,7 +20,7 @@ import Foundation
 protocol LocalSTTRuntime: Sendable {
     /// Fetches `variant` into `base` and returns the folder it landed in. Progress is
     /// reported 0…1 on an arbitrary thread.
-    func download(variant: String, into base: URL, progress: @escaping (Double) -> Void) async throws -> URL
+    func download(variant: String, into base: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL
     /// Transcribes a file with an already-installed model folder. `language` is an
     /// ISO-639-1 code, or nil to let the model detect it.
     func transcribe(audioFileURL: URL, modelFolder: URL, language: String?) async throws -> String

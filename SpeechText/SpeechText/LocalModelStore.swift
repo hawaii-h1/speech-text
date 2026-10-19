@@ -126,7 +126,7 @@ final class LocalModelStore {
             do {
                 try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
 
-                let downloaded = try await runtime.download(variant: model.id, into: staging) { fraction in
+                let downloaded = try await runtime.download(variant: model.id, into: staging) { [weak self] fraction in
                     guard let fraction = throttle.admit(fraction) else { return }
                     Task { @MainActor [weak self] in
                         // A report that lands after the download ended must not turn

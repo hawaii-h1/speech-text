@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import os
 
 /// The audio corpus through the local engines (#80) — the half of a corpus run that the
 /// standalone test bundle cannot do, because it may not import WhisperKit or FluidAudio.
@@ -200,10 +201,14 @@ struct SpeechTextEvaluation {
         try files.createDirectory(at: staging, withIntermediateDirectories: true)
         print("installing \(engine.model.displayName)…")
         let start = Date()
-        var reported = -1
+        // Progress arrives on the downloader's own thread, so the last tenth printed is held
+        // under a lock rather than in a captured `var`.
+        let reported = OSAllocatedUnfairLock(initialState: -1)
         let downloaded = try await runtime.download(variant: id, into: staging) { fraction in
             let percent = Int(fraction * 10) * 10
-            if percent != reported { reported = percent; print("  \(percent)%") }
+            reported.withLock { last in
+                if percent != last { last = percent; print("  \(percent)%") }
+            }
         }
         try? files.removeItem(at: destination)
         try files.moveItem(at: downloaded, to: destination)

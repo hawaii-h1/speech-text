@@ -113,7 +113,9 @@ enum E2EMode {
 /// drop gives, which `StreamReconnectPolicy` reopens — and cancels the real one, which
 /// closes its socket. The socket really closes; the error is ours. After that it sends
 /// nothing and reports nothing more, as a dead socket would.
-final class StreamCloser: StreamingTranscriber {
+///
+/// `@unchecked Sendable`: its only mutable state, `closed` and `armed`, is held under `lock`.
+final class StreamCloser: StreamingTranscriber, @unchecked Sendable {
     private let inner: StreamingTranscriber
     private let seconds: TimeInterval
     private let lock = NSLock()

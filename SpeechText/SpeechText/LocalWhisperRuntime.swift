@@ -15,7 +15,7 @@ import WhisperKit
 /// Models come from `argmaxinc/whisperkit-coreml` on HuggingFace: Core ML conversions
 /// of OpenAI's Whisper weights, MIT-licensed like the originals.
 struct WhisperKitRuntime: LocalSTTRuntime {
-    func download(variant: String, into base: URL, progress: @escaping (Double) -> Void) async throws -> URL {
+    func download(variant: String, into base: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         try await WhisperKit.download(
             variant: variant,
             downloadBase: base,
@@ -77,7 +77,7 @@ actor WhisperKitPipelineCache {
     private var tail: Task<Void, Never>?
 
     /// Runs `job` after every job queued before it, success or failure.
-    private func serialized<T>(_ job: @escaping () async throws -> T) async throws -> T {
+    private func serialized<T: Sendable>(_ job: @escaping () async throws -> T) async throws -> T {
         let previous = tail
         let task = Task<T, Error> {
             await previous?.value

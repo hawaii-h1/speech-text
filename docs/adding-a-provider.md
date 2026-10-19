@@ -185,6 +185,8 @@ Read CLAUDE.md's streaming sections first. The rules:
 - Hold audio until the session is ready (bounded buffer); if it fills, emit `.failed`,
   never drop audio.
 - Keep the lock order: `sendLock` before `lock`, and never hold `lock` across `task.send`.
+- The protocol is `Sendable` (the audio thread, main and the stop all use one transcriber):
+  declare the class `@unchecked Sendable` and keep every mutable field under `lock`.
 - Report a server that never started a session as `TranscriptionError.realtime(provider,
   "no_session", …)`: that is the code `StreamReconnectPolicy.isReconnectable` reopens.
 - `RealtimeShape.serverVAD` decides more than segmentation: a server-VAD model's stream is

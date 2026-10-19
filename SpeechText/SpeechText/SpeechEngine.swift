@@ -273,13 +273,22 @@ final class SpeechEngine {
         // send it a second time — that produced duplicate requests (and duplicate
         // history entries, and duplicate billing) for one recording.
         segmentFinishStarted = true
-        let writer = audioBufferWriter
+        // Unchecked for the reason given in the task below, which hands it to main.
+        nonisolated(unsafe) let writer = audioBufferWriter
         let locale = configuration.historyLocale
         dlog("Engine", "pauseRecording(\(configuration.streams ? "stream" : "batch")): starting transcription task")
 
         transcriptionTask?.cancel()
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
+            // Handed to the main actor unchecked: the engine is not `Sendable`, but this
+            // task touches it only inside `MainActor.run`, on main, where the rest of its
+            // state is read and written too. The same for `writer`: the session's own use
+            // of it off main (the tap appends, `finish()` encodes and uploads) is over by
+            // the time `MainActor.run` runs, after `finish()` has returned, and
+            // `recordOutcome` uses it on main as it always did. Nothing is shared that was
+            // not shared this way before; the checker is only told so.
+            nonisolated(unsafe) let engine = self
             var finished = await session.finish()
             finished.text = configuration.finished(finished.text)
             let outcome = finished
@@ -289,21 +298,21 @@ final class SpeechEngine {
             // A resume no longer cancels this task: it waits for the segment to land.
             let superseded = Task.isCancelled
             await MainActor.run {
-                self.recordOutcome(outcome, writer: writer, locale: locale,
-                                   superseded: superseded)
+                engine.recordOutcome(outcome, writer: writer, locale: locale,
+                                     superseded: superseded)
                 guard !superseded else { return }
                 if outcome.error == nil {
-                    self.spanLayer.commitSegment(outcome.text)
-                    self.spanLayer.settleSegment()
+                    engine.spanLayer.commitSegment(outcome.text)
+                    engine.spanLayer.settleSegment()
                     if !outcome.text.isEmpty {
-                        self.setPendingInsertion(outcome.text)
+                        engine.setPendingInsertion(outcome.text)
                     }
                 }
                 // Still paused (a stop in the meantime moved on to .finishing and its
                 // waiter owns the transition): the segment has landed.
-                if case .paused(segmentInFlight: true) = self.phase {
-                    self.phase = .paused(segmentInFlight: false)
-                    if let resumeLocale { self.resumeRecording(locale: resumeLocale) }
+                if case .paused(segmentInFlight: true) = engine.phase {
+                    engine.phase = .paused(segmentInFlight: false)
+                    if let resumeLocale { engine.resumeRecording(locale: resumeLocale) }
                 }
             }
         }
@@ -735,13 +744,22 @@ final class SpeechEngine {
         _ = session.pause()
 
         phase = .finishing
-        let writer = audioBufferWriter
+        // Unchecked for the reason given in the task below, which hands it to main.
+        nonisolated(unsafe) let writer = audioBufferWriter
         let locale = configuration.historyLocale
         let tier = configuration.provider == .apple ? "apple" : (configuration.streams ? "stream" : "batch")
         dlog("Engine", "stopRecording(\(tier)): liveText=\(liveText.count) chars, starting transcription task")
 
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
+            // Handed to the main actor unchecked: the engine is not `Sendable`, but this
+            // task touches it only inside `MainActor.run`, on main, where the rest of its
+            // state is read and written too. The same for `writer`: the session's own use
+            // of it off main (the tap appends, `finish()` encodes and uploads) is over by
+            // the time `MainActor.run` runs, after `finish()` has returned, and
+            // `recordOutcome` uses it on main as it always did. Nothing is shared that was
+            // not shared this way before; the checker is only told so.
+            nonisolated(unsafe) let engine = self
             var finished = await session.finish()
             finished.text = configuration.finished(finished.text)
             if let reason, !finished.cancelled, finished.text.isEmpty, finished.error == nil {
@@ -756,17 +774,17 @@ final class SpeechEngine {
                     if let url = outcome.audioFileURL { AudioBufferWriter.cleanup(fileURL: url) }
                     return
                 }
-                self.recordOutcome(outcome, writer: writer, locale: locale)
-                self.finalText = outcome.text
-                self.spanLayer.commitSegment(outcome.text)
-                self.spanLayer.settleSegment()
+                engine.recordOutcome(outcome, writer: writer, locale: locale)
+                engine.finalText = outcome.text
+                engine.spanLayer.commitSegment(outcome.text)
+                engine.spanLayer.settleSegment()
                 // A stop nobody asked for: the Record Window takes a pause's segments only,
                 // and would otherwise never show these words.
                 if reason != nil, !outcome.text.isEmpty {
-                    self.setPendingInsertion(outcome.text)
+                    engine.setPendingInsertion(outcome.text)
                 }
-                self.phase = .idle
-                self.cleanup()
+                engine.phase = .idle
+                engine.cleanup()
             }
         }
     }
@@ -786,15 +804,20 @@ final class SpeechEngine {
                 // `pending` is no longer reachable from `transcriptionTask`, and left
                 // alive its completion would run against whatever newer session the
                 // engine holds by then (and the abandoned upload would still be billed).
+                //
+                // The engine goes to the main actor unchecked and still weak: it is not
+                // `Sendable`, but it is read only inside `MainActor.run`, on main, where
+                // every other use of it happens too.
+                let weakEngine = MainActorWeakRef(self)
                 await withTaskCancellationHandler {
                     await pending.value
-                    await MainActor.run { [weak self] in
-                        guard let self, !Task.isCancelled else { return }
-                        if self.finalText.isEmpty {
-                            self.finalText = self.liveText
+                    await MainActor.run {
+                        guard let engine = weakEngine.object, !Task.isCancelled else { return }
+                        if engine.finalText.isEmpty {
+                            engine.finalText = engine.liveText
                         }
-                        self.phase = .idle
-                        self.cleanup()
+                        engine.phase = .idle
+                        engine.cleanup()
                     }
                 } onCancel: {
                     pending.cancel()
