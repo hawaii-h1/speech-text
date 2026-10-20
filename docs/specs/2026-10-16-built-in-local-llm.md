@@ -2,7 +2,7 @@
 
 - **Status:** Phases 0–6 implemented 2026-10-16, uncommitted; phase 0 measured (see *Phase 0 results*); the gate — which models to offer — is the owner's
 - **Date:** 2026-10-16
-- **Base revision:** `7b83bbb`
+- **Base revision:** `9d56bc4`
 - **Scope:** new files (`LocalLlamaRuntime.swift`, `LocalChatCatalog.swift`, `ChatTemplates.swift`, a local binary package); from what exists — `ChatClients.swift` (`LLMProviderType`, `chatModelCatalog`, `LLMConfiguration.makeChatClient`), `ProviderRegistry.swift`, `LocalModelStore.swift`, `LocalModelCatalog.swift` (`firstFitting`, `MacTier`), `Ollama.swift` (`localLLMPicks`), `SettingsEngines.swift`, `OnboardingScreens.swift` / `SetupServices.swift` (`SetupCards`), `HomeSummary.swift` (`ListPrice`), `SpeechTextEvaluation`, packaging scripts
 - **Does not touch:** `TextRefinementService` prompts and parser, `InlineDelivery`, the speech tiers, `PasteService`
 
@@ -14,7 +14,7 @@ Ollama is **removed** (D1): the built-in path replaces it. The rewrite prompt, t
 
 ## Why llama.cpp, not MLX
 
-Prior research (speech-text-private/research/2026-09-21-local-llm-without-ollama.md, …-how-oss-apps-run-local-llm.md) and a check of build b11696 on 2026-10-16:
+Prior research (notes kept outside the repository) and a check of build b11696 on 2026-10-16:
 
 - MLX needs `swift-transformers`, which another app's `Package.swift` documents as unable to resolve alongside `argmax-oss-swift` (WhisperKit) at 1.3 — a conflict in *our* graph. llama.cpp ships as a prebuilt binary `xcframework` with no Swift package graph at all.
 - The official `llama-<build>-xcframework.zip` (67 MB zipped): dynamic `llama.framework`, macOS slice universal arm64 + x86_64, **24 MB** (≈12 MB arm64 only), links only Foundation / Metal / Accelerate / libc++, minimum macOS 13.3, signed ad hoc only.
@@ -83,7 +83,7 @@ Models above gpt-oss 20B, streaming the reply.
 
 ## Phase 0 results (2026-10-16, M1 Pro 32 GB, llama.cpp b11696)
 
-`SpeechTextEvaluation --rewrite`: 21 generated fixtures (SpeechTextTests/Rewrite/rewrite-fixtures.json) × 2 runs, the app's own built-in presets, prompt and parser; top-k 40, top-p 0.95, temperature 0.3, seed 42, 8K context. Runs in speech-text-private/corpus-runs/2026-10-16_*_rewrite. Times are with the system prompt's state restored (below); every template matched the model's own Jinja token for token (`llama-server --jinja` `/apply-template`).
+`SpeechTextEvaluation --rewrite`: 21 generated fixtures (SpeechTextTests/Rewrite/rewrite-fixtures.json) × 2 runs, the app's own built-in presets, prompt and parser; top-k 40, top-p 0.95, temperature 0.3, seed 42, 8K context. Runs kept outside the repository (2026-10-16). Times are with the system prompt's state restored (below); every template matched the model's own Jinja token for token (`llama-server --jinja` `/apply-template`).
 
 | Model | passed | mode reported right | median | p90 | generation | load |
 |---|---|---|---|---|---|---|

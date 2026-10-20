@@ -5,7 +5,7 @@ import Foundation
 
 // What the model rows in Settings › Speech to text, Settings › AI Rewrite and setup say, in
 // the words of someone choosing one. Pure, so `ModelLanguageTests` can hold every line to
-// the rule of #30: a line names no language unless it is one of the user's own, and only a
+// one rule: a line names no language unless it is one of the user's own, and only a
 // `LanguageNote` added for them does that. What a model knows is said by the subtitle's
 // count and the "No …" badge (ModelLanguages.swift), never in a sentence.
 

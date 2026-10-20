@@ -4,7 +4,7 @@
 import XCTest
 @testable import SpeechTextCore
 
-/// What a model row says about languages (#30, docs/design/model-details/): the catalogue's
+/// What a model row says about languages (docs/design/model-details/): the catalogue's
 /// lists, the count, the "No …" badge, the notes for the user's own languages, the
 /// *Languages I speak* warning — and that no line names a language the user did not list.
 final class ModelLanguageTests: XCTestCase {
@@ -187,7 +187,7 @@ final class ModelLanguageTests: XCTestCase {
     // MARK: No language names
 
     /// Every sentence a model row or setup card can show names no language but the user's
-    /// own. This is what keeps the hard-coded lines of before #30 from coming back.
+    /// own. This is what keeps the hard-coded lines of before the language lists from coming back.
     func testNoRowLineNamesALanguageTheUserDidNotList() {
         let spokenSets: [[String]] = [[], ["uk"], ["es"], ["uk", "en"], ["ja"], ["en"], ["ru", "de"]]
         for spoken in spokenSets {

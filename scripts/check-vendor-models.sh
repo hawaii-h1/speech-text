@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Compares the app's model catalogues with what each vendor serves now (#20) and prints a
+# Compares the app's model catalogues with what each vendor serves now and prints a
 # Markdown report: catalogue models a vendor no longer serves, shutdowns a vendor's API
 # announces, retired models whose retention is over, prices that differ from an API that
 # states them, language lists that changed at their source, new vendor models, newer

@@ -89,7 +89,7 @@ Everything else is checked for you. CI runs the test suite (which compiles the a
 
 ## Issue and pull request numbers
 
-The history was rewritten once, on 2026-10-15, and moved to this repository; the one before it is kept as the private archive `yavno/speech-text-archive` ([docs/development.md](docs/development.md) has the story). Many `#NNN` references in code comments, CLAUDE.md and the docs were left as they were and point to the archive's issues and pull requests, not this repository's. If a reference does not resolve here — or resolves to something unrelated, since the two numberings overlap — it is probably in the archive; ask in an issue if you need what it says.
+The history was rewritten before the repository went public ([docs/development.md](docs/development.md) has the story). Issue and pull request numbers from before it were removed from the code, the docs and the commit messages, so a `#N` you find here is this repository's. If a comment refers to an earlier decision you cannot find, ask in an issue.
 
 ## Formatting
 

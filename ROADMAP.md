@@ -11,7 +11,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 ## Next
 
-- **Notetaker** — record a conversation you are part of, then review a speaker-attributed transcript, summarise it, ask questions and export it. Microphone and system audio are captured as two separate tracks, so who-said-what is exact for a one-to-one conversation without any speaker model at all. See [the spec](docs/specs/2026-09-22-notetaker.md).
+- **Notetaker** — record a conversation you are part of, then review a speaker-attributed transcript, summarise it, ask questions and export it. Microphone and system audio are captured as two separate tracks, so who-said-what is exact for a one-to-one conversation without any speaker model at all.
 - **More providers** — behind the provider registry (`ProviderDescriptor`, see `docs/adding-a-provider.md`). New providers are a good contribution.
 - **Localization** — the UI is English-only. Ukrainian first.
 

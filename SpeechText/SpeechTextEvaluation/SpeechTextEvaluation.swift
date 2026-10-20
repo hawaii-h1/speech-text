@@ -27,7 +27,7 @@ import SpeechTextCore
 ///     SpeechTextEvaluation --export-catalogue [<file>]
 ///
 /// writes the speech and chat catalogues as JSON (`CatalogueExport`) to the file, or to
-/// standard output, and does nothing else — `scripts/check-vendor-models.sh` (#20) compares
+/// standard output, and does nothing else — `scripts/check-vendor-models.sh` compares
 /// them with what each vendor serves.
 @main
 struct SpeechTextEvaluation {

@@ -4,7 +4,7 @@
 import Foundation
 import SpeechTextCore
 
-// The catalogues as JSON, for `scripts/check-vendor-models.sh` (#20), which compares them
+// The catalogues as JSON, for `scripts/check-vendor-models.sh`, which compares them
 // with what each vendor serves. Written by `SpeechTextEvaluation --export-catalogue`, so
 // the script reads the catalogues the app is built from and keeps no list of its own.
 // Pure logic, shared by that tool and `CatalogueExportTests`, which pin the shape: the

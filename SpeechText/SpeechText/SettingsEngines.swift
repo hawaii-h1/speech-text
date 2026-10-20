@@ -73,7 +73,7 @@ private struct LocalPicks {
 }
 
 /// A row's "No Spanish" badge, in the warning kind, while the model lacks one of the user's
-/// languages (#30) — on every row, not only the selected one, since tapping a local row
+/// languages — on every row, not only the selected one, since tapping a local row
 /// starts a download. Apple's answer is asked of macOS.
 @MainActor
 func languageBadge(_ coverage: LanguageCoverage, spoken: [String]) -> SetupBadge? {
@@ -687,7 +687,7 @@ private func offeredSuccessor(of id: String, among offered: [String], lifecycle:
 }
 
 /// Under a service's models: what the stored choice needs from the user — a model to be
-/// chosen when the launch cleared one that leads nowhere (#19), or the switch to the
+/// chosen when the launch cleared one that leads nowhere, or the switch to the
 /// model a newer one supersedes it with. Nothing otherwise.
 private struct ModelChoiceNote: View {
     let stored: String

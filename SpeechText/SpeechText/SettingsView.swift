@@ -888,7 +888,7 @@ private struct SpokenLanguagesField: View {
                     .lineSpacing(1.5)
                     .fixedSize(horizontal: false, vertical: true)
                 if let warning = modelWarning {
-                    // Where a language is added, the user is not thinking of the engine (#30).
+                    // Where a language is added, the user is not thinking of the engine.
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("⚠︎ " + warning)
                             .font(.system(size: 11.5, weight: .semibold))

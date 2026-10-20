@@ -77,7 +77,7 @@ public struct LocalSTTModel: Identifiable, Hashable, Sendable {
     }
 
     /// Whether Settings and setup list the model and the recommendations may pick it: the
-    /// one *offered* filter, fed by two separate facts — the vendor's (`lifecycle`, #19)
+    /// one *offered* filter, fed by two separate facts — the vendor's (`lifecycle`)
     /// and this Mac's (`minimumSystemVersion`). Only the offering: the catalogue itself —
     /// normalisation, pricing, History's names — keeps every entry whatever the Mac.
     func isOffered(on capabilities: SystemCapabilities) -> Bool {
@@ -125,7 +125,7 @@ public let parakeetUltraModelID = "parakeet-ultra"
 /// user can see it before choosing: dictating Ukrainian into an English model produces
 /// confident nonsense (the owner's call, 2026-10-16, which dropped the rule that every
 /// entry be multilingual). The row's subtitle gives the count ("English only") and a "No …"
-/// badge names each of the user's languages it lacks (#30). Such a model is picked only
+/// badge names each of the user's languages it lacks. Such a model is picked only
 /// for someone whose stated languages it knows (`knows`).
 ///
 /// The ladder stops at 1.6 GB, and that is not an oversight. Speech models do not scale
@@ -287,7 +287,7 @@ func localSTTPicks(for tier: MacTier) -> TierPicks {
         // Both lists fall back through Whisper, so a Mac that cannot fit Parakeet or has
         // the ladder half-installed still gets an answer.
         //
-        // Since 2026-10-17 (#25) the lists are read through the filters in
+        // Since 2026-10-17 (#5) the lists are read through the filters in
         // `pickable(for:languages:)`: the languages the user speaks, macOS, memory and disk. So
         // a list names every model that may be picked here, best first, and the filters
         // decide which of them a particular Mac and person gets — Phonon-2 first only for

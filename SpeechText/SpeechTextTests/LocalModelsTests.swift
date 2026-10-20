@@ -132,7 +132,7 @@ final class LocalSTTRecommendationTests: XCTestCase {
 
     /// A model that knows only English is picked only for someone who said they speak
     /// English alone — anyone else would be recommended confident nonsense. And its row
-    /// says so before the user taps it: "English only" beside its size (#30).
+    /// says so before the user taps it: "English only" beside its size.
     func testAnEnglishOnlyModelIsPickedOnlyForEnglishAlone() {
         for ram: UInt64 in [8, 16, 32, 64, 128, 512] {
             for languages in [[], ["uk"], ["uk", "en"], ["en", "de"], ["ja"]] {
@@ -330,7 +330,7 @@ final class LocalModelSystemVersionTests: XCTestCase {
         XCTAssertTrue(sonoma.contains(parakeetV3ModelID))
     }
 
-    /// The one offered filter takes the vendor's fact and the Mac's together (#19, #18):
+    /// The one offered filter takes the vendor's fact and the Mac's together:
     /// a superseded model is still offered, a switched-off one is not on any macOS, and a
     /// current one is not on a macOS it cannot run on.
     func testTheOfferedFilterJoinsLifecycleAndSystemVersion() {
@@ -489,7 +489,7 @@ final class LocalRecordingConfigurationTests: XCTestCase {
     }
 }
 
-// MARK: - Languages and the pick matrix (#25)
+// MARK: - Languages and the pick matrix (#5)
 
 final class LocalModelLanguageTests: XCTestCase {
 
@@ -533,7 +533,7 @@ final class LocalModelLanguageTests: XCTestCase {
 
 /// Who gets which model, written out: Mac profiles across the facts that decide a pick —
 /// chip, macOS, disk — times the languages a person may state. A catalogue or tier
-/// change shows here as a diff of picks, which is what the owner approves (#25).
+/// change shows here as a diff of picks, which is what the owner approves (#5).
 final class LocalModelPickMatrixTests: XCTestCase {
 
     private static let v3 = parakeetV3ModelID, turbo = "openai_whisper-large-v3-v20240930_turbo_632MB"

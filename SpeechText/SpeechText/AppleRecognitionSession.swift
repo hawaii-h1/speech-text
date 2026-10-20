@@ -362,7 +362,7 @@ final class AppleRecognitionSession: RecognitionSession {
 // MARK: - Languages on this Mac
 
 /// Which of the user's languages Apple's recogniser takes on-device on this Mac — the answer
-/// `LanguageCoverage.decidedBySystem` stands for (#30). Asked of macOS, never written down:
+/// `LanguageCoverage.decidedBySystem` stands for. Asked of macOS, never written down:
 /// it follows the Dictation languages installed, so it differs from Mac to Mac. It does not
 /// need the Speech Recognition permission: on 2026-10-17, with the permission not yet asked,
 /// macOS answered true for en-US and uk-UA and false for es-ES ("No Assistant asset").

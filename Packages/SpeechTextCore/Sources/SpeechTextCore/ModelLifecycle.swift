@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// Where a catalogue model is in its vendor's life (#19).
+/// Where a catalogue model is in its vendor's life.
 ///
 /// A model is never simply deleted from a catalogue any more: deleting it moved whoever
 /// had it to the provider's default without a word, and turned every History record made
@@ -208,7 +208,7 @@ func storedModelVerdict(_ id: String, link: (String) -> LifecycleLink?) -> Store
 /// What a model setting holds once its model led nowhere: an empty string, so the user
 /// picks (the owner's call, 2026-10-16). Not an absent key, which reads through to the
 /// provider's default and is pinned at the next launch — a cleared choice would quietly
-/// come back as the default, which is the silent move #19 exists to stop. A dictation on
+/// come back as the default, which is the silent move the lifecycle exists to stop. A dictation on
 /// an engine whose choice is cleared is refused until the user picks
 /// (`RecordingConfiguration.modelChoiceMissing`), and AI Rewrite falls back to the text as
 /// dictated (`LLMError.noModelChosen`).

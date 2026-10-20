@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Compares the app's model catalogues with what each vendor serves (#20).
+"""Compares the app's model catalogues with what each vendor serves.
 
 Run through scripts/check-vendor-models.sh, which exports the catalogues first. Standard
 library only, and Python 3.9 (the Command Line Tools' python3). Every request is made
 here with urllib, so an API key never appears on a command line, and no error message
 ever carries a request header. docs/vendor-watch.md describes the report.
 
-Language lists (#30) are compared with their sources too, and never fail the release rule.
+Language lists are compared with their sources too, and never fail the release rule.
 
 Exit status: 0 nothing to act on before a release, 1 the release rule fails (a catalogue
 model the vendor no longer serves that is not deprecated or retired), 3 some vendor could

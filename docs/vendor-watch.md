@@ -2,7 +2,7 @@
 
 When a vendor switches a model off, our release moves users off it. That only works if we
 know weeks in advance, from the vendor rather than from a "Transcription failed" in
-someone's History (#20). Two things keep us informed. One is a script that compares the
+someone's History. Two things keep us informed. One is a script that compares the
 catalogues with each vendor's own API. The other is a weekly agent that runs the script,
 reads the vendors' deprecation pages and changelogs, and opens an issue when something
 changed.
@@ -43,7 +43,7 @@ SPEECHTEXT_VENDOR_WATCH=<folder outside the repository> scripts/check-vendor-mod
 | ElevenLabs | `POST /v1/speech-to-text` and the realtime WebSocket, both with an unknown `model_id` | the validation error names every model the endpoint accepts ("Available models: …", "Supported models: …"). Nothing is transcribed or billed. `GET /v1/models` needs the `models_read` permission, which a speech key often lacks, and lists the voice models besides |
 | FluidAudio, argmax-oss-swift | GitHub's releases API | releases newer than the version `Package.resolved` pins |
 | Hugging Face | `/api/models/<repo>`, `/api/models?author=…` | each local model's folder or files still in its repository, the repository's last change, and new repositories by FluidInference and argmaxinc |
-| Language lists | the `source` of each published list in the export (`languages`): Whisper's `tokenizer.py` (its `LANGUAGES` table), a Hugging Face model card's `language` metadata (each Parakeet build's FluidInference repository), an ElevenLabs page's Markdown version (`<page>.md`, ISO 639-3 codes mapped to 639-1) | the languages the source lists now, compared with the catalogue's codes (#30) |
+| Language lists | the `source` of each published list in the export (`languages`): Whisper's `tokenizer.py` (its `LANGUAGES` table), a Hugging Face model card's `language` metadata (each Parakeet build's FluidInference repository), an ElevenLabs page's Markdown version (`<page>.md`, ISO 639-3 codes mapped to 639-1) | the languages the source lists now, compared with the catalogue's codes |
 
 All of these were checked against real replies on 2026-10-16, the language sources on
 2026-10-17. Anthropic's list may name

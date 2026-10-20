@@ -56,7 +56,7 @@ Two consequences follow, and both matter more than they look:
 
 **The repository will be made public.** Two things had to happen first; both are done:
 
-1. Done: the history rewrite that removes the competitive research (2026-10-15, see
+1. Done: the history rewrite that removes unpublished material (2026-10-15, see
    docs/development.md › History rewrite). Before it, `git log -p` reached every deleted
    blob, and making the repository public would have published them.
 2. Done: the continuous-integration rework. Every `runs-on` in `ci.yml`, and

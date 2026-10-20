@@ -3,7 +3,7 @@
 
 import Foundation
 
-// Which languages a model knows, and what a row says about them (#30, designed in
+// Which languages a model knows, and what a row says about them (designed in
 // docs/design/model-details/). A row names no language unless it is one of the user's own
 // — Dictation › Languages I speak — so every sentence here is built from the user's list,
 // never written for one language. Pure data and logic.

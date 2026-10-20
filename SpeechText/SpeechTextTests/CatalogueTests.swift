@@ -283,7 +283,7 @@ final class StoredProviderNameTests: XCTestCase {
 
     /// `APIKeyStore.open` moves and deletes exactly these names, which are also the
     /// keychain accounts; a key that left the list would be stranded in a plist.
-    /// The model lifecycle's two machine-local keys (#19).
+    /// The model lifecycle's two machine-local keys.
     func testTheModelLifecycleKeysKeepTheirStoredNames() {
         XCTAssertEqual(SettingsKeys.modelMigrations, "modelMigrations")
         XCTAssertEqual(SettingsKeys.modelNoticesShown, "modelNoticesShown")

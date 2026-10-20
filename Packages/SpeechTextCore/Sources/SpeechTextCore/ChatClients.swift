@@ -99,7 +99,7 @@ public struct ChatRates: Hashable {
 /// Groq: checked against Groq's model and deprecation pages on 2026-09-16. Both Llama
 /// models, Qwen3 32B and Kimi K2 were shut down for free and developer accounts between
 /// April and August 2026 — the old default among them. They were deleted from this list
-/// before models had a lifecycle (#19), so a stored ID for any of them leads nowhere and
+/// before models had a lifecycle, so a stored ID for any of them leads nowhere and
 /// is cleared at launch. The two preview models are labelled as
 /// such: Groq may withdraw a preview without notice. Groq's reasoning models take
 /// different switches, and the wrong one is an HTTP 400 rather than something ignored:

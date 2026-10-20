@@ -310,7 +310,7 @@ final class OnboardingModel {
             } else if let setting = card.service.descriptor.speechModel, let key = setting.settingsKey,
                       defaults.string(forKey: key) == clearedModelChoice {
                 // Setup shows no model picker, so picking the card is the pick: a choice the
-                // launch cleared (#19) takes the service's default, or Try it is refused.
+                // launch cleared takes the service's default, or Try it is refused.
                 defaults.set(setting.defaultID, forKey: key)
             }
         }

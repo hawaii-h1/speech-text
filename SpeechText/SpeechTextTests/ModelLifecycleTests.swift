@@ -5,7 +5,7 @@ import AppKit
 import XCTest
 @testable import SpeechTextCore
 
-/// The catalogues' lifecycle (#19): what is offered, what is still known, where a retired
+/// The catalogues' lifecycle: what is offered, what is still known, where a retired
 /// model's users go, and that nothing is left behind.
 final class ModelLifecycleTests: XCTestCase {
 
@@ -415,7 +415,7 @@ final class ModelUnavailableReplyTests: XCTestCase {
     }
 }
 
-/// What the first dictation after an update says about the model in use (#19).
+/// What the first dictation after an update says about the model in use.
 final class ModelNoticeTests: XCTestCase {
     private let moved = ModelMigration(settingsKey: SettingsKeys.openAISTTModel, from: "gpt-4o-mini-transcribe",
                                        to: "gpt-transcribe", reason: .deprecated, date: Date(timeIntervalSince1970: 0))
