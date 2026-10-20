@@ -273,11 +273,12 @@ final class HistoryFileTests: XCTestCase {
                    audioSeconds: 6, billedSeconds: 10)
     }
 
-    /// What the app wrote before this change: the whole array through `JSONEncoder`.
+    /// What the app writes with nothing kept: the whole array through `JSONEncoder`, keys
+    /// sorted as `HistoryFile.encode` sorts them.
     private func encoded(_ records: [TranscriptionRecord]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(records)
     }
 

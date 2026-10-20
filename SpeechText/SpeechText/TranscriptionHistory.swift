@@ -705,11 +705,13 @@ enum HistoryFile {
     /// The file's bytes: the records as `JSONEncoder` writes them — exactly what it wrote
     /// before, when nothing is kept — with every undecodable entry spliced back in verbatim,
     /// placed by date among the records, newest first. A merge rather than a sort, so the
-    /// records keep their order and the kept entries theirs.
+    /// records keep their order and the kept entries theirs. Keys are sorted: unsorted,
+    /// `JSONEncoder` writes an object's keys in hash order, which can differ between two
+    /// encodings of equal records, so the same History could be written as other bytes.
     static func encode(_ records: [TranscriptionRecord], keeping undecodable: [UndecodableRecord]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let encoded = try encoder.encode(records)
         guard !undecodable.isEmpty else { return encoded }
         let bytes = [UInt8](encoded)
