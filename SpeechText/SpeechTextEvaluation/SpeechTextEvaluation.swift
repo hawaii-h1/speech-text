@@ -4,7 +4,7 @@
 import Foundation
 import os
 
-/// The audio corpus through the local engines (#80) — the half of a corpus run that the
+/// The audio corpus through the local engines — the half of a corpus run that the
 /// standalone test bundle cannot do, because it may not import WhisperKit or FluidAudio.
 /// The same clips, the same `LiveDictation` run and the same checks as
 /// `LiveProviderTests`, written into the same run folder, so `summary.md` holds one table.

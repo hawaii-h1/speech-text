@@ -680,8 +680,8 @@ private struct ClosedSocket {
 /// `committed_transcript` is only its text — and Scribe follows a commit, often within
 /// 50 ms, with one more partial decoding the same audio again. Sometimes that is the
 /// committed text word for word (`isEchoOfCommitted`), sometimes it is re-heard ("Все
-/// так, як ми домовились." came back as "Всі так раптом домовились, що вони...", 1.10;
-/// #67 before it), and joined on at the stop it pasted the dictation twice.
+/// так, як ми домовились." came back as "Всі так раптом домовились, що вони...", 1.10,
+/// and a restatement with another word count before it), and joined on at the stop it pasted the dictation twice.
 ///
 /// Nothing is said after the stop, so a partial after a commit that answered it has
 /// two possible meanings. The commit was an earlier VAD segment's, landing late, and

@@ -252,7 +252,7 @@ A PR that changes the provider abstractions updates this guide:
 
 - a new value or field in the capability table;
 - a new place a provider must be registered (add a row below);
-- a changed realtime rule, a new `Dialect`, a step of #55.
+- a changed realtime rule, a new `Dialect`, a step towards one vendor type.
 
 CI runs `scripts/check-provider-guide.sh`. It fails when a place named below no longer
 exists, or when the code has a capability value the table in section 1 does not list. It

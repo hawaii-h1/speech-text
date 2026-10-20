@@ -9,7 +9,7 @@ import Foundation
 /// overlay, where the provider can still re-punctuate and re-word it, and the stop pastes
 /// it once. There is therefore no ledger to subtract, no correction to make and no draft
 /// to replace — which is what used to fill this file, when committed spans were pasted
-/// into the target app as they arrived (#75).
+/// into the target app as they arrived.
 ///
 /// Pure logic, in both targets. `AppState` asks it where the dictation goes when the user
 /// stops, and what to do with the text once the engine has gone idle; it keeps everything
@@ -25,7 +25,7 @@ enum InlineDelivery {
     }
 
     /// Where an inline dictation is pasted: the app in front when the user stopped, in
-    /// whatever app that is — not the one it started in (#77). With nothing to paste
+    /// whatever app that is — not the one it started in. With nothing to paste
     /// before the stop there is nothing spread across two apps, so the only question is
     /// where the one paste goes, and the answer is where the user is.
     ///
@@ -96,8 +96,8 @@ enum InlineDelivery {
         if failed {
             // With no final text, what the recording did show is still worth handing to
             // the Record Window: a stream that committed words and then broke, with an
-            // upload that failed too, had those words on the overlay — and, before #75,
-            // in the document.
+            // upload that failed too, had those words on the overlay — and, when text was still pasted while the user
+            // spoke, in the document.
             return .failed(partial: text.isEmpty ? whole : text)
         }
         guard !text.isEmpty else { return .noSpeech }

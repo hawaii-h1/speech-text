@@ -5,7 +5,7 @@
 import FluidAudio
 import Foundation
 
-// The voice activity detector behind `VoiceActivity` (#172): Silero VAD v6, converted to
+// The voice activity detector behind `VoiceActivity`: Silero VAD v6, converted to
 // Core ML by FluidInference and run by FluidAudio's `VadManager` — the same package as
 // the Parakeet engine, so no new dependency. The model (1 MB, MIT) ships inside the app
 // rather than being downloaded, so a dictation is judged from the first one, offline

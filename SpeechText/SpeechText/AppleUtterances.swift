@@ -4,7 +4,7 @@
 import Foundation
 
 /// What Apple's on-device recogniser has said during one request, kept across the two
-/// ways its results lose words (#175, found by the e2e harness):
+/// ways its results lose words (found by the e2e harness):
 ///
 /// - **A reset after a pause.** Once the speaker pauses, the recogniser starts a new
 ///   utterance, and the partials that follow hold only the new words ("Завтра ми поїдемо

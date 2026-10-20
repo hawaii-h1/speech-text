@@ -2,7 +2,7 @@
 
 Usage and Home show what dictation cost as an **estimate**: "≈ $1.20 · estimated from known
 prices", with the date the prices were checked under How this is counted. The prices are written into the app, checked by hand
-against each vendor's page, and refreshed now and then with a release (#155). There is no
+against each vendor's page, and refreshed now and then with a release. There is no
 price feed and no price history: every History record is priced again at the current
 table from the units its ledger keeps (audio seconds, billed seconds, tokens, keyterms),
 so a refresh reprices everything without a migration.

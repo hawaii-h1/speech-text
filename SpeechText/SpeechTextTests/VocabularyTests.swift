@@ -11,7 +11,7 @@ final class CustomVocabularyTests: XCTestCase {
         VocabularyEntry(term: text, added: now.addingTimeInterval(-daysAgo * 86_400))
     }
 
-    // MARK: The list #121 shipped
+    // MARK: The list an earlier release shipped
 
     func testTheSpeechPageListMovesIntoTheDictionaryOnce() {
         let existing = [VocabularyEntry(term: "SpeechText", misheard: ["speech text"])]

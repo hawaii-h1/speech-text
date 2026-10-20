@@ -67,7 +67,7 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
     /// Optional, so history written before AI mode existed still decodes.
     var refinement: Refinement?
     /// The app an inline dictation started in, and the one it was pasted into — the app
-    /// in front at the stop (#77). Nil for the Record Window, for an edit, and for entries
+    /// in front at the stop. Nil for the Record Window, for an edit, and for entries
     /// written before the stop chose where the text went.
     var originApp: String?
     var destinationApp: String?

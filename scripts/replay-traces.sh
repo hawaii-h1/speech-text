@@ -4,7 +4,7 @@
 #
 # Replays every recorded dictation trace through the app's own recognition and delivery
 # code (RecordedTraceTests). The traces hold dictated words, so they live outside this
-# repository (#51), in the folder SPEECHTEXT_TRACES names. Without it the test is
+# repository, in the folder SPEECHTEXT_TRACES names. Without it the test is
 # skipped, which is what CI does.
 #
 #   SPEECHTEXT_TRACES=<traces-dir> scripts/replay-traces.sh

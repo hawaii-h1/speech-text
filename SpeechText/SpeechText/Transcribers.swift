@@ -36,15 +36,15 @@ enum STTTuning {
     /// finished sentence, so a pause this long mid-sentence leaves a full stop and a
     /// capital in the middle of it ("що ми. Зробили"). It was 1.0 s while committed text
     /// was pasted into the app as it arrived and every tenth of a second was a wait for
-    /// the paste; since nothing reaches the app before the stop (#75), a shorter pause
+    /// the paste; since nothing reaches the app before the stop, a shorter pause
     /// only cuts more sentences — at 1.0 s thinking pauses already split them.
     static let vadSilenceThresholdSeconds: Double = 1.5
 
     /// A Scribe Realtime segment left open longer than this is not trusted: the stop
-    /// pastes the upload's answer instead of the stream's (`OpenSegmentClock`, #164).
+    /// pastes the upload's answer instead of the stream's (`OpenSegmentClock`).
     /// The server closes a segment by itself after about 36 s of audio, whatever the VAD
     /// says (ElevenLabs' commit-strategy guide, which also advises committing every
-    /// 20–30 s), and a segment that ran up to that bound is where the #80 corpus caught
+    /// 20–30 s), and a segment that ran up to that bound is where the audio corpus caught
     /// the model writing text that is not in the audio: on `uk-continuous-long` the
     /// MacBook microphone's second segment ended in "Що ще?" fifteen times in five runs
     /// of six, and the headset's in an invented schedule in two. 30 s is short of that
@@ -122,18 +122,18 @@ enum STTTuning {
     /// (`HallucinationFilter`) is kept as an empty result, its audio archived. Long
     /// enough for a shortcut pressed with a breath or a cough behind it; short enough
     /// that a real dictation of one of those phrases on its own is unlikely. A starting
-    /// value, not a measurement: the audio corpus (#80) is what tunes it.
+    /// value, not a measurement: the audio corpus is what tunes it.
     static let hallucinationSegmentSeconds: Double = 2.0
 
     /// A window of Silero VAD (256 ms) whose speech probability is above this holds a
-    /// voice (`VoiceActivity`, #172). Measured on the #80 corpus: the loudest keyboard and
+    /// voice (`VoiceActivity`). Measured on the audio corpus: the loudest keyboard and
     /// room noise reached 0.78 (the MacBook's own microphone), every recording of speech
     /// reached 1.00 in at least four windows; a cough reached 1.00 too, which is why
     /// `HallucinationFilter` still judges what comes back.
     static let voiceProbabilityThreshold: Float = 0.85
 
     /// How many windows over `voiceProbabilityThreshold` a segment needs to be sent.
-    /// Measured on the corpus's tap path (#172): a single word, «Так.», filled exactly two
+    /// Measured on the corpus's tap path: a single word, «Так.», filled exactly two
     /// windows, every longer recording of speech at least four — and room noise on a
     /// MacBook's microphone raised one isolated window to 0.95 in fifteen seconds. So a
     /// long segment needs two, which that spike never reaches, and a short one needs one,

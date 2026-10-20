@@ -93,7 +93,7 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(configuration.cleaned("Ой, е-е-е, ні"), "Ой, е-е-е, ні")
     }
 
-    /// #166: Scribe answered a cough with hesitations alone; with them gone only «, ,» was
+    /// Scribe answered a cough with hesitations alone; with them gone only «, ,» was
     /// left, and it was pasted.
     func testWhatIsLeftWithNoLetterOrDigitIsNothing() {
         let configuration = RecordingConfiguration(provider: .elevenlabs, locale: "uk-UA", localeIsAutomatic: true, apiKeys: [.groq: "", .elevenLabs: ""], models: [.groq: "", .elevenLabs: "scribe_v2"])
@@ -268,7 +268,7 @@ final class HallucinationFilterTests: XCTestCase {
         XCTAssertTrue(HallucinationFilter.isHallucination("Evet.", segmentSeconds: 0))
     }
 
-    /// #166: «.» and «..» are what a model writes for a breath — at any length.
+    /// «.» and «..» are what a model writes for a breath — at any length.
     func testAResultWithNoLetterOrDigitIsRejected() {
         for text in [".", "..", "…", " ?! ", "— –"] {
             XCTAssertEqual(HallucinationFilter.rejection(text, segmentSeconds: 30, languages: []), .noLettersOrDigits, text)
@@ -284,7 +284,7 @@ final class HallucinationFilterTests: XCTestCase {
         XCTAssertNil(HallucinationFilter.rejection("Thank you for watching.", segmentSeconds: 15, languages: []))
     }
 
-    /// #166: what the corpus's breath and cough came back as, for someone who speaks
+    /// what the corpus's breath and cough came back as, for someone who speaks
     /// Ukrainian and English.
     func testAResultWhollyInAScriptNoStatedLanguageUsesIsRejected() {
         for text in ["うーん。", "흠..", "음 음 음", "嗯", "مرحبا", "שלום", "สวัสดี", "नमस्ते", "Γεια"] {

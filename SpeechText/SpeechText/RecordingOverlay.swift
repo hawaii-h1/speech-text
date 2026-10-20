@@ -744,7 +744,7 @@ final class RecordingOverlayPanel: NSPanel {
 
 // MARK: - Hold tip
 
-/// The hold tip (#79): beside the overlay while a hold recording's shortcut is held,
+/// The hold tip: beside the overlay while a hold recording's shortcut is held,
 /// teaching that the letter alone keeps it going — ⌃⇧ may be let go, which gives back
 /// ordinary clicks and ⌘Tab. Its keycaps are live, so the modifiers fade the moment the
 /// letter is down and the title changes once they are let go.

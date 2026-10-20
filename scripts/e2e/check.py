@@ -3,7 +3,7 @@
 
 """scripts/e2e.sh's verdict on one scenario.
 
-Structural checks only — the owner rejected a WER threshold (#80): the text was pasted
+Structural checks only — the owner rejected a WER threshold: the text was pasted
 once, after the stop, into the document the script opened; a cancel left it empty; an
 edit replaced the selection. WER against the clip's `expected` is reported, never judged.
 
@@ -101,7 +101,7 @@ def main():
         if any(not text.endswith(" ") for text in pasted[:-1]):
             problems.append("a paste did not end in a space — the next one is glued on")
     if not a.edit:
-        # Nothing reaches an app before its stop (#75): the n-th paste follows the n-th stop.
+        # Nothing reaches an app before its stop: the n-th paste follows the n-th stop.
         stops = seen = 0
         for line in log.splitlines():
             if "[App] stopRecording" in line:

@@ -205,7 +205,7 @@ let localSTTModels: [LocalSTTModel] = [
         summary: "Parakeet v3 in less than half the download, from moondream: the same languages, but it took about a second to answer where v3 takes a quarter. For a full disk.",
         languages: parakeetLanguages(repository: "FluidInference/parakeet-redux-coreml"),
         languageNotes: ["uk": LanguageNote(text: "More mistakes in Ukrainian than Parakeet v3.",
-                                           measured: "#80 corpus, 2026-10-16, M1 Pro: mean WER 0.226 against v3's 0.180")],
+                                           measured: "audio corpus, 2026-10-16, M1 Pro: mean WER 0.226 against v3's 0.180")],
         parakeetVersion: .redux,
         minimumSystemVersion: 15
     ),
@@ -487,9 +487,9 @@ let parakeetRequiredBundles = [
 
 /// Whether a downloaded Parakeet folder holds every bundle the loader opens — the same
 /// test as below, for a folder that is not in our layout yet (the runtime's staging).
-/// The vocabulary is asked for too: `AsrModels.download` fetched it on its own (FluidAudio
-/// #748), while the files-only fetch gets it only as one of the repo's `.json` files, and
-/// without it the model fails at its first load rather than at the install.
+/// The vocabulary is asked for too: `AsrModels.download` fetched it on its own
+/// (FluidInference/FluidAudio#748), while the files-only fetch gets it only as one of the
+/// repo's `.json` files, and without it the model fails at its first load rather than at the install.
 func isParakeetFolderComplete(_ folder: URL) -> Bool {
     let contents = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
     return (parakeetRequiredBundles + ["parakeet_vocab.json"]).allSatisfy(contents.contains)

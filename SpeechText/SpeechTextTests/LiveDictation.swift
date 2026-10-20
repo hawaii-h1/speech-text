@@ -6,7 +6,7 @@ import CryptoKit
 import Foundation
 
 // A recorded clip played through the app's own recognition code the way the microphone
-// would deliver it, against a real engine (#80). Shared by `LiveProviderTests` and the
+// would deliver it, against a real engine. Shared by `LiveProviderTests` and the
 // `SpeechTextEvaluation` tool; no XCTest here.
 //
 // What is real: `AudioBufferWriter`, `StreamingRecognitionSession` with its
@@ -323,7 +323,7 @@ enum LiveDictation {
         started = Date()
         await play(audio, into: writer, session: session, paced: streams)
 
-        // What the sessions' voice guard will see, kept on the row (#172).
+        // What the sessions' voice guard will see, kept on the row.
         if let reading = await VoiceActivity.read(writer) {
             result.voiceProbability = Double(reading.maxProbability)
             result.voiceWindows = reading.windowsOverThreshold

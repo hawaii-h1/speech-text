@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# End-to-end runs with no person (#82): a debug build whose microphone is a corpus clip
+# End-to-end runs with no person: a debug build whose microphone is a corpus clip
 # (-SPTAudioInput, E2EMode.swift), driven through its real global shortcuts with key
 # events this script posts, pasting into real documents that AppleScript reads back.
 #
@@ -12,7 +12,7 @@
 #   scripts/e2e.sh --list                  the scenarios
 #
 # Options: --engine groq|scribe-realtime|gpt-live|apple  --only a,b  --traces
-#          (Debug Log › Record traces on, for #51)  --no-build  --keep (leave the
+#          (Debug Log › Record traces on)  --no-build  --keep (leave the
 #          documents open)
 #
 # Environment: SPEECHTEXT_CORPUS (the folder of corpus WAVs, outside the repository;
@@ -20,7 +20,7 @@
 # SPT_E2E_DERIVED_DATA (default /tmp/st-dd-e2e), SPT_E2E_OUT (default
 # /tmp/speechtext-e2e/<time>), SPT_SIGN_IDENTITY (default: the Developer ID certificate).
 #
-# Isolation, as decided on #82: the build is stamped app.speech-text.SpeechText.e2e, so
+# Isolation, as decided with the harness: the build is stamped app.speech-text.SpeechText.e2e, so
 # it has its own preferences domain (reset before every scenario) and its own data folder
 # (Application Support/SpeechText-e2e); the API keys come from the key file into memory
 # only; the installed SpeechText is quit for the run and reopened afterwards, Ctrl-C
@@ -378,7 +378,7 @@ scenario_two_in_a_row() {
         --pastes 2 --spaced
 }
 
-# Started in one app, stopped in another: the text goes where the dictation ended (#77).
+# Started in one app, stopped in another: the text goes where the dictation ended.
 scenario_switch_app() {
     local clip=uk-pause dur origin doc
     dur="$(clip_seconds $clip)"

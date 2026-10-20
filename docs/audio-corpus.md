@@ -38,7 +38,7 @@ A description:
 - `vocabulary` (optional) lists the words a user would put in the Dictionary. A clip
   that has one gets one more pass, `auto + dictionary`, with those words as the
   Dictionary: sent to every engine that takes them, as the app sends them (Groq's
-  `prompt`, a term list), and correcting the stop's text — the measurement #74 asked for
+  `prompt`, a term list), and correcting the stop's text — the measurement the Dictionary asked for
   before trusting Groq's `prompt`. The noise and silence clips carry `uk-tech-terms`'
   words too: silence is where a Whisper prompt is said to come back as text.
 - `spokenLanguages` (optional) is "Languages I speak" with nothing forced — `["uk",
@@ -69,7 +69,7 @@ recorded — or re-recorded — after a run needs no second full run.
 Both kinds of engine run through **`SpeechTextEvaluation`** (a command-line target with
 its own scheme), which `scripts/evaluate.sh` builds and runs: `--cloud` adds the cloud
 engines, `--no-local` leaves the local ones out. Unlike the test bundle it links
-FluidAudio, so it loads the voice activity detector (#172) and a cloud engine's segment is
+FluidAudio, so it loads the voice activity detector and a cloud engine's segment is
 judged — sent or not, pasted or not — as the app judges it. Cloud rows go to
 `results-cloud.json`, local ones to `results-local.json`. Every local model in the
 catalogue is a row; one that is not installed says `not installed`. A model's first load
@@ -100,7 +100,7 @@ engine gets them at once, since its answer does not depend on it. The stop goes 
 
 - nothing pasted for a clip that should produce nothing, or is shorter than 0.3 s;
 - something pasted for speech;
-- no run of four words appearing more often than it was said (the #67 doubling);
+- no run of four words appearing more often than it was said (a restatement joined on as new speech);
 - the word error rate within `maxWER`, when set;
 - Ukrainian without Russian letters, English without Cyrillic. This catches an answer
   written in the wrong alphabet, not one Russian-spelled word inside Ukrainian — which

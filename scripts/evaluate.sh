@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Runs the audio corpus (#80) through every speech engine and writes one run folder,
+# Runs the audio corpus through every speech engine and writes one run folder,
 # $SPEECHTEXT_RUNS/<date>/: summary.md (the engine × clip table), results-*.json and
 # the streaming engines' traces. SPEECHTEXT_RUNS must be outside the repository: a run
 # holds what the engines heard in someone's voice, so it is never committed.
@@ -56,7 +56,7 @@ mkdir -p "$run_dir"
 status=0
 
 # Both halves run through the SpeechTextEvaluation tool: unlike the test bundle it links
-# FluidAudio, so it loads the voice activity detector (#172) and judges the cloud engines'
+# FluidAudio, so it loads the voice activity detector and judges the cloud engines'
 # segments as the app does. LiveProviderTests stays for a quick cloud run without it.
 echo "▸ Building SpeechTextEvaluation…"
 xcodebuild build -project "$project" -scheme SpeechTextEvaluation -configuration Release \

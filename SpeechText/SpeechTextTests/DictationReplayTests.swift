@@ -19,7 +19,7 @@ private func assertDocument(_ document: String, _ text: String,
 // MARK: - One paste, at the stop
 
 /// Every inline dictation is shown on the overlay while the user speaks and pasted once,
-/// at the stop (#75). `DictationReplay.run` asserts that nothing reached the app before
+/// at the stop. `DictationReplay.run` asserts that nothing reached the app before
 /// the stop on every replay; these pin down what the one paste holds.
 @MainActor
 final class PasteOnceReplayTests: XCTestCase {
@@ -52,7 +52,7 @@ final class PasteOnceReplayTests: XCTestCase {
         XCTAssertEqual(run.stop, .paste("Привіт, це перше речення. А це друге."))
     }
 
-    /// The Dictionary corrects the final text and never the overlay (#123): the stop
+    /// The Dictionary corrects the final text and never the overlay: the stop
     /// applies `RecordingConfiguration.finished`, the live events only `cleaned`.
     func testTheDictionaryCorrectsThePasteButNotTheOverlay() async {
         let app = FakeApp()
@@ -141,7 +141,7 @@ final class PasteOnceReplayTests: XCTestCase {
         XCTAssertTrue(run.logged("(joins previous)"))
     }
 
-    /// #165, from the corpus trace `uk-cut-words-and-real-gap` (Scribe realtime): a pause
+    /// From the corpus trace `uk-cut-words-and-real-gap` (Scribe realtime): a pause
     /// inside "перфоратор" closed a segment that trails off into "...", and the next one
     /// opens with a capital. The word is pasted whole; "нова... | Версія." is two words and
     /// keeps its capital.
@@ -191,7 +191,7 @@ final class PasteOnceReplayTests: XCTestCase {
         assertDocument(run.document, "Що там узагалі нового? Це нові задачі?")
     }
 
-    // The stop's commit (#67, 1.10). Nothing is said after the stop, so a partial after a
+    // The stop's commit (1.10). Nothing is said after the stop, so a partial after a
     // commit reply is either the server decoding that segment again or the final segment
     // with its commit still to come — `StreamFinishSettle`.
 
@@ -259,7 +259,7 @@ final class PasteOnceReplayTests: XCTestCase {
     }
 }
 
-// MARK: - Where the paste goes (#77)
+// MARK: - Where the paste goes
 
 /// The one paste lands in the app in front when the user stopped, whatever app the
 /// dictation began in — and everything after the stop is handed that app.
@@ -459,7 +459,7 @@ final class StreamFallbackReplayTests: XCTestCase {
     }
 }
 
-// MARK: - A stream that dropped and came back (#78)
+// MARK: - A stream that dropped and came back
 
 @MainActor
 final class StreamReconnectReplayTests: XCTestCase {
@@ -595,7 +595,7 @@ final class AIReplayTests: XCTestCase {
 /// document holding exactly that.
 ///
 /// The traces hold dictated words in plain text, so they stay out of the repository, in
-/// the folder `SPEECHTEXT_TRACES` names (#51); without the variable the test is
+/// the folder `SPEECHTEXT_TRACES` names; without the variable the test is
 /// skipped. `scripts/replay-traces.sh` runs it. An unhosted test bundle does not inherit the
 /// shell's environment: `xcodebuild` passes `TEST_RUNNER_SPEECHTEXT_TRACES` through.
 @MainActor
@@ -652,7 +652,7 @@ final class RecordedTraceTests: XCTestCase {
         assertDocument(run.document, "Зроблю це ввечері, коли повернусь додому. Подзвоню з дороги. І ще одне речення.")
     }
 
-    /// A trace holds no audio, so a long Scribe segment (#164) is recorded at the stop
+    /// A trace holds no audio, so a long Scribe segment is recorded at the stop
     /// with its length, and the replay measures the same segment: the upload's paste
     /// recurs, not the stream's invented ending.
     func testATraceOfALongSegmentReplaysTheUpload() async throws {
@@ -714,7 +714,7 @@ final class RecordedTraceTests: XCTestCase {
         XCTAssertTrue(run.app.pastes.isEmpty)
     }
 
-    /// A trace written before #75 carries fields that no longer exist — `aiDraft`,
+    /// A trace written before the stop became the only paste carries fields that no longer exist — `aiDraft`,
     /// `livePreview`, the tier `probe` — and still decodes.
     func testATraceFromBeforeTheSinglePasteStillDecodes() throws {
         let json = #"{"recordedAt":"2026-09-22T15:14:29Z","setup":{"aiDraft":false,"aiMode":false,"app":"T3 Code","livePreview":true,"probe":{"rangeReadable":false,"rangeReadsBack":false,"valueReadable":false},"removesDisfluencies":true},"events":[{"kind":"stop","t":1}],"version":1}"#
@@ -942,9 +942,9 @@ final class DictationHotkeyGestureTests: XCTestCase {
         XCTAssertEqual(g.release(.inline, in: .idle, at: 13), .ignore)
     }
 
-    // No cancel is silent (#72): each says why, and the notice fits.
+    // No cancel is silent: each says why, and the notice fits.
 
-    /// The #47 pass: hold Q, press A to switch, let Q go — the owner's release stops the
+    /// The first manual test pass: hold Q, press A to switch, let Q go — the owner's release stops the
     /// dictation — then press Q while the AI rewrites. The table stands (a press in busy
     /// cancels), but the cancel now carries a reason for its notice.
     func testAPressDuringTheRewriteCancelsWithAReason() {
@@ -993,7 +993,7 @@ final class DictationHotkeyGestureTests: XCTestCase {
     }
 }
 
-// MARK: - Holding only the letter (#79)
+// MARK: - Holding only the letter
 
 final class HoldTipTests: XCTestCase {
 
@@ -1229,7 +1229,7 @@ final class EditHotkeyGestureTests: XCTestCase {
 
 final class SelectionEditTests: XCTestCase {
 
-    // #73: the edit works on what is selected when the instruction ends.
+    // the edit works on what is selected when the instruction ends.
 
     private func selection(_ text: String, at location: Int? = nil) -> CapturedSelection {
         CapturedSelection(text: text, record: location.map {
@@ -1417,12 +1417,12 @@ final class SelectionEditTests: XCTestCase {
     }
 }
 
-// MARK: - A stream that invents words (#74)
+// MARK: - A stream that invents words
 
 @MainActor
 final class HallucinationReplayTests: XCTestCase {
 
-    /// A shortcut pressed with nothing said: the stream answered "Evet." (#47). The
+    /// A shortcut pressed with nothing said: the stream answered "Evet.". The
     /// overlay never shows it and nothing is pasted.
     func testAStreamThatAnswersOnlyWithAKnownHallucinationPastesNothing() async {
         let app = FakeApp()
@@ -1436,7 +1436,7 @@ final class HallucinationReplayTests: XCTestCase {
         XCTAssertEqual(run.stop, .noSpeech)
     }
 
-    /// The trace from the #47 pass: "Evet." as the first partial of a real dictation. It
+    /// The trace from the first manual test pass: "Evet." as the first partial of a real dictation. It
     /// is never drawn, and the real words replace it as a partial always replaces one.
     func testAHallucinatedFirstPartialIsNeverDrawn() async {
         let app = FakeApp()
@@ -1451,7 +1451,7 @@ final class HallucinationReplayTests: XCTestCase {
     }
 }
 
-// MARK: - The Dictionary and Replacements (#74)
+// MARK: - The Dictionary and Replacements
 
 @MainActor
 final class DictionaryReplayTests: XCTestCase {
@@ -1470,10 +1470,10 @@ final class DictionaryReplayTests: XCTestCase {
     }
 }
 
-// MARK: - A segment kept open too long (#164)
+// MARK: - A segment kept open too long
 
 /// Scribe Realtime left one segment open for 28 s of continuous reading, and the end of
-/// it was text nobody said — the #80 corpus's `uk-continuous-long`. A stream whose longest
+/// it was text nobody said — the audio corpus's `uk-continuous-long`. A stream whose longest
 /// segment ran past `STTTuning.streamLongestTrustedSegmentSeconds` is finished by the
 /// upload, as a stream that had an outage is.
 @MainActor

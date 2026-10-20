@@ -1151,7 +1151,7 @@ private func keyboardLanguageCodes() -> Set<String> {
 
 /// Settings › Hold to talk: each gesture played on a loop, the way System Settings shows a
 /// trackpad gesture — the user's own keys going down and what the dictation does — beside
-/// its name. The hold lets the modifiers go while the letter keeps recording (#79), the
+/// its name. The hold lets the modifiers go while the letter keeps recording, the
 /// double tap locks the dictation on, and the switch to AI Rewrite is left out while AI
 /// Rewrite has no provider: the AI shortcut is then a second dictation shortcut
 /// (`AppState.effectiveKey`), with nothing to switch to. Indented behind a rule, so the

@@ -74,7 +74,7 @@ Two costs follow. A change of Apple team makes the items unreachable, and every 
 request based on a branch merges into *that* branch — and if the branch has
 already landed, the merge is green and the work never reaches `main`. That is
 [#43](https://github.com/yavno/speech-text-archive/issues/43) in the pre-rewrite
-repository: PR #41 there merged into a branch `main` had stopped following seven
+repository: a pull request there merged into a branch `main` had stopped following seven
 minutes earlier.
 
 Stacking is still allowed where it earns its keep. Label the pull request
@@ -100,7 +100,7 @@ commit that never reached `main` cannot be made an ancestor afterwards: the work
 comes back as a *different* commit through a fresh pull request. Such an entry
 is printed and the run stays green; left out, the audit would fail forever, and a
 check that always fails is a check nobody reads. The list is empty: its one entry
-before the history rewrite, PR #41, belongs to the archive (see below).
+before the history rewrite belongs to the archive (see below).
 
 ## Sign-off
 
@@ -128,23 +128,22 @@ altogether.
 
 `main` holds 45 commits with no trailer: 42 from before squash-only, and three
 squash commits since. The 2026-10-15 rewrite (below) left them as they were, so as
-not to change their messages more than it had to. They are (pull request numbers
-are the archive's):
+not to change their messages more than it had to. They are:
 
 - **39 merge commits** made by the *Merge pull request* button, the last one
-  `57f3af5` (PR #42, 2026-09-22). GitHub writes those itself and cannot add a
+  `57f3af5` (2026-09-22). GitHub writes those itself and cannot add a
   trailer, and CI never sees them because they are made after the pull request's
   range. Squash-only removes this kind of commit.
 - **Three ordinary commits**, all made after the `dco` job (2026-09-13) and the
   sign-off hook (2026-09-15) existed:
   - `6376189` *Document phase A completion and add offline test runner*
-    (2026-09-16). It came in through PR #2, which was merged with its
+    (2026-09-16). It came in through a pull request that was merged with its
     *DCO sign-off* check failing.
   - `b5ce2ea` *Add rebuild skill and build identity stamping* (2026-09-16), and
   - `947e383` *Move rebuild skill into user-run script and docs* (2026-09-17).
     Both were pushed straight to `main` with no pull request, so no check ran.
-- **Three squash commits** — `fae4e9f` (PR #108, 2026-09-27), `8b66d9c` (PR #131)
-  and `f50d59a` (PR #132, both 2026-10-01) — merged with the message cut down to the
+- **Three squash commits** — `fae4e9f` (2026-09-27), `8b66d9c`
+  and `f50d59a` (both 2026-10-01) — merged with the message cut down to the
   title, which dropped the pull requests' `Signed-off-by` lines. This is the gap the
   bullet on the squash message warns about: nothing checks the squash commit itself.
 
@@ -162,9 +161,9 @@ shape), product names of other apps, and a work address in the authorship. The
 code at the tip was the same before and after, apart from those test sentences.
 
 - The repository before the rewrite is `yavno/speech-text-archive`, kept private,
-  with its issues and pull requests. Every issue or pull request number up to #188 —
-  in commit messages, where they now read `yavno/speech-text-archive#N`, and in the
-  code, CLAUDE.md and these docs, where they were left as `#N` — is the archive's.
+  with its issues and pull requests. In commit messages its numbers now read
+  `yavno/speech-text-archive#N`; in the code, CLAUDE.md and these docs they were
+  removed, so a bare `#N` in a comment or a doc is an issue or pull request here.
   The four issues still open moved here as #1–#4.
 - `main` went from 293 commits to 278: commits that touched only removed files are
   gone. The build number is the commit count (`scripts/rebuild.sh`,

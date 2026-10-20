@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - Terms to the engine
 
-/// A term from the Settings › Speech › Vocabulary list #121 shipped, before the
+/// A term from the Settings › Speech › Vocabulary list an earlier release shipped, before the
 /// Dictionary (`Vocabulary`) became the one store. Decoded only by
 /// `CustomVocabulary.migrateLegacyStoreIfNeeded`, which moves the list into the
 /// Dictionary once.
@@ -69,7 +69,7 @@ enum CustomVocabulary {
         term.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    // MARK: The list #121 shipped
+    // MARK: The list an earlier release shipped
 
     /// `entries` with every legacy term it does not already hold (ignoring case) added as
     /// a word of its own, with the date it was added.

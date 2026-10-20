@@ -95,7 +95,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     /// fallback upload's, which the batch session writes itself.
     private let meter: UsageMeter?
     /// How long the server has kept each segment open, and how long it may before the
-    /// stop stops trusting the stream (#164): nil for a provider that keeps one item open
+    /// stop stops trusting the stream: nil for a provider that keeps one item open
     /// until the stop by design.
     private let segments: OpenSegmentBox
     private let longestTrustedSegment: Double?
@@ -429,7 +429,7 @@ final class StreamingRecognitionSession: RecognitionSession {
             if duration > 0 { reading = await VoiceActivity.read(writer) }
             if let reading, !reading.holdsSpeech {
                 // The audio has already gone up the socket; what the server made of a
-                // keyboard or a fan is still not pasted (#172).
+                // keyboard or a fan is still not pasted.
                 dlog("Engine", "StreamingRecognitionSession.finish: no voice in the segment — its text dropped")
                 dropped = empty
             } else if let rejection = HallucinationFilter.rejection(text, segmentSeconds: duration, languages: languages) {

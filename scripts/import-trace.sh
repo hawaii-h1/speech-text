@@ -11,7 +11,7 @@
 #   scripts/import-trace.sh NAME FILE.json  a specific trace (an e2e run's, for one)
 #
 # A trace holds the words that were dictated, in plain text, so it never goes into this
-# repository (#51): SPEECHTEXT_TRACES names the folder, which must be outside it.
+# repository: SPEECHTEXT_TRACES names the folder, which must be outside it.
 #
 #   SPEECHTEXT_TRACES=<traces-dir> scripts/import-trace.sh
 set -euo pipefail

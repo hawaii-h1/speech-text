@@ -451,7 +451,7 @@ struct DirectRecordingPanelView: View {
                 speechEngine.pendingInsertionText = nil
                 if aiMode, !landed.isEmpty {
                     // Only this segment: the text before it is already refined, and a
-                    // preset that fits these words is not one to apply to the rest (#70).
+                    // preset that fits these words is not one to apply to the rest.
                     enqueueRefinement(PendingRefinement(records: landed, wholeText: false,
                                                         recordID: speechEngine.lastRecordID))
                 }

@@ -16,7 +16,7 @@ enum EditHotkeyAction: Equatable {
 }
 
 /// Why an edit was cancelled — what its notice says. No cancel is silent, as for a
-/// dictation (#72): the selection may already have been cut and put back, and with
+/// dictation: the selection may already have been cut and put back, and with
 /// nothing on screen the text blinking out and in again reads as a fault.
 enum EditCancelReason: Equatable {
     /// The Edit shortcut pressed while the instruction was transcribed or rewritten.
@@ -200,7 +200,7 @@ struct CapturedSelection: Equatable {
 
 /// The pure half of reading and replacing a selection; `PasteService` does the I/O.
 enum SelectionEdit {
-    /// What the edit works on once the instruction is over (#73): the selection as it
+    /// What the edit works on once the instruction is over: the selection as it
     /// is *then*, read again, not the one read at the first press — the user may have
     /// selected other text while speaking, and the text they can see selected is the
     /// text they mean. The first read still stops an edit with nothing selected at once.
@@ -216,7 +216,7 @@ enum SelectionEdit {
     /// Whether the selection may be read again and cut once the instruction is over: only
     /// while the app the edit began in is still the one in front. A ⌘C and a ⌘X go to
     /// whichever app is in front, and the rewrite is pasted into the app the edit began
-    /// in — so with another app in front (⌘Tab works while the shortcut is held, #79) the
+    /// in — so with another app in front (⌘Tab works while the shortcut is held) the
     /// edit would cut text out of one app and paste its rewrite into the other. Generic
     /// over the process identifier, so a test needs no running app.
     static func takesSelection<ID: Equatable>(editing app: ID?, front: ID?) -> Bool {

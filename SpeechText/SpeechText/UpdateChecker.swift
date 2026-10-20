@@ -110,7 +110,7 @@ final class UpdateChecker: NSObject, SPUStandardUserDriverDelegate {
     /// app may well not be active: the alert then opens behind whatever the user is in,
     /// and the modal session it starts disables every item of the status menu, Quit
     /// included — the app looks hung, with the one window that would explain it out of
-    /// sight (#92).
+    /// sight.
     ///
     /// So the app is brought forward here, and — because an activation request is
     /// exactly what the system may decline — the alert is also ordered in front of every

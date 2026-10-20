@@ -77,9 +77,9 @@ struct ParakeetRuntime: LocalSTTRuntime {
     /// The encoder build to fetch and load, and it has to be the same on both sides — the
     /// loader opens the file this names, so a download of one and a load of the other is
     /// a missing-file error. `.int8` is FluidAudio's default and is what was measured;
-    /// `.int8V2` is a 577 MB rebuild that avoids a token-corruption bug (their issue
-    /// #760) we have not seen, and `.int4` a 298 MB one we have not tested. It names a
-    /// file for v3 only: Ultra, Redux and Phonon-2 each ship one encoder, which FluidAudio
+    /// `.int8V2` is a 577 MB rebuild that avoids a token-corruption bug
+    /// (FluidInference/FluidAudio#760) we have not seen, and `.int4` a 298 MB one we have
+    /// not tested. It names a file for v3 only: Ultra, Redux and Phonon-2 each ship one encoder, which FluidAudio
     /// fetches and opens whatever this says.
     fileprivate static let encoderPrecision: ParakeetEncoderPrecision = .int8
 

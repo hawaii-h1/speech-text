@@ -3,7 +3,7 @@
 
 import Foundation
 
-// Voice activity detection (#172): whether a segment's audio holds a human voice at all,
+// Voice activity detection: whether a segment's audio holds a human voice at all,
 // asked before an upload and before a stream's answer is pasted. Keyboard typing and room
 // noise are louder than `STTTuning.silencePeakFloor`, so they reached the engines, which
 // answered «Thank you for watching.» or «so» — and that was pasted. A model that hears a

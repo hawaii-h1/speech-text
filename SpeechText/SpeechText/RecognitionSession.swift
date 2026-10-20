@@ -25,7 +25,7 @@ struct RecognitionFailure: Equatable {
     /// What the status notice, the Record Window's status line and the History row say.
     var message: String
     /// The recogniser failed before it produced any text. Nothing follows an error — the
-    /// task is over — so listening on only takes audio no one transcribes: #69's overlay
+    /// task is over — so listening on only takes audio no one transcribes: one overlay
     /// listened for twelve seconds after a failure 44 ms in. The engine ends the
     /// recording at once instead. With text already there the recording goes on as it
     /// always has: that text is kept for the stop, and Apple's session opens a fresh task

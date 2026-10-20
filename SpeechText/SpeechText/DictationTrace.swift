@@ -12,7 +12,7 @@ import Foundation
 /// Flat and hand-editable on purpose: after reviewing a trace, set `expectedDocument` to
 /// what the document *should* hold, and the replay checks that as well.
 struct DictationTrace: Codable, Equatable {
-    /// Traces recorded before #75 also carry `aiDraft`, `livePreview` and `probe`, from
+    /// Traces recorded before the stop became the only paste also carry `aiDraft`, `livePreview` and `probe`, from
     /// when text could be pasted while the user spoke. The decoder ignores them.
     struct Setup: Codable, Equatable {
         var aiMode = false
@@ -22,7 +22,7 @@ struct DictationTrace: Codable, Equatable {
         var dashStyle: DashStyle?
         /// The app the dictation started in — for the reader.
         var app: String?
-        /// The app in front at the stop, which the dictation was pasted into (#77). Nil
+        /// The app in front at the stop, which the dictation was pasted into. Nil
         /// until the stop, and in traces recorded before it.
         var destination: String?
     }
@@ -38,8 +38,8 @@ struct DictationTrace: Codable, Equatable {
             /// A fresh stream took over from the one that failed before it
             /// (`StreamReconnectPolicy`); the events after it are the new stream's.
             case streamReconnected
-            /// At the stop: a segment ran past `STTTuning.streamLongestTrustedSegmentSeconds`
-            /// (#164), so the upload answers; `text` is its length in seconds. A trace holds
+            /// At the stop: a segment ran past `STTTuning.streamLongestTrustedSegmentSeconds`,
+            /// so the upload answers; `text` is its length in seconds. A trace holds
             /// no audio, so this is what lets a replay measure the same segment.
             case segmentTooLong
             /// The user switched the dictation's mode with the other shortcut; `text` is

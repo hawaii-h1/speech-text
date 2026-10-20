@@ -19,7 +19,7 @@ import Foundation
 ///   History or traces, and no rename migration copies anything into it.
 /// - `-SPTCloseStreamAfter <seconds>` — once per launch, that long after the first
 ///   stream's first partial, its socket is closed and the session told the network went
-///   away (`StreamCloser`), so the reconnect runs as after a Wi-Fi drop (OA4, #51)
+///   away (`StreamCloser`), so the reconnect runs as after a Wi-Fi drop (OA4)
 ///   without switching the Mac's network off.
 /// - `-SPTAppleFailAfter <seconds>` — once per launch, that long after the first Apple
 ///   chunk's first words, the chunk then current fails as a real task error would

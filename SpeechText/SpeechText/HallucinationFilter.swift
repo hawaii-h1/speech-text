@@ -8,7 +8,7 @@ import Foundation
 /// What a speech model says when there was nothing to hear. Whisper was trained on
 /// subtitled video, so silence or a breath comes back as a subtitle's sign-off ("Thank
 /// you for watching", "Субтитры сделал DimaTorzok"); a stream opened on silence has
-/// answered "Evet." and "Seyit." (#74, pasted twice in the #47 pass). No vendor
+/// answered "Evet." and "Seyit." (pasted twice in the first manual test pass). No vendor
 /// documents it, so the filter is ours.
 ///
 /// Deliberately narrow: a phrase is dropped only when it is the *whole* result of a
@@ -32,7 +32,7 @@ enum HallucinationFilter {
         "like and subscribe",
         "subscribe to the channel",
         "see you in the next video",
-        // Turkish — measured in this app's own streams (#47)
+        // Turkish — measured in this app's own streams
         "evet",
         "seyit",
         "abone olmayı unutmayın",
@@ -83,7 +83,7 @@ enum HallucinationFilter {
         /// Not one letter or digit: «.», «..», «…» — what a model makes of a breath.
         case noLettersOrDigits
         /// Every letter in a script none of the user's stated languages writes in, such as
-        /// «うーん。» or «흠..» for someone who speaks Ukrainian and English (#166).
+        /// «うーん。» or «흠..» for someone who speaks Ukrainian and English.
         case foreignScript
 
         var description: String {

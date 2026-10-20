@@ -78,7 +78,7 @@ final class DockIconController {
     /// `NSPanel`): while it runs every item of the status menu is disabled, so it is the
     /// one window the user *must* be able to find. Sparkle's update alerts are the case
     /// in point — the "Checking for updates…" window closes right before its error alert
-    /// runs, and without this the icon was taken away under the alert (#92).
+    /// runs, and without this the icon was taken away under the alert.
     static func hasOpenWindow(excluding excluded: NSWindow? = nil) -> Bool {
         if let modal = NSApp.modalWindow, modal !== excluded { return true }
         return NSApp.windows.contains { window in

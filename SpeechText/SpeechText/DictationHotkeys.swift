@@ -27,7 +27,7 @@ enum DictationHotkeyAction: Equatable {
     case ignore
 }
 
-/// Why a dictation was cancelled — what the notice says. No cancel is silent (#72): a
+/// Why a dictation was cancelled — what the notice says. No cancel is silent: a
 /// press that lands on the rewrite a moment after the stop throws the dictation away, and
 /// with nothing on screen the user could not tell a cancel from a paste that failed.
 enum DictationCancelReason: Equatable {
@@ -225,11 +225,11 @@ enum KeycapState: Equatable {
     /// A modifier of a held shortcut once its letter is down: with hold to talk the
     /// letter alone keeps the recording going (Carbon reports the hotkey's release only
     /// when the letter comes up), so ⌃ and ⇧ may be let go — and held on, they turn
-    /// clicks into ⌃-clicks and ⌘Tab into ⌃⇧⌘Tab (#79).
+    /// clicks into ⌃-clicks and ⌘Tab into ⌃⇧⌘Tab.
     case notNeeded
 }
 
-/// The hold tip: teaching that a hold recording needs only its letter held (#79).
+/// The hold tip: teaching that a hold recording needs only its letter held.
 ///
 /// Shown beside the overlay for the first hold recordings, and gone once the user has
 /// let go of the modifiers mid-recording `lessons` times; then, once, how to switch to

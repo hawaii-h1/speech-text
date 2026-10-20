@@ -3,7 +3,7 @@
 
 import Foundation
 
-// The audio corpus (#80): what a clip is expected to produce, how an engine's answer is
+// The audio corpus: what a clip is expected to produce, how an engine's answer is
 // judged, and the run's report. Pure logic, shared by `LiveProviderTests` (the cloud
 // engines) and the `SpeechTextEvaluation` command-line tool (the local ones), so both
 // halves of a run are judged by the same rules and land in the same table.
@@ -41,12 +41,12 @@ struct CorpusClip: Codable, Equatable {
     var source: String?
     var seconds: Double?
     /// The words a user would put in the Dictionary for this clip. A clip that has them
-    /// gets one more pass with them as the Dictionary (#74: does Groq's `prompt` help or
+    /// gets one more pass with them as the Dictionary (does Groq's `prompt` help or
     /// echo?).
     var vocabulary: [String]?
     /// "Languages I speak", stated with nothing forced (two or more, as the owner runs the
     /// app): one more pass, Auto with these stated — what the script rule in
-    /// `HallucinationFilter` is judged against (#166).
+    /// `HallucinationFilter` is judged against.
     var spokenLanguages: [String]?
 
     /// The description this row comes from.
@@ -205,7 +205,7 @@ enum CorpusMeasure {
     }
 
     /// Runs of `n` words that the output holds more often than the speaker said them —
-    /// the shape of a restatement joined on as new speech (#67). Counted against the
+    /// the shape of a restatement joined on as new speech. Counted against the
     /// expected text, so a phrase really said twice is not flagged.
     static func repeatedPhrases(expected: String, actual: String, n: Int = 4) -> [String] {
         func counts(_ words: [String]) -> [String: Int] {
@@ -325,10 +325,10 @@ struct CorpusResult: Codable, Equatable {
     /// Every check the result failed. Empty is a pass.
     var failures: [String] = []
     /// The clip as it was run — what was said, and a digest of its recording — so a later
-    /// run can tell a clip that changed from an engine that did. Nil in runs before #167.
+    /// run can tell a clip that changed from an engine that did. Nil in runs before runs were compared.
     var expected: String?
     var audioDigest: String?
-    /// What the voice activity detector made of the clip (#172): its highest window and
+    /// What the voice activity detector made of the clip: its highest window and
     /// how many windows were over `STTTuning.voiceProbabilityThreshold` — so a run shows
     /// the margin, not only whether the clip was sent. Nil where no detector ran (the test
     /// bundle, which cannot load it).
@@ -490,7 +490,7 @@ struct CorpusRunFolder {
     }
 }
 
-/// A run against the one before it (#167): each cell — clip × engine × pass — judged
+/// A run against the one before it: each cell — clip × engine × pass — judged
 /// against the same cell's earlier result, so every engine is held to its own past and
 /// no bound is set by hand. Worse is a word error rate up by more than 0.10, or a check
 /// that newly fails; better is the reverse. A cell the earlier run did not have is new,

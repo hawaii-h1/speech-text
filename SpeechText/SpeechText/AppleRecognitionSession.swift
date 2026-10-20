@@ -25,7 +25,7 @@ final class AppleRecognitionSession: RecognitionSession {
     /// Transcript committed from earlier chunks (see `rotate`).
     private var committedText = ""
     /// The current chunk's results, kept across the recogniser's resets after a pause
-    /// and its empty finals (`AppleUtterances`, #175).
+    /// and its empty finals (`AppleUtterances`).
     private var utterances = AppleUtterances()
     /// Set on `isFinal`, or promoted from the live text when the recogniser errors.
     private var finalText = ""

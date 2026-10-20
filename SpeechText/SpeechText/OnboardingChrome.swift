@@ -988,7 +988,7 @@ struct ProgressRing: View {
 
 /// A shortcut drawn as keys, each symbol its own cap. `litKeys` are the indexes of the
 /// caps whose key is down; `fadedKeys` the caps no longer needed — a held recording's
-/// modifiers once its letter is down (#79), dimmed with a dashed edge even while still
+/// modifiers once its letter is down, dimmed with a dashed edge even while still
 /// held; `ringKeys` the caps to keep down, drawn with a ring around them.
 struct SetupKeycaps: View {
     let keys: [String]
@@ -1053,7 +1053,7 @@ struct SetupKeycaps: View {
 
 /// A shortcut's caps drawn from the keys as they are right now: each lit while its own
 /// key is down, and — with hold to talk, once the letter is down — the modifiers faded
-/// and the letter ringed, since the letter alone now keeps the recording going (#79).
+/// and the letter ringed, since the letter alone now keeps the recording going.
 /// The letter comes from `HeldShortcuts` (Carbon takes the key event; no window sees
 /// it), the modifiers from `NSEvent.modifierFlags`.
 struct LiveShortcutKeycaps: View {

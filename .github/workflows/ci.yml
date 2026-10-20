@@ -255,7 +255,7 @@ jobs:
     # Reads the pull request's metadata and nothing from the tree, so it can run
     # anywhere. It follows the rest of ci.yml: the self-hosted Mac while the
     # repository is private, Linux once it is public and a stranger's pull
-    # request could reach it. See #59.
+    # request could reach it.
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     if: github.event_name == 'pull_request'
     permissions:
@@ -283,9 +283,9 @@ jobs:
           if ! printf '%s\n' "$labels" | grep -qx 'stacked'; then
             echo "::error::This pull request is based on '$BASE', not main."
             echo
-            echo "A pull request based on another branch is a stack, and a stack is how"
-            echo "#43 happened: the base landed in main first, this one then merged into"
-            echo "a branch nobody was watching, and its commits never reached main."
+            echo "A pull request based on another branch is a stack, and a stack has lost"
+            echo "work here before: the base landed in main first, the next one then merged"
+            echo "into a branch nobody was watching, and its commits never reached main."
             echo
             echo "Either retarget this pull request at main, or label it 'stacked' and"
             echo "re-run this job — the label is a promise that someone lands it afterwards."
@@ -293,7 +293,7 @@ jobs:
           fi
 
           # Labelled. The base branch must still be an *open* pull request: if its own
-          # pull request has already merged, this one is #43 in the making.
+          # pull request has already merged, this one would be the next such merge.
           open=$(gh pr list --head "$BASE" --state open --json number --jq '.[0].number // empty')
           if [ -n "$open" ]; then
             echo "Stacked, and the stack is intact."
@@ -307,7 +307,7 @@ jobs:
 
           merged=$(gh pr list --head "$BASE" --state merged --json number --jq '.[0].number // empty')
           if [ -n "$merged" ]; then
-            echo "::error::PR #$merged already merged '$BASE' into main, so this pull request would merge into a branch that main has stopped following. That is exactly #43."
+            echo "::error::PR #$merged already merged '$BASE' into main, so this pull request would merge into a branch that main has stopped following, and its commits would never reach main."
             echo
             echo "Retarget this pull request at main and push."
             exit 1

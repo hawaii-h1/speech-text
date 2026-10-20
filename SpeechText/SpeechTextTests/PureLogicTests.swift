@@ -19,7 +19,7 @@ import Carbon.HIToolbox
 /// This repo has shipped a doubled dictation twice, and pasting spans while the user
 /// spoke added a third way to do it — the stop pasting the whole text again over what the
 /// app already had — which a ledger subtraction guarded here. Nothing is pasted before
-/// the stop any more (#75), so what the stop owes is simply the whole dictation, once:
+/// the stop any more, so what the stop owes is simply the whole dictation, once:
 /// these pin down which text that is.
 final class UndeliveredRemainderTests: XCTestCase {
 
@@ -73,7 +73,7 @@ final class UndeliveredRemainderTests: XCTestCase {
 
 // MARK: - Where the stop pastes (InlineDelivery.destination)
 
-/// #77: the app in front at the stop, unless that is SpeechText itself.
+/// the app in front at the stop, unless that is SpeechText itself.
 final class PasteDestinationTests: XCTestCase {
 
     func testTheAppInFrontAtTheStopIsTheDestination() {
@@ -239,7 +239,7 @@ final class SegmentJoinTests: XCTestCase {
         XCTAssertEqual(segmentSeparator("база дани", "х, звідки"), " ")
     }
 
-    // #165: Scribe trails a segment closed inside a word off into "..." and opens the
+    // Scribe trails a segment closed inside a word off into "..." and opens the
     // next with a capital — "перфо..." | "Ратор.".
 
     private let cutBeforeDots: Set<String> = ["перфоратор", "нова", "версія", "даних"]
@@ -254,7 +254,7 @@ final class SegmentJoinTests: XCTestCase {
     }
 
     /// A capital after the dots that continues no cut word keeps its case and its space:
-    /// the model's capitals are not rewritten (owner's decision on #165).
+    /// the model's capitals are not rewritten (the owner's decision).
     func testACapitalAfterTrailingDotsThatIsAWordKeepsItsCase() {
         TranscriptJoin.isWord = isWordAfterDots
         XCTAssertEqual(joinedSegments("А це нова...", "Версія."), "А це нова... Версія.")

@@ -1118,7 +1118,7 @@ private struct TryItScreen: View {
                          + Text(holdToTalk ? " Let go when you're done." : " Press the keys again when you're done."))
                 case .listening:
                     if holdToTalk && HeldShortcuts.shared.down.contains(.inline) {
-                        // The practice step (#79): the letter alone keeps it going.
+                        // The practice step: the letter alone keeps it going.
                         if appState.holdTipFollowed {
                             title(Text("✓ ").foregroundColor(SetupColor.ok) + Text("Just \(qLetter) — that's it"))
                             body(Text("Clicks and ⌘Tab work as usual while you hold it. Let go of \(qLetter) when you're done."))

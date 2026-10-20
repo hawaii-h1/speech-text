@@ -124,7 +124,7 @@ struct STTModelDescriptor: Identifiable, Hashable {
 
     /// Whether a model is handed the user's vocabulary (`CustomVocabulary`). Only a
     /// *list* parameter counts: a free-text prompt (Groq's `prompt`, WhisperKit's prompt
-    /// tokens) is reported to be echoed back on silence, and waits for the #80 corpus.
+    /// tokens) is reported to be echoed back on silence, and waits for the audio corpus.
     enum Vocabulary: Hashable {
         case none
         case termList(TermListLimits)

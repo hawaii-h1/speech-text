@@ -3,7 +3,7 @@
 
 import XCTest
 
-/// The audio corpus through the real cloud engines (#80). Skipped unless the run asks
+/// The audio corpus through the real cloud engines. Skipped unless the run asks
 /// for it: it costs money, needs the network, and takes about as long as the clips.
 ///
 ///     SPEECHTEXT_LIVE=1              required
@@ -101,7 +101,7 @@ final class CorpusMeasureTests: XCTestCase {
         XCTAssertNil(CorpusMeasure.wordErrorRate(expected: "", actual: "Evet."))
     }
 
-    /// #67: the restatement joined on as new speech.
+    /// the restatement joined on as new speech.
     func testARestatementJoinedOnIsARepeatedPhrase() {
         let said = "Так, треба перевірити шорткати, де їх немає. Можливо, FN+Q, A, W, E."
         let pasted = said + " Так, треба перевірити шорткати, де їх немає. Можливо, FN плюс Q, A, W."
@@ -183,7 +183,7 @@ final class CorpusMeasureTests: XCTestCase {
         XCTAssertEqual(clip.dictionaryEntries.map(\.term), ["Grafana"])
     }
 
-    /// #166: the script rule measured as the owner runs the app — Auto, uk and en stated.
+    /// the script rule measured as the owner runs the app — Auto, uk and en stated.
     func testAClipWithSpokenLanguagesGetsAPassWithThemStated() throws {
         let clip = try JSONDecoder().decode(CorpusClip.self, from: Data("""
             {"expected": "", "language": "uk", "spokenLanguages": ["uk", "en"]}
@@ -236,7 +236,7 @@ final class CorpusMeasureTests: XCTestCase {
         return result
     }
 
-    /// #167: each cell against its own earlier result.
+    /// each cell against its own earlier result.
     func testARunIsComparedWithTheOneBeforeCellByCell() {
         let previous = [
             result("a", wer: 0.30), result("b", wer: 0.30), result("c", wer: 0.50),

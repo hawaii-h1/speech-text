@@ -67,7 +67,7 @@ final class BatchRecognitionSession: RecognitionSession {
             dlog("Engine", "BatchRecognitionSession.finish: the segment is silent — not uploaded")
             return RecognitionOutcome(text: "", error: nil, audioFileURL: fileURL, cancelled: Task.isCancelled)
         }
-        // Audible, but no voice in it — keyboard, a fan, the street (#172): not sent, so
+        // Audible, but no voice in it — keyboard, a fan, the street: not sent, so
         // not billed, and kept like a silent segment.
         let reading = await VoiceActivity.read(writer)
         if let reading, !reading.holdsSpeech {

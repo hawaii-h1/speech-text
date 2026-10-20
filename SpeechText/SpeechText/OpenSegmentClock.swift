@@ -7,7 +7,7 @@ import Foundation
 
 /// How long the realtime server kept one segment open — from the audio it was sent, not
 /// the clock, so a replay that feeds a minute of audio in a millisecond measures what a
-/// live dictation does (#164).
+/// live dictation does.
 ///
 /// Scribe Realtime closes a segment only after `STTTuning.vadSilenceThresholdSeconds` of
 /// silence, and someone reading or dictating a paragraph rarely pauses that long. A

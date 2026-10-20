@@ -63,8 +63,8 @@ func segmentSeparator(_ previous: String, _ next: String,
 /// One boundary is read past what the provider wrote: a segment that trails off into
 /// `...` / `…` straight after a letter. Scribe ends a segment its VAD closed on a pause
 /// that way, and opens the next with a capital whether or not a sentence starts there —
-/// so a word cut by the pause arrived as "перфо..." | "Ратор." and was pasted in two
-/// (#165). There the boundary is judged as if the capital were lowercase, and when the
+/// so a word cut by the pause arrived as "перфо..." | "Ратор." and was pasted in two.
+/// There the boundary is judged as if the capital were lowercase, and when the
 /// halves glue, the dots go and the second half is written in lowercase: "перфоратор.".
 /// Nothing else changes — a capital that continues no cut word keeps its case
 /// ("нова... | Версія."), as `cleanedTranscript` keeps the case after the dots it drops.
@@ -159,7 +159,7 @@ func transcriptOverlap(head: [TranscriptWord], tail: [TranscriptWord]) -> (words
     // The same, when the revision changed the word count. Compared position by position,
     // every word after "FN+Q" → "FN плюс Q" (one word become three) is shifted by two, and
     // a restatement with a single revision reads as 8 matches out of 12 — new speech,
-    // joined on, the dictation pasted twice (#67). Held to the unmistakable-repeat floor,
+    // joined on, the dictation pasted twice. Held to the unmistakable-repeat floor,
     // because in-order words are far easier to find than words in place: "Так, так"
     // would otherwise be restated by "Так, я сказав так".
     if head.count >= TranscriptMergeTuning.minimumRepeatedWords, head[0].text == tail[0].text,

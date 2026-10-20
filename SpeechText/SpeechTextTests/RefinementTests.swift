@@ -79,7 +79,7 @@ final class TextRefinementParseTests: XCTestCase {
 
 final class RefinementCollapseTests: XCTestCase {
     private let presets = PromptPresetStore.builtInDefaults
-    /// The #70 record: several sentences, and a list preset picked for the last of them.
+    /// The record that showed the collapse: several sentences, and a list preset picked for the last of them.
     private let input = "Завтра зранку подзвоню клієнту щодо договору. Потім треба закінчити звіт. Купити молоко, хліб і яйця."
 
     func testAWholeTextCollapsedIntoAListIsRefused() {
@@ -368,7 +368,7 @@ final class FocusContextTests: XCTestCase {
                                  "the six built-ins render as \(whole - framing) characters")
     }
 
-    /// The Edit shortcut's prompt goes out on every edit, so it has a budget too (#74).
+    /// The Edit shortcut's prompt goes out on every edit, so it has a budget too.
     /// It holds more than the routing prompt — the selection/instruction split and the
     /// polish rules — so its budget is the looser of the two.
     func testTheEditPromptStaysWithinItsBudget() {

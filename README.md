@@ -84,7 +84,7 @@ If you want to verify the download, each release carries a `.sha256` file beside
 shasum -a 256 -c SpeechText-<version>.dmg.sha256
 ```
 
-A Homebrew cask is not available yet — it needs a published release to point at. It is tracked in [issue #63](https://github.com/yavno/speech-text/issues/63).
+A Homebrew cask is not available yet — it needs a published release to point at. It is tracked in [issue #1](https://github.com/yavno/speech-text/issues/1).
 
 ### Permissions
 

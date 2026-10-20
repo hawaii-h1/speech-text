@@ -33,7 +33,7 @@ enum SettingsKeys {
     static let removeDisfluencies = "removeDisfluencies"
     /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
     static let dashStyle = "dashStyle"
-    /// The Settings › Speech › Vocabulary list #121 shipped (JSON `[VocabularyTerm]`).
+    /// The Settings › Speech › Vocabulary list an earlier release shipped (JSON `[VocabularyTerm]`).
     /// Read once by `CustomVocabulary.migrateLegacyStoreIfNeeded`, which moves it into
     /// `vocabulary` and deletes it.
     static let customVocabulary = "customVocabulary"

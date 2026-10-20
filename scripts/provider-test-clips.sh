@@ -52,7 +52,7 @@ rm -f ./*.aiff
 
 silence silence-2s.wav 2 16000
 afconvert -f flac -d flac@16000 silence-2s.wav silence-2s.flac
-# Under one FLAC block (4,608 frames), so the app would send it as WAV (#68).
+# Under one FLAC block (4,608 frames), so the app would send it as WAV.
 silence short-0.2s.wav 0.2 16000
 silence short-0.3s.wav 0.3 16000
 

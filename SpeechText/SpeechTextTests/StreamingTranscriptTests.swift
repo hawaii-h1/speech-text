@@ -328,7 +328,7 @@ final class TranscriptMergeTests: XCTestCase {
         XCTAssertEqual(mergedTranscript("Так, так", "так, добре"), "Так, так так, добре")
     }
 
-    // A revision that changes the word count (#67). Position by position, every word after
+    // A revision that changes the word count. Position by position, every word after
     // it is shifted and the restatement reads as new speech; by their longest common
     // subsequence the words still agree.
 
@@ -446,7 +446,7 @@ final class StreamFinishSettleTests: XCTestCase {
     }
 }
 
-// MARK: - Open segment clock (#164)
+// MARK: - Open segment clock
 
 final class OpenSegmentClockTests: XCTestCase {
     private func bytes(_ seconds: Double) -> Int { Int(seconds * 16_000) * 2 }
@@ -498,7 +498,7 @@ final class OpenSegmentClockTests: XCTestCase {
     }
 }
 
-/// #175: Apple's on-device results, as the e2e harness recorded them, lose no words —
+/// Apple's on-device results, as the e2e harness recorded them, lose no words —
 /// neither to a reset after a pause nor to an empty final.
 final class AppleUtterancesTests: XCTestCase {
     private func heard(_ results: [String]) -> AppleUtterances {

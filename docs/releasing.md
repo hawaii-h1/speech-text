@@ -54,11 +54,12 @@ Two consequences follow, and both matter more than they look:
 - **The account holder's own name is what users see** in the installer and in System
   Settings' developer line until the migration happens.
 
-**The repository will be made public.** Two things had to happen first; one is left:
+**The repository will be made public.** Two things had to happen first; both are done:
 
-1. The history rewrite that removes the competitive research (issue #45, still open).
-   `git log -p` reaches every deleted blob; making the repository public publishes them.
-2. Done: the continuous-integration rework (issue #59). Every `runs-on` in `ci.yml`, and
+1. Done: the history rewrite that removes the competitive research (2026-10-15, see
+   docs/development.md › History rewrite). Before it, `git log -p` reached every deleted
+   blob, and making the repository public would have published them.
+2. Done: the continuous-integration rework. Every `runs-on` in `ci.yml`, and
    the pull-request run in `release.yml`, is keyed on the repository's visibility, so once
    it is public a pull request runs on a GitHub-hosted machine, never on the
    organisation's self-hosted Mac.
@@ -331,7 +332,7 @@ This is how the update from 0.9.0 to the build after it was checked on 2026-09-2
 
 ### The update windows themselves
 
-The same override checks Sparkle's windows rather than an install (#92: an alert opened
+The same override checks Sparkle's windows rather than an install (an alert opened
 behind other apps, and its modal session disabled the whole status menu, Quit included).
 Use a `rebuild.sh` install — a ⌘R build starts no updater and has no Check for Updates…
 — quit and reopen SpeechText after every `defaults write`, and delete `SUFeedURL` at the

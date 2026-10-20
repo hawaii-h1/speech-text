@@ -68,7 +68,7 @@ struct RecordingConfiguration {
     ///
     /// What is left with no letter or digit in it is nothing: hesitations alone («Um, um,»)
     /// pass `HallucinationFilter` as letters and come out of the cleanup as «, ,» (Scribe
-    /// on a cough, #166). Safe on cumulative text — an empty view is a prefix of
+    /// on a cough). Safe on cumulative text — an empty view is a prefix of
     /// whatever real words follow.
     func cleaned(_ text: String) -> String {
         let cleaned = dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
@@ -76,7 +76,7 @@ struct RecordingConfiguration {
     }
 
     /// Groq Whisper's `prompt`: the ranked words as one line, within its limit — on
-    /// trial (#74), and nil when the switch is off or the Dictionary is empty.
+    /// trial, and nil when the switch is off or the Dictionary is empty.
     var whisperPrompt: String? { Vocabulary.whisperPrompt(vocabulary) }
 
     /// The user's Dictionary, read once at the start like everything else here — see
@@ -141,7 +141,7 @@ struct RecordingConfiguration {
     var hasLiveText: Bool { model.delivery == .systemRecognizer || streams }
 
     /// The longest segment the stream's own text is trusted for
-    /// (`STTTuning.streamLongestTrustedSegmentSeconds`, #164): a model whose server closes
+    /// (`STTTuning.streamLongestTrustedSegmentSeconds`): a model whose server closes
     /// segments on a pause. nil for one that keeps a single item open until the stop —
     /// OpenAI's, which invented nothing in that time on the corpus.
     var longestTrustedStreamSegment: Double? {

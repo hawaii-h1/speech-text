@@ -1,6 +1,6 @@
 # End-to-end runs (`scripts/e2e.sh`)
 
-The app itself, driven with no person (#82). A debug build records from corpus clips
+The app itself, driven with no person. A debug build records from corpus clips
 instead of the microphone, the script posts its global shortcuts as key events with real
 timing, and AppleScript reads back the documents the text was pasted into. The corpus
 harness (`scripts/evaluate.sh`, docs/audio-corpus.md) measures the engines; this one
@@ -49,7 +49,7 @@ sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
 scripts/e2e.sh                                   # every scenario, on Groq's upload
 scripts/e2e.sh --engine scribe-realtime          # … or gpt-live, apple
 scripts/e2e.sh --no-build --only hold,edit       # skip the build; some scenarios
-scripts/e2e.sh --traces --engine gpt-live        # also record dictation traces (#51)
+scripts/e2e.sh --traces --engine gpt-live        # also record dictation traces
 ```
 
 A full run takes about five minutes per engine. Results go to `/tmp/speechtext-e2e/<time>/`
@@ -60,7 +60,7 @@ A full run takes about five minutes per engine. Results go to `/tmp/speechtext-e
   (`<scenario>.txt`) and History (`<scenario>.history.json`).
 - `Traces/`, when `--traces` is set. Each one is named `<engine>-<scenario>-<date>.json`;
   `scripts/import-trace.sh NAME FILE` copies one into the private traces folder, where
-  `scripts/replay-traces.sh` replays it. Traces never go into this repository (#51).
+  `scripts/replay-traces.sh` replays it. Traces never go into this repository.
 
 The exit status is non-zero when a scenario failed.
 
@@ -73,7 +73,7 @@ The exit status is non-zero when a scenario failed.
 
 ## What it keeps apart from your own app
 
-These decisions were made on #82.
+These decisions were made when the harness was designed.
 
 - **Its own identity.** The build is stamped `app.speech-text.SpeechText.e2e` after it is
   built. That gives it its own preferences domain, which is reset before every scenario,
@@ -125,11 +125,11 @@ None of this is compiled into a Release build.
 | `smoke-plain-text` | `plain` into a plain-text TextEdit document | pasted once |
 | `smoke-script-editor` | `plain` into Script Editor | pasted once |
 
-Every dictation scenario also fails when a paste came before its stop (#75), and every
+Every dictation scenario also fails when a paste came before its stop, and every
 scenario fails when the paste went to an app other than the document's, which
 means something else took the front, or when the build had no Accessibility.
 
-Verdicts are structural. The owner rejected a WER threshold in #80, so WER against the
+Verdicts are structural. The owner rejected a WER threshold for the corpus, so WER against the
 clip's `expected` is shown in the summary as information only.
 
 ## What it cannot see

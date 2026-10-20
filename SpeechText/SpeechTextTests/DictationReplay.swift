@@ -416,7 +416,7 @@ final class DictationReplay {
                 break
             }
         }
-        // The user was somewhere else when they stopped (#77). When they switched is not
+        // The user was somewhere else when they stopped. When they switched is not
         // recorded, and it does not matter: nothing is pasted before the stop.
         if let destination = trace.setup.destination, destination != trace.setup.app {
             steps.append(.switchTo(FakeApp(destination)))

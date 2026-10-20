@@ -13,7 +13,7 @@ import Foundation
 // - the speech engine is told it, where its API takes one, unless the page's switch is
 //   off: a term list for Apple (`contextualStrings`), OpenAI (`keywords`) and ElevenLabs
 //   (`keyterms`) — which words, and how many, is `CustomVocabulary`'s — and Groq's
-//   Whisper a `prompt` (`whisperPrompt`), on trial: #74 records what to watch;
+//   Whisper a `prompt` (`whisperPrompt`), on trial, with what to watch recorded;
 // - the wrong spellings the user lists are replaced in what comes back, whatever the
 //   engine — `corrected`;
 // - AI Rewrite is handed the words and told to keep them as written — `promptBlock`.

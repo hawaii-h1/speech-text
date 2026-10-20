@@ -113,7 +113,7 @@ final class AudioBufferWriterTests: XCTestCase {
     }
 
     /// 0.2 s is 3 200 frames, under one FLAC block: Core Audio's encoder wrote that as a
-    /// 42-byte file with no header and no samples (#68). It has to open, and hold the audio.
+    /// 42-byte file with no header and no samples. It has to open, and hold the audio.
     func testSegmentShorterThanOneFLACBlockIsWrittenAsADecodableFile() throws {
         let writer = AudioBufferWriter()
         writer.prepare(sourceFormat: mono48k())
@@ -266,7 +266,7 @@ private final class UnreachableBatchTranscriber: BatchTranscriber, @unchecked Se
     }
 }
 
-/// #172: a segment with no voice in it is neither sent nor pasted.
+/// a segment with no voice in it is neither sent nor pasted.
 final class VoiceActivityTests: XCTestCase {
     private func writer(seconds: Double) -> AudioBufferWriter {
         let writer = AudioBufferWriter()
@@ -284,7 +284,7 @@ final class VoiceActivityTests: XCTestCase {
         return try await body()
     }
 
-    /// The corpus's own windows (#172): «Так.» filled two; room noise on a MacBook's
+    /// The corpus's own windows: «Так.» filled two; room noise on a MacBook's
     /// microphone raised one isolated window to 0.95 in fifteen seconds.
     func testALongSegmentNeedsTwoWindowsAndAShortOneOne() {
         let word: [Float] = [0.09, 0.06, 0.09, 1, 1, 0.21, 0.25, 0.16]
@@ -404,7 +404,7 @@ final class VoiceActivityTests: XCTestCase {
     }
 }
 
-/// The upload's and the stream's guards against text nobody said (#74).
+/// The upload's and the stream's guards against text nobody said.
 final class HallucinationGuardTests: XCTestCase {
 
     private func writer(seconds: Double, amplitude: Float = 0.5) -> AudioBufferWriter {
@@ -441,7 +441,7 @@ final class HallucinationGuardTests: XCTestCase {
         XCTAssertEqual(outcome.text, "Thank you for watching!")
     }
 
-    /// #166: noise a model wrote down — a breath as «.», a cough in another script — is
+    /// noise a model wrote down — a breath as «.», a cough in another script — is
     /// dropped like a known phrase, at any length; the script only once languages are stated.
     func testAnUploadOfPunctuationOrAForeignScriptIsEmptyAndKeepsItsAudio() async {
         for (answer, languages) in [("..", [String]()), ("うーん。", ["uk", "en"]), ("흠..", ["uk", "en"])] {
@@ -572,7 +572,7 @@ final class RecognitionFailureTests: XCTestCase {
                                  locale: locale)
     }
 
-    /// #69: the on-device recogniser failed 44 ms in, and the overlay listened for 12 s.
+    /// the on-device recogniser failed 44 ms in, and the overlay listened for 12 s.
     func testAFailureBeforeAnyTextEndsTheRecording() throws {
         let failure = try XCTUnwrap(apple())
 
@@ -664,7 +664,7 @@ final class RecognitionFailureTests: XCTestCase {
 
 final class ProviderErrorMessageTests: XCTestCase {
 
-    /// The reply that reached the user whole in #68.
+    /// The reply that reached the user whole when a short segment failed to upload.
     func testOpenAIsMessageIsKeptAndTheJSONIsNot() {
         let body = """
         {"error":{"message":"Audio file might be corrupted or unsupported","type":"invalid_request_error","param":"file","code":"invalid_value"}}

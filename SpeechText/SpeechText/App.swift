@@ -902,7 +902,7 @@ final class AppState {
     }
 
     /// Aborts recording, transcription and any in-flight LLM call, drops the overlay, and
-    /// says so: no cancel is silent (#72).
+    /// says so: no cancel is silent.
     func cancelInlineFlow(_ reason: DictationCancelReason) {
         // Written at the stop, before the LLM: a cancel during the rewrite leaves it there.
         let savedInHistory = isRefining && speechEngine.lastRecordID != nil
@@ -965,7 +965,7 @@ final class AppState {
             self?.handleStartFailure(message)
         }
         // Nor did a recogniser that failed before any text: the overlay listened on until
-        // the user stopped (#69). The engine has stopped by now; the result is the stop's.
+        // the user stopped. The engine has stopped by now; the result is the stop's.
         speechEngine.onRecognitionFailure = { [weak self] message in
             self?.handleRecognitionFailure(message)
         }
@@ -1446,7 +1446,7 @@ final class AppState {
     private var editSelection: CapturedSelection?
     private var isReadingSelection = false
     /// `editSelection` was read after the instruction ended, so it is the selection the
-    /// edit works on (#73); otherwise it is read again before the cut.
+    /// edit works on; otherwise it is read again before the cut.
     private var selectionIsCurrent = false
     private var editRemoval = EditRemoval.inPlace
     /// The instruction is over: the selection goes as soon as it has been read.
@@ -1707,7 +1707,7 @@ final class AppState {
         }
     }
 
-    /// The instruction is over: the selection is read again (#73) — the text selected
+    /// The instruction is over: the selection is read again — the text selected
     /// *now* is the one rewritten, whatever was selected at the first press — and cut, so
     /// nothing the user does while the LLM works can make the rewrite land on the wrong
     /// text. The rewrite is then pasted at the caret the cut leaves.
@@ -1960,7 +1960,7 @@ final class AppState {
         }
     }
 
-    /// Abandons the edit wherever it is — cancelled, and says so (#72, #73).
+    /// Abandons the edit wherever it is — cancelled, and says so.
     func cancelEdit(_ reason: EditCancelReason) {
         guard isEditMode else { return }
         var textPutBack = false
@@ -2117,7 +2117,7 @@ final class AppState {
         if animated { panel.fadeOutAndClose() } else { panel.close() }
     }
 
-    // MARK: - Hold tip (#79)
+    // MARK: - Hold tip
 
     /// The shortcut whose letter holds the current hold recording, while it does.
     private var holdTipAction: ShortcutAction?

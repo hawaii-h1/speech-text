@@ -95,7 +95,7 @@ enum TextRefinementService {
     /// An LLM reply as the paste gets it: look-alike characters undone, the Dictionary's
     /// wrong spellings and the Replacements table written in, and the dashes in the user's
     /// style — as a dictation's final text. The Edit shortcut's reply too, at the owner's
-    /// call (#74): a selection's own wrong spellings are put right with it.
+    /// call: a selection's own wrong spellings are put right with it.
     static func polishedReply(_ reply: String, dictionary: [VocabularyEntry] = Vocabulary.load(),
                               replacements: [TextReplacementPair] = TextReplacements.load(),
                               dashStyle: DashStyle = .current) -> String {
@@ -113,7 +113,7 @@ enum TextRefinementService {
 
     /// Whether `output` is so much shorter than `input` that applying it would be losing
     /// text rather than rewriting it — the Record Window replaced 129 characters with a
-    /// 27-character list (#70). Measured in characters of the trimmed strings.
+    /// 27-character list. Measured in characters of the trimmed strings.
     ///
     /// `allowsSummary`: the preset was picked for exactly this input, so a preset whose
     /// job is to shorten (see `isSummarising`) may do so. The caller passes false when the

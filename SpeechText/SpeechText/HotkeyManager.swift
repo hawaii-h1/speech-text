@@ -14,7 +14,7 @@ final class HotkeyRegistrationStatus {
 
 /// Which of the app's shortcuts are down right now. Carbon reports a hotkey's release
 /// only when its *key* comes up, whatever the modifiers do, so this is the letter: a
-/// hold recording goes on with ⌃⇧ let go and Q still down (#79). The keycaps in
+/// hold recording goes on with ⌃⇧ let go and Q still down. The keycaps in
 /// Settings and setup and the hold tip read it; the modifiers they read off
 /// `NSEvent.modifierFlags`.
 @Observable

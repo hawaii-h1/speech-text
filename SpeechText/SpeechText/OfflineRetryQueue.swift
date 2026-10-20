@@ -9,7 +9,7 @@ import Foundation
 /// retry them. Pure logic, in both targets: `OfflineRetry` feeds it the network's state
 /// and the retries' results, and does what it answers.
 ///
-/// Memory only, on purpose — "this session" is the decision (#78): a recording archived
+/// Memory only, on purpose — "this session" is the decision: a recording archived
 /// last week is History's to retry at the user's word, not something to upload the next
 /// time the Wi-Fi happens to come up.
 ///
