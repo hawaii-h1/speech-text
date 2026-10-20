@@ -70,7 +70,7 @@ public enum EditCancelReason: Equatable {
 /// `AppState` keeps the two apart: a dictation shortcut pressed during an edit cancels
 /// the edit, and the Edit shortcut is ignored while a dictation runs.
 ///
-/// Pure logic, in both targets; `AppState` supplies the phase and performs the action.
+/// Pure logic; `AppState` supplies the phase and performs the action.
 public struct EditHotkeyGesture {
     public enum Phase: Equatable {
         case idle

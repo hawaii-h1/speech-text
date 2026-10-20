@@ -43,7 +43,7 @@ public struct TermListLimits: Hashable {
 
 /// Which of the Dictionary's words a speech model is sent, and in what order. The words
 /// are `Vocabulary`'s; this decides only what reaches an engine through a parameter that
-/// is a term list (`STTModelDescriptor.vocabulary`). Pure logic, in both targets; its
+/// is a term list (`STTModelDescriptor.vocabulary`). Pure logic; its
 /// only reader of History is `historyUses`, which the app points at
 /// `TranscriptionHistory` at launch.
 public enum CustomVocabulary {

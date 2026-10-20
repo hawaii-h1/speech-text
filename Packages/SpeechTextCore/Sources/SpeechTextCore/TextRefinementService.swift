@@ -237,7 +237,7 @@ public enum TextRefinementService {
     }
 
     /// `defaultPresetID` is the user's chosen fallback, and it is a parameter rather than
-    /// a read: the prompt is pure logic in both targets, and the tests may not go near the
+    /// a read: the prompt is pure logic, and the tests may not go near the
     /// user's own settings. There is no default value on purpose — a caller that forgot it
     /// would silently drop the `(DEFAULT)` marker, and nothing downstream would say so.
     public static func buildSystemPrompt(presets: [PromptPreset], defaultPresetID: UUID?) -> String {

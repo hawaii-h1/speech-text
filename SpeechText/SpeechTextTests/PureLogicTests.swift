@@ -7,12 +7,12 @@ import AVFoundation
 import Carbon.HIToolbox
 @testable import SpeechTextCore
 
-// These tests compile the app's source files directly into the test bundle (see the
-// SpeechTextTests target's Sources phase) — there is no `@testable import`, because the
-// app is an LSUIElement agent that prompts for microphone access at launch, and hosting
-// tests inside it would hang a headless run. Everything exercised here must therefore
-// be constructible without UserDefaults: the user's real API keys live in the
-// app.speech-text.SpeechText domain and the tests never read or write it.
+// These tests reach the app's logic through `@testable import SpeechTextCore`, the local
+// package it lives in — never the app itself, which is an LSUIElement agent that prompts
+// for microphone access at launch, so hosting tests inside it would hang a headless run.
+// Everything exercised here must therefore be constructible without UserDefaults: the
+// user's real API keys live in the app.speech-text.SpeechText domain and the tests never
+// read or write it.
 
 
 // MARK: - What the stop still has to deliver (InlineDelivery.stopResult)

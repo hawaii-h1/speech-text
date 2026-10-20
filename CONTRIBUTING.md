@@ -48,7 +48,7 @@ git config core.hooksPath .githooks
 ```
 
 - `prepare-commit-msg` adds the DCO `Signed-off-by` line to every commit, so `-s` is no longer something to forget.
-- `pre-commit` refuses a commit that puts a `DEVELOPMENT_TEAM` back into `project.pbxproj`, adds a source file without the SPDX header, or adds a source file that is in no target. It reads the *staged* content and takes a fraction of a second; `--no-verify` bypasses it.
+- `pre-commit` refuses a commit that puts a `DEVELOPMENT_TEAM` back into `project.pbxproj`, adds a source file without the SPDX header, adds an app source file that is in no target, or adds a Swift file to the app or to `Packages/SpeechTextCore` named like one already in the other. It reads the *staged* content and takes a fraction of a second; `--no-verify` bypasses it.
 
 The test suite is deliberately not in a hook — CI runs it on every pull request and on every push to `main`, and a hook slow enough to avoid is a hook that gets bypassed.
 
@@ -73,11 +73,11 @@ Pull requests are merged as squashes — the only merge method the repository al
 Short on purpose. Anything a machine can refuse for you is not on it:
 
 - One concern per PR. Don't mix an unrelated fix into a feature.
-- A new app file the tests need is in **both** targets' Sources phases (see [docs/development.md](docs/development.md)). CI does catch this, but as `cannot find 'X' in scope` in a test file — which reads like a missing import, not like a project file that was never told about your file.
+- Logic you want tested goes in `Packages/SpeechTextCore/Sources/SpeechTextCore/`, which needs no project edit; views and anything that touches `AppState` or `SpeechEngine` stay in `SpeechText/SpeechText/` (see [docs/development.md](docs/development.md#tests)). A type the app uses is `public` there — the compiler says so, but as `cannot find 'X' in scope` in an app file, which reads like a missing import.
 - UI changes include a before/after screenshot. Anything with motion or timing includes a short video.
 - The description says what changed and why, and under *Needs a real-app run* what only a person can check in the running app (or "None").
 
-Everything else is checked for you. CI runs the test suite (which compiles the app too, and fails on any compiler warning in our code — see [docs/development.md](docs/development.md#compiler-warnings)), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, fails when docs/adding-a-provider.md no longer matches the provider code, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, except the provider guide, and add the sign-off itself.
+Everything else is checked for you. CI runs the test suite (which compiles the app too, and fails on any compiler warning in our code — see [docs/development.md](docs/development.md#compiler-warnings)), refuses a `DEVELOPMENT_TEAM` written back into `project.pbxproj`, refuses a Swift file without its SPDX header, fails when docs/adding-a-provider.md no longer matches the provider code, refuses `import SwiftUI` (or an engine's import) in `Packages/SpeechTextCore`, and requires a `Signed-off-by` on every commit in the pull request. The hooks above catch the same things before you push, except the provider guide, and add the sign-off itself.
 
 ## Review
 

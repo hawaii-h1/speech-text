@@ -7,7 +7,7 @@
 #
 #   scripts/check-log-privacy.sh [DIR]
 #       Scans every .swift file under DIR (default: SpeechText/ and Packages/SpeechTextCore/,
-#       where the app's logic is moving) for `dlog(…)` calls
+#       where the app's logic lives) for `dlog(…)` calls
 #       and for the bare `log(…)` wrappers that forward to it (TranscriptSpan.swift's).
 #       Every Debug Log entry also goes to the system log as public (DebugLog.swift), so
 #       an entry may say how long a text is, never what it says.

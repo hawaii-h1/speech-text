@@ -4,10 +4,9 @@
 
 import PackageDescription
 
-/// The app's logic that needs neither a view nor an engine: what the app, the unit tests
-/// and the SpeechTextEvaluation tool used to compile three times from one hand-kept list
-/// of Sources phases. Files move here a few at a time; one placed under `Sources/` is
-/// compiled with no project edit.
+/// The app's logic that needs neither a view nor an engine, which the app, the unit tests
+/// and the SpeechTextEvaluation tool link — once compiled three times from one hand-kept
+/// list of Sources phases. A file placed under `Sources/` is compiled with no project edit.
 ///
 /// It depends on no other package, so `import WhisperKit`, `FluidAudio`, `Sparkle` or
 /// `llama` here is a build error rather than a rule for review. `ChatTemplates` is a

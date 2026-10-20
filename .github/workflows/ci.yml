@@ -121,8 +121,8 @@ jobs:
         continue-on-error: true
         run: scripts/coverage-summary.sh "$RUNNER_TEMP/tests.xcresult" >> "$GITHUB_STEP_SUMMARY"
 
-      # The corpus tool compiles the test subset by hand-kept list. Built, never run:
-      # running it needs recordings and keys this machine does not have.
+      # The corpus tool links SpeechTextCore and compiles the engine runtimes itself.
+      # Built, never run: running it needs recordings and keys this machine does not have.
       - name: Build the evaluation tool
         run: |
           xcodebuild build \
@@ -345,7 +345,20 @@ jobs:
     # say how long a dictation is, never what it says. Shell and awk only. No Mac involved.
     runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: No Debug Log line interpolates the user's text
         run: scripts/check-log-privacy.sh
+
+  core-imports:
+    name: Core imports
+    # Packages/SpeechTextCore is the logic the tests reach without the app, so no file
+    # there may import SwiftUI — a system framework its manifest cannot refuse. The
+    # engines are a build error there already (the manifest declares no dependency) and
+    # are checked anyway. Shell and grep only. No Mac involved.
+    runs-on: ${{ github.repository_visibility == 'private' && 'self-hosted' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: SpeechTextCore imports no view framework or engine
+        run: scripts/check-core-imports.sh

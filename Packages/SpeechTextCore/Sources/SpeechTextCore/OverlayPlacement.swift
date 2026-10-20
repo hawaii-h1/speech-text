@@ -42,7 +42,7 @@ public enum OverlayGrowth: Equatable {
     case up, down
 }
 
-/// Where the inline overlay sits on screen. Pure geometry, in both targets: the panel
+/// Where the inline overlay sits on screen. Pure geometry: the panel
 /// hands in its shape and the screens' visible frames, so a monitor that went away can be
 /// tested without one.
 ///

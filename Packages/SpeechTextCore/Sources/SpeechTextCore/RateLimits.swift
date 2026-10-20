@@ -32,7 +32,7 @@ public struct RateLimitSnapshot: Equatable {
     public var windows: [RateLimitWindow]
 }
 
-/// Reads the rate-limit headers the vendors send with every reply. Pure, in both targets.
+/// Reads the rate-limit headers the vendors send with every reply. Pure.
 enum RateLimits {
     /// OpenAI and Groq spell them `x-ratelimit-{limit,remaining,reset}-<what>` with the
     /// reset as a duration ("2m59.56s"); Anthropic `anthropic-ratelimit-<what>-{limit,

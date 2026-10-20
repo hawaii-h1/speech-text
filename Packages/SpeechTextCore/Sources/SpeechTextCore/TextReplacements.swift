@@ -37,7 +37,7 @@ public struct TextReplacementPair: Codable, Hashable, Identifiable {
 ///
 /// Applied to final text only — a segment's result, and the LLM's reply — never to the
 /// live text on the overlay (see **The Dictionary corrects final text, never live
-/// text**), so a source may have any number of words. Pure logic, in both targets.
+/// text**), so a source may have any number of words. Pure logic.
 struct TextReplacementRules {
     private let withByKey: [String: String]
     private let expression: NSRegularExpression?

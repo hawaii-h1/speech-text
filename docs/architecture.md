@@ -6,13 +6,13 @@ A short map of the code for someone about to change it. [CLAUDE.md](../CLAUDE.md
 
 SpeechText is a macOS menu bar agent (`LSUIElement`, no window at launch). A global shortcut starts a recording; speech is turned into text by one of several engines — Apple's on-device recogniser, a model on this Mac, or a cloud service — optionally rewritten by an LLM, and pasted at the cursor of the app in front.
 
-All app sources are in `SpeechText/SpeechText/`. The Xcode project has four targets:
+The app's views, state, engine runtimes and stores are in `SpeechText/SpeechText/`; its logic is in a local Swift package, `Packages/SpeechTextCore` (`Sources/SpeechTextCore/`, and `Sources/ChatTemplates/` as a product of its own). The Xcode project has four targets:
 
 | Target | What it is |
 |---|---|
 | **SpeechText** | The app. |
-| **SpeechTextTests** | The unit tests. A *standalone* bundle — no `TEST_HOST`, no `@testable import` — that compiles a curated subset of the app's sources itself (see [Invariants](#invariants)). |
-| **SpeechTextEvaluation** | A command-line tool, its own scheme, that runs the audio corpus through the local engines the test bundle cannot load, and exports the model catalogues. Built by CI, never run there; ships nothing. |
+| **SpeechTextTests** | The unit tests. A *standalone* bundle — no `TEST_HOST`, no `@testable import` of the app — that tests the package through `@testable import SpeechTextCore` (see [Invariants](#invariants)). |
+| **SpeechTextEvaluation** | A command-line tool, its own scheme, that runs the audio corpus through the local engines the test bundle cannot load, and exports the model catalogues. It links SpeechTextCore and compiles the engine runtimes itself. Built by CI, never run there; ships nothing. |
 | **SpeechTextLLM** | An XPC service inside the app (`Contents/XPCServices/SpeechTextLLM.xpc`) that runs AI Rewrite on this Mac with llama.cpp, so a crash or an out-of-memory model ends the service, not the dictation. |
 
 Everything else is Apple frameworks, plus four third-party packages, each imported by as few files as possible:
@@ -74,9 +74,9 @@ The upload and streaming sessions guard what they hand back: a segment too short
 
 Files listed by layer, with the types worth knowing first. Not every file is here.
 
-### Pure logic — compiled into the test bundle too
+### Pure logic — `Packages/SpeechTextCore`
 
-These have no SwiftUI views, no `AppState`, no `SpeechEngine`, and never import WhisperKit or FluidAudio.
+These have no SwiftUI views, no `AppState`, no `SpeechEngine`. The package's manifest declares no dependency, so none of them can import WhisperKit, FluidAudio, Sparkle or llama, and CI refuses `import SwiftUI` there.
 
 | Area | Files and key types |
 |---|---|
@@ -85,8 +85,9 @@ These have no SwiftUI views, no `AppState`, no `SpeechEngine`, and never import 
 | Settings | `RecordingConfiguration.swift`, `Settings.swift` (`SettingsKeys`), `APIKeyStore.swift` (`APIKeyStore`, `SecretStorage`), `MicrophoneChoice.swift` |
 | Text | `TranscriptSpan.swift` (`TranscriptSpanLayer`), `TranscriptMerge.swift`, `TranscriptCleanup.swift`, `HallucinationFilter.swift`, `VoiceActivity.swift`, `Vocabulary.swift`, `TextReplacements.swift`, `CustomVocabulary.swift` |
 | Delivery and AI | `InlineDelivery.swift`, `DictationHotkeys.swift` (`DictationHotkeyGesture`, `HoldTip`), `SelectionEdit.swift` (`EditHotkeyGesture`, `CapturedSelection`), `InsertionLedger.swift`, `DeliveryTier.swift`, `FinalizePass.swift`, `FocusContext.swift`, `TextRefinementService.swift`, `PromptPresets.swift` |
-| Local models | `LocalModelCatalog.swift` (`LocalSTT` registration box, `MacTier`), `LocalChatCatalog.swift` (`LocalChat` box), `ChatTemplates.swift`, `SystemCapabilities.swift` |
-| History and usage | `TranscriptionHistory.swift` (`TranscriptionRecord`), `HistorySummary.swift`, `HomeSummary.swift`, `UsageSummary.swift`, `NetworkFailure.swift`, `OfflineRetryQueue.swift`, `RateLimits.swift`, `DictationTrace.swift` |
+| Local models | `LocalModelCatalog.swift` (`LocalSTT` registration box, `MacTier`), `LocalChatCatalog.swift` (`LocalChat` box), `ChatTemplates.swift` (the ChatTemplates product), `SystemCapabilities.swift` |
+| History and usage | `TranscriptionHistory.swift` (`TranscriptionRecord`), `HistorySummary.swift`, `HomeSummary.swift`, `UsageSummary.swift`, `NetworkFailure.swift`, `OfflineRetryQueue.swift`, `RateLimits.swift`, `DictationTrace.swift`, `DebugLog.swift` |
+| Overlay | `OverlayPlacement.swift` (where the overlay sits, as geometry) |
 
 ### App-only services
 
@@ -103,13 +104,13 @@ These have no SwiftUI views, no `AppState`, no `SpeechEngine`, and never import 
 | `LocalChatClient.swift`, `LocalChatXPC.swift` | The app's side of the SpeechTextLLM service |
 | `KeychainSecretStorage.swift` | The keychain backing `APIKeyStore` in signed builds |
 | `HistoryRetry.swift`, `OfflineRetry.swift` | Retrying archived audio, by hand and when the network returns |
-| `UpdateChecker.swift`, `AppInstaller.swift`, `DockIcon.swift`, `DebugLog.swift` | Updates, the move to Applications, the Dock icon, the log |
+| `UpdateChecker.swift`, `AppInstaller.swift`, `DockIcon.swift`, `DebugLogView.swift` | Updates, the move to Applications, the Dock icon, the log window |
 
 ### UI
 
 | Files | Surface |
 |---|---|
-| `RecordingOverlay.swift`, `OverlayPlacement.swift` | The inline overlay and status notices |
+| `RecordingOverlay.swift` | The inline overlay and status notices (placed by `OverlayPlacement`) |
 | `DirectRecordingPanel.swift` | The Record Window |
 | `MainWindow.swift`, `HomeView.swift`, `HistoryView.swift`, `UsageView.swift`, `PromptsView.swift`, `DictionaryView.swift`, `MainPageKit.swift` | The main window and its pages |
 | `SettingsWindow.swift`, `SettingsView.swift` (`SettingsView`), `SettingsEngines.swift` | Settings |
@@ -124,7 +125,7 @@ Each of these was learned the hard way. Break one only on purpose, and update CL
 - **One write at the stop**, built from the whole recording (`spanLayer.text`), never from the last segment. — *One write at the stop*
 - **Streaming rides alongside the audio file, never instead of it.** The stream is for live text; the file is always written, and the upload answers whenever the stream cannot be trusted. — *Streaming rides alongside the audio file, never instead of it*
 - **Settings are snapshotted per session.** Provider, model and key are read once at start; History retry is the one place that reads fresh settings. — *Settings are snapshotted per session*
-- **The test subset stays a subset.** No `TEST_HOST`; a file the tests need goes in the Sources phases of SpeechText, SpeechTextTests *and* SpeechTextEvaluation, together with what it depends on; a subset file never reaches into views, `AppState` or `SpeechEngine`, and never imports WhisperKit or FluidAudio. — CLAUDE.md › Tests, and [development.md](development.md#tests)
+- **SpeechTextCore stays closed.** No `TEST_HOST`; logic the tests need goes in `Packages/SpeechTextCore`, together with what it depends on, and needs no project edit; a package file never reaches into views, `AppState` or `SpeechEngine`. The manifest declares no dependency, so an engine's import there does not build, and CI's *Core imports* job refuses `import SwiftUI`. — CLAUDE.md › Tests, and [development.md](development.md#tests)
 - **The local tier is reached through registration boxes.** `LocalSTT`, `LocalChat` and `VoiceActivity.detector` are filled at launch (`registerLocalSTT()`, `registerLocalChat()`, `registerVoiceActivity()`); unregistered, they fail or judge nothing rather than return empty text. — *Registration, not imports, for the local tier*
 - **API keys go through `APIKeyStore`.** Never read or write a key with `UserDefaults` directly: in a signed build they live in the keychain. — *API keys live in the keychain when the build can reach it*, and [development.md](development.md#api-keys)
 - **No telemetry or analytics of any kind.** — [ROADMAP.md](../ROADMAP.md)
@@ -133,7 +134,7 @@ Each of these was learned the hard way. Break one only on purpose, and update CL
 
 | What you changed | How it is tested | Where |
 |---|---|---|
-| Pure logic (parsing, merging, catalogues, settings derivations) | Unit tests in SpeechTextTests; `xcodebuild test … -scheme SpeechText` | [development.md](development.md#tests) |
+| Pure logic (parsing, merging, catalogues, settings derivations) in SpeechTextCore | Unit tests in SpeechTextTests; `xcodebuild test … -scheme SpeechText` | [development.md](development.md#tests) |
 | The path from provider events to the paste | `DictationReplay`: scripted provider events through the real sessions, span layer and `InlineDelivery` into fake apps; asserts nothing is pasted before the stop | `SpeechTextTests/DictationReplay.swift` |
 | A real dictation that went wrong | Record a trace (Debug Log › Record traces), import it, replay it with `RecordedTraceTests` — traces stay outside the repository | `scripts/import-trace.sh`, `scripts/replay-traces.sh` |
 | Engine accuracy, guards against noise | The audio corpus through the real engines (`LiveProviderTests`, SpeechTextEvaluation) | [audio-corpus.md](audio-corpus.md), `scripts/evaluate.sh` |

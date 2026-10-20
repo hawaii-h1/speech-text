@@ -6,8 +6,7 @@ import Foundation
 // Which languages a model knows, and what a row says about them (#30, designed in
 // docs/design/model-details/). A row names no language unless it is one of the user's own
 // — Dictation › Languages I speak — so every sentence here is built from the user's list,
-// never written for one language. Pure data and logic, in every target that compiles a
-// catalogue.
+// never written for one language. Pure data and logic.
 
 /// What a model knows, as against `STTModelDescriptor.LanguageSupport`, which says what its
 /// API *takes*. Required on every speech catalogue entry, as `price` is: "not published" is

@@ -17,7 +17,7 @@ public struct TextReplacement: Equatable {
 /// is left is the plan, which the Record Window's ✨ uses to write a refined segment over
 /// the one it came from.
 ///
-/// Pure logic, in both targets. The sink does the I/O and hands its document in here;
+/// Pure logic. The sink does the I/O and hands its document in here;
 /// everything that decides whether and where to write is below, where `PureLogicTests`
 /// can reach it.
 public enum FinalizePass {

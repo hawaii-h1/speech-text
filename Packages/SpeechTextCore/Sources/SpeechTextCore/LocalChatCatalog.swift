@@ -155,7 +155,7 @@ public func isLocalChatModelInstalled(_ model: LocalChatModel) -> Bool {
 // MARK: - Registration
 
 /// The local chat runtime, reached through a box as the speech engines are (`LocalSTT`):
-/// `ChatClients.swift` is in the test subset and may not name the XPC client, which is
+/// `ChatClients.swift` is in SpeechTextCore and cannot name the XPC client, which is
 /// app-only. `registerLocalChat()` (LocalChatClient.swift) fills it at launch; unfilled —
 /// the test bundle — every client throws rather than answering with nothing.
 public enum LocalChat {

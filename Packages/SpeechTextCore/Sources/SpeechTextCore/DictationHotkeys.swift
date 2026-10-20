@@ -86,7 +86,7 @@ public enum DictationCancelReason: Equatable {
 /// again while it is down; a press of it means its release never arrived, and it follows
 /// the table, so a missed release costs one extra press rather than a stuck recording.
 ///
-/// Pure logic, in both targets; `AppState` supplies the phase and performs the action.
+/// Pure logic; `AppState` supplies the phase and performs the action.
 public struct DictationHotkeyGesture {
     public enum Phase: Equatable {
         case idle
@@ -233,8 +233,8 @@ public enum KeycapState: Equatable {
 ///
 /// Shown beside the overlay for the first hold recordings, and gone once the user has
 /// let go of the modifiers mid-recording `lessons` times; then, once, how to switch to
-/// the other mode while holding. The count lives in `holdTipFollowedCount`. Pure logic,
-/// in both targets; `AppState` shows the panel and keeps the count.
+/// the other mode while holding. The count lives in `holdTipFollowedCount`. Pure logic;
+/// `AppState` shows the panel and keeps the count.
 public enum HoldTip {
     /// Hold recordings in which the tip was *followed* — the modifiers let go with the
     /// letter still down — before it stops appearing.

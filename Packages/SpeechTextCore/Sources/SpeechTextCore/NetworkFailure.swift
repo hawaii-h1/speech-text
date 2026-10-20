@@ -6,7 +6,7 @@ import Foundation
 // MARK: - What counts as "no connection"
 
 /// Whether an error means the Mac could not reach the network at all, as opposed to a
-/// provider that was reached and answered badly. Pure logic, in both targets.
+/// provider that was reached and answered badly. Pure logic.
 ///
 /// The answer decides what the user is told and what happens next: an offline failure
 /// says "No connection — saved to History" and is retried by itself once the network is
@@ -57,7 +57,7 @@ public enum NetworkFailure {
 // MARK: - Reconnecting a stream
 
 /// When a realtime stream that broke mid-recording is opened again, and how hard to try.
-/// Pure logic, in both targets; `StreamingRecognitionSession` asks it.
+/// Pure logic; `StreamingRecognitionSession` asks it.
 ///
 /// A reconnect exists for the overlay: after a short outage the user keeps seeing their
 /// words instead of a transcript frozen where the link dropped. It is never what the

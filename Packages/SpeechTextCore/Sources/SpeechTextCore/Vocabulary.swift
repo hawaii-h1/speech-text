@@ -18,7 +18,7 @@ import Foundation
 //   engine — `corrected`;
 // - AI Rewrite is handed the words and told to keep them as written — `promptBlock`.
 //
-// Pure, in both targets. The page is DictionaryView.swift.
+// Pure. The page is DictionaryView.swift.
 
 /// One word the user taught: how it is spelled, and how it has come out wrong.
 public struct VocabularyEntry: Identifiable, Codable, Hashable {

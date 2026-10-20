@@ -40,7 +40,7 @@ Accessibility (the ⌘V paste and reading the focused field) and speech recognit
 git config core.hooksPath .githooks
 ```
 
-Adds the DCO sign-off to every commit, and refuses one that carries a `DEVELOPMENT_TEAM`, a new Swift file without the SPDX header, or a new Swift file that is in no target. See [CONTRIBUTING.md](../CONTRIBUTING.md#hooks).
+Adds the DCO sign-off to every commit, and refuses one that carries a `DEVELOPMENT_TEAM`, a new Swift file without the SPDX header, a new Swift file that is in no target, or a new Swift file in the app or in `Packages/SpeechTextCore` named like a file already in the other. See [CONTRIBUTING.md](../CONTRIBUTING.md#hooks).
 
 ## Tests
 
@@ -49,11 +49,11 @@ xcodebuild test -project SpeechText/SpeechText.xcodeproj \
   -scheme SpeechText -destination 'platform=macOS'
 ```
 
-The test bundle is **standalone** — no `TEST_HOST`, no `@testable import` of the app. The app is a menu bar agent that asks for microphone access at launch, so hosting tests inside it would hang a headless run. Instead the test target compiles a curated subset of app sources directly.
+The test bundle is **standalone** — no `TEST_HOST`, no `@testable import` of the app. The app is a menu bar agent that asks for microphone access at launch, so hosting tests inside it would hang a headless run. Instead the logic the tests cover lives in a local Swift package, `Packages/SpeechTextCore`, whose module of the same name the app, the tests and the evaluation tool link. The test target compiles no app source.
 
-**Consequence:** if your test needs a new app file, add that file to *both* targets' Sources phases. The same goes for anything it depends on. Files in the test subset must not reach into the app's view or state graph (SwiftUI views, `AppState`, `SpeechEngine`) — if they do, the subset stops being a subset.
+A file under `Packages/SpeechTextCore/Sources/SpeechTextCore/` needs no `project.pbxproj` edit: the package compiles every file there, once. The app reaches what it uses through `import SpeechTextCore`, so whatever the app or the tool calls is `public`; a test reaches the rest with `@testable import SpeechTextCore`, which imports a module, not the app, so the bundle stays standalone. The three test files the evaluation tool also compiles (`CatalogueExport`, `CorpusEvaluation`, `LiveDictation`) use a plain `import`, since the tool is built in Release, without testing enabled. `ChatTemplates` is a second product of the same package, under `Sources/ChatTemplates/`, linked on its own by the `SpeechTextLLM` service.
 
-That logic is moving, a few files at a time, into a local Swift package, `Packages/SpeechTextCore`, whose module of the same name the app, the tests and the evaluation tool link. A file under `Packages/SpeechTextCore/Sources/SpeechTextCore/` needs no Sources-phase edit: the package compiles every file there, once. The app reaches what it uses through `import SpeechTextCore`, so whatever the app or the tool calls is `public`; a test reaches the rest with `@testable import SpeechTextCore`, which imports a module, not the app, so the bundle stays standalone. The three test files the evaluation tool also compiles (`CatalogueExport`, `CorpusEvaluation`, `LiveDictation`) use a plain `import`, since the tool is built in Release, without testing enabled. The package depends on nothing, so an engine's import there is a build error. `ChatTemplates` is a second product of the same package, linked on its own by the `SpeechTextLLM` service.
+**Consequence:** if your test needs new logic, put it in the package, together with anything it depends on. What stays in `SpeechText/SpeechText/` is what the package may not hold: SwiftUI views, `AppState`, `SpeechEngine`, the capture, `PasteService`, the hotkeys, the engine runtimes, the stores, the XPC client and the keychain. A package file must not reach into that graph, and it cannot import an engine at all — the manifest declares no dependency, so `import WhisperKit`, `FluidAudio`, `Sparkle` or `llama` there is a build error. `import SwiftUI` is the one the manifest cannot stop; CI's *Core imports* job does. A new file in the app (a view, say) is still added to the app target in Xcode, and the evaluation tool compiles the engine runtimes it runs directly, so a new runtime file goes in its Sources phase too.
 
 Tests never touch `UserDefaults` or the keychain: your real settings live in that domain, and a build without the profile keeps your API keys there too. Construct values directly instead; `APIKeyStoreTests` gives the store an isolated `suiteName` and a keychain in memory.
 
@@ -198,6 +198,7 @@ moves the work:
 | Provider guide | `self-hosted` | `ubuntu-latest` | `scripts/check-provider-guide.sh` — docs/adding-a-provider.md still names code that exists |
 | Base branch | `self-hosted` | `ubuntu-latest` | the base is `main`, or the stack is labelled — see above |
 | Log privacy | `self-hosted` | `ubuntu-latest` | `scripts/check-log-privacy.sh` — no `dlog` call interpolates dictated, selected or rewritten text |
+| Core imports | `self-hosted` | `ubuntu-latest` | `scripts/check-core-imports.sh` — no file under `Packages/SpeechTextCore/Sources` imports SwiftUI, WhisperKit, FluidAudio, Sparkle or llama |
 | Swift lint | `self-hosted` | `macos-latest` | `scripts/lint-swift.sh` — swift-format's semantic rules (not layout) on the lines a pull request adds or changes; needs Xcode's `swift-format` |
 
 While the repository is private only collaborators can open a pull request, so
@@ -209,7 +210,7 @@ the failure is a job that does not start rather than a stranger's code on
 someone's Mac.
 
 Actions minutes are free for a public repository on the standard runners. The
-six cheap jobs then run on Linux, where they are faster and cost a tenth as
+seven cheap jobs then run on Linux, where they are faster and cost a tenth as
 much, and stop competing for a runner with the tests.
 
 A hosted runner starts empty, so WhisperKit, FluidAudio and Sparkle would be
@@ -288,11 +289,13 @@ should a public repository's pull request reach the self-hosted runner anyway.
 
 ```
 SpeechText/
-  SpeechText/          app sources
+  SpeechText/          the app: views, AppState, SpeechEngine, engine runtimes, stores
   SpeechTextTests/     unit tests
   SpeechText.xcodeproj
 Packages/
-  SpeechTextCore/      the app's logic, as a local Swift package (moving in; see Tests)
+  SpeechTextCore/      the app's logic, as a local Swift package (see Tests)
+    Sources/SpeechTextCore/   settings, catalogues, transcribers, sessions, History, …
+    Sources/ChatTemplates/    the local chat models' prompt formats
   LlamaBinary/         llama.cpp's prebuilt xcframework, pinned
 docs/
   development.md       this file
@@ -329,4 +332,4 @@ Match the surrounding code. A few conventions the codebase holds to:
   - `.info` — everything else: what the app is doing (phase changes, the paste target, a session started).
 
   The level never changes what a message may say: every entry is public in the system log, so a message holds counts and lengths, never the user's words (`scripts/check-log-privacy.sh`).
-- No new third-party dependencies. The four there are each imported by one file per use — WhisperKit by `LocalWhisperRuntime.swift`, FluidAudio by `LocalParakeetRuntime.swift` and `VoiceActivityRuntime.swift`, Sparkle by `UpdateChecker.swift`, llama.cpp by `LocalLlamaRuntime.swift` (compiled into the service and the evaluation tool, not the app) — keep them there, because the test bundle compiles app sources directly and cannot resolve packages. If you think you need another dependency, open an issue first.
+- No new third-party dependencies. The four there are each imported by one file per use — WhisperKit by `LocalWhisperRuntime.swift`, FluidAudio by `LocalParakeetRuntime.swift` and `VoiceActivityRuntime.swift`, Sparkle by `UpdateChecker.swift`, llama.cpp by `LocalLlamaRuntime.swift` (compiled into the service and the evaluation tool, not the app) — keep them there, out of `Packages/SpeechTextCore`, whose manifest declares no dependency and so cannot reach any of them. If you think you need another dependency, open an issue first.

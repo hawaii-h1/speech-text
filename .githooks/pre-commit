@@ -2,9 +2,9 @@
 # SPDX-FileCopyrightText: 2026 Vladyslav Husakov
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The three items of the pull-request checklist a commit can be checked against
-# on its own, in the fraction of a second before it is written. Everything slower
-# (the test suite) stays in CI, so committing never becomes something to avoid.
+# The checks a commit can be put through on its own, in the fraction of a second
+# before it is written. Everything slower (the test suite) stays in CI, so
+# committing never becomes something to avoid.
 #
 # Checks run against the *staged* content, not the working tree, so a half-finished
 # edit sitting next to a clean commit cannot fail it.
@@ -53,19 +53,36 @@ for file in $added_swift; do
         *) note "$file is missing the two-line SPDX header." ;;
     esac
 
-    # 3. A new app source file that is in no target builds for nobody. The test
-    #    bundle compiles a curated subset of app sources directly (no TEST_HOST),
-    #    so a file the tests need belongs to *both* Sources phases — which this
-    #    cannot know, hence the reminder rather than a second failure.
+    # 3. A new app source file that is in no target builds for nobody. Files under
+    #    Packages/SpeechTextCore are not in the project at all — the package compiles
+    #    whatever is there — so they are not asked; logic the tests need goes there.
     case $file in
         SpeechText/SpeechText/*.swift|SpeechText/SpeechTextTests/*.swift)
             name=${file##*/}
             if ! staged_content "$pbxproj" | grep -Fq "$name"; then
                 note "$name is in no target: add it to the Sources phase in $pbxproj"
-                note "(and to *both* targets if the tests compile it — see docs/development.md)."
+                note "(or, if it is logic the tests need, put it in Packages/SpeechTextCore — see docs/development.md)."
             fi
             ;;
     esac
+
+    # 4. The app imports SpeechTextCore, so a file in one named like a file in the
+    #    other usually declares the same type twice, and the compiler then reports
+    #    an ambiguity far from the cause — or a file copied rather than moved. Read
+    #    from the index, so a `git mv` from the app into the package passes.
+    name=${file##*/}
+    case $file in
+        SpeechText/SpeechText/*.swift) other=Packages/SpeechTextCore/Sources ;;
+        Packages/SpeechTextCore/Sources/*.swift) other=SpeechText/SpeechText ;;
+        *) other= ;;
+    esac
+    if [ -n "$other" ]; then
+        twin=$(git ls-files -- "$other" | awk -F/ -v name="$name" '$NF == name { print; exit }')
+        if [ -n "$twin" ]; then
+            note "$file has the same name as $twin."
+            note "Rename one, or move the file with git mv instead of copying it."
+        fi
+    fi
 done
 
 if [ "$failed" -ne 0 ]; then

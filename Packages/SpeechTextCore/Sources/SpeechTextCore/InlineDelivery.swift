@@ -11,7 +11,7 @@ import Foundation
 /// to replace — which is what used to fill this file, when committed spans were pasted
 /// into the target app as they arrived.
 ///
-/// Pure logic, in both targets. `AppState` asks it where the dictation goes when the user
+/// Pure logic. `AppState` asks it where the dictation goes when the user
 /// stops, and what to do with the text once the engine has gone idle; it keeps everything
 /// that is not a decision: the overlay, the status notices, the Record Window fallback,
 /// the LLM call, the paste itself.

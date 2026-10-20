@@ -17,7 +17,7 @@ import Foundation
 /// Phrases a person plausibly dictates on their own ("Thank you", "Дякую за увагу")
 /// are not on the list, however often a model invents them.
 ///
-/// Pure logic, in both targets.
+/// Pure logic.
 public enum HallucinationFilter {
     /// Compared after `normalized`: lowercase, letters and digits only, one space
     /// between words.

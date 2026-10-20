@@ -8,7 +8,7 @@ import SpeechTextCore
 
 /// The Core Audio half of the microphone choice: which input devices exist, which one
 /// the system uses, and whether a MacBook's lid is closed. The decision itself is
-/// `MicrophoneResolution` (MicrophoneChoice.swift), pure and in both targets.
+/// `MicrophoneResolution` (MicrophoneChoice.swift), pure and in SpeechTextCore.
 enum AudioInputDevices {
     /// Every device with at least one input stream, in Core Audio's order.
     static func all() -> [AudioInputDevice] {

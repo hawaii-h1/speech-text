@@ -15,7 +15,7 @@ import Foundation
 ///   at all, after partials that had plenty. An empty result never erases words already
 ///   heard.
 ///
-/// Pure logic, in both targets, so the rules are tested without `Speech`.
+/// Pure logic, so the rules are tested without `Speech`.
 public struct AppleUtterances: Equatable {
     /// Utterances the recogniser has moved past.
     public private(set) var settled = ""
@@ -94,7 +94,7 @@ public struct AppleUtterances: Equatable {
 ///   word mean the recogniser is not recovering by itself; more would only churn, while
 ///   the 50 s rotation still gives it a fresh try every 50 s.
 ///
-/// Pure logic, in every target: the session hands in its clock (`systemUptime`), the tests
+/// Pure logic: the session hands in its clock (`systemUptime`), the tests
 /// a fake one.
 public struct AppleErrorRotation: Equatable {
     static let minimumChunkSeconds: TimeInterval = 1

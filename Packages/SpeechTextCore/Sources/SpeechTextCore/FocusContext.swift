@@ -14,7 +14,7 @@ import Foundation
 ///
 /// Pure logic, like `AXTextProbe`: `PasteService.readFocusContext` makes the Accessibility
 /// calls and hands the raw answers to `capture`, which is what keeps the decisions about
-/// what may be sent in the test subset.
+/// what may be sent in SpeechTextCore, where the tests reach them.
 public struct FocusContext: Codable, Equatable {
     public var appName: String?
     public var bundleID: String?
