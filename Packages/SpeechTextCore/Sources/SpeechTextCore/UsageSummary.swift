@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // What the main window's Usage page says, worked out from History — pure, so the numbers,
 // the chart's buckets and the breakdowns are testable without a window. Counted as Home's
@@ -13,12 +12,12 @@ import SpeechTextCore
 // "All" is what it holds. The page is UsageView.swift.
 
 /// The page's periods.
-enum UsagePeriod: String, CaseIterable, Identifiable {
+public enum UsagePeriod: String, CaseIterable, Identifiable {
     case week, month, quarter, all
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .week: "7 days"
         case .month: "30 days"
@@ -37,83 +36,85 @@ enum UsagePeriod: String, CaseIterable, Identifiable {
     }
 }
 
-struct UsageSummary: Equatable {
+public struct UsageSummary: Equatable {
     /// One bar of the chart: a day, a week or a month.
-    struct Bucket: Equatable, Identifiable {
-        let start: Date
+    public struct Bucket: Equatable, Identifiable {
+        public let start: Date
         /// Words pasted as dictated, and words AI Rewrite wrote.
-        var dictatedWords = 0
-        var rewrittenWords = 0
-        var speechCost: Double = 0
-        var aiCost: Double = 0
+        public var dictatedWords = 0
+        public var rewrittenWords = 0
+        public var speechCost: Double = 0
+        public var aiCost: Double = 0
 
-        var id: Date { start }
-        var words: Int { dictatedWords + rewrittenWords }
-        var cost: Double { speechCost + aiCost }
+        public var id: Date { start }
+        public var words: Int { dictatedWords + rewrittenWords }
+        public var cost: Double { speechCost + aiCost }
     }
 
-    enum Granularity: Equatable { case day, week, month }
+    public enum Granularity: Equatable { case day, week, month }
 
     /// What a dictation was: said and pasted, rewritten by AI Rewrite, or an edit of a
     /// selection. History does not record which shortcut started it, so the Record
     /// Window's dictations count as what they became.
-    enum Kind: String, CaseIterable, Identifiable {
+    public enum Kind: String, CaseIterable, Identifiable {
         case dictated, rewritten, edit
 
-        var id: String { rawValue }
+        public var id: String { rawValue }
     }
 
-    struct KindUse: Equatable {
-        var count = 0
-        var words = 0
+    public struct KindUse: Equatable {
+        public var count = 0
+        public var words = 0
         var speechCost: Double = 0
         var aiCost: Double = 0
-        var cost: Double { speechCost + aiCost }
+        public var cost: Double { speechCost + aiCost }
+
+        public init() {}
     }
 
     /// One model that did the work: a speech model, or an AI Rewrite model — each model
     /// apart, so a user who changes models sees every one they used.
-    struct EngineUse: Equatable, Identifiable {
-        enum Step: Equatable { case speech, ai }
-        let step: Step
+    public struct EngineUse: Equatable, Identifiable {
+        public enum Step: Equatable { case speech, ai }
+        public let step: Step
         /// The speech provider's raw value, or the chat model's ID.
-        let key: String
+        public let key: String
         /// The chat provider's raw value for an AI Rewrite model; the speech model's ID for
         /// a speech one, nil for records written before History kept it.
-        var provider: String?
-        var uses = 0
+        public var provider: String?
+        public var uses = 0
         /// Of an AI Rewrite model's `uses`, the selections it edited (the Edit shortcut);
         /// the rest were dictations it rewrote.
-        var edits = 0
-        var minutes: Double = 0
+        public var edits = 0
+        public var minutes: Double = 0
         /// Nil when the model has no list price (`ListPrice.notPriced`).
-        var cost: Double? = 0
-        var isLocal = false
+        public var cost: Double? = 0
+        public var isLocal = false
 
-        var id: String { "\(step)-\(key)-\(provider ?? "")" }
+        public var id: String { "\(step)-\(key)-\(provider ?? "")" }
     }
 
     /// One vendor's model as its own replies count it: the requests the ledger holds
     /// (`UsageEvent`), what was sent and billed, and how long an answer took.
-    struct RequestUse: Equatable, Identifiable {
-        let step: EngineUse.Step
-        let vendor: Provider
-        let model: String
-        var requests = 0
-        var failed = 0
+    public struct RequestUse: Equatable, Identifiable {
+        public let step: EngineUse.Step
+        public let vendor: Provider
+        public let model: String
+        public var requests = 0
+        public var failed = 0
         /// Audio sent, and billed where the vendor or its documented minimum said.
-        var audioSeconds: Double = 0
-        var billedSeconds: Double = 0
+        public var audioSeconds: Double = 0
+        public var billedSeconds: Double = 0
         /// Requests whose billed seconds are known; the rest count only as sent.
-        var billedRequests = 0
-        var inputTokens = 0
-        var outputTokens = 0
+        public var billedRequests = 0
+        public var inputTokens = 0
+        public var outputTokens = 0
         var latencies: [Double] = []
 
-        var id: String { "\(step)-\(vendor.rawValue)-\(model)" }
+        public var id: String { "\(step)-\(vendor.rawValue)-\(model)" }
 
         /// The middle answer time, so one slow request does not speak for the rest.
-        var typicalLatency: Double? {
+        public var typicalLatency: Double? {
             guard !latencies.isEmpty else { return nil }
             let sorted = latencies.sorted()
             let middle = sorted.count / 2
@@ -122,30 +123,30 @@ struct UsageSummary: Equatable {
     }
 
     /// What was paid for without becoming the text, and what was never sent at all.
-    struct Overhead: Equatable {
+    public struct Overhead: Equatable {
         /// Audio streamed for a segment that the upload then transcribed again.
-        var paidTwiceSeconds: Double = 0
-        var retries = 0
-        var retrySeconds: Double = 0
+        public var paidTwiceSeconds: Double = 0
+        public var retries = 0
+        public var retrySeconds: Double = 0
         /// Requests a vendor refused, or that broke off.
-        var failedRequests = 0
+        public var failedRequests = 0
         /// Silent segments a cloud engine was never sent.
-        var notSentSeconds: Double = 0
+        public var notSentSeconds: Double = 0
 
-        var isEmpty: Bool { self == Overhead() }
+        public var isEmpty: Bool { self == Overhead() }
     }
 
-    struct AppUse: Equatable, Identifiable {
-        let app: String
-        var words = 0
+    public struct AppUse: Equatable, Identifiable {
+        public let app: String
+        public var words = 0
         var dictations = 0
-        var id: String { app }
+        public var id: String { app }
     }
 
-    var words = 0
-    var dictations = 0
-    var rewrites = 0
-    var edits = 0
+    public var words = 0
+    public var dictations = 0
+    public var rewrites = 0
+    public var edits = 0
     var failed = 0
     /// Minutes of speech behind `words` — first word to last, where the record kept it
     /// (`TranscriptionRecord.speakingDuration`), else the whole recording.
@@ -153,40 +154,40 @@ struct UsageSummary: Equatable {
     /// The words said in those minutes: the transcript, before AI Rewrite made it longer,
     /// shorter or another language. `words` is what was delivered.
     var spokenWords = 0
-    var savedMinutes: Double = 0
+    public var savedMinutes: Double = 0
     var speechCost: Double = 0
     var aiCost: Double = 0
-    var unpricedModels: [String] = []
+    public var unpricedModels: [String] = []
     /// AI passes priced from their words, not their tokens: written before the provider's
     /// usage was kept.
-    var estimatedAIPasses = 0
-    var buckets: [Bucket] = []
+    public var estimatedAIPasses = 0
+    public var buckets: [Bucket] = []
     /// Requests by model, from the ledger — speech first, then the busiest.
-    var requests: [RequestUse] = []
-    var overhead = Overhead()
+    public var requests: [RequestUse] = []
+    public var overhead = Overhead()
     /// The oldest record in the period with a ledger; requests before it were not kept.
-    var ledgerSince: Date?
-    var granularity: Granularity = .day
-    var kinds: [Kind: KindUse] = [:]
-    var engines: [EngineUse] = []
-    var apps: [AppUse] = []
+    public var ledgerSince: Date?
+    public var granularity: Granularity = .day
+    public var kinds: [Kind: KindUse] = [:]
+    public var engines: [EngineUse] = []
+    public var apps: [AppUse] = []
     /// The oldest dictation History still holds.
-    var since: Date?
+    public var since: Date?
     /// The day the chart starts on when History begins inside the period — nil when the
     /// chart covers the whole period.
-    var chartSince: Date?
-    let typingWordsPerMinute: Double
+    public var chartSince: Date?
+    public let typingWordsPerMinute: Double
 
-    var spent: Double { speechCost + aiCost }
+    public var spent: Double { speechCost + aiCost }
 
     /// Words a minute while speaking; nil before there is a minute's worth to divide.
-    var speakingWordsPerMinute: Double? {
+    public var speakingWordsPerMinute: Double? {
         guard speakingMinutes >= 0.5, spokenWords > 0 else { return nil }
         return Double(spokenWords) / speakingMinutes
     }
 
     /// How many times faster speaking was than typing.
-    var speedup: Double? {
+    public var speedup: Double? {
         speakingWordsPerMinute.map { $0 / typingWordsPerMinute }
     }
 
@@ -382,15 +383,15 @@ struct UsageSummary: Equatable {
     }
 
     /// The tallest bar's words — the chart's scale.
-    var mostWords: Int { buckets.map(\.words).max() ?? 0 }
-    var mostCost: Double { buckets.map(\.cost).max() ?? 0 }
+    public var mostWords: Int { buckets.map(\.words).max() ?? 0 }
+    public var mostCost: Double { buckets.map(\.cost).max() ?? 0 }
 }
 
 /// The Usage page's summaries as they were last worked out, kept until History, the typing
 /// speed or the day changes: the page's body runs again whenever SwiftUI redraws it, and
 /// each time that was every record History holds priced and counted. Each period is kept,
 /// so switching back to one costs nothing.
-final class UsageSummaryCache {
+public final class UsageSummaryCache {
     private struct Key: Equatable {
         let records: [TranscriptionRecord]
         let typingWordsPerMinute: Double
@@ -402,7 +403,9 @@ final class UsageSummaryCache {
     private var key: Key?
     private var summaries: [UsagePeriod: UsageSummary] = [:]
 
-    func summary(records: [TranscriptionRecord], period: UsagePeriod, typingWordsPerMinute: Double,
+    public init() {}
+
+    public func summary(records: [TranscriptionRecord], period: UsagePeriod, typingWordsPerMinute: Double,
                  now: Date = Date(), calendar: Calendar = .current) -> UsageSummary {
         // An unchanged History is the same array, which compares at once.
         let key = Key(records: records, typingWordsPerMinute: typingWordsPerMinute,
@@ -421,10 +424,10 @@ final class UsageSummaryCache {
 
 // MARK: - Formatting
 
-enum UsageFormat {
+public enum UsageFormat {
     /// A bar's label under the chart: "Mon" for a week of days, "14" for a month of them,
     /// "28 Sep" for a week, "Sep" for a month.
-    static func label(_ start: Date, granularity: UsageSummary.Granularity, dayCount: Int,
+    public static func label(_ start: Date, granularity: UsageSummary.Granularity, dayCount: Int,
                       calendar: Calendar = .current) -> String {
         let format = switch granularity {
         case .day: dayCount <= 7 ? "EEE" : "d"
@@ -436,7 +439,7 @@ enum UsageFormat {
 
     /// What a bar is, in full, for its tooltip: "Monday 28 September", "Week of 28
     /// September", "September 2026".
-    static func title(_ start: Date, granularity: UsageSummary.Granularity, calendar: Calendar = .current) -> String {
+    public static func title(_ start: Date, granularity: UsageSummary.Granularity, calendar: Calendar = .current) -> String {
         switch granularity {
         case .day: HistoryFormat.formatter("EEEE d MMMM", calendar: calendar).string(from: start)
         case .week: "Week of " + HistoryFormat.formatter("d MMMM", calendar: calendar).string(from: start)
@@ -445,7 +448,7 @@ enum UsageFormat {
     }
 
     /// "820", "48.2k", "1.3M" tokens.
-    static func tokens(_ value: Int) -> String {
+    public static func tokens(_ value: Int) -> String {
         switch value {
         case ..<1_000: "\(value)"
         case ..<1_000_000: String(format: value < 10_000 ? "%.1fk" : "%.0fk", Double(value) / 1_000)
@@ -454,17 +457,17 @@ enum UsageFormat {
     }
 
     /// An answer's wait: "0.4 s", "12 s".
-    static func wait(_ seconds: Double) -> String {
+    public static func wait(_ seconds: Double) -> String {
         seconds < 10 ? String(format: "%.1f s", seconds) : "\(Int(seconds.rounded())) s"
     }
 
     /// Audio: "45 s", "12 min", "1 h 5 min".
-    static func audio(_ seconds: Double) -> String {
+    public static func audio(_ seconds: Double) -> String {
         seconds < 60 ? "\(Int(seconds.rounded())) s" : HomeFormat.durationText(minutes: seconds / 60)
     }
 
     /// "3.6×", "12×".
-    static func speedup(_ value: Double) -> String {
+    public static func speedup(_ value: Double) -> String {
         value >= 10 ? "\(Int(value.rounded()))×" : String(format: "%.1f×", value)
     }
 

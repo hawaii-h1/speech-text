@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // What the model rows in Settings › Speech to text, Settings › AI Rewrite and setup say, in
 // the words of someone choosing one. Pure, so `ModelLanguageTests` can hold every line to
@@ -30,32 +29,32 @@ private func speechModelWords(_ model: LocalSTTModel) -> String {
 
 /// What a local speech model's row says: its words, and what we measured in the languages
 /// the user speaks.
-func speechModelLine(_ model: LocalSTTModel, spoken: [String]) -> String {
+public func speechModelLine(_ model: LocalSTTModel, spoken: [String]) -> String {
     lineWithLanguageNotes(speechModelWords(model), notes: model.languageNotes, spoken: spoken)
 }
 
 /// "483 MB · 25 languages", "378 MB · English only".
-func speechModelSubtitle(_ model: LocalSTTModel) -> String {
+public func speechModelSubtitle(_ model: LocalSTTModel) -> String {
     ([model.downloadSizeDescription] + [languageCountLabel(model.languages)].compactMap { $0 })
         .joined(separator: " · ")
 }
 
-func speechModelName(_ model: LocalSTTModel) -> String {
+public func speechModelName(_ model: LocalSTTModel) -> String {
     model.id == "openai_whisper-large-v3-v20240930_turbo_632MB" ? "Whisper Turbo" : model.displayName
 }
 
 /// Apple's recogniser, as a row beside the downloaded models. Which of the user's languages
 /// it takes on this Mac is asked of macOS and said by the row's badge.
-let appleDictationLine = "Built into macOS, nothing to download. Words appear as you speak."
+public let appleDictationLine = "Built into macOS, nothing to download. Words appear as you speak."
 
 /// Setup's "On this Mac" card on an Intel Mac.
-let intelSpeechPlaceFacts = "Private and free, but slow on this Mac."
+public let intelSpeechPlaceFacts = "Private and free, but slow on this Mac."
 
 // MARK: - Speech online
 
 /// An online speech model's name in a row, without the catalogue's picker suffix
 /// ("— live text"), which the line under it says in words.
-func onlineSpeechModelName(_ model: STTModelDescriptor) -> String {
+public func onlineSpeechModelName(_ model: STTModelDescriptor) -> String {
     model.displayName.components(separatedBy: " — ").first ?? model.displayName
 }
 
@@ -72,12 +71,12 @@ private func onlineSpeechModelWords(_ model: STTModelDescriptor) -> String {
     }
 }
 
-func onlineSpeechModelLine(_ model: STTModelDescriptor, spoken: [String]) -> String {
+public func onlineSpeechModelLine(_ model: STTModelDescriptor, spoken: [String]) -> String {
     lineWithLanguageNotes(onlineSpeechModelWords(model), notes: model.languageNotes, spoken: spoken)
 }
 
 /// What each online speech service is good at.
-func onlineSpeechServiceLine(_ service: Provider) -> String {
+public func onlineSpeechServiceLine(_ service: Provider) -> String {
     switch service {
     case .groq: "Fast Whisper. Text appears when you stop."
     case .elevenLabs: "Strongest on accents and noise. Can show words as you speak."
@@ -90,12 +89,12 @@ func onlineSpeechServiceLine(_ service: Provider) -> String {
 
 /// A chat model's name in a row, without the catalogue's picker notes ("(fastest)",
 /// "— balanced"), which the line under it says in words.
-func chatModelName(_ model: ChatModelDescriptor) -> String {
+public func chatModelName(_ model: ChatModelDescriptor) -> String {
     let name = model.displayName.components(separatedBy: " — ").first ?? model.displayName
     return name.replacingOccurrences(of: #" \((fastest|preview)\)$"#, with: "", options: .regularExpression)
 }
 
-func chatModelLine(_ model: ChatModelDescriptor) -> String {
+public func chatModelLine(_ model: ChatModelDescriptor) -> String {
     switch model.id {
     case "openai/gpt-oss-120b": "Clean text in about a second."
     case "openai/gpt-oss-20b": "The fastest, a little less careful."
@@ -110,7 +109,7 @@ func chatModelLine(_ model: ChatModelDescriptor) -> String {
     }
 }
 
-func onlineAIServiceLine(_ service: Provider) -> String {
+public func onlineAIServiceLine(_ service: Provider) -> String {
     switch service {
     case .groq: "Fast, with a free plan. Its key works for speech too."
     case .anthropic: "Claude. Careful writing, paid."
@@ -121,7 +120,7 @@ func onlineAIServiceLine(_ service: Provider) -> String {
 
 /// What each local chat model is, in a line — from the rewrite evaluation on an M1 Pro —
 /// with what we measured in the user's languages, and the memory a heavy one needs.
-func aiModelLine(_ model: LocalChatModel, heavy: Bool, spoken: [String]) -> String {
+public func aiModelLine(_ model: LocalChatModel, heavy: Bool, spoken: [String]) -> String {
     let words = switch model.id {
     case "gemma-4-12b-it-qat-q4_0": "The best in our rewrite test. Clean text in 2–4 seconds."
     case "Qwen3.5-9B-Q4_K_M": "A step behind Gemma 4 12B, a little lighter."
@@ -136,4 +135,4 @@ func aiModelLine(_ model: LocalChatModel, heavy: Bool, spoken: [String]) -> Stri
 }
 
 /// Under the models on an Intel Mac, which has no GPU llama.cpp can use well.
-let intelChatWarning = "This Mac has an Intel processor: a model runs on it alone, and a rewrite can take a minute or more. An online service is much faster."
+public let intelChatWarning = "This Mac has an Intel processor: a model runs on it alone, and a rewrite can take a minute or more. An online service is much faster."

@@ -12,7 +12,7 @@ import Foundation
 /// Groq and OpenAI serve both, with one key.
 /// `Codable` by its raw value, which History's ledger stores (`UsageEvent.vendor`) — so a
 /// rename of a case is a migration, pinned by `StoredProviderNameTests`.
-public enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
+public enum Provider: String, CaseIterable, Hashable, Identifiable, Codable, Sendable {
     case apple
     case groq
     case elevenLabs

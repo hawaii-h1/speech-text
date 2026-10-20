@@ -3,12 +3,11 @@
 
 import Foundation
 import AVFoundation
-import SpeechTextCore
 
 // MARK: - Protocol
 
 /// What a session tells the engine while a segment is open. Always delivered on the main thread.
-enum RecognitionEvent {
+public enum RecognitionEvent {
     /// The text so far. `committed` will not change again; `partial` may still be revised.
     /// Kept apart (rather than pre-joined) so a later span layer can map them onto
     /// partial / commit / revise without re-splitting a string.
@@ -22,16 +21,16 @@ enum RecognitionEvent {
 
 /// A recogniser error as the engine acts on it: what the user is told, and whether the
 /// recording can go on.
-struct RecognitionFailure: Equatable {
+public struct RecognitionFailure: Equatable {
     /// What the status notice, the Record Window's status line and the History row say.
-    var message: String
+    public var message: String
     /// The recogniser failed before it produced any text. Nothing follows an error — the
     /// task is over — so listening on only takes audio no one transcribes: one overlay
     /// listened for twelve seconds after a failure 44 ms in. The engine ends the
     /// recording at once instead. With text already there the recording goes on as it
     /// always has: that text is kept for the stop, and Apple's session opens a fresh task
     /// at once rather than at its next 50 s chunk rotation (`AppleErrorRotation`).
-    var endsRecording: Bool
+    public var endsRecording: Bool
 
     /// kAFAssistantErrorDomain 216: the task was cancelled — by a chunk rotation, a stop
     /// or `cancel()` — which is not a failure. Matched on the code alone, as it always was.
@@ -46,7 +45,7 @@ struct RecognitionFailure: Equatable {
     /// cancellation. Pure: the session reads the error, the text it holds and the Speech
     /// Recognition permission, and hands the answers in. The raw error stays in the Debug
     /// Log; the message has to fit the status notice's two lines, which the tests measure.
-    static func apple(domain: String, code: Int, description: String,
+    public static func apple(domain: String, code: Int, description: String,
                       hasText: Bool, permissionDenied: Bool,
                       locale: String) -> RecognitionFailure? {
         guard code != cancelledCode else { return nil }
@@ -79,36 +78,49 @@ struct RecognitionFailure: Equatable {
 
 /// The result of a finished segment. History bookkeeping stays in the engine, so this
 /// carries everything the engine needs to write the record.
-struct RecognitionOutcome {
+public struct RecognitionOutcome: Sendable {
     /// Trimmed. Empty when nothing was recognised or the segment failed.
-    var text: String
+    public var text: String
     /// Set when the segment failed. May coexist with non-empty text (Apple: an error after
     /// some words were recognised) — text wins, for History and the stop's paste alike, and
     /// the engine only logs the error.
-    var error: String?
+    public var error: String?
     /// The segment file a batch session wrote. Ownership passes to the engine, which
     /// deletes it on success and hands it to History otherwise.
-    var audioFileURL: URL?
+    public var audioFileURL: URL?
     /// `cancel()` or task cancellation cut the wait short: nothing is recorded and the
     /// file, if any, is deleted.
-    var cancelled: Bool
+    public var cancelled: Bool
     /// The segment failed because there was no network (`NetworkFailure.isOffline`), not
     /// because a provider answered badly. The user is told it is saved to History rather
     /// than shown the provider's error, and the archived audio is retried once the
     /// network is back.
-    var offline = false
+    public var offline = false
     /// The vendor answered that the model is not served (`ModelUnavailableReply`): the
     /// failure notice offers the model picker. Nothing retries on it.
-    var modelUnavailable = false
+    public var modelUnavailable = false
     /// Every request the segment cost (`UsageEvent`) — on an empty or failed outcome too,
     /// since a request the vendor answered was billed whatever the answer held.
-    var usage: [UsageEvent] = []
+    public var usage: [UsageEvent] = []
     /// The segment's speech from its first word to its last
     /// (`VoiceActivityReading.voicedSpanSeconds`), when the detector read it; nil leaves
     /// the engine to read it itself (Apple), or Usage to count the whole segment.
-    var speakingSeconds: Double? = nil
+    public var speakingSeconds: Double? = nil
 
-    static let cancelled = RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: true)
+    public init(text: String, error: String?, audioFileURL: URL?, cancelled: Bool,
+                offline: Bool = false, modelUnavailable: Bool = false,
+                usage: [UsageEvent] = [], speakingSeconds: Double? = nil) {
+        self.text = text
+        self.error = error
+        self.audioFileURL = audioFileURL
+        self.cancelled = cancelled
+        self.offline = offline
+        self.modelUnavailable = modelUnavailable
+        self.usage = usage
+        self.speakingSeconds = speakingSeconds
+    }
+
+    public static let cancelled = RecognitionOutcome(text: "", error: nil, audioFileURL: nil, cancelled: true)
 
     /// A segment too short to be speech (`STTTuning.minimumSegmentSeconds`): leaves no
     /// trace at all — no text, no error, no History row. It is `cancelled` because that
@@ -120,7 +132,7 @@ struct RecognitionOutcome {
 /// One segment of recognition, whatever the tier. Created by `makeRecognitionSession`
 /// once per segment (a resume is a new session); the engine owns the microphone, the
 /// tap and the `AudioBufferWriter`, and the session gets the writer by reference.
-protocol RecognitionSession: AnyObject {
+public protocol RecognitionSession: AnyObject {
     /// Set by the engine before `start()`. Invoked on the main thread.
     var onEvent: ((RecognitionEvent) -> Void)? { get set }
     /// Opens sockets / recognisers. Called before the tap is installed and before the
@@ -145,12 +157,12 @@ protocol RecognitionSession: AnyObject {
     func cancel()
 }
 
-enum RecognitionSessionError: LocalizedError {
+public enum RecognitionSessionError: LocalizedError {
     case recognizerUnavailable(String)
     /// Speech Recognition is denied or restricted for the app, so every task would fail.
     case speechPermissionDenied
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .recognizerUnavailable(let locale): return "Speech recognizer not available for \(locale)"
         case .speechPermissionDenied: return RecognitionFailure.speechPermissionMessage

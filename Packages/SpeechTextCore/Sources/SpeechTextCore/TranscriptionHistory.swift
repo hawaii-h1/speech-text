@@ -109,8 +109,8 @@ public struct TranscriptionRecord: Identifiable, Codable, Equatable {
 /// upload it fell back to are two, a retry is another, a rewrite another — so Usage
 /// counts the work that was paid for, not the one result that survived. Prices are not
 /// stored: the units are, and Usage prices them.
-public struct UsageEvent: Codable, Equatable {
-    public enum Kind: String, Codable {
+public struct UsageEvent: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
         /// A segment's file upload — including a stream's fallback.
         case upload
         /// A realtime socket, reconnects included.

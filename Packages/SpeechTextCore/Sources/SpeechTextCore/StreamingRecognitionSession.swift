@@ -3,7 +3,6 @@
 
 import Foundation
 import AVFoundation
-import SpeechTextCore
 
 // MARK: - Streaming with batch fallback
 
@@ -19,8 +18,8 @@ import SpeechTextCore
 /// new socket's words are merged after it (`TranscriptMerge`), never doubled. The new
 /// socket did not hear the outage, though, so a segment that had one is finished by
 /// the upload all the same — the reconnect is for the overlay, not for the text.
-final class StreamingRecognitionSession: RecognitionSession {
-    var onEvent: ((RecognitionEvent) -> Void)?
+public final class StreamingRecognitionSession: RecognitionSession {
+    public var onEvent: ((RecognitionEvent) -> Void)?
 
     /// The stream events are read from. Replaced on a reconnect; main-thread state.
     private var provider: StreamingTranscriber
@@ -101,7 +100,7 @@ final class StreamingRecognitionSession: RecognitionSession {
     private let segments: OpenSegmentBox
     private let longestTrustedSegment: Double?
 
-    init(provider: StreamingTranscriber, writer: AudioBufferWriter, languages: [String],
+    public init(provider: StreamingTranscriber, writer: AudioBufferWriter, languages: [String],
          fallback: RecognitionSession,
          reconnect: (() -> StreamingTranscriber?)? = nil,
          policy: StreamReconnectPolicy = StreamReconnectPolicy(),
@@ -120,7 +119,7 @@ final class StreamingRecognitionSession: RecognitionSession {
         self.policy = policy
     }
 
-    func start() throws {
+    public func start() throws {
         connected = true
         attach(provider)
     }
@@ -261,7 +260,7 @@ final class StreamingRecognitionSession: RecognitionSession {
         reconnectTask = nil
     }
 
-    func feed(native: AVAudioPCMBuffer, pcm16: Data?) {
+    public func feed(native: AVAudioPCMBuffer, pcm16: Data?) {
         guard let provider = sendTarget.current else { return }
         if needsResampling {
             // The writer's bytes are the wrong rate for this socket, so the stream does
@@ -309,9 +308,9 @@ final class StreamingRecognitionSession: RecognitionSession {
         return resampler.convert(buffer)
     }
 
-    func pause() -> String? { nil }
+    public func pause() -> String? { nil }
 
-    func finish() async -> RecognitionOutcome {
+    public func finish() async -> RecognitionOutcome {
         // Snapshot under main-actor isolation: `cancel()` nils `eventsTask` on main, a
         // reconnect replaces `provider` there, and this function runs off it.
         //
@@ -446,7 +445,7 @@ final class StreamingRecognitionSession: RecognitionSession {
         return (dropped, reading)
     }
 
-    func cancel() {
+    public func cancel() {
         closing = true
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -462,9 +461,9 @@ final class StreamingRecognitionSession: RecognitionSession {
 /// `MainActor.run` hop and read only there, on main, where every other use of the
 /// object happens too. Swift 6.2 can say this with `nonisolated(unsafe) weak let`;
 /// the project still builds with Swift 6.0 tools (Xcode 16), so it is a box.
-final class MainActorWeakRef<Object: AnyObject>: @unchecked Sendable {
-    weak var object: Object?
-    init(_ object: Object?) { self.object = object }
+public final class MainActorWeakRef<Object: AnyObject>: @unchecked Sendable {
+    public weak var object: Object?
+    public init(_ object: Object?) { self.object = object }
 }
 
 /// The session's `OpenSegmentClock`: fed on the audio thread, told on main that the

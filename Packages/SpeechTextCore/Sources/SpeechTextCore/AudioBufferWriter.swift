@@ -3,7 +3,6 @@
 
 import AVFoundation
 import os.log
-import SpeechTextCore
 
 private let abwLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                              category: "AudioBufferWriter")
@@ -23,7 +22,7 @@ private let abwLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechTe
 /// If no converter can be built for the hardware format (it happens on exotic devices),
 /// the writer falls back to what it did before: native buffer copies, converted at stop,
 /// with a native-format WAV as the last resort. Losing the recording is never an option.
-final class AudioBufferWriter {
+public final class AudioBufferWriter {
     /// Speech-to-text APIs downsample to 16 kHz mono internally, so uploading the mic's
     /// native format (typically 48 kHz float32 ≈ 192 KB/s) wastes ~12x the bytes for no
     /// accuracy gain — and blows past provider upload limits after ~2 minutes of speech.
@@ -109,12 +108,14 @@ final class AudioBufferWriter {
     /// (on the audio thread) if the converter ever errors, after which the buffers are
     /// kept natively and the stream — which only ever gets converted bytes — is starved;
     /// the engine watches for that and lets the batch fallback take the segment.
-    private(set) var isConvertingLive = false
+    public private(set) var isConvertingLive = false
+
+    public init() {}
 
     /// Builds the session's converter for the tap's format. Called before the tap is
     /// installed — and again, with no tap in place, when the engine is rebuilt on a new
     /// device mid-segment; without it `append` takes the native-copy fallback path.
-    func prepare(sourceFormat: AVAudioFormat) {
+    public func prepare(sourceFormat: AVAudioFormat) {
         let downsampler = PCMDownsampler(sourceFormat: sourceFormat, targetRate: Self.uploadSampleRate)
         lock.lock()
         self.downsampler = downsampler
@@ -133,7 +134,7 @@ final class AudioBufferWriter {
     /// Pro), against the 100 or 21 ms of audio each holds; the lock was already taken once
     /// per buffer before.
     @discardableResult
-    func append(_ buffer: AVAudioPCMBuffer) -> Data? {
+    public func append(_ buffer: AVAudioPCMBuffer) -> Data? {
         guard buffer.frameLength > 0 else { return nil }
         lock.lock()
         defer { lock.unlock() }
@@ -209,7 +210,7 @@ final class AudioBufferWriter {
     /// and returns its URL. The extension tells the caller what it got: `.flac` on the
     /// normal path, `.wav` if the FLAC encoder refused (logged) or if the recording is on
     /// the native-format last resort. Throws `noAudio` if nothing was buffered.
-    func writeAudioFile() throws -> URL {
+    public func writeAudioFile() throws -> URL {
         flushConverter()
 
         lock.lock()
@@ -340,7 +341,7 @@ final class AudioBufferWriter {
 
     /// The segment's audio as 16 kHz mono floats, for the voice activity detector; nil
     /// once any of it fell back to native buffers, which were never converted.
-    var convertedSamples: [Float]? {
+    public var convertedSamples: [Float]? {
         lock.lock()
         let pcm = pcm16
         let unconverted = nativeFormat != nil && !nativeBuffers.isEmpty
@@ -351,7 +352,7 @@ final class AudioBufferWriter {
         }
     }
 
-    var bufferedDuration: TimeInterval {
+    public var bufferedDuration: TimeInterval {
         lock.lock()
         defer { lock.unlock() }
         var seconds = Double(pcm16Frames) / Self.uploadSampleRate
@@ -468,7 +469,7 @@ final class AudioBufferWriter {
         }
     }
 
-    func reset() {
+    public func reset() {
         lock.lock()
         pcm16 = Data()
         pcm16Frames = 0
@@ -481,7 +482,7 @@ final class AudioBufferWriter {
         // converter dies with it.
     }
 
-    static func cleanup(fileURL: URL) {
+    public static func cleanup(fileURL: URL) {
         try? FileManager.default.removeItem(at: fileURL)
     }
 

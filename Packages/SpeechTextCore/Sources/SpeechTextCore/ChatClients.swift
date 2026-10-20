@@ -250,7 +250,7 @@ public struct ChatReply: Equatable {
 /// `input_tokens` leaves out cache reads and writes, which are added in), and
 /// `outputTokens` every output token, reasoning included (both vendors already include
 /// it). `cachedInputTokens` and `reasoningTokens` are parts of those totals, never extra.
-public struct ChatUsage: Codable, Equatable {
+public struct ChatUsage: Codable, Equatable, Sendable {
     public var inputTokens: Int
     public var outputTokens: Int
     var cachedInputTokens: Int? = nil

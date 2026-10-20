@@ -241,7 +241,7 @@ Read CLAUDE.md's streaming sections first. The rules:
   a card also lends Settings its title and plan ("Free plan", "Paid").
 - Tests: a new transcriber or client file goes beside the others in
   `Packages/SpeechTextCore/Sources/SpeechTextCore/`, which needs no `project.pbxproj`
-  edit; an app file the tests need still goes in **both** targets' Sources phases. Test
+  edit; the test bundle compiles no app file, so anything a test needs goes there too. Test
   request builders and parsers as pure functions; realtime vendors get a
   `DictationReplay` script with a drop.
 - Docs: README (engine table and **privacy list**), SECURITY.md, CLAUDE.md (component
@@ -280,20 +280,20 @@ stt      | Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift 
 stt      | Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift       | let sttModelCatalog                    | manual      | one descriptor per model, with a dated comment on why it is offered
 stt      | SpeechText/SpeechText/RecognitionSessionFactory.swift                      | func makeRecognitionSession            | compiler    | add the case to the cloud list
 stt      | Packages/SpeechTextCore/Sources/SpeechTextCore/Settings.swift              | enum SettingsKeys                      | manual      | the model key, named in the descriptor's speechModel (never the API key)
-stt      | SpeechText/SpeechText/ModelRowWords.swift                                  | func onlineSpeechServiceLine           | review      | Settings › Speech to text lists every cloud engine by itself; add its line here, and each model's in onlineSpeechModelLine (the descriptor's caption and a realtime model's settingsNote are shown under its models)
+stt      | Packages/SpeechTextCore/Sources/SpeechTextCore/ModelRowWords.swift         | func onlineSpeechServiceLine           | review      | Settings › Speech to text lists every cloud engine by itself; add its line here, and each model's in onlineSpeechModelLine (the descriptor's caption and a realtime model's settingsNote are shown under its models)
 stt      | SpeechText/SpeechText/SettingsView.swift                                   | struct SpokenLanguagesField            | review      | the caption, only if the engine takes a language set
 stt      | SpeechText/SpeechTextTests/CatalogueTests.swift                            | func testPickersKeepTheirOrderAndNames | manual      | the new picker's ids and names
 stt      | SpeechText/SpeechText/HomeView.swift                                       | private var speechEngine               | compiler    | the engine's line on Home, with its stored model
 stt      | SpeechText/SpeechTextTests/HomeSummaryTests.swift                          | final class ListPriceTests             | manual      | each model's list price, as on its descriptor (docs/prices.md)
 realtime | Packages/SpeechTextCore/Sources/SpeechTextCore/StreamingTranscribers.swift | protocol StreamingTranscriber          | manual:file | the transcriber class
 realtime | Packages/SpeechTextCore/Sources/SpeechTextCore/StreamingTranscribers.swift | func makeStreamingTranscriber          | compiler    | a case returning the realtime transcriber
-realtime | SpeechText/SpeechText/NetworkFailure.swift                                 | static func isReconnectable            | review      | its "no session" failure must be TranscriptionError.realtime(_, "no_session", _)
+realtime | Packages/SpeechTextCore/Sources/SpeechTextCore/NetworkFailure.swift        | static func isReconnectable            | review      | its "no session" failure must be TranscriptionError.realtime(_, "no_session", _)
 llm      | Packages/SpeechTextCore/Sources/SpeechTextCore/ChatClients.swift           | enum LLMProviderType                   | compiler    | case, displayName, needsAPIKey
 llm      | Packages/SpeechTextCore/Sources/SpeechTextCore/ChatClients.swift           | let chatModelCatalog                   | manual      | the vendor's models with their switches
 llm      | Packages/SpeechTextCore/Sources/SpeechTextCore/ChatClients.swift           | static func makeChatClient             | compiler    | OpenAICompatibleChatClient(baseURL:dialect:) or a new struct
 llm      | Packages/SpeechTextCore/Sources/SpeechTextCore/ModelLifecycle.swift        | enum ModelUnavailableReply             | review      | the vendor's "no such model" chat reply, measured, if its shape is new
 llm      | Packages/SpeechTextCore/Sources/SpeechTextCore/Settings.swift              | enum SettingsKeys                      | manual      | the chat model key, named in the descriptor's chatModel
-llm      | SpeechText/SpeechText/ModelRowWords.swift                                  | func onlineAIServiceLine               | review      | Settings › AI Rewrite lists every keyed pick by itself; add its line here, and each model's in chatModelLine
+llm      | Packages/SpeechTextCore/Sources/SpeechTextCore/ModelRowWords.swift         | func onlineAIServiceLine               | review      | Settings › AI Rewrite lists every keyed pick by itself; add its line here, and each model's in chatModelLine
 llm      | SpeechText/SpeechTextTests/ChatClientTests.swift                           | final class ChatRequestBodyTests       | manual      | each model's whole request body, written out
 llm      | SpeechText/SpeechTextTests/HomeSummaryTests.swift                          | final class ListPriceTests             | manual      | each model's token prices, as on its descriptor (docs/prices.md)
 key      | Packages/SpeechTextCore/Sources/SpeechTextCore/Settings.swift              | enum SettingsKeys                      | manual      | <vendor>APIKey

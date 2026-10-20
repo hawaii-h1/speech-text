@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 /// One inline dictation as the app saw it: the provider's events as they arrived, the
 /// stop, the batch fallback's answer, the rewrite, and the stop's paste. Written by
@@ -12,10 +11,10 @@ import SpeechTextCore
 ///
 /// Flat and hand-editable on purpose: after reviewing a trace, set `expectedDocument` to
 /// what the document *should* hold, and the replay checks that as well.
-struct DictationTrace: Codable, Equatable {
+public struct DictationTrace: Codable, Equatable {
     /// Traces recorded before the stop became the only paste also carry `aiDraft`, `livePreview` and `probe`, from
     /// when text could be pasted while the user spoke. The decoder ignores them.
-    struct Setup: Codable, Equatable {
+    public struct Setup: Codable, Equatable {
         var aiMode = false
         var removesDisfluencies = true
         /// Optional so a trace recorded before the setting existed still decodes; nil
@@ -26,10 +25,19 @@ struct DictationTrace: Codable, Equatable {
         /// The app in front at the stop, which the dictation was pasted into. Nil
         /// until the stop, and in traces recorded before it.
         var destination: String?
+
+        public init(aiMode: Bool = false, removesDisfluencies: Bool = true, dashStyle: DashStyle? = nil,
+                    app: String? = nil, destination: String? = nil) {
+            self.aiMode = aiMode
+            self.removesDisfluencies = removesDisfluencies
+            self.dashStyle = dashStyle
+            self.app = app
+            self.destination = destination
+        }
     }
 
-    struct Event: Codable, Equatable {
-        enum Kind: String, Codable {
+    public struct Event: Codable, Equatable {
+        public enum Kind: String, Codable {
             /// The provider's partial, as it arrived — before any merging.
             case partial
             /// The provider's committed segment, as it arrived.
@@ -92,24 +100,24 @@ struct DictationTrace: Codable, Equatable {
 }
 
 /// Collects one dictation's `DictationTrace`. Main thread only.
-final class DictationTraceRecorder {
+public final class DictationTraceRecorder {
     /// The dictation being traced, or nil — which is always, unless the setting is on.
-    static var current: DictationTraceRecorder?
+    public static var current: DictationTraceRecorder?
 
     private var trace: DictationTrace
     private let started: Date
 
-    init(setup: DictationTrace.Setup, now: Date = Date()) {
+    public init(setup: DictationTrace.Setup, now: Date = Date()) {
         trace = DictationTrace(recordedAt: now, setup: setup)
         started = now
     }
 
-    static func record(_ kind: DictationTrace.Event.Kind, text: String? = nil, error: String? = nil) {
+    public static func record(_ kind: DictationTrace.Event.Kind, text: String? = nil, error: String? = nil) {
         current?.record(kind, text: text, error: error)
     }
 
     /// The app the stop chose to paste into.
-    static func recordDestination(_ app: String?) {
+    public static func recordDestination(_ app: String?) {
         current?.trace.setup.destination = app
     }
 
@@ -120,7 +128,7 @@ final class DictationTraceRecorder {
 
     /// Writes the trace into `directory` as `<date>.json` and returns its URL — nil when
     /// there is nothing to replay (Apple or a plain batch upload) or the write failed.
-    func write(into directory: URL) -> URL? {
+    public func write(into directory: URL) -> URL? {
         guard trace.isReplayable else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

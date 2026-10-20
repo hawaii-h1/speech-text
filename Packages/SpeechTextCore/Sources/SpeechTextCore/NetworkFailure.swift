@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // MARK: - What counts as "no connection"
 
@@ -16,7 +15,7 @@ import SpeechTextCore
 /// the machine or the link went down under one. A timeout is *not* in it: with the
 /// network up it is a slow provider, and retrying it the moment the Wi-Fi comes back
 /// would retry something the Wi-Fi never broke.
-enum NetworkFailure {
+public enum NetworkFailure {
     /// `URLError` codes that mean there was no usable network.
     static let offlineURLErrorCodes: Set<Int> = [
         URLError.notConnectedToInternet.rawValue,   // -1009: no interface up
@@ -37,7 +36,7 @@ enum NetworkFailure {
 
     /// True when `error`, or any error it wraps (`NSUnderlyingErrorKey`), is one of the
     /// offline codes above.
-    static func isOffline(_ error: Error) -> Bool {
+    public static func isOffline(_ error: Error) -> Bool {
         isOffline(domain: (error as NSError).domain, code: (error as NSError).code)
             || underlying(of: error).map(isOffline) == true
     }
@@ -65,16 +64,21 @@ enum NetworkFailure {
 /// dictation's text rests on — the new socket did not hear the outage, so the stop takes
 /// the upload, which has the whole segment on disk. That is why the policy can afford to
 /// give up early: giving up costs only the live text.
-struct StreamReconnectPolicy {
+public struct StreamReconnectPolicy {
     /// The wait before each attempt within one outage — about 26 s of trying, which is
     /// what "a short outage" means here. Longer than the outage itself: once the Wi-Fi is
     /// back, macOS still needs a few seconds to join, take an address and answer DNS. An
     /// attempt made with no network fails at once and costs nothing, so the waits are
     /// what pace them.
-    var delays: [TimeInterval] = [0.5, 1, 2, 3, 5, 5, 5, 5]
+    var delays: [TimeInterval]
     /// Outages one segment rides out. A link that keeps dropping is not a short outage,
     /// and every reconnect is a new realtime session that is paid for.
-    var maxOutages = 3
+    var maxOutages: Int
+
+    public init(delays: [TimeInterval] = [0.5, 1, 2, 3, 5, 5, 5, 5], maxOutages: Int = 3) {
+        self.delays = delays
+        self.maxOutages = maxOutages
+    }
 
     /// POSIX codes a WebSocket reports when the connection under it went away — the
     /// peer or a middlebox reset it, or the interface vanished and took it along.

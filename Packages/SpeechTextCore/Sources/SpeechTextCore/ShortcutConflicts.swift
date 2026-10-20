@@ -3,23 +3,22 @@
 
 import AppKit
 import Carbon.HIToolbox
-import SpeechTextCore
 
 /// A key combination as Carbon's hotkey APIs see it: a virtual key code and the four
 /// modifiers a global shortcut can carry. Anything else in the mask (Caps Lock, the
 /// fn key) is dropped, so two routes to the same combination compare equal.
-struct KeyShortcut: Hashable {
-    let keyCode: UInt32
-    let carbonModifiers: UInt32
+public struct KeyShortcut: Hashable {
+    public let keyCode: UInt32
+    public let carbonModifiers: UInt32
 
     static let modifierMask = UInt32(cmdKey | optionKey | controlKey | shiftKey)
 
-    init(keyCode: UInt32, carbonModifiers: UInt32) {
+    public init(keyCode: UInt32, carbonModifiers: UInt32) {
         self.keyCode = keyCode
         self.carbonModifiers = carbonModifiers & Self.modifierMask
     }
 
-    init(keyCode: UInt32, modifiers: NSEvent.ModifierFlags) {
+    public init(keyCode: UInt32, modifiers: NSEvent.ModifierFlags) {
         self.init(keyCode: keyCode, carbonModifiers: Self.carbonModifiers(modifiers))
     }
 
@@ -34,7 +33,7 @@ struct KeyShortcut: Hashable {
 }
 
 /// What the shortcut recorder does with a key pressed while it listens.
-enum ShortcutKeyPress: Equatable {
+public enum ShortcutKeyPress: Equatable {
     /// Take it. `modifiers` holds ⌘⌥⌃⇧ only, so what is stored and drawn is what Carbon
     /// registers.
     case record(keyCode: UInt16, modifiers: NSEvent.ModifierFlags)
@@ -54,13 +53,13 @@ enum ShortcutKeyPress: Equatable {
 
     /// F1–F20 by name: they type nothing, so unlike a letter they are usable as a shortcut
     /// alone — and the layout has no character to draw them with (it answers U+0010).
-    static let functionKeyNames: [UInt16: String] = {
+    public static let functionKeyNames: [UInt16: String] = {
         let codes = [kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
                      kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20]
         return Dictionary(uniqueKeysWithValues: codes.enumerated().map { (UInt16($1), "F\($0 + 1)") })
     }()
 
-    static func decide(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> ShortcutKeyPress {
+    public static func decide(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> ShortcutKeyPress {
         guard !modifierKeyCodes.contains(keyCode) else { return .ignore }
         let modifiers = flags.intersection(shortcutModifiers)
         if modifiers.isEmpty {
@@ -73,13 +72,13 @@ enum ShortcutKeyPress: Equatable {
 
 /// The app's four global shortcuts, with where each is stored and what it is until
 /// the user changes it.
-enum ShortcutAction: CaseIterable, Hashable {
+public enum ShortcutAction: CaseIterable, Hashable {
     case inline
     case ai
     case edit
     case recordWindow
 
-    var title: String {
+    public var title: String {
         switch self {
         case .inline: return "Inline Recording"
         case .ai: return "AI Recording"
@@ -88,7 +87,7 @@ enum ShortcutAction: CaseIterable, Hashable {
         }
     }
 
-    var keyCodeKey: String {
+    public var keyCodeKey: String {
         switch self {
         case .inline: return SettingsKeys.hotkeyKeyCode
         case .ai: return SettingsKeys.aiHotkeyKeyCode
@@ -97,7 +96,7 @@ enum ShortcutAction: CaseIterable, Hashable {
         }
     }
 
-    var modifierFlagsKey: String {
+    public var modifierFlagsKey: String {
         switch self {
         case .inline: return SettingsKeys.hotkeyModifierFlags
         case .ai: return SettingsKeys.aiHotkeyModifierFlags
@@ -119,7 +118,7 @@ enum ShortcutAction: CaseIterable, Hashable {
 
     /// The stored combination, or the built-in one when none has been saved. Tests
     /// pass their own suite rather than the user's defaults.
-    func stored(in defaults: UserDefaults) -> (keyCode: UInt32, modifiers: NSEvent.ModifierFlags) {
+    public func stored(in defaults: UserDefaults) -> (keyCode: UInt32, modifiers: NSEvent.ModifierFlags) {
         guard defaults.object(forKey: keyCodeKey) != nil else {
             return (defaultKeyCode, Self.defaultModifiers)
         }
@@ -129,7 +128,7 @@ enum ShortcutAction: CaseIterable, Hashable {
 }
 
 /// Who else already answers a combination.
-enum ShortcutConflict: Equatable {
+public enum ShortcutConflict: Equatable {
     /// Another of the app's own shortcuts. Carbon hands a combination to one
     /// registration only, so the second would never fire.
     case action(ShortcutAction)
@@ -140,7 +139,7 @@ enum ShortcutConflict: Equatable {
     /// What `candidate` would collide with if it became `action`'s shortcut. Only
     /// what can be known is checked: our own shortcuts and the system's. A global
     /// shortcut another app took through an event tap cannot be listed by anyone.
-    static func find(_ candidate: KeyShortcut,
+    public static func find(_ candidate: KeyShortcut,
                      for action: ShortcutAction,
                      assigned: [ShortcutAction: KeyShortcut],
                      system: Set<KeyShortcut>) -> ShortcutConflict? {

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // Voice activity detection: whether a segment's audio holds a human voice at all,
 // asked before an upload and before a stream's answer is pasted. Keyboard typing and room
@@ -14,16 +13,16 @@ import SpeechTextCore
 // subset and the test bundle never sees FluidAudio.
 
 /// Turns a segment's 16 kHz mono samples into one speech probability per window.
-protocol VoiceActivityDetector: AnyObject, Sendable {
+public protocol VoiceActivityDetector: AnyObject, Sendable {
     func speechProbabilities(_ samples: [Float]) async throws -> [Float]
 }
 
 /// What the detector said about one segment.
-struct VoiceActivityReading: Equatable {
+public struct VoiceActivityReading: Equatable {
     /// The highest probability of any window.
-    var maxProbability: Float
+    public var maxProbability: Float
     /// How many windows were above `STTTuning.voiceProbabilityThreshold`.
-    var windowsOverThreshold: Int
+    public var windowsOverThreshold: Int
     /// How long the segment was.
     var segmentSeconds: Double
     /// From the first window with a voice in it to the last, each widened by one window
@@ -32,7 +31,7 @@ struct VoiceActivityReading: Equatable {
     /// speaking: the silence before the first word and after the last is the shortcut's,
     /// not the speaker's, while a pause between words stays — it is the thinking a typist
     /// does too.
-    var voicedSpanSeconds: Double?
+    public var voicedSpanSeconds: Double?
 
     init(probabilities: [Float], segmentSeconds: Double) {
         maxProbability = probabilities.max() ?? 0
@@ -61,23 +60,23 @@ struct VoiceActivityReading: Equatable {
     var holdsSpeech: Bool { windowsOverThreshold >= windowsRequired }
 }
 
-enum VoiceActivity {
+public enum VoiceActivity {
     /// Set at launch by `registerVoiceActivity`, once the model has loaded; nil — the test
     /// bundle, or a model that would not load — lets every segment through, as before.
-    nonisolated(unsafe) static var detector: VoiceActivityDetector?
+    public nonisolated(unsafe) static var detector: VoiceActivityDetector?
 
     /// The detector's reading of what `writer` holds; nil when there is nothing to judge
     /// with — no detector, audio that was never converted (the native fallback, which is
     /// unmeasured and counts as speech, as it does for the silence guard), or a detector
     /// that failed. nil never drops anything.
-    static func read(_ writer: AudioBufferWriter) async -> VoiceActivityReading? {
+    public static func read(_ writer: AudioBufferWriter) async -> VoiceActivityReading? {
         guard let samples = writer.convertedSamples else { return nil }
         return await read(samples)
     }
 
     /// The same for samples already taken from a writer — the engine's, for a segment
     /// Apple recognised, read after the writer itself has been reset.
-    static func read(_ samples: [Float]) async -> VoiceActivityReading? {
+    public static func read(_ samples: [Float]) async -> VoiceActivityReading? {
         guard let detector, !samples.isEmpty else { return nil }
         let start = Date()
         do {

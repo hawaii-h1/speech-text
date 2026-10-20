@@ -2,36 +2,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 /// Runs a finished transcription through an LLM, which picks the best-matching
 /// prompt preset for what the user actually asked for and applies it — plus anything
 /// else the dictation asked for that the preset does not cover, since a spoken request
 /// routinely stacks two ("a letter in English, keep it short").
-enum TextRefinementService {
+public enum TextRefinementService {
 
-    struct Result {
-        let text: String
+    public struct Result {
+        public let text: String
         /// Name of the preset the model routed to, when it reported one. Only the primary
         /// one: a dictation that also asked for another language or format reports the
         /// mode it was routed to, not everything applied on top of it.
-        let presetName: String?
-        let provider: String
-        let model: String
+        public let presetName: String?
+        public let provider: String
+        public let model: String
         /// The tokens the provider billed, when it reported them.
-        var usage: ChatUsage? = nil
+        public var usage: ChatUsage? = nil
         /// Seconds the request took, for Usage's speed figures.
-        var latency: Double? = nil
+        public var latency: Double? = nil
     }
 
-    static var isConfigured: Bool { LLMConfiguration.isConfigured }
+    public static var isConfigured: Bool { LLMConfiguration.isConfigured }
 
     // MARK: - Entry point
 
     /// `context` is where the text is going, read when the recording started. The Record
     /// Window passes none: it is our own surface, and its text as often ends up on the
     /// clipboard as in the app that was in front before it opened.
-    static func refine(_ transcript: String, context: FocusContext? = nil) async throws -> Result {
+    public static func refine(_ transcript: String, context: FocusContext? = nil) async throws -> Result {
         let source = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let providerType = LLMConfiguration.providerType
         let modelID = LLMConfiguration.model(for: providerType)
@@ -70,7 +69,7 @@ enum TextRefinementService {
 
     /// Rewrites `selection` — text the user selected in another app — as `instruction`
     /// says, or, with no instruction, polishes it. The Edit shortcut's LLM pass.
-    static func edit(_ selection: String, instruction: String?, context: FocusContext? = nil) async throws -> Result {
+    public static func edit(_ selection: String, instruction: String?, context: FocusContext? = nil) async throws -> Result {
         let providerType = LLMConfiguration.providerType
         let modelID = LLMConfiguration.model(for: providerType)
         let provider = try LLMConfiguration.makeChatClient()
@@ -97,7 +96,7 @@ enum TextRefinementService {
     /// wrong spellings and the Replacements table written in, and the dashes in the user's
     /// style — as a dictation's final text. The Edit shortcut's reply too, at the owner's
     /// call: a selection's own wrong spellings are put right with it.
-    static func polishedReply(_ reply: String, dictionary: [VocabularyEntry] = Vocabulary.load(),
+    public static func polishedReply(_ reply: String, dictionary: [VocabularyEntry] = Vocabulary.load(),
                               replacements: [TextReplacementPair] = TextReplacements.load(),
                               dashStyle: DashStyle = .current) -> String {
         dashStyle.applied(to: Vocabulary.corrected(replacingConfusablePunctuation(reply),
@@ -120,7 +119,7 @@ enum TextRefinementService {
     /// job is to shorten (see `isSummarising`) may do so. The caller passes false when the
     /// input is more than the dictation the model routed on — a whole text area — since a
     /// list preset chosen for its last sentence is precisely the collapse this catches.
-    static func isCollapse(input: String, output: String, presetName: String?,
+    public static func isCollapse(input: String, output: String, presetName: String?,
                            presets: [PromptPreset], allowsSummary: Bool) -> Bool {
         let inLength = input.trimmingCharacters(in: .whitespacesAndNewlines).count
         let outLength = output.trimmingCharacters(in: .whitespacesAndNewlines).count
@@ -145,15 +144,15 @@ enum TextRefinementService {
     // MARK: - Prompt construction
 
     /// The mode an edit with no instruction reports.
-    static let editDefaultModeName = "Polish"
+    public static let editDefaultModeName = "Polish"
     /// The mode an edit reports when its instruction matches none of the presets.
-    static let editCustomModeName = "Instruction"
+    public static let editCustomModeName = "Instruction"
 
     /// The selection, then the spoken instruction when there is one, after the context.
     /// The selection is data even when it reads like a command: it is often somebody
     /// else's text — an email being replied to, a web page — and only the instruction
     /// comes from the user.
-    static func editUserMessage(selection: String, instruction: String?, context: FocusContext?,
+    public static func editUserMessage(selection: String, instruction: String?, context: FocusContext?,
                                 vocabulary: String? = nil) -> String {
         var blocks: [String] = []
         if let context, !context.isEmpty { blocks.append(context.promptBlock) }
@@ -173,7 +172,7 @@ enum TextRefinementService {
     /// they describe what a *dictation* is asking for, and typed text asks for nothing.
     /// With one, the presets are a vocabulary: "make it an email" should mean the user's
     /// own Email preset, not the model's idea of one.
-    static func buildEditSystemPrompt(presets: [PromptPreset]) -> String {
+    public static func buildEditSystemPrompt(presets: [PromptPreset]) -> String {
         let modes = presets.map { preset -> String in
             """
             ### \(preset.name)
@@ -229,7 +228,7 @@ enum TextRefinementService {
     /// The transcript, preceded by where it is going when that is known and by the
     /// user's Dictionary (`Vocabulary.promptBlock`) when it has words. Data only — what
     /// may be done with it is the system prompt's business.
-    static func userMessage(transcript: String, context: FocusContext?, vocabulary: String? = nil) -> String {
+    public static func userMessage(transcript: String, context: FocusContext?, vocabulary: String? = nil) -> String {
         var blocks: [String] = []
         if let context, !context.isEmpty { blocks.append(context.promptBlock) }
         if let vocabulary { blocks.append(vocabulary) }
@@ -241,7 +240,7 @@ enum TextRefinementService {
     /// a read: the prompt is pure logic in both targets, and the tests may not go near the
     /// user's own settings. There is no default value on purpose — a caller that forgot it
     /// would silently drop the `(DEFAULT)` marker, and nothing downstream would say so.
-    static func buildSystemPrompt(presets: [PromptPreset], defaultPresetID: UUID?) -> String {
+    public static func buildSystemPrompt(presets: [PromptPreset], defaultPresetID: UUID?) -> String {
         let fallback = PromptPresetStore.defaultPreset(in: presets, storedID: defaultPresetID)
 
         let modes = presets.map { preset -> String in
@@ -317,7 +316,7 @@ enum TextRefinementService {
     /// where the strict parser left the marker in the pasted text. A loose marker is only
     /// taken when its name is exactly one of the presets (ignoring case), so a reply that
     /// genuinely starts with something in angle brackets is left alone.
-    static func parse(_ raw: String, presetNames: [String] = []) -> Result {
+    public static func parse(_ raw: String, presetNames: [String] = []) -> Result {
         var body = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         var presetName: String?
 

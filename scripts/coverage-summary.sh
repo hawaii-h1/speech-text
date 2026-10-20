@@ -9,10 +9,11 @@
 #       RESULT_BUNDLE is the .xcresult `xcodebuild test -enableCodeCoverage YES
 #       -resultBundlePath …` wrote.
 #
-# The test bundle is standalone (CLAUDE.md › Tests): it compiles a curated subset of the
-# app's sources instead of hosting the app, so the SpeechText.app row is only what a
-# test happens to reach and means little. What the suite covers is the app sources the
-# bundle compiles, which the second table counts apart from the test files themselves.
+# The test bundle is standalone (CLAUDE.md › Tests): it links SpeechTextCore instead of
+# hosting the app, so the SpeechText.app row is only what a test happens to reach and
+# means little. What the suite covers is the package's sources, which the second table
+# counts apart from the test files themselves — whichever target the report files them
+# under, each once.
 set -euo pipefail
 
 bundle=${1:?usage: coverage-summary.sh RESULT_BUNDLE}
@@ -27,7 +28,7 @@ def percent(covered, executable):
 
 print("## Code coverage")
 print()
-print("Line coverage, informational only. Packages are not exercised by the unit tests.")
+print("Line coverage, informational only. Third-party packages are not exercised by the unit tests.")
 print()
 print("| Target | Files | Lines covered | Coverage |")
 print("| --- | ---: | ---: | ---: |")
@@ -36,18 +37,18 @@ for target in report["targets"]:
         target["name"], len(target["files"]), target["coveredLines"],
         target["executableLines"], percent(target["coveredLines"], target["executableLines"])))
 
-tests = [t for t in report["targets"] if t["name"].endswith(".xctest")]
-sources = []
-for target in tests:
+sources = {}
+for target in report["targets"]:
     for f in target["files"]:
         path = f["path"]
-        if "/SpeechText/SpeechText/" in path and f["executableLines"] > 0:
-            sources.append(f)
+        if "/Packages/SpeechTextCore/Sources/" in path and f["executableLines"] > 0:
+            sources.setdefault(path, f)
+sources = list(sources.values())
 if sources:
     covered = sum(f["coveredLines"] for f in sources)
     executable = sum(f["executableLines"] for f in sources)
     print()
-    print("## App sources compiled into the test bundle")
+    print("## SpeechTextCore sources")
     print()
     print("%d files, %d / %d lines, %s. The 10 least covered:" % (
         len(sources), covered, executable, percent(covered, executable)))

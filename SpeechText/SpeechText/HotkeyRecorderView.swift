@@ -4,6 +4,7 @@
 import SwiftUI
 import AppKit
 import Carbon.HIToolbox
+import SpeechTextCore
 
 struct HotkeyRecorderView: View {
     let action: ShortcutAction

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // MARK: - Model
 
@@ -13,13 +12,13 @@ import SpeechTextCore
 /// not the output. `instructions` is what the model applies once it has picked
 /// this preset; whatever else the dictation asked for is applied on top of them,
 /// so a preset need not anticipate every combination.
-struct PromptPreset: Identifiable, Codable, Hashable {
-    var id: UUID
-    var name: String
-    var whenToUse: String
-    var instructions: String
+public struct PromptPreset: Identifiable, Codable, Hashable {
+    public var id: UUID
+    public var name: String
+    public var whenToUse: String
+    public var instructions: String
 
-    init(id: UUID = UUID(), name: String, whenToUse: String, instructions: String) {
+    public init(id: UUID = UUID(), name: String, whenToUse: String, instructions: String) {
         self.id = id
         self.name = name
         self.whenToUse = whenToUse
@@ -29,7 +28,7 @@ struct PromptPreset: Identifiable, Codable, Hashable {
 
 // MARK: - Store
 
-enum PromptPresetStore {
+public enum PromptPresetStore {
     /// Stable IDs so `defaultPresetID` keeps pointing at the right preset across launches.
     private static func fixedID(_ suffix: String) -> UUID {
         UUID(uuidString: "00000000-0000-0000-0000-0000000000\(suffix)")!
@@ -42,7 +41,7 @@ enum PromptPresetStore {
     /// model fills in the obvious — so a built-in prompt that explains itself is spending
     /// the user's rate limit to say what the model already knows. The user's own prompts
     /// may of course be as long as they like.
-    static let builtInDefaults: [PromptPreset] = [
+    public static let builtInDefaults: [PromptPreset] = [
         PromptPreset(
             id: cleanupPresetID,
             name: "Clean-up",
@@ -109,7 +108,7 @@ enum PromptPresetStore {
         ),
     ]
 
-    static func load() -> [PromptPreset] {
+    public static func load() -> [PromptPreset] {
         guard let data = UserDefaults.standard.data(forKey: SettingsKeys.promptPresets),
               let decoded = try? JSONDecoder().decode([PromptPreset].self, from: data),
               !decoded.isEmpty
@@ -119,12 +118,12 @@ enum PromptPresetStore {
         return decoded
     }
 
-    static func save(_ presets: [PromptPreset]) {
+    public static func save(_ presets: [PromptPreset]) {
         guard let data = try? JSONEncoder().encode(presets) else { return }
         UserDefaults.standard.set(data, forKey: SettingsKeys.promptPresets)
     }
 
-    static func resetToDefaults() {
+    public static func resetToDefaults() {
         UserDefaults.standard.removeObject(forKey: SettingsKeys.promptPresets)
         UserDefaults.standard.removeObject(forKey: SettingsKeys.defaultPresetID)
     }
@@ -141,17 +140,17 @@ enum PromptPresetStore {
     }
 
     /// The same answer for the app, which has the user's settings to read.
-    static func defaultPreset(in presets: [PromptPreset]) -> PromptPreset? {
+    public static func defaultPreset(in presets: [PromptPreset]) -> PromptPreset? {
         defaultPreset(in: presets, storedID: storedDefaultPresetID())
     }
 
     /// The chosen fallback's id as stored, or nil when the user never picked one.
-    static func storedDefaultPresetID() -> UUID? {
+    public static func storedDefaultPresetID() -> UUID? {
         UserDefaults.standard.string(forKey: SettingsKeys.defaultPresetID)
             .flatMap(UUID.init(uuidString:))
     }
 
-    static func setDefaultPreset(_ id: UUID) {
+    public static func setDefaultPreset(_ id: UUID) {
         UserDefaults.standard.set(id.uuidString, forKey: SettingsKeys.defaultPresetID)
     }
 }
@@ -162,10 +161,10 @@ enum PromptPresetStore {
 /// its "last chosen for" examples. Models write a prompt's name in their own capitals
 /// ("EMAIL / MESSAGE"), so a name is matched ignoring case. An edit reports its own modes
 /// (Polish, Instruction) and is not a dictation's choice, so edits are left out.
-enum PresetUsage {
-    struct Use: Equatable {
-        var count = 0
-        var last: Date?
+public enum PresetUsage {
+    public struct Use: Equatable {
+        public var count = 0
+        public var last: Date?
     }
 
     /// Successful rewrites of a dictation, by the lowercased name of the prompt chosen.
@@ -211,17 +210,19 @@ enum PresetUsage {
     /// whether it was an edit, succeeded, its prompt's name and its length). One that
     /// changed without changing any of those goes unseen until the next change, and a count
     /// or a "last chosen for" is that much out of date meanwhile.
-    final class Cache {
+    public final class Cache {
         private var fingerprint: Int?
         /// The records a prompt was chosen for — a copy of its own, so History's array is
         /// not held and still changes in place.
         private var rewrites: [TranscriptionRecord] = []
-        private(set) var uses: [String: Use] = [:]
+        public private(set) var uses: [String: Use] = [:]
         /// By the prompt's name exactly as written: `recent` matches it its own way.
         private var recents: [String: [TranscriptionRecord]] = [:]
 
+        public init() {}
+
         /// Brought up to date with `records`; counted again only when they changed.
-        func refresh(from records: [TranscriptionRecord]) {
+        public func refresh(from records: [TranscriptionRecord]) {
             var hasher = Hasher()
             hasher.combine(records.count)
             hasher.combine(records.first?.id)
@@ -247,7 +248,7 @@ enum PresetUsage {
         }
 
         /// `PresetUsage.recent` of the records last refreshed from.
-        func recent(_ preset: PromptPreset) -> [TranscriptionRecord] {
+        public func recent(_ preset: PromptPreset) -> [TranscriptionRecord] {
             if let found = recents[preset.name] { return found }
             let found = PresetUsage.recent(preset, in: rewrites)
             recents[preset.name] = found
