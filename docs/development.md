@@ -189,7 +189,7 @@ moves the work:
 
 | Job | While private | Once public | What it does |
 |---|---|---|---|
-| Tests | `self-hosted` | `macos-latest` | `xcodebuild test` — one of the two jobs that need a Mac, with Swift lint |
+| Tests | `self-hosted` | `macos-latest` | `xcodebuild test` and the evaluation tool's build, a compiler warning in our code an error — one of the two jobs that need a Mac, with Swift lint |
 | No development team | `self-hosted` | `ubuntu-latest` | greps `project.pbxproj` for a `DEVELOPMENT_TEAM` |
 | SPDX headers | `self-hosted` | `ubuntu-latest` | the two-line header on every Swift file |
 | DCO sign-off | `self-hosted` | `ubuntu-latest` | a `Signed-off-by` trailer on every commit in the range |
@@ -214,6 +214,42 @@ A hosted runner starts empty, so WhisperKit, FluidAudio and Sparkle would be
 cloned on every run. `-clonedSourcePackagesDirPath .swiftpm-cache` puts them
 somewhere `actions/cache` can keep, keyed on the hash of `Package.resolved` —
 which pins all three, so it is exactly the right key.
+
+### Compiler warnings
+
+The app, its tests, the `SpeechTextLLM` service and the `SpeechTextEvaluation`
+tool build with no compiler warnings, under targeted strict concurrency, and CI
+keeps it that way: both of the Tests job's builds pass `SPT_WARNINGS_AS_ERRORS=YES`,
+so a warning a pull request adds in our code fails the job, named as an `error:`
+at its line. A warning is cheap to fix the day it is written and expensive once
+forty others hide it, and one under strict concurrency is often the only sign
+of a data race the Swift 6 language mode would refuse to compile.
+
+The project sets `SWIFT_TREAT_WARNINGS_AS_ERRORS` to `$(SPT_WARNINGS_AS_ERRORS)`,
+which is `NO` unless a build says otherwise. The indirection is what keeps the
+packages out of it: `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` given to `xcodebuild`
+directly reaches every target, WhisperKit's and FluidAudio's included, which
+Xcode builds with `-suppress-warnings` — and the compiler refuses the two
+together. A package's warnings are not ours to fix, and they are never shown.
+Warnings from other tools (`appintentsmetadataprocessor`'s "Metadata extraction
+skipped", the linker) are left as warnings.
+
+An ordinary build in Xcode, or `xcodebuild` without the flag, still treats a
+warning as a warning, so a new Xcode that deprecates something does not stop
+anyone working. To see what CI will say before you push:
+
+```bash
+xcodebuild test -project SpeechText/SpeechText.xcodeproj \
+  -scheme SpeechText -destination 'platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO SPT_WARNINGS_AS_ERRORS=YES
+```
+
+(and the same with `build -scheme SpeechTextEvaluation`). A warning your change
+causes is yours to fix. One that appears without your change — a newer Xcode on
+the runner deprecating an API, or tightening a concurrency check — fails every
+pull request at once; fix it in a pull request of its own if it is small, and
+otherwise say so in your pull request rather than switching the flag off. Do not
+silence a warning by lowering `SWIFT_STRICT_CONCURRENCY`.
 
 <!-- ci-timings -->
 **Run time on a hosted runner: not yet measured.** As of 2026-09-22 this account

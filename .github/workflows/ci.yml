@@ -84,6 +84,12 @@ jobs:
       # summary step below never fails the job. The result bundle is removed first
       # because the self-hosted runner keeps $RUNNER_TEMP between runs, and
       # xcodebuild refuses to write over an existing one.
+      #
+      # SPT_WARNINGS_AS_ERRORS turns a compiler warning in our own targets into an
+      # error (the project points SWIFT_TREAT_WARNINGS_AS_ERRORS at it). Not
+      # SWIFT_TREAT_WARNINGS_AS_ERRORS itself: on the command line that reaches the
+      # Swift packages too, which Xcode builds with -suppress-warnings, and the
+      # compiler refuses the pair. Local builds leave it off.
       - name: Test
         run: |
           rm -rf "$RUNNER_TEMP/tests.xcresult"
@@ -94,7 +100,8 @@ jobs:
             -clonedSourcePackagesDirPath .swiftpm-cache \
             -enableCodeCoverage YES \
             -resultBundlePath "$RUNNER_TEMP/tests.xcresult" \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            SPT_WARNINGS_AS_ERRORS=YES
 
       - name: Coverage summary
         if: always()
@@ -110,7 +117,8 @@ jobs:
             -scheme SpeechTextEvaluation \
             -destination 'platform=macOS' \
             -clonedSourcePackagesDirPath .swiftpm-cache \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            SPT_WARNINGS_AS_ERRORS=YES
 
   swift-lint:
     name: Swift lint
