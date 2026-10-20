@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import SpeechTextCore
 
 /// The disk image's half of installing: moving an app that was opened straight from the
 /// image into Applications. The decision is `InstallLocation` (SetupServices.swift); this

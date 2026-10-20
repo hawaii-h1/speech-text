@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 /// What `scripts/e2e.sh` changes in a debug build, read from launch arguments (the
 /// argument domain, so nothing here is ever written to the app's preferences). A

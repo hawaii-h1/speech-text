@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import SpeechTextCore
 
 // The setup window's parts, shared by every step. Values follow the design in
 // docs/design/setup/setup.css; colours that come from the app are named after their

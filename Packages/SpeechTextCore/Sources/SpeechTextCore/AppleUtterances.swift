@@ -16,16 +16,18 @@ import Foundation
 ///   heard.
 ///
 /// Pure logic, in both targets, so the rules are tested without `Speech`.
-struct AppleUtterances: Equatable {
+public struct AppleUtterances: Equatable {
     /// Utterances the recogniser has moved past.
-    private(set) var settled = ""
+    public private(set) var settled = ""
     /// The utterance in progress, as the latest partial spells it.
-    private(set) var current = ""
+    public private(set) var current = ""
 
-    var text: String { joinedTranscript(settled, current) }
+    public init() {}
+
+    public var text: String { joinedTranscript(settled, current) }
 
     /// Takes one result's `formattedString`.
-    mutating func receive(_ result: String) {
+    public mutating func receive(_ result: String) {
         let incoming = result.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !incoming.isEmpty else { return }
         if let rest = Self.continuation(of: settled, in: incoming) {
@@ -94,11 +96,11 @@ struct AppleUtterances: Equatable {
 ///
 /// Pure logic, in every target: the session hands in its clock (`systemUptime`), the tests
 /// a fake one.
-struct AppleErrorRotation: Equatable {
+public struct AppleErrorRotation: Equatable {
     static let minimumChunkSeconds: TimeInterval = 1
-    static let barrenRotationLimit = 3
+    public static let barrenRotationLimit = 3
 
-    enum Decision: Equatable {
+    public enum Decision: Equatable {
         /// Start a fresh chunk this many seconds from now; 0 is at once.
         case rotate(after: TimeInterval)
         /// Leave the dead chunk to the 50 s rotation.
@@ -109,7 +111,7 @@ struct AppleErrorRotation: Equatable {
     }
 
     /// Error rotations in a row whose failed chunk had heard no words of its own.
-    private(set) var barrenRotations = 0
+    public private(set) var barrenRotations = 0
     /// When the current chunk started; nil before the first.
     private var chunkStart: TimeInterval?
     private var chunkHasWords = false
@@ -118,8 +120,10 @@ struct AppleErrorRotation: Equatable {
     /// The current chunk was started by an error rotation.
     private var chunkFollowsError = false
 
+    public init() {}
+
     /// Every chunk's start: the session's first, and every rotation's, the timer's too.
-    mutating func chunkStarted(at now: TimeInterval) {
+    public mutating func chunkStarted(at now: TimeInterval) {
         chunkStart = now
         chunkHasWords = false
         chunkFollowsError = errorRotationPending
@@ -130,7 +134,7 @@ struct AppleErrorRotation: Equatable {
     /// rotations is over. True only for the first words of a chunk an error rotation
     /// started — the proof that the rotation brought the dictation back.
     @discardableResult
-    mutating func heardWords() -> Bool {
+    public mutating func heardWords() -> Bool {
         let first = chunkFollowsError && !chunkHasWords
         chunkHasWords = true
         barrenRotations = 0
@@ -138,7 +142,7 @@ struct AppleErrorRotation: Equatable {
     }
 
     /// The current chunk's task failed while the segment had words.
-    mutating func decide(at now: TimeInterval, isFeeding: Bool) -> Decision {
+    public mutating func decide(at now: TimeInterval, isFeeding: Bool) -> Decision {
         guard isFeeding else { return .notFeeding }
         if !chunkHasWords {
             guard barrenRotations < Self.barrenRotationLimit else { return .leaveToTimer }

@@ -5,6 +5,7 @@ import Foundation
 import AVFoundation
 import AudioToolbox
 import CoreAudio
+import SpeechTextCore
 
 /// Where `SpeechEngine` takes the microphone's audio from. Two sources behind one shape,
 /// so the tap, the writer and the session see no difference:

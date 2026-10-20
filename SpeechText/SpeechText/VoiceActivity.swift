@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 // Voice activity detection: whether a segment's audio holds a human voice at all,
 // asked before an upload and before a stream's answer is pasted. Keyboard typing and room

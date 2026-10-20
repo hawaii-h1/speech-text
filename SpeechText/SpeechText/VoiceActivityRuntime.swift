@@ -4,6 +4,7 @@
 @preconcurrency import CoreML
 import FluidAudio
 import Foundation
+import SpeechTextCore
 
 // The voice activity detector behind `VoiceActivity`: Silero VAD v6, converted to
 // Core ML by FluidInference and run by FluidAudio's `VadManager` — the same package as

@@ -3,6 +3,7 @@
 
 import Foundation
 import ChatTemplates
+import SpeechTextCore
 
 /// A chat model AI Rewrite can run on this Mac: one GGUF file, downloaded from HuggingFace
 /// into `Models/llm/<id>/` and run by llama.cpp in the SpeechTextLLM service.

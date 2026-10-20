@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 /// Everything the engine and the provider factories need for one recording session,
 /// read from UserDefaults exactly once (`current()`) and carried through the session.

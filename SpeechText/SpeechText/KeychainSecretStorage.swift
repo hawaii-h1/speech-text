@@ -3,6 +3,7 @@
 
 import Foundation
 import Security
+import SpeechTextCore
 
 /// The API keys' home in the data-protection keychain — the iOS-style one, where an item
 /// belongs to an access group that only code signed with this team's provisioning profile

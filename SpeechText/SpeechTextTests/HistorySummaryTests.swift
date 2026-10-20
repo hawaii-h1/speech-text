@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+@testable import SpeechTextCore
 
 /// The main window's History: its days, its filters and its search — built from records
 /// made here, never the user's own.

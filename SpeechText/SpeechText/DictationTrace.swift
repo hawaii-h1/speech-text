@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 /// One inline dictation as the app saw it: the provider's events as they arrived, the
 /// stop, the batch fallback's answer, the rewrite, and the stop's paste. Written by

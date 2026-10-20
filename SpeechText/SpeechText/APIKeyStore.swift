@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import SpeechTextCore
 
 /// Where the API keys are kept outside memory. The app registers the data-protection
 /// keychain (`KeychainSecretStorage`, app target only); the test bundle registers a fake,

@@ -5,6 +5,7 @@ import XCTest
 import AppKit
 import AVFoundation
 import Carbon.HIToolbox
+@testable import SpeechTextCore
 
 // These tests compile the app's source files directly into the test bundle (see the
 // SpeechTextTests target's Sources phase) — there is no `@testable import`, because the

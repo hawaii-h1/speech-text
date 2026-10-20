@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import SpeechTextCore
 
 /// When the app shows an icon in the Dock (and so in ⌘Tab).
 ///

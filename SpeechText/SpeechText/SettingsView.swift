@@ -6,6 +6,7 @@ import ServiceManagement
 import AppKit
 import AVFoundation
 import Carbon
+import SpeechTextCore
 
 /// The Settings window's content: a category sidebar and the page it picks, inside the
 /// setup window's frame. The parts are in SettingsWindow.swift.

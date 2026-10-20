@@ -4,6 +4,7 @@
 @preconcurrency import CoreML
 import Foundation
 import FluidAudio
+import SpeechTextCore
 
 /// **The only file in the app that runs Parakeet through FluidAudio** (the voice activity
 /// detector has its own, `VoiceActivityRuntime.swift`), as `LocalWhisperRuntime.swift`

@@ -5,7 +5,7 @@ import Foundation
 
 /// The two shortcuts that start an inline dictation. The Record Window's shortcut is not
 /// one of them: it opens a panel, and holding it means nothing.
-enum DictationHotkey: Equatable {
+public enum DictationHotkey: Equatable {
     case inline
     case ai
 
@@ -13,7 +13,7 @@ enum DictationHotkey: Equatable {
 }
 
 /// What one press or release of a dictation shortcut does.
-enum DictationHotkeyAction: Equatable {
+public enum DictationHotkeyAction: Equatable {
     case start(ai: Bool)
     /// The recording goes on in the other mode: what is said is the same dictation, only
     /// what happens to it at the stop changes.
@@ -30,7 +30,7 @@ enum DictationHotkeyAction: Equatable {
 /// Why a dictation was cancelled — what the notice says. No cancel is silent: a
 /// press that lands on the rewrite a moment after the stop throws the dictation away, and
 /// with nothing on screen the user could not tell a cancel from a paste that failed.
-enum DictationCancelReason: Equatable {
+public enum DictationCancelReason: Equatable {
     /// A dictation shortcut pressed while the microphone was opening, or while the
     /// recording was being transcribed or rewritten.
     case shortcut
@@ -47,7 +47,7 @@ enum DictationCancelReason: Equatable {
     /// The notice's title and detail. `savedInHistory`: the dictation was already
     /// transcribed, and History holds it — so a cancel during the AI rewrite loses
     /// nothing the user cannot get back. The detail fits the notice's two lines.
-    func notice(savedInHistory: Bool) -> (title: String, detail: String) {
+    public func notice(savedInHistory: Bool) -> (title: String, detail: String) {
         switch self {
         case .tap:
             return ("Dictation cancelled", "A quick tap cancels. Hold the shortcut while you speak, or double-tap to record hands-free.")
@@ -87,8 +87,8 @@ enum DictationCancelReason: Equatable {
 /// the table, so a missed release costs one extra press rather than a stuck recording.
 ///
 /// Pure logic, in both targets; `AppState` supplies the phase and performs the action.
-struct DictationHotkeyGesture {
-    enum Phase: Equatable {
+public struct DictationHotkeyGesture {
+    public enum Phase: Equatable {
         case idle
         /// The microphone is not open yet. Nothing has been recorded, so a stop here
         /// is a cancel.
@@ -100,23 +100,23 @@ struct DictationHotkeyGesture {
 
     /// Shorter than this, a release is the end of a tap rather than of a hold, and cancels.
     /// Long enough for a deliberate keypress, short enough that no one says a word in it.
-    static let tapThreshold: TimeInterval = 0.3
+    public static let tapThreshold: TimeInterval = 0.3
     /// After a tap's release, how long a second press still makes it a double tap. The
     /// Edit shortcut's window, so the two gestures feel the same.
-    static let doubleTapWindow: TimeInterval = 0.35
+    public static let doubleTapWindow: TimeInterval = 0.35
 
-    var holdToTalk = false
+    public var holdToTalk = false
     /// The shortcut whose press started the current dictation, while it is still down.
-    private(set) var owner: DictationHotkey?
+    public private(set) var owner: DictationHotkey?
     private var pressedAt: TimeInterval = 0
     /// The shortcut that was tapped, and when it came up, while the tap may still turn
     /// out to be the first half of a double tap.
     private var tapped: (key: DictationHotkey, releasedAt: TimeInterval)?
 
     /// A tap is waiting for its second half; `AppState` runs the timer.
-    var awaitsSecondTap: Bool { tapped != nil }
+    public var awaitsSecondTap: Bool { tapped != nil }
 
-    init(holdToTalk: Bool = false) {
+    public init(holdToTalk: Bool = false) {
         self.holdToTalk = holdToTalk
     }
 
@@ -134,7 +134,7 @@ struct DictationHotkeyGesture {
         }
     }
 
-    mutating func press(_ key: DictationHotkey, in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
+    public mutating func press(_ key: DictationHotkey, in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
         if let tap = tapped {
             tapped = nil
             switch phase {
@@ -169,7 +169,7 @@ struct DictationHotkeyGesture {
 
     /// A menu item: the press table with no key behind it, so no release will follow. A
     /// dictation it starts or ends has no owner.
-    mutating func click(_ key: DictationHotkey, in phase: Phase) -> DictationHotkeyAction {
+    public mutating func click(_ key: DictationHotkey, in phase: Phase) -> DictationHotkeyAction {
         var action = Self.action(forPressOf: key, in: phase)
         if case .cancel = action { action = .cancel(.menu) }
         if case .switchTo = action {} else {
@@ -179,7 +179,7 @@ struct DictationHotkeyGesture {
         return action
     }
 
-    mutating func release(_ key: DictationHotkey, in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
+    public mutating func release(_ key: DictationHotkey, in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
         guard key == owner else { return .ignore }
         owner = nil
         switch phase {
@@ -198,7 +198,7 @@ struct DictationHotkeyGesture {
 
     /// `doubleTapWindow` after a tap's release, with no second press: the tap was all
     /// there was, and a lone tap cancels.
-    mutating func tapWindowExpired(in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
+    public mutating func tapWindowExpired(in phase: Phase, at time: TimeInterval) -> DictationHotkeyAction {
         guard let tap = tapped, time - tap.releasedAt >= Self.doubleTapWindow * 0.9 else { return .ignore }
         tapped = nil
         switch phase {
@@ -210,7 +210,7 @@ struct DictationHotkeyGesture {
     /// The dictation ended some other way — ⎋, ✕, a menu item — or an edit took the
     /// microphone: a tap still waiting for its second half no longer belongs to anything,
     /// and its window running out must not cancel whatever records next.
-    mutating func reset() {
+    public mutating func reset() {
         owner = nil
         tapped = nil
     }
@@ -219,7 +219,7 @@ struct DictationHotkeyGesture {
 // MARK: - Holding only the letter
 
 /// How a key of a shortcut is drawn.
-enum KeycapState: Equatable {
+public enum KeycapState: Equatable {
     case up
     case down
     /// A modifier of a held shortcut once its letter is down: with hold to talk the
@@ -235,12 +235,12 @@ enum KeycapState: Equatable {
 /// let go of the modifiers mid-recording `lessons` times; then, once, how to switch to
 /// the other mode while holding. The count lives in `holdTipFollowedCount`. Pure logic,
 /// in both targets; `AppState` shows the panel and keeps the count.
-enum HoldTip {
+public enum HoldTip {
     /// Hold recordings in which the tip was *followed* — the modifiers let go with the
     /// letter still down — before it stops appearing.
     static let lessons = 3
 
-    enum Stage: Equatable {
+    public enum Stage: Equatable {
         /// "Keep Q down — you can let go of ⌃⇧."
         case keepHolding
         /// "While holding, ⌃⇧A switches to AI." Shown once, after the lessons.
@@ -250,14 +250,14 @@ enum HoldTip {
 
     /// What a hold recording shows. `canSwitch`: a dictation with another mode to switch
     /// to — not an edit, and not the AI shortcut while no AI is set up.
-    static func stage(count: Int, canSwitch: Bool) -> Stage {
+    public static func stage(count: Int, canSwitch: Bool) -> Stage {
         if count < lessons { return .keepHolding }
         if count == lessons, canSwitch { return .switchHint }
         return .none
     }
 
     /// The count once a hold recording has ended.
-    static func count(after count: Int, stage: Stage, followed: Bool) -> Int {
+    public static func count(after count: Int, stage: Stage, followed: Bool) -> Int {
         switch stage {
         case .keepHolding: return followed ? count + 1 : count
         case .switchHint: return count + 1
@@ -266,7 +266,7 @@ enum HoldTip {
     }
 
     /// The caps of a shortcut: `modifiersDown` one per modifier cap, in order.
-    static func keycaps(modifiersDown: [Bool], letterDown: Bool, holdToTalk: Bool)
+    public static func keycaps(modifiersDown: [Bool], letterDown: Bool, holdToTalk: Bool)
         -> (modifiers: [KeycapState], letter: KeycapState) {
         let letter: KeycapState = letterDown ? .down : .up
         if holdToTalk, letterDown {
@@ -276,14 +276,14 @@ enum HoldTip {
     }
 
     /// Whether the tip has been followed: every modifier up, the letter still down.
-    static func isFollowed(modifiersDown: [Bool], letterDown: Bool) -> Bool {
+    public static func isFollowed(modifiersDown: [Bool], letterDown: Bool) -> Bool {
         letterDown && !modifiersDown.isEmpty && !modifiersDown.contains(true)
     }
 
     /// The tip's words. `letter` and `modifiers` are the held shortcut's ("Q", "⌃⇧");
     /// `other` is the other dictation shortcut, for the switch hint. The panel gives the
     /// text about 210 pt beside the keycaps: the title fits one line, the detail two.
-    static func text(stage: Stage, followed: Bool, isEdit: Bool, letter: String, modifiers: String,
+    public static func text(stage: Stage, followed: Bool, isEdit: Bool, letter: String, modifiers: String,
                      other: String, otherIsAI: Bool) -> (title: String, detail: String) {
         switch stage {
         case .switchHint:
@@ -341,21 +341,21 @@ enum HoldTip {
     // doing, one frame at a time: the hold above, the double tap and the switch below.
 
     /// What the dictation is doing in a demo frame.
-    enum DemoState: Equatable {
+    public enum DemoState: Equatable {
         case idle, recording, locked, ai, pasted
     }
 
     /// One frame of a gesture demo: which keys are down — the shortcut's modifiers and
     /// letter, and for the switch the other shortcut — and what that does.
-    struct DemoFrame: Equatable {
-        var modifiersDown = false
-        var letterDown = false
-        var otherDown = false
-        var state: DemoState = .idle
+    public struct DemoFrame: Equatable {
+        public var modifiersDown = false
+        public var letterDown = false
+        public var otherDown = false
+        public var state: DemoState = .idle
     }
 
     /// The hold, as a frame.
-    static func holdFrame(at time: TimeInterval) -> DemoFrame {
+    public static func holdFrame(at time: TimeInterval) -> DemoFrame {
         let step = demoStep(at: time)
         let keys = demoKeys(step)
         let state: DemoState = switch step {
@@ -370,7 +370,7 @@ enum HoldTip {
 
     /// The double tap: two quick presses lock the dictation on, nothing is held while it
     /// records, and the next press stops it.
-    static func lockFrame(at time: TimeInterval) -> DemoFrame {
+    public static func lockFrame(at time: TimeInterval) -> DemoFrame {
         let t = time.truncatingRemainder(dividingBy: lockDemoPeriod)
         let down = DemoFrame(modifiersDown: true, letterDown: true, state: .recording)
         switch t {
@@ -388,7 +388,7 @@ enum HoldTip {
 
     /// The switch: the shortcut held, a tap of the other one turns the dictation into an
     /// AI Rewrite, a second tap turns it back, and letting go pastes.
-    static func switchFrame(at time: TimeInterval) -> DemoFrame {
+    public static func switchFrame(at time: TimeInterval) -> DemoFrame {
         let t = time.truncatingRemainder(dividingBy: switchDemoPeriod)
         let held = DemoFrame(modifiersDown: true, letterDown: true)
         func frame(_ state: DemoState, otherDown: Bool = false) -> DemoFrame {

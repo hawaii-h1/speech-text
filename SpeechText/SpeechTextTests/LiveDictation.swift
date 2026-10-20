@@ -4,6 +4,7 @@
 import AVFoundation
 import CryptoKit
 import Foundation
+import SpeechTextCore
 
 // A recorded clip played through the app's own recognition code the way the microphone
 // would deliver it, against a real engine. Shared by `LiveProviderTests` and the

@@ -4,6 +4,7 @@
 import Cocoa
 import ApplicationServices
 import Carbon.HIToolbox
+import SpeechTextCore
 
 struct PasteService {
     /// Pastes text at the current cursor position, preserving the user's clipboard.

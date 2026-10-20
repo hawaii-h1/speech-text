@@ -5,8 +5,8 @@ import Foundation
 
 /// A microphone as Core Audio lists it, reduced to what the choice needs. Built by
 /// `AudioInputDevices` (app target); the tests build it by hand.
-struct AudioInputDevice: Equatable, Identifiable {
-    enum Transport: Equatable {
+public struct AudioInputDevice: Equatable, Identifiable {
+    public enum Transport: Equatable {
         case builtIn
         /// Classic and LE alike: either turns a headset to call quality while its
         /// microphone is open.
@@ -16,18 +16,25 @@ struct AudioInputDevice: Equatable, Identifiable {
         case other
     }
 
-    let uid: String
-    let name: String
-    let transport: Transport
+    public let uid: String
+    public let name: String
+    public let transport: Transport
     /// False for a MacBook's own microphone with the lid closed: it stays in the list,
     /// but the hardware is disconnected and records silence.
     var canHear = true
 
-    var id: String { uid }
+    public init(uid: String, name: String, transport: Transport, canHear: Bool = true) {
+        self.uid = uid
+        self.name = name
+        self.transport = transport
+        self.canHear = canHear
+    }
+
+    public var id: String { uid }
 }
 
 /// Which microphone a dictation records from — the stored `SettingsKeys.microphone`.
-enum MicrophoneChoice: Equatable {
+public enum MicrophoneChoice: Equatable {
     /// The system's input, except that Bluetooth headphones are left to play and the
     /// Mac's own microphone records instead.
     case automatic
@@ -38,7 +45,7 @@ enum MicrophoneChoice: Equatable {
 
     private static let systemDefaultValue = "system"
 
-    init(stored: String) {
+    public init(stored: String) {
         switch stored {
         case "": self = .automatic
         case Self.systemDefaultValue: self = .systemDefault
@@ -46,7 +53,7 @@ enum MicrophoneChoice: Equatable {
         }
     }
 
-    var stored: String {
+    public var stored: String {
         switch self {
         case .automatic: ""
         case .systemDefault: Self.systemDefaultValue
@@ -56,16 +63,22 @@ enum MicrophoneChoice: Equatable {
 }
 
 /// What a choice comes to with the devices connected right now.
-struct MicrophoneResolution: Equatable {
+public struct MicrophoneResolution: Equatable {
     /// The device to record from; nil leaves the system's input alone, which is exactly
     /// the path the app took before the setting existed.
-    var device: AudioInputDevice?
+    public var device: AudioInputDevice?
     /// The Bluetooth headset Automatic stepped around, to say why another microphone is in use.
-    var avoided: AudioInputDevice?
+    public var avoided: AudioInputDevice?
     /// The device the user picked is not connected, so Automatic decided instead.
-    var pickedIsMissing = false
+    public var pickedIsMissing = false
 
-    static func resolve(_ choice: MicrophoneChoice, devices: [AudioInputDevice],
+    public init(device: AudioInputDevice? = nil, avoided: AudioInputDevice? = nil, pickedIsMissing: Bool = false) {
+        self.device = device
+        self.avoided = avoided
+        self.pickedIsMissing = pickedIsMissing
+    }
+
+    public static func resolve(_ choice: MicrophoneChoice, devices: [AudioInputDevice],
                         defaultUID: String?) -> MicrophoneResolution {
         switch choice {
         case .systemDefault:

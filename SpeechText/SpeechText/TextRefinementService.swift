@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 /// Runs a finished transcription through an LLM, which picks the best-matching
 /// prompt preset for what the user actually asked for and applies it — plus anything

@@ -3,6 +3,7 @@
 
 import Cocoa
 import Carbon.HIToolbox
+import SpeechTextCore
 
 /// Which of the app's shortcuts macOS refused to register, and why. Settings reads it to
 /// say so under the shortcut, since a refused shortcut otherwise just never fires.

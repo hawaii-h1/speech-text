@@ -4,6 +4,7 @@
 import Foundation
 import AVFoundation
 import Speech
+import SpeechTextCore
 
 // MARK: - Apple on-device
 

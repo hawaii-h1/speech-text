@@ -10,14 +10,20 @@ import Foundation
 /// slightly different from what was pasted. A replacement guards on "is what I inserted
 /// still there, untouched", and that guard has to compare against the document's
 /// version or it refuses every correction it is asked to make.
-struct InsertionRecord: Equatable {
+public struct InsertionRecord: Equatable {
     /// The span this text came from. `nil` for text a sink was handed that the span
     /// layer could not account for — it is tracked for offsets, never rewritten.
-    let span: TranscriptSpanID?
+    public let span: TranscriptSpanID?
     /// UTF-16 range, because every sink this talks to (`NSTextView`, the AX API) is
     /// UTF-16 indexed.
-    var range: NSRange
-    var text: String
+    public var range: NSRange
+    public var text: String
+
+    public init(span: TranscriptSpanID?, range: NSRange, text: String) {
+        self.span = span
+        self.range = range
+        self.text = text
+    }
 }
 
 /// The record of what has already been handed to one sink, so a later pass can find its
@@ -28,14 +34,14 @@ struct InsertionRecord: Equatable {
 /// builds a one-record ledger for the selection it read; the deciding is here, where
 /// `PureLogicTests` can reach it. An inline dictation keeps none: nothing is handed to
 /// another app before its stop, and the stop pastes once.
-struct InsertionLedger {
+public struct InsertionLedger {
     private(set) var records: [InsertionRecord] = []
 
-    init() {}
+    public init() {}
 
     var isEmpty: Bool { records.isEmpty }
 
-    func record(for span: TranscriptSpanID) -> InsertionRecord? {
+    public func record(for span: TranscriptSpanID) -> InsertionRecord? {
         records.last { $0.span == span }
     }
 
@@ -43,14 +49,14 @@ struct InsertionLedger {
 
     /// Text landed at `range`. Records made earlier that sit at or after it move by its
     /// length — the user can put the caret anywhere between two insertions.
-    mutating func insert(span: TranscriptSpanID?, range: NSRange, text: String) {
+    public mutating func insert(span: TranscriptSpanID?, range: NSRange, text: String) {
         shift(from: range.location, by: range.length)
         records.append(InsertionRecord(span: span, range: range, text: text))
     }
 
     /// A span's text was replaced in the sink. Its own record takes the new text, and
     /// everything after it moves by the difference.
-    mutating func replaced(span: TranscriptSpanID, at range: NSRange, with text: String) {
+    public mutating func replaced(span: TranscriptSpanID, at range: NSRange, with text: String) {
         guard let index = records.lastIndex(where: { $0.span == span }) else { return }
         let new = NSRange(location: range.location, length: (text as NSString).length)
         let delta = new.length - range.length
@@ -63,7 +69,7 @@ struct InsertionLedger {
         }
     }
 
-    mutating func clear() { records = [] }
+    public mutating func clear() { records = [] }
 
     /// A record with no range (`NSNotFound`, a paste whose landing could not be read) has
     /// no position to move — and `NSNotFound` is `Int.max`, so moving it would trap.
@@ -82,7 +88,7 @@ struct InsertionLedger {
     /// range if the substring still matches exactly; otherwise the last occurrence of
     /// that text anywhere in the document (it moved — the user typed above it);
     /// otherwise nothing at all, and the caller must leave the document alone.
-    func resolve(span: TranscriptSpanID, in document: String) -> NSRange? {
+    public func resolve(span: TranscriptSpanID, in document: String) -> NSRange? {
         guard let record = record(for: span) else { return nil }
         return resolve(record, in: document)
     }
@@ -90,7 +96,7 @@ struct InsertionLedger {
     /// The same three steps for any record — including one with no span and no range,
     /// a paste whose landing could not be read. It skips straight to the search, and the
     /// search still refuses text that is not there exactly once.
-    func resolve(_ record: InsertionRecord, in document: String) -> NSRange? {
+    public func resolve(_ record: InsertionRecord, in document: String) -> NSRange? {
         guard !record.text.isEmpty else { return nil }
         let text = document as NSString
 

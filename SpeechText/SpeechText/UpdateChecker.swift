@@ -3,6 +3,7 @@
 
 import AppKit
 import Sparkle
+import SpeechTextCore
 
 /// **The only file that imports Sparkle** — the second and last third-party framework in
 /// the app, and the same arrangement `LocalWhisperRuntime.swift` has with WhisperKit:

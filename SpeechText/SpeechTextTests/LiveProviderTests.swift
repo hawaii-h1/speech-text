@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+@testable import SpeechTextCore
 
 /// The audio corpus through the real cloud engines. Skipped unless the run asks
 /// for it: it costs money, needs the network, and takes about as long as the clips.

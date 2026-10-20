@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import ChatTemplates
+@testable import SpeechTextCore
 
 private let gb: UInt64 = 1_073_741_824
 

@@ -4,7 +4,7 @@
 import Foundation
 
 /// What one press or release of the Edit shortcut does.
-enum EditHotkeyAction: Equatable {
+public enum EditHotkeyAction: Equatable {
     /// Read the selection and open the microphone for an instruction.
     case start
     /// Close the microphone and rewrite the selection as the instruction says.
@@ -18,7 +18,7 @@ enum EditHotkeyAction: Equatable {
 /// Why an edit was cancelled — what its notice says. No cancel is silent, as for a
 /// dictation: the selection may already have been cut and put back, and with
 /// nothing on screen the text blinking out and in again reads as a fault.
-enum EditCancelReason: Equatable {
+public enum EditCancelReason: Equatable {
     /// The Edit shortcut pressed while the instruction was transcribed or rewritten.
     case shortcut
     /// Hold to talk: a lone tap.
@@ -34,7 +34,7 @@ enum EditCancelReason: Equatable {
 
     /// The notice's title and detail. `textPutBack`: the selection had been cut and was
     /// pasted back where it was. The detail fits the notice's two lines.
-    func notice(textPutBack: Bool) -> (title: String, detail: String) {
+    public func notice(textPutBack: Bool) -> (title: String, detail: String) {
         switch self {
         case .tap:
             return ("Edit cancelled", "A quick tap cancels. Hold the shortcut while you speak, or double-tap to polish.")
@@ -71,8 +71,8 @@ enum EditCancelReason: Equatable {
 /// the edit, and the Edit shortcut is ignored while a dictation runs.
 ///
 /// Pure logic, in both targets; `AppState` supplies the phase and performs the action.
-struct EditHotkeyGesture {
-    enum Phase: Equatable {
+public struct EditHotkeyGesture {
+    public enum Phase: Equatable {
         case idle
         /// The microphone is not open yet.
         case starting
@@ -82,29 +82,29 @@ struct EditHotkeyGesture {
     }
 
     /// How close two presses have to be to count as one double press.
-    static let doubleTapWindow: TimeInterval = 0.35
+    public static let doubleTapWindow: TimeInterval = 0.35
 
-    var holdToTalk = false
+    public var holdToTalk = false
 
     /// When the press that started this edit arrived. Nil once a second press has
     /// been judged, or for an edit started from the menu, which has no key to double.
     private var startedAt: TimeInterval?
     /// Hold to talk: the key that started the edit is still down.
-    private(set) var isHeld = false
+    public private(set) var isHeld = false
     /// Hold to talk: when a tap ended, while it may still become a double press.
     private var tapReleasedAt: TimeInterval?
     /// The release of the press that made a double press — it must not act again.
     private var swallowsRelease = false
 
-    init(holdToTalk: Bool = false) {
+    public init(holdToTalk: Bool = false) {
         self.holdToTalk = holdToTalk
     }
 
     /// A tap that has not yet been told apart from the first half of a double press.
     /// `AppState` calls `tapWindowExpired` `doubleTapWindow` after the release.
-    var awaitsSecondTap: Bool { tapReleasedAt != nil }
+    public var awaitsSecondTap: Bool { tapReleasedAt != nil }
 
-    mutating func press(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
+    public mutating func press(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
         switch phase {
         case .idle:
             reset()
@@ -139,7 +139,7 @@ struct EditHotkeyGesture {
         return .send
     }
 
-    mutating func release(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
+    public mutating func release(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
         if swallowsRelease {
             swallowsRelease = false
             return .ignore
@@ -162,7 +162,7 @@ struct EditHotkeyGesture {
 
     /// `doubleTapWindow` after a tap's release, with no second press: the tap was all
     /// there was, and cancels.
-    mutating func tapWindowExpired(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
+    public mutating func tapWindowExpired(in phase: Phase, at time: TimeInterval) -> EditHotkeyAction {
         guard let released = tapReleasedAt, time - released >= Self.doubleTapWindow * 0.9 else { return .ignore }
         reset()
         switch phase {
@@ -172,7 +172,7 @@ struct EditHotkeyGesture {
     }
 
     /// A menu item: no key is held, and none will be pressed twice.
-    mutating func click(in phase: Phase) -> EditHotkeyAction {
+    public mutating func click(in phase: Phase) -> EditHotkeyAction {
         reset()
         switch phase {
         case .idle: return .start
@@ -181,7 +181,7 @@ struct EditHotkeyGesture {
         }
     }
 
-    mutating func reset() {
+    public mutating func reset() {
         startedAt = nil
         isHeld = false
         tapReleasedAt = nil
@@ -190,21 +190,26 @@ struct EditHotkeyGesture {
 }
 
 /// What the Edit shortcut found selected in the app in front.
-struct CapturedSelection: Equatable {
-    let text: String
+public struct CapturedSelection: Equatable {
+    public let text: String
     /// Where it is, when the AX API could say (Tier A): these words are found again and
     /// re-selected before the cut. Nil when it was read with ⌘C — the cut then takes what
     /// is selected, and is checked by what it took.
-    let record: InsertionRecord?
+    public let record: InsertionRecord?
+
+    public init(text: String, record: InsertionRecord?) {
+        self.text = text
+        self.record = record
+    }
 }
 
 /// The pure half of reading and replacing a selection; `PasteService` does the I/O.
-enum SelectionEdit {
+public enum SelectionEdit {
     /// What the edit works on once the instruction is over: the selection as it
     /// is *then*, read again, not the one read at the first press — the user may have
     /// selected other text while speaking, and the text they can see selected is the
     /// text they mean. The first read still stops an edit with nothing selected at once.
-    enum Target: Equatable {
+    public enum Target: Equatable {
         /// The same text, where it was.
         case unchanged(CapturedSelection)
         /// Other text is selected now; this is what gets rewritten.
@@ -219,12 +224,12 @@ enum SelectionEdit {
     /// in — so with another app in front (⌘Tab works while the shortcut is held) the
     /// edit would cut text out of one app and paste its rewrite into the other. Generic
     /// over the process identifier, so a test needs no running app.
-    static func takesSelection<ID: Equatable>(editing app: ID?, front: ID?) -> Bool {
+    public static func takesSelection<ID: Equatable>(editing app: ID?, front: ID?) -> Bool {
         guard let app else { return false }
         return app == front
     }
 
-    static func target(read: CapturedSelection, current: CapturedSelection?) -> Target {
+    public static func target(read: CapturedSelection, current: CapturedSelection?) -> Target {
         guard let current else { return .nothingSelected }
         guard current.text.count <= maxCharacters else { return .tooLong }
         let same = current.text == read.text && current.record?.range == read.record?.range
@@ -234,13 +239,13 @@ enum SelectionEdit {
     /// Longer than this, a selection is refused rather than sent: the rewrite would be
     /// slow and expensive on a cloud model and beyond a small local one, and the whole
     /// of it comes back as one paste the user waits for.
-    static let maxCharacters = 20_000
+    public static let maxCharacters = 20_000
 
     /// Whether a ⌘C put a whole *line* on the pasteboard because nothing was selected.
     /// VS Code (and editors built on Monaco) copy the caret's line on an empty selection
     /// and say so in their own pasteboard type; taking that line for a selection would
     /// rewrite text the user never chose.
-    static func isEmptySelectionLineCopy(_ pasteboardStrings: [String: String]) -> Bool {
+    public static func isEmptySelectionLineCopy(_ pasteboardStrings: [String: String]) -> Bool {
         for (type, value) in pasteboardStrings where type.localizedCaseInsensitiveContains("vscode") {
             if value.replacingOccurrences(of: " ", with: "").contains("\"isFromEmptySelection\":true") {
                 return true
@@ -254,7 +259,7 @@ enum SelectionEdit {
     /// answer, so a selection taken with its trailing newline would otherwise have that
     /// newline replaced away and the next paragraph glued on. Nil when the range is empty,
     /// outside the document, or only whitespace — nothing to rewrite.
-    static func words(in range: NSRange, of document: String) -> InsertionRecord? {
+    public static func words(in range: NSRange, of document: String) -> InsertionRecord? {
         let text = document as NSString
         guard range.location != NSNotFound, range.length > 0, NSMaxRange(range) <= text.length else { return nil }
         let selected = text.substring(with: range)
@@ -280,7 +285,7 @@ enum SelectionEdit {
     /// and Claude, 2026-10-06: a 128-character read of a 129-character selection, its
     /// last letter missing). Such a cut counts when it is the read shifted by at most
     /// `maxConfirmedShift` characters at its edges.
-    static func cutMatches(_ cut: String, selection: String, selectionConfirmed: Bool = false) -> Bool {
+    public static func cutMatches(_ cut: String, selection: String, selectionConfirmed: Bool = false) -> Bool {
         let core = markupInsensitive(cut)
         guard !core.isEmpty else { return false }
         let read = markupInsensitive(selection)
@@ -309,7 +314,7 @@ enum SelectionEdit {
     /// What the edit rewrites once the selection is cut: the cut text, edges trimmed. It is
     /// what is in the document — Markdown source where AX read the rendering — so the
     /// rewrite keeps its backticks and paragraphs.
-    static func cutSource(_ cut: String) -> String {
+    public static func cutSource(_ cut: String) -> String {
         cut.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -323,7 +328,7 @@ enum SelectionEdit {
     }
 
     /// Whether the rewrite changes anything worth writing back.
-    static func changes(_ selection: String, to output: String) -> Bool {
+    public static func changes(_ selection: String, to output: String) -> Bool {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty && trimmed != selection.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -331,7 +336,7 @@ enum SelectionEdit {
     /// The rewrite, carrying the whitespace the cut selection had around it. A model trims
     /// its answer, and a selection cut with its trailing newline or space would otherwise
     /// glue the next paragraph or word onto the result.
-    static func preservingEdges(of selection: String, _ output: String) -> String {
+    public static func preservingEdges(of selection: String, _ output: String) -> String {
         let core = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let leading = selection.prefix { $0.isWhitespace || $0.isNewline }
         let trailing = String(selection.reversed().prefix { $0.isWhitespace || $0.isNewline }.reversed())

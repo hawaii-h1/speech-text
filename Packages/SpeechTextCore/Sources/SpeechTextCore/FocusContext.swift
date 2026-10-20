@@ -15,18 +15,18 @@ import Foundation
 /// Pure logic, like `AXTextProbe`: `PasteService.readFocusContext` makes the Accessibility
 /// calls and hands the raw answers to `capture`, which is what keeps the decisions about
 /// what may be sent in the test subset.
-struct FocusContext: Codable, Equatable {
-    var appName: String?
-    var bundleID: String?
-    var windowTitle: String?
+public struct FocusContext: Codable, Equatable {
+    public var appName: String?
+    public var bundleID: String?
+    public var windowTitle: String?
     /// The field's placeholder, accessibility description or title — "Message #general".
-    var fieldLabel: String?
+    public var fieldLabel: String?
 
     /// Long enough for a mail subject or a document path, short enough that a window
     /// title cannot turn into a second transcript.
     static let maxValueLength = 160
 
-    init(appName: String? = nil, bundleID: String? = nil,
+    public init(appName: String? = nil, bundleID: String? = nil,
          windowTitle: String? = nil, fieldLabel: String? = nil) {
         self.appName = Self.clean(appName)
         self.bundleID = Self.clean(bundleID)
@@ -56,7 +56,7 @@ struct FocusContext: Codable, Equatable {
     /// A secure text field keeps the app's name and loses everything else: the window
     /// around a password prompt ("Sign in to bank.example — alice@…") says more than the
     /// app does, and the model needs neither to clean up a dictation.
-    static func capture(appName: String?, bundleID: String?, windowTitle: String?,
+    public static func capture(appName: String?, bundleID: String?, windowTitle: String?,
                         fieldLabels: [String?], isSecureField: Bool) -> FocusContext? {
         if let bundleID, excludedBundleIDs.contains(bundleID) { return nil }
 
@@ -104,12 +104,12 @@ struct FocusContext: Codable, Equatable {
         return nil
     }
 
-    var isEmpty: Bool {
+    public var isEmpty: Bool {
         appName == nil && bundleID == nil && windowTitle == nil && fieldLabel == nil
     }
 
     /// The `<context>` block that goes in front of the transcript in the user message.
-    var promptBlock: String {
+    public var promptBlock: String {
         var lines: [String] = []
         switch (appName, bundleID) {
         case let (name?, id?): lines.append("app: \(name) (\(id))")
@@ -128,7 +128,7 @@ struct FocusContext: Codable, Equatable {
     /// said once: a window titled just that ("Claude") adds nothing, and the browsers'
     /// "Page - Google Chrome – Profile" keeps only the page. The model is still told the
     /// title as the app wrote it (`promptBlock`); this is only how it is shown.
-    var summary: String {
+    public var summary: String {
         let app = appName ?? bundleID
         let place = [windowTitle, fieldLabel].lazy
             .compactMap { $0.flatMap { Self.withoutAppName($0, app: app) } }

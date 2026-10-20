@@ -15,12 +15,12 @@ import Foundation
 /// stops, and what to do with the text once the engine has gone idle; it keeps everything
 /// that is not a decision: the overlay, the status notices, the Record Window fallback,
 /// the LLM call, the paste itself.
-enum InlineDelivery {
+public enum InlineDelivery {
     /// The app an inline dictation started in: the one in front at its start — none when
     /// that was SpeechText's own window (the main window, Settings), since the app never
     /// pastes into itself. A dictation that starts there and ends there goes to the Record
     /// Window, never to whichever app an earlier dictation was in.
-    static func origin<App>(front: App?, frontIsSpeechText: Bool) -> App? {
+    public static func origin<App>(front: App?, frontIsSpeechText: Bool) -> App? {
         frontIsSpeechText ? nil : front
     }
 
@@ -38,7 +38,7 @@ enum InlineDelivery {
     /// origin either, to the Record Window.
     ///
     /// Generic so the replay resolves its fake apps through the same rule.
-    static func destination<App>(front: App?, frontIsSpeechText: Bool, origin: App?) -> App? {
+    public static func destination<App>(front: App?, frontIsSpeechText: Bool, origin: App?) -> App? {
         guard let front, !frontIsSpeechText else { return origin }
         return front
     }
@@ -52,7 +52,7 @@ enum InlineDelivery {
     ///
     /// Asked by every paste into another app: the stop's (`AppState.deliver`), the Edit
     /// shortcut's rewrite and put-back, and the Record Window's Insert.
-    enum PasteCheck: Equatable {
+    public enum PasteCheck: Equatable {
         case paste
         /// The app quit since it was chosen.
         case quit
@@ -63,14 +63,14 @@ enum InlineDelivery {
     }
 
     /// `takesText` is asked only of an app in front: it is a round trip to that app.
-    static func pasteCheck(quit: Bool, inFront: Bool, takesText: @autoclosure () -> Bool) -> PasteCheck {
+    public static func pasteCheck(quit: Bool, inFront: Bool, takesText: @autoclosure () -> Bool) -> PasteCheck {
         if quit { return .quit }
         guard inFront else { return .notInFront }
         return takesText() ? .paste : .takesNoText
     }
 
     /// What a stop's result comes to, once the engine has gone idle.
-    enum StopResult: Equatable {
+    public enum StopResult: Equatable {
         /// The transcription failed. `partial` is whatever text there was, for the
         /// Record Window; nil or empty when there is nothing to hand over.
         case failed(partial: String?)
@@ -88,7 +88,7 @@ enum InlineDelivery {
     /// restart closed one mid-dictation, and pasting it alone dropped everything said
     /// before. An empty final text keeps its meaning — the span layer is empty too, or
     /// holds ghost text a failed stream took back.
-    static func stopResult(finalText: String, failed: Bool, aiMode: Bool, recordingText: String) -> StopResult {
+    public static func stopResult(finalText: String, failed: Bool, aiMode: Bool, recordingText: String) -> StopResult {
         let last = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         let whole = recordingText.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = last.isEmpty || whole.isEmpty ? last : whole

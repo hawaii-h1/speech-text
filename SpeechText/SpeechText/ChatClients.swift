@@ -3,6 +3,7 @@
 
 import Foundation
 import ChatTemplates
+import SpeechTextCore
 
 // MARK: - Provider Type
 

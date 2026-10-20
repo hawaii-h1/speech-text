@@ -4,6 +4,7 @@
 import AVFoundation
 import Foundation
 import XCTest
+@testable import SpeechTextCore
 
 // A dictation replayed without a microphone, a network or an app to paste into.
 //

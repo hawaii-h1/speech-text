@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AppKit
+import SpeechTextCore
 
 // Settings › Speech to text and Settings › AI Rewrite: the same question setup asks —
 // on this Mac, or an online service — answered with the same two cards, and under them

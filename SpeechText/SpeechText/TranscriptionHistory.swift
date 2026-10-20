@@ -3,6 +3,7 @@
 
 import Foundation
 import os.log
+import SpeechTextCore
 
 private let histLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                              category: "History")

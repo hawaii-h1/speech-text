@@ -3,6 +3,7 @@
 
 import AppKit
 import XCTest
+@testable import SpeechTextCore
 
 // Whole dictations replayed through `DictationReplay`: what lands in the document, once,
 // where. What a replay cannot show — whether a real app takes the paste — is the e2e

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 enum SettingsKeys {
     /// Pre-list single language choice. Read once by `migrateSelectedLanguageIfNeeded()`

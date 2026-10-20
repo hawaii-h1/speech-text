@@ -7,7 +7,7 @@ import Foundation
 
 /// `head + " " + tail`, skipping the space when either side is empty. Both tiers stitch
 /// their committed and in-progress text the same way.
-func joinedTranscript(_ head: String, _ tail: String) -> String {
+public func joinedTranscript(_ head: String, _ tail: String) -> String {
     if head.isEmpty { return tail }
     if tail.isEmpty { return head }
     return head + " " + tail
@@ -73,7 +73,7 @@ func segmentSeparator(_ previous: String, _ next: String,
 /// the span layer when hesitations are cleaned, since `cleanedTranscript` drops a
 /// trailing `...` anyway and the cleaned text still only grows; with cleaning off the
 /// layer sees its committed text rewritten and redraws the segment once.
-func joinedSegments(_ head: String, _ tail: String) -> String {
+public func joinedSegments(_ head: String, _ tail: String) -> String {
     if head.isEmpty { return tail }
     if tail.isEmpty { return head }
     if let stem = trailingOffStem(head) {
@@ -120,14 +120,14 @@ private func lowercasingFirstLetter(_ text: String) -> String {
 /// One word of a transcript, normalised for comparison and anchored in its source.
 /// Lowercased with the punctuation trimmed off both ends, so "Це…" and "Це" — the same
 /// word before and after the server revised the sentence around it — compare equal.
-struct TranscriptWord: Equatable {
+public struct TranscriptWord: Equatable {
     /// Lowercased, punctuation-stripped. Never empty.
     let text: String
     /// Where the word starts in the string it was read from.
     let start: String.Index
 }
 
-func transcriptWords(_ text: String) -> [TranscriptWord] {
+public func transcriptWords(_ text: String) -> [TranscriptWord] {
     text.split(whereSeparator: { $0.isWhitespace }).compactMap { token in
         let normalized = token.trimmingCharacters(in: .punctuationCharacters).lowercased()
         guard !normalized.isEmpty else { return nil }
@@ -239,7 +239,7 @@ enum TranscriptMergeTuning {
 
 /// `head` with `tail` merged onto it: the repeated opening of `tail` is dropped, and a
 /// `tail` that restates all of `head` replaces it.
-func mergedTranscript(_ head: String, _ tail: String) -> String {
+public func mergedTranscript(_ head: String, _ tail: String) -> String {
     let headWords = transcriptWords(head)
     let tailWords = transcriptWords(tail)
     let overlap = transcriptOverlap(head: headWords, tail: tailWords)
@@ -249,13 +249,13 @@ func mergedTranscript(_ head: String, _ tail: String) -> String {
 
 /// The part of `text` that is not already in `committed` — what a partial adds to the
 /// text the stream has committed so far. Empty when the partial is nothing but an echo.
-func transcriptContinuation(of committed: String, in text: String) -> String {
+public func transcriptContinuation(of committed: String, in text: String) -> String {
     transcriptContinuation(of: committed, committedWords: transcriptWords(committed), in: text)
 }
 
 /// `transcriptContinuation` with `committed` already tokenised, for a caller that holds
 /// the same committed text across many partials.
-func transcriptContinuation(of committed: String, committedWords: [TranscriptWord], in text: String) -> String {
+public func transcriptContinuation(of committed: String, committedWords: [TranscriptWord], in text: String) -> String {
     let textWords = transcriptWords(text)
     let overlap = transcriptOverlap(head: committedWords, tail: textWords)
     return dropping(overlap.words, from: text, words: textWords)

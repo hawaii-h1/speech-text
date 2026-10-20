@@ -3,6 +3,7 @@
 
 import Foundation
 import ChatTemplates
+import SpeechTextCore
 
 /// AI Rewrite on this Mac: a `ChatClient` that sends the request to the SpeechTextLLM
 /// service over XPC. App target only — the test bundle has no service to talk to, and

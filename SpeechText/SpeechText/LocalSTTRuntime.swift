@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 // The seam between the local tier and its two engines, apart from `LocalModelStore` so
 // that the `SpeechTextEvaluation` tool can run the engines without the store — which

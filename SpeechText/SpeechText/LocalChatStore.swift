@@ -3,6 +3,7 @@
 
 import CryptoKit
 import Foundation
+import SpeechTextCore
 
 /// The chat models on disk: what is downloaded, what is downloading, and removing them.
 /// The speech models' `LocalModelStore` with the same states, apart because a chat model

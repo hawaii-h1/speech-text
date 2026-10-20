@@ -3,6 +3,7 @@
 
 import AVFoundation
 import os.log
+import SpeechTextCore
 
 private let abwLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                              category: "AudioBufferWriter")

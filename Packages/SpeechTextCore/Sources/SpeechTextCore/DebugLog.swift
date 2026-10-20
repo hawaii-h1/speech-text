@@ -6,12 +6,12 @@ import os
 import os.log
 
 @Observable
-final class DebugLog {
-    static let shared = DebugLog()
+public final class DebugLog {
+    public static let shared = DebugLog()
 
     /// How much an entry matters, in the system log's own levels. `notice` is what
     /// `os.Logger` calls `default`; there is no "warning" level.
-    enum Level: Int, Comparable, CaseIterable {
+    public enum Level: Int, Comparable, CaseIterable {
         /// High-frequency detail (every partial, every posted key event): kept in the
         /// window only while `keepsDebugEntries` is on, and never persisted by the system
         /// log, which shows it only to a `log stream --debug` running at the time.
@@ -25,7 +25,7 @@ final class DebugLog {
         /// A state the code believes cannot happen.
         case fault
 
-        static func < (lhs: Level, rhs: Level) -> Bool { lhs.rawValue < rhs.rawValue }
+        public static func < (lhs: Level, rhs: Level) -> Bool { lhs.rawValue < rhs.rawValue }
 
         var osLogType: OSLogType {
             switch self {
@@ -49,15 +49,15 @@ final class DebugLog {
         }
     }
 
-    struct Entry: Identifiable {
-        let id = UUID()
-        let timestamp: Date
-        let level: Level
-        let category: String
-        let message: String
+    public struct Entry: Identifiable {
+        public let id = UUID()
+        public let timestamp: Date
+        public let level: Level
+        public let category: String
+        public let message: String
     }
 
-    private(set) var entries: [Entry] = []
+    public private(set) var entries: [Entry] = []
     private let maxEntries = 1000
     /// Trimming is O(n) in the whole buffer, so it is paid once per `trimSlack` entries
     /// rather than on every log line: the array is allowed to run over before it is cut
@@ -68,7 +68,7 @@ final class DebugLog {
     /// Debug Log window's Debug lines switch turns them on for the session. Not stored:
     /// a release left keeping them would lose its history to partials. The system log
     /// gets every entry either way. Read on the main thread only.
-    var keepsDebugEntries: Bool = {
+    public var keepsDebugEntries: Bool = {
         #if DEBUG
         true
         #else
@@ -127,7 +127,7 @@ final class DebugLog {
 
     /// `12:03:04.567 ERROR  [Groq] message`, one per line — the Debug Log window's Copy
     /// writes a filtered list the same way.
-    static func formatted(_ entries: [Entry]) -> String {
+    public static func formatted(_ entries: [Entry]) -> String {
         entries.map {
             "\(dateFormatter.string(from: $0.timestamp)) \($0.level.label) [\($0.category)] \($0.message)"
         }.joined(separator: "\n")
@@ -135,7 +135,7 @@ final class DebugLog {
 
     /// The entries at `minimumLevel` or above whose category or message holds `query`,
     /// ignoring case — what the Debug Log window lists.
-    static func filtered(_ entries: [Entry], minimumLevel: Level, matching query: String) -> [Entry] {
+    public static func filtered(_ entries: [Entry], minimumLevel: Level, matching query: String) -> [Entry] {
         let query = query.lowercased()
         return entries.filter {
             $0.level >= minimumLevel
@@ -145,12 +145,12 @@ final class DebugLog {
         }
     }
 
-    func clear() {
+    public func clear() {
         entries.removeAll()
     }
 }
 
 /// Shorthand for logging from anywhere.
-func dlog(_ category: String, _ message: String, level: DebugLog.Level = .info) {
+public func dlog(_ category: String, _ message: String, level: DebugLog.Level = .info) {
     DebugLog.shared.log(category, message, level: level)
 }

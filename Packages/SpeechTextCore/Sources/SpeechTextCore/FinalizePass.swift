@@ -4,9 +4,9 @@
 import Foundation
 
 /// One write into a sink: select `range`, put `text` there.
-struct TextReplacement: Equatable {
-    let range: NSRange
-    let text: String
+public struct TextReplacement: Equatable {
+    public let range: NSRange
+    public let text: String
 }
 
 /// Replacing text a sink already holds by *one* write — or not touching it at all.
@@ -20,7 +20,7 @@ struct TextReplacement: Equatable {
 /// Pure logic, in both targets. The sink does the I/O and hands its document in here;
 /// everything that decides whether and where to write is below, where `PureLogicTests`
 /// can reach it.
-enum FinalizePass {
+public enum FinalizePass {
     /// Where the recorded text is in `document` right now, as one range, and what goes
     /// there. Nil — leave the document alone — unless every step checks out:
     ///
@@ -33,7 +33,7 @@ enum FinalizePass {
     /// 2. The resolved records sit next to each other, with nothing but whitespace
     ///    between them — what the sink inserted as separators. Anything else between two
     ///    records is the user's typing, and it is not ours to replace.
-    static func plan(ledger: InsertionLedger, document: String, replacement: String) -> TextReplacement? {
+    public static func plan(ledger: InsertionLedger, document: String, replacement: String) -> TextReplacement? {
         guard !ledger.isEmpty else { return nil }
         let text = document as NSString
 

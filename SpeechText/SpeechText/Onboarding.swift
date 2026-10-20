@@ -5,6 +5,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import ServiceManagement
+import SpeechTextCore
 
 // MARK: - The Try it step's sink
 

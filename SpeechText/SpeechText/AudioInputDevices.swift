@@ -4,6 +4,7 @@
 import Foundation
 import CoreAudio
 import IOKit
+import SpeechTextCore
 
 /// The Core Audio half of the microphone choice: which input devices exist, which one
 /// the system uses, and whether a MacBook's lid is closed. The decision itself is

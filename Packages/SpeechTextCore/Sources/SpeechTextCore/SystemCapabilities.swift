@@ -9,27 +9,27 @@ import Foundation
 /// *parameter* so the recommendation is a pure function of hardware rather than a
 /// function of the machine the test happens to run on. `current()` is the only part
 /// that touches sysctl, and nothing else in the app calls sysctl directly.
-struct SystemCapabilities: Equatable {
+public struct SystemCapabilities: Equatable {
     /// `machdep.cpu.brand_string` — "Apple M1 Pro", "Intel(R) Core(TM) i7-9750H…".
-    let chipName: String
+    public let chipName: String
     /// Apple Silicon has a Neural Engine; Core ML puts the Whisper encoder on it, which
     /// is the whole reason a 600 MB model is usable for dictation. Intel has no ANE and
     /// falls back to CPU/GPU, where the large models stop being interactive.
-    let isAppleSilicon: Bool
+    public let isAppleSilicon: Bool
     /// Physical cores across every performance level. Only a total: the levels are not
     /// a fixed pair — an M1 reports Performance + Efficiency, an M5 reports Super +
     /// Performance — so splitting them into two named fields mislabels one generation or
     /// the other, and nothing here needs the split anyway.
     let cores: Int
-    let memoryBytes: UInt64
+    public let memoryBytes: UInt64
     /// Free space on the volume the model store writes to — a download that fills the
     /// disk is the one failure the user cannot undo from inside the app.
-    let freeDiskBytes: UInt64
+    public let freeDiskBytes: UInt64
     /// The running macOS's major version (14 for Sonoma, 15 for Sequoia, 26 for Tahoe):
     /// some local models need a newer Core ML than the app's own minimum (`isOffered(on:)`).
-    let systemMajorVersion: Int
+    public let systemMajorVersion: Int
 
-    var memoryGB: Double { Double(memoryBytes) / 1_073_741_824 }
+    public var memoryGB: Double { Double(memoryBytes) / 1_073_741_824 }
 
     /// A one-line description for the Settings row, so the recommendation can say what
     /// it based itself on rather than asking the user to trust it.
@@ -41,7 +41,7 @@ struct SystemCapabilities: Equatable {
     /// `storageURL` is where models would be written. It is a parameter rather than a
     /// reference to `LocalModelStore` so this file stays free of app-graph dependencies
     /// and can be compiled into the test target.
-    static func current(storageURL: URL? = defaultStorageProbe) -> SystemCapabilities {
+    public static func current(storageURL: URL? = defaultStorageProbe) -> SystemCapabilities {
         let brand = sysctlString("machdep.cpu.brand_string") ?? "Unknown CPU"
         let arm = sysctlUInt64("hw.optional.arm64") == 1
 
@@ -68,7 +68,7 @@ struct SystemCapabilities: Equatable {
     /// *root* and not `SpeechText/`: creating that folder early would make
     /// `TranscriptionHistory.adoptPreRenameStore()` skip its one-shot migration, which
     /// only runs when the folder does not yet exist.
-    private static let defaultStorageProbe: URL? =
+    @usableFromInline static let defaultStorageProbe: URL? =
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
 
     /// `volumeAvailableCapacityForImportantUsage` rather than the plain free-space key:
@@ -131,7 +131,7 @@ private func sysctlUInt64(_ name: String) -> UInt64? {
 /// Mac Studio M5 Ultra 96 GB), 256–512 GB (Mac Studio M5 Ultra). Each boundary is midway
 /// to the next configuration, so an odd older size (an 18 GB M3 Pro) lands in the tier
 /// it can actually run.
-enum MacTier: Int, CaseIterable, Comparable {
+public enum MacTier: Int, CaseIterable, Comparable {
     case intel
     case entry        // 8 GB
     case standard     // 16 GB
@@ -140,7 +140,7 @@ enum MacTier: Int, CaseIterable, Comparable {
     case max          // 96–128 GB
     case ultra        // 256 GB and up
 
-    init(_ capabilities: SystemCapabilities) {
+    public init(_ capabilities: SystemCapabilities) {
         guard capabilities.isAppleSilicon else { self = .intel; return }
         switch capabilities.memoryGB {
         case ..<12: self = .entry
@@ -152,13 +152,13 @@ enum MacTier: Int, CaseIterable, Comparable {
         }
     }
 
-    static func < (lhs: MacTier, rhs: MacTier) -> Bool { lhs.rawValue < rhs.rawValue }
+    public static func < (lhs: MacTier, rhs: MacTier) -> Bool { lhs.rawValue < rhs.rawValue }
 
     /// Shown in Settings so the user can see which class the recommendation was made for.
     /// Memory only, never a model name: the label sits beside the real chip, and naming a
     /// Mac there read as the app deciding which Mac this is — an M2 Air was told it was a
     /// MacBook Neo.
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .intel: "Intel Mac"
         case .entry: "8 GB class"

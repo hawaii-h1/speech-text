@@ -3,6 +3,7 @@
 
 import Foundation
 import ChatTemplates
+import SpeechTextCore
 
 /// AI Rewrite through the local chat models, against a cloud model as the reference — the
 /// measurement the built-in local LLM had to earn its place with (docs/specs/

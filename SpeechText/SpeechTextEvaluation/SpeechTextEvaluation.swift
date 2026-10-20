@@ -3,6 +3,7 @@
 
 import Foundation
 import os
+import SpeechTextCore
 
 /// The audio corpus through the local engines — the half of a corpus run that the
 /// standalone test bundle cannot do, because it may not import WhisperKit or FluidAudio.

@@ -9,16 +9,22 @@ import Foundation
 /// selected-range *write* and then hand back a different range when asked, so anything
 /// that trusts the return code alone classifies VS Code and Slack as correctable and
 /// then scribbles over the user's text.
-struct AXTextProbe: Equatable {
+public struct AXTextProbe: Equatable {
     /// `kAXValueAttribute` could be read as a string.
-    var valueReadable: Bool = false
+    public var valueReadable: Bool = false
     /// `kAXSelectedTextRangeAttribute` could be read.
-    var rangeReadable: Bool = false
+    public var rangeReadable: Bool = false
     /// Writing it was accepted *and* reading it back returned what was written.
-    var rangeReadsBack: Bool = false
+    public var rangeReadsBack: Bool = false
+
+    public init(valueReadable: Bool = false, rangeReadable: Bool = false, rangeReadsBack: Bool = false) {
+        self.valueReadable = valueReadable
+        self.rangeReadable = rangeReadable
+        self.rangeReadsBack = rangeReadsBack
+    }
 
     /// Nothing is known — no accessibility permission, or no focused element at all.
-    static let unavailable = AXTextProbe()
+    public static let unavailable = AXTextProbe()
 
     /// Everything needed to find text again and re-select it.
     var supportsReplacement: Bool { valueReadable && rangeReadable && rangeReadsBack }
@@ -35,7 +41,7 @@ struct AXTextProbe: Equatable {
 /// while the user spoke, and whether the stop could correct what was already pasted.
 /// Every inline dictation is now shown on the overlay and pasted once, at the stop, so
 /// only the selection read is left.
-enum DeliveryTier: String, Equatable, CustomStringConvertible {
+public enum DeliveryTier: String, Equatable, CustomStringConvertible {
     /// Our own surface, or a foreign app whose text the Accessibility API can read and
     /// re-select. Text there can be found again and replaced.
     case a
@@ -43,7 +49,7 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
     /// `contenteditable`, and terminals, which never answer at all.
     case b
 
-    var description: String {
+    public var description: String {
         switch self {
         case .a: return "A (correctable)"
         case .b: return "B (append-only)"
@@ -52,7 +58,7 @@ enum DeliveryTier: String, Equatable, CustomStringConvertible {
 
     /// The decision, in order: our own surface needs no probing, and a
     /// foreign app is Tier A only if it proved it.
-    static func resolve(isOwnSurface: Bool, probe: AXTextProbe) -> DeliveryTier {
+    public static func resolve(isOwnSurface: Bool, probe: AXTextProbe) -> DeliveryTier {
         if isOwnSurface { return .a }
         return probe.supportsReplacement ? .a : .b
     }

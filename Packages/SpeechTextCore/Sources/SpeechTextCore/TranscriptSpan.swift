@@ -8,15 +8,15 @@ import Foundation
 /// Identity of a span. A counter rather than a UUID: the layer is pure logic and its
 /// tests read better when the third span is `#3`, and the debug log's span timeline is
 /// the thing these numbers exist for.
-struct TranscriptSpanID: Hashable, CustomStringConvertible {
+public struct TranscriptSpanID: Hashable, CustomStringConvertible {
     let rawValue: UInt64
-    var description: String { "#\(rawValue)" }
+    public var description: String { "#\(rawValue)" }
 }
 
 /// One piece of issued text with an identity and a state. A span is *not* a phase:
 /// `RecordingPhase` describes the engine, a span describes a piece of text, and inside
 /// one `.recording` there can be ten settled spans and one still moving.
-struct TranscriptSpan: Identifiable, Equatable {
+public struct TranscriptSpan: Identifiable, Equatable {
     enum State: Equatable {
         /// Shown, but the recogniser may still replace it.
         case provisional
@@ -54,12 +54,12 @@ struct TranscriptSpan: Identifiable, Equatable {
         }
     }
 
-    let id: TranscriptSpanID
+    public let id: TranscriptSpanID
     /// Which recording segment produced it. A pause/resume opens the next one.
     let segment: Int
     /// Trimmed. Spans are joined with single spaces, the way `joinedTranscript` does it —
     /// except after a span the provider cut mid-word, see `joinsPrevious`.
-    var text: String
+    public var text: String
     var state: State
     /// This span continues the previous one's last word ("дани" | "х, звідки"), so
     /// nothing goes between them. Read off the provider's cumulative committed text,
@@ -90,7 +90,7 @@ func joinedSpanTexts(_ spans: [TranscriptSpan]) -> String {
 ///
 /// Pure logic on purpose: no engine, no view, no clock. Everything that depends on the
 /// microphone stays in `SpeechEngine`, and this is covered by `PureLogicTests`.
-struct TranscriptSpanLayer {
+public struct TranscriptSpanLayer {
     private(set) var spans: [TranscriptSpan] = []
     /// Index of the segment being recorded. `beginSegment()` opens the next one.
     private(set) var segment: Int = 0
@@ -102,44 +102,44 @@ struct TranscriptSpanLayer {
     /// The span this segment's `partial` is being written into, if there is one.
     private var provisionalID: TranscriptSpanID?
 
-    init() {}
+    public init() {}
 
     // MARK: Reading
 
     var visibleSpans: [TranscriptSpan] { spans.filter { $0.state.isVisible } }
 
     /// Everything issued in this recording, all segments.
-    var text: String { join(visibleSpans) }
+    public var text: String { join(visibleSpans) }
 
     /// The current segment only — what `SpeechEngine.liveText` has always meant: a pause
     /// hands its segment's text over for insertion, and the ghost text starts again.
-    var segmentText: String { join(visibleSpans.filter { $0.segment == segment }) }
+    public var segmentText: String { join(visibleSpans.filter { $0.segment == segment }) }
 
     /// The current segment's settled half, in order: what a sink that cannot take back
     /// what it was given (Tier B) is allowed to receive, and what a sink that records
     /// ranges keys its insertions by.
-    var segmentStableSpans: [TranscriptSpan] {
+    public var segmentStableSpans: [TranscriptSpan] {
         visibleSpans.filter { $0.segment == segment && $0.state.isStable }
     }
 
     /// The text of those spans.
-    var segmentStableText: String { join(segmentStableSpans) }
+    public var segmentStableText: String { join(segmentStableSpans) }
 
     /// Everything settled in this recording, all segments — what the inline overlay draws
     /// at full brightness, ahead of `segmentProvisionalText`.
-    var stableText: String { join(visibleSpans.filter { $0.state.isStable }) }
+    public var stableText: String { join(visibleSpans.filter { $0.state.isStable }) }
 
     /// The current segment's moving half. At most one span, but joined the same way.
-    var segmentProvisionalText: String {
+    public var segmentProvisionalText: String {
         join(visibleSpans.filter { $0.segment == segment && $0.state == .provisional })
     }
 
-    func span(_ id: TranscriptSpanID) -> TranscriptSpan? { spans.first { $0.id == id } }
+    public func span(_ id: TranscriptSpanID) -> TranscriptSpan? { spans.first { $0.id == id } }
 
     // MARK: Lifecycle
 
     /// A new recording. Everything from the previous one is gone.
-    mutating func reset() {
+    public mutating func reset() {
         spans = []
         segment = 0
         nextID = 1
@@ -151,7 +151,7 @@ struct TranscriptSpanLayer {
     /// previous segment's still-provisional span is committed rather than dropped: its
     /// session is gone, so nothing will ever confirm those words, but they were spoken
     /// and the engine has already handed them on for insertion.
-    mutating func beginSegment() {
+    public mutating func beginSegment() {
         if let id = provisionalID, let index = index(of: id), spans[index].state == .provisional {
             spans[index].state = .committed
             log("commit \(id) (segment closed), \(spans[index].text.count) chars")
@@ -165,7 +165,7 @@ struct TranscriptSpanLayer {
 
     /// One `RecognitionEvent.live(committed:partial:)`. Both strings are cumulative for
     /// the segment, which is why the increment — not the string — becomes the span.
-    mutating func ingest(committed: String, partial: String) {
+    public mutating func ingest(committed: String, partial: String) {
         ingestCommitted(committed)
         ingestPartial(partial)
     }
@@ -236,7 +236,7 @@ struct TranscriptSpanLayer {
     /// they are left where they stand, so a sink is not asked to redraw text that did not
     /// change. Settling is a separate call, because phase C's finalizing pass belongs
     /// between the two.
-    mutating func commitSegment(_ text: String) {
+    public mutating func commitSegment(_ text: String) {
         let authoritative = trimmed(text)
 
         // An empty result against non-empty spans is not a correction into nothing: the
@@ -251,7 +251,7 @@ struct TranscriptSpanLayer {
     }
 
     /// Nothing else will change this segment's text.
-    mutating func settleSegment() {
+    public mutating func settleSegment() {
         for index in spans.indices where spans[index].segment == segment {
             if spans[index].state == .committed || spans[index].state == .revised {
                 spans[index].state = .settled

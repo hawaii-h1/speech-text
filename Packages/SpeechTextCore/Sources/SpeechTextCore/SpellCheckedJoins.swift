@@ -10,7 +10,7 @@ import AppKit
 /// Points `TranscriptJoin.isWord` at the macOS spell checker, so a segment boundary the
 /// provider cut mid-word can be glued back. The language follows the script: the English
 /// checker waves every Cyrillic word through, so it would call any fragment a word.
-func registerSpellCheckedJoins() {
+public func registerSpellCheckedJoins() {
     let lock = NSLock()
     let uk = NSSpellChecker.shared.availableLanguages.contains("uk")
     TranscriptJoin.isWord = { word in

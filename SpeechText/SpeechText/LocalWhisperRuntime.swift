@@ -3,6 +3,7 @@
 
 import Foundation
 import WhisperKit
+import SpeechTextCore
 
 /// **The only file in the app that imports a third-party framework.**
 ///

@@ -4,6 +4,7 @@
 import SwiftUI
 import AppKit
 import ServiceManagement
+import SpeechTextCore
 
 @main
 struct SpeechTextApp: App {

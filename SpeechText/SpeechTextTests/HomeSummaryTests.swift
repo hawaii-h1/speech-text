@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+@testable import SpeechTextCore
 
 /// The main window's Home: the week it counts from History, the Recent rows, and the
 /// intro card's approved animation — built from records made here, never the user's own.
