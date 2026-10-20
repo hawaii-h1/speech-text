@@ -11,12 +11,12 @@ import Foundation
 
 /// The page's filters: every dictation, the ones AI Rewrite rewrote, the edits of a
 /// selection, and the ones that did not come out as asked.
-enum HistoryFilter: String, CaseIterable, Identifiable {
+public enum HistoryFilter: String, CaseIterable, Identifiable {
     case all, rewritten, edits, failed
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .all: "All"
         case .rewritten: "AI Rewrite"
@@ -207,14 +207,14 @@ enum HistorySearch {
 // MARK: - App and date
 
 /// The day range History is narrowed to, beside the search and the filters.
-enum HistoryDates: Equatable, Hashable {
+public enum HistoryDates: Equatable, Hashable {
     case anyTime, today, last7Days, last30Days
     /// One day the user picked.
     case day(Date)
 
-    static let presets: [HistoryDates] = [.anyTime, .today, .last7Days, .last30Days]
+    public static let presets: [HistoryDates] = [.anyTime, .today, .last7Days, .last30Days]
 
-    var title: String {
+    public var title: String {
         switch self {
         case .anyTime: "Any time"
         case .today: "Today"
@@ -253,11 +253,16 @@ enum HistoryDates: Equatable, Hashable {
 /// What History is narrowed to besides the filter and the search: the app a dictation went
 /// to — named as its row names it (`HomeRecentEntry.place`, so "Record Window" and "Not
 /// pasted" are there too) — and a range of days.
-struct HistoryNarrowing: Equatable {
-    var app: String?
-    var dates: HistoryDates = .anyTime
+public struct HistoryNarrowing: Equatable {
+    public var app: String?
+    public var dates: HistoryDates = .anyTime
 
-    var isEmpty: Bool { app == nil && dates == .anyTime }
+    public init(app: String? = nil, dates: HistoryDates = .anyTime) {
+        self.app = app
+        self.dates = dates
+    }
+
+    public var isEmpty: Bool { app == nil && dates == .anyTime }
 
     func includes(_ record: TranscriptionRecord, now: Date = Date(), calendar: Calendar = .current) -> Bool {
         matcher(now: now, calendar: calendar)(record)
@@ -271,7 +276,7 @@ struct HistoryNarrowing: Equatable {
     }
 
     /// Every place dictations went, the busiest first, with how many went there.
-    static func apps(in records: [TranscriptionRecord]) -> [(app: String, count: Int)] {
+    public static func apps(in records: [TranscriptionRecord]) -> [(app: String, count: Int)] {
         var counts: [String: Int] = [:]
         for record in records { counts[HomeRecentEntry.place(of: record), default: 0] += 1 }
         return counts.map { (app: $0.key, count: $0.value) }
@@ -281,11 +286,11 @@ struct HistoryNarrowing: Equatable {
 
 /// Which app on this Mac a name History kept stands for, so its row can carry the app's
 /// icon (`AppIcons`, HomeView.swift) after the app was renamed, moved or replaced.
-enum AppIdentity {
+public enum AppIdentity {
     /// The bundle identifier recorded with that name, newest record first — from where the
     /// dictation started or went, or from an AI pass's focus context, which kept it before
     /// the records did.
-    static func bundleID(forAppNamed name: String, in records: [TranscriptionRecord]) -> String? {
+    public static func bundleID(forAppNamed name: String, in records: [TranscriptionRecord]) -> String? {
         for record in records {
             if record.destinationApp == name, let id = record.destinationBundleID { return id }
             if record.originApp == name, let id = record.originBundleID { return id }
@@ -306,7 +311,7 @@ enum AppIdentity {
     /// An installed app that is another channel of the same one, when the app itself is
     /// gone — "T3 Code (Alpha)" drawn with "T3 Code (Beta)"'s icon once Alpha was replaced.
     /// The plain name is preferred, then the first in order; nil when nothing shares it.
-    static func sibling(of name: String, among installed: [String]) -> String? {
+    public static func sibling(of name: String, among installed: [String]) -> String? {
         let base = baseName(name)
         let matches = installed.filter { $0 != name && baseName($0) == base }
         if matches.contains(base) { return base }
@@ -325,7 +330,7 @@ enum AppIdentity {
 /// what an AI pass attaches to, what the "No connection" notice's Retry and the offline
 /// drain read, and where a failed dictation's audio waits for them. It goes at quit, and
 /// at the next launch should the app not have quit cleanly.
-enum HistoryRetention: String, CaseIterable, Identifiable {
+public enum HistoryRetention: String, CaseIterable, Identifiable {
     case session = "none"
     case days7 = "7d"
     case days30 = "30d"
@@ -337,19 +342,19 @@ enum HistoryRetention: String, CaseIterable, Identifiable {
     /// What History keeps on an install that never chose — and on one that chose a number
     /// of dictations, before the choice became a span of time: nothing is deleted by an
     /// update.
-    static let `default` = HistoryRetention.forever
+    public static let `default` = HistoryRetention.forever
     /// What the audio of a failed dictation was always kept for.
-    static let defaultAudio = HistoryRetention.days7
+    public static let defaultAudio = HistoryRetention.days7
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
     /// A stored value; anything unknown (the old "300" and "1000" included) is `fallback`.
-    static func stored(_ raw: String?, default fallback: HistoryRetention = .default) -> HistoryRetention {
+    public static func stored(_ raw: String?, default fallback: HistoryRetention = .default) -> HistoryRetention {
         raw.flatMap(HistoryRetention.init(rawValue:)) ?? fallback
     }
 
     /// The slider's label.
-    var title: String {
+    public var title: String {
         switch self {
         case .session: "Don't keep"
         case .days7: "7 days"
@@ -362,7 +367,7 @@ enum HistoryRetention: String, CaseIterable, Identifiable {
     }
 
     /// The end of "History keeps …" / "Counted from …".
-    var phrase: String {
+    public var phrase: String {
         switch self {
         case .session: "this session's dictations"
         case .days7: "the last 7 days of dictations"
@@ -415,7 +420,7 @@ enum HistoryRetention: String, CaseIterable, Identifiable {
 
     /// Whether audio kept this long is ever kept longer than History keeps its dictation —
     /// the audio goes with the record, so the shorter of the two is what counts.
-    func outlasts(_ other: HistoryRetention) -> Bool {
+    public func outlasts(_ other: HistoryRetention) -> Bool {
         guard let mine = Self.allCases.firstIndex(of: self),
               let theirs = Self.allCases.firstIndex(of: other) else { return false }
         return mine > theirs
@@ -425,14 +430,14 @@ enum HistoryRetention: String, CaseIterable, Identifiable {
 // MARK: - Days
 
 /// One day of History: its records newest first, and what they came to.
-struct HistoryDay: Identifiable, Equatable {
+public struct HistoryDay: Identifiable, Equatable {
     let start: Date
-    let records: [TranscriptionRecord]
+    public let records: [TranscriptionRecord]
 
-    var id: Date { start }
+    public var id: Date { start }
 
     /// Words that ended up as text, counted as Home's week counts them.
-    var words: Int {
+    public var words: Int {
         records.reduce(0) { total, record in
             guard record.status == .success, record.refinement?.isSelectionEdit != true else { return total }
             return total + homeWordCount(record.deliveredText)
@@ -449,7 +454,7 @@ struct HistoryDay: Identifiable, Equatable {
 
     /// "Today", "Yesterday", a weekday within the week, then "28 September" — with the year
     /// once it is not this one.
-    func title(now: Date = Date(), calendar: Calendar = .current) -> String {
+    public func title(now: Date = Date(), calendar: Calendar = .current) -> String {
         let today = calendar.startOfDay(for: now)
         let days = calendar.dateComponents([.day], from: start, to: today).day ?? 0
         if days == 0 { return "Today" }
@@ -460,7 +465,7 @@ struct HistoryDay: Identifiable, Equatable {
     }
 
     /// The date under a title that does not already say it: "Monday" → "28 September".
-    func subtitle(now: Date = Date(), calendar: Calendar = .current) -> String? {
+    public func subtitle(now: Date = Date(), calendar: Calendar = .current) -> String? {
         let days = calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: now)).day ?? 0
         guard days < 7 else { return nil }
         return HistoryFormat.formatter(days < 2 ? "EEEE, d MMMM" : "d MMMM", calendar: calendar).string(from: start)
@@ -472,9 +477,9 @@ struct HistoryDay: Identifiable, Equatable {
 /// What History's page shows for a filter, a search and a narrowing: the days, and beside
 /// the search each filter's count — worked out together in one pass, since the page needs
 /// both on every key typed. The search runs once a record, and the days' bounds once a day.
-struct HistoryListing: Equatable {
-    var days: [HistoryDay] = []
-    var counts: [HistoryFilter: Int] = Dictionary(uniqueKeysWithValues: HistoryFilter.allCases.map { ($0, 0) })
+public struct HistoryListing: Equatable {
+    public var days: [HistoryDay] = []
+    public var counts: [HistoryFilter: Int] = Dictionary(uniqueKeysWithValues: HistoryFilter.allCases.map { ($0, 0) })
 
     /// `texts` are the records' search texts in their order, kept between keystrokes
     /// (`HistorySearch.Index`); without them a record is folded as it is searched.
@@ -521,7 +526,7 @@ struct HistoryListing: Equatable {
 /// and every busy day unfolded, and each time that was every record searched twice and
 /// grouped. Now a key typed searches each record once, and a redraw that changed none of
 /// them works nothing out.
-final class HistoryListingCache {
+public final class HistoryListingCache {
     private struct Key: Equatable {
         let records: [TranscriptionRecord]
         let filter: HistoryFilter
@@ -537,7 +542,9 @@ final class HistoryListingCache {
     /// Apart from the listing: a key typed changes the search and leaves every text as it was.
     private let index = HistorySearch.Index()
 
-    func listing(records: [TranscriptionRecord], filter: HistoryFilter, query: String, narrowing: HistoryNarrowing,
+    public init() {}
+
+    public func listing(records: [TranscriptionRecord], filter: HistoryFilter, query: String, narrowing: HistoryNarrowing,
                  now: Date = Date(), calendar: Calendar = .current) -> HistoryListing {
         // An unchanged History is the same array, which compares at once.
         let key = Key(records: records, filter: filter, query: query, narrowing: narrowing,
@@ -555,7 +562,7 @@ final class HistoryListingCache {
 /// that text, for the last few widths the rows were laid out at. The page keeps it past the
 /// rows themselves (`HistoryRowFit`, HistoryView.swift) — and kept every width a window
 /// was ever resized through, a frame at a time, for good.
-struct HistoryRowFits {
+public struct HistoryRowFits {
     /// The width the rows have now, the one a row has while its Copy says Copied, and the
     /// last ones before a resize stopped.
     static let widthsKept = 4
@@ -564,7 +571,9 @@ struct HistoryRowFits {
     /// The widths answered for, oldest first.
     private var widths: [Int] = []
 
-    subscript(id: UUID, width: Int) -> Bool? {
+    public init() {}
+
+    public subscript(id: UUID, width: Int) -> Bool? {
         get { answers[width]?[id] }
         set {
             guard let newValue else {
@@ -585,13 +594,13 @@ struct HistoryRowFits {
 
 // MARK: - Formatting
 
-enum HistoryFormat {
+public enum HistoryFormat {
     /// Made once per format and calendar: a `DateFormatter` is costly to build, and every
     /// History row asks for its clock each time it is drawn.
     nonisolated(unsafe) private static var formatters: [String: DateFormatter] = [:]
     private static let formattersLock = NSLock()
 
-    static func formatter(_ format: String, calendar: Calendar) -> DateFormatter {
+    public static func formatter(_ format: String, calendar: Calendar) -> DateFormatter {
         let key = "\(format)|\(calendar.identifier)|\(calendar.timeZone.identifier)"
         formattersLock.lock()
         defer { formattersLock.unlock() }
@@ -606,17 +615,17 @@ enum HistoryFormat {
     }
 
     /// "14:02" — a row's day is its section's.
-    static func clock(_ date: Date, calendar: Calendar = .current) -> String {
+    public static func clock(_ date: Date, calendar: Calendar = .current) -> String {
         formatter("HH:mm", calendar: calendar).string(from: date)
     }
 
     /// "Wednesday 30 September 2026, 14:02".
-    static func full(_ date: Date, calendar: Calendar = .current) -> String {
+    public static func full(_ date: Date, calendar: Calendar = .current) -> String {
         formatter("EEEE d MMMM yyyy, HH:mm", calendar: calendar).string(from: date)
     }
 
     /// "8 s", "1:05".
-    static func length(_ seconds: TimeInterval) -> String? {
+    public static func length(_ seconds: TimeInterval) -> String? {
         guard seconds > 0 else { return nil }
         let total = max(1, Int(seconds.rounded()))
         return total < 60 ? "\(total) s" : String(format: "%d:%02d", total / 60, total % 60)
@@ -625,7 +634,7 @@ enum HistoryFormat {
     /// How long a failed dictation's audio is kept for a retry, as the end of "The audio is
     /// kept …": "until Thursday 8 October", "until SpeechText quits". The shorter of the two
     /// settings decides, since the audio goes with its record.
-    static func audioKept(_ record: TranscriptionRecord, audio: HistoryRetention, history: HistoryRetention,
+    public static func audioKept(_ record: TranscriptionRecord, audio: HistoryRetention, history: HistoryRetention,
                           calendar: Calendar = .current) -> String {
         let rule = audio.outlasts(history) ? history : audio
         if rule == .session { return "until SpeechText quits" }
@@ -634,7 +643,7 @@ enum HistoryFormat {
     }
 
     /// What History holds now, under its settings: "125 dictations since 14 September · 70 KB".
-    static func storageSummary(count: Int, since: Date?, bytes: Int64, calendar: Calendar = .current) -> String {
+    public static func storageSummary(count: Int, since: Date?, bytes: Int64, calendar: Calendar = .current) -> String {
         guard count > 0 else { return "No dictations kept yet." }
         let dictations = count == 1 ? "1 dictation" : "\(HomeFormat.integer(count)) dictations"
         let start = since.map { " since " + formatter("d MMMM", calendar: calendar).string(from: $0) } ?? ""
@@ -643,7 +652,7 @@ enum HistoryFormat {
     }
 
     /// What History keeps, in a sentence or two — History's foot.
-    static func retentionSummary(history: HistoryRetention, audio: HistoryRetention) -> String {
+    public static func retentionSummary(history: HistoryRetention, audio: HistoryRetention) -> String {
         let kept = history == .session
             ? "History keeps this session's dictations, until SpeechText quits."
             : "History keeps \(history.phrase) on this Mac."
@@ -658,7 +667,7 @@ enum HistoryFormat {
     }
 
     /// The speech engine a record names, as a person would: "Groq", "On this Mac".
-    static func engine(_ provider: String) -> String {
+    public static func engine(_ provider: String) -> String {
         switch STTProviderType(rawValue: provider) {
         case .apple: "Apple"
         case .local: "On this Mac"
@@ -668,7 +677,7 @@ enum HistoryFormat {
     }
 
     /// The language a record was dictated in, by name; nil when the model chose.
-    static func language(_ locale: String?) -> String? {
+    public static func language(_ locale: String?) -> String? {
         guard let locale, locale != autoLanguageID, !locale.isEmpty else { return nil }
         let code = String(locale.prefix { $0 != "-" && $0 != "_" })
         return spokenLanguageCatalog.first { $0.id == code }?.displayName ?? locale

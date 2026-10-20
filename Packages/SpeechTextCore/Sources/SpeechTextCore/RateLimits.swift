@@ -2,23 +2,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // MARK: - What the vendor says is left
 
 /// One window of a vendor's rate limit, as its reply's headers state it: requests a
 /// day, tokens a minute, and whatever else the vendor meters. A free tier is spent
 /// against these, not against dollars, so how much of each is left is the useful number.
-struct RateLimitWindow: Equatable {
+public struct RateLimitWindow: Equatable {
     /// The vendor's own word for what is counted: `requests`, `tokens`, `input-tokens`…
-    let name: String
-    var limit: Int?
-    var remaining: Int?
+    public let name: String
+    public var limit: Int?
+    public var remaining: Int?
     /// When the window refills, from the vendor's reset header.
-    var resetsAt: Date?
+    public var resetsAt: Date?
 
     /// The share used, 0–1; nil until both numbers are known.
-    var used: Double? {
+    public var used: Double? {
         guard let limit, let remaining, limit > 0 else { return nil }
         return min(1, max(0, Double(limit - remaining) / Double(limit)))
     }
@@ -26,11 +25,11 @@ struct RateLimitWindow: Equatable {
 
 /// The last limits a vendor reported for one model — Groq's apply per model, so a chat
 /// model's and a speech model's are kept apart.
-struct RateLimitSnapshot: Equatable {
-    let vendor: Provider
-    let model: String
+public struct RateLimitSnapshot: Equatable {
+    public let vendor: Provider
+    public let model: String
     let date: Date
-    var windows: [RateLimitWindow]
+    public var windows: [RateLimitWindow]
 }
 
 /// Reads the rate-limit headers the vendors send with every reply. Pure, in both targets.
@@ -126,8 +125,8 @@ enum RateLimits {
 /// The latest limits each vendor and model reported this session. Memory only: a limit
 /// read yesterday says nothing about today, and the next request refreshes it.
 @Observable
-final class RateLimitStore {
-    static let shared = RateLimitStore()
+public final class RateLimitStore {
+    public static let shared = RateLimitStore()
 
     private(set) var latest: [String: RateLimitSnapshot] = [:]
 
@@ -143,5 +142,5 @@ final class RateLimitStore {
     }
 
     /// Newest first.
-    var snapshots: [RateLimitSnapshot] { latest.values.sorted { $0.date > $1.date } }
+    public var snapshots: [RateLimitSnapshot] { latest.values.sorted { $0.date > $1.date } }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 // The catalogues as JSON, for `scripts/check-vendor-models.sh` (#20), which compares them
 // with what each vendor serves. Written by `SpeechTextEvaluation --export-catalogue`, so

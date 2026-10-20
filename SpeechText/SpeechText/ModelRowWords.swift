@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 // What the model rows in Settings › Speech to text, Settings › AI Rewrite and setup say, in
 // the words of someone choosing one. Pure, so `ModelLanguageTests` can hold every line to

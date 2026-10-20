@@ -12,7 +12,7 @@ import Foundation
 /// What a model knows, as against `STTModelDescriptor.LanguageSupport`, which says what its
 /// API *takes*. Required on every speech catalogue entry, as `price` is: "not published" is
 /// a value, never an absent field.
-enum LanguageCoverage: Hashable {
+public enum LanguageCoverage: Hashable, Sendable {
     /// The vendor's list.
     case listed(PublishedLanguages)
     /// The vendor publishes no list (OpenAI). Never matched as "not supported".
@@ -23,19 +23,19 @@ enum LanguageCoverage: Hashable {
 }
 
 /// A vendor's published language list and where it was read.
-struct PublishedLanguages: Hashable {
+public struct PublishedLanguages: Hashable, Sendable {
     /// BCP-47 language codes — ISO 639-1 where one exists, else 639-3 ("yue", "fil") —
     /// whatever the vendor lists, not only the languages the app offers to state.
-    let codes: [String]
-    let source: URL
-    let checked: DateComponents
+    public let codes: [String]
+    public let source: URL
+    public let checked: DateComponents
     /// A vendor that says "90+ languages" rather than counting its list: the subtitle says
     /// what the vendor says. Nil shows the list's exact count.
-    var vendorSaysAtLeast: Int? = nil
+    public var vendorSaysAtLeast: Int? = nil
 }
 
 /// A weakness in one language that we measured, shown only to someone who speaks it.
-struct LanguageNote: Hashable {
+public struct LanguageNote: Hashable, Sendable {
     /// "Makes mistakes in Ukrainian." — the one sentence that may name a language, because
     /// it is shown only to someone who listed it.
     let text: String
@@ -48,7 +48,7 @@ enum LanguageMatch: Hashable {
 }
 
 /// The language subtag of a BCP-47 code, lowercased: "uk-UA" → "uk".
-func languageSubtag(_ code: String) -> String {
+public func languageSubtag(_ code: String) -> String {
     String(code.split(whereSeparator: { $0 == "-" || $0 == "_" }).first ?? "").lowercased()
 }
 
@@ -90,7 +90,7 @@ func languageDisplayName(_ code: String) -> String {
 
 /// The row's subtitle count: "25 languages", "90+ languages", "English only" — nil when the
 /// vendor publishes no list or macOS decides. One fact, the same for everyone.
-func languageCountLabel(_ coverage: LanguageCoverage) -> String? {
+public func languageCountLabel(_ coverage: LanguageCoverage) -> String? {
     guard case .listed(let list) = coverage else { return nil }
     let count = Set(list.codes.map(languageSubtag)).count
     if count == 1 { return "\(languageDisplayName(list.codes[0])) only" }
@@ -100,7 +100,7 @@ func languageCountLabel(_ coverage: LanguageCoverage) -> String? {
 
 /// The warning badge for a row whose model lacks one of the user's languages: "No Spanish",
 /// "No Spanish +1", and for Apple "No Spanish on-device". Nil when nothing is missing.
-func missingLanguageBadgeText(spoken: [String], coverage: LanguageCoverage,
+public func missingLanguageBadgeText(spoken: [String], coverage: LanguageCoverage,
                               onDevice: (String) -> Bool? = { _ in nil }) -> String? {
     let missing = missingLanguages(spoken: spoken, coverage: coverage, onDevice: onDevice)
     guard let first = missing.first else { return nil }
@@ -112,7 +112,7 @@ func missingLanguageBadgeText(spoken: [String], coverage: LanguageCoverage,
 /// A row's line with the measured notes for the user's own languages added, in their order.
 /// Every row in Settings and setup goes through it, so a note is never shown to someone who
 /// does not speak the language.
-func lineWithLanguageNotes(_ line: String, notes: [String: LanguageNote], spoken: [String]) -> String {
+public func lineWithLanguageNotes(_ line: String, notes: [String: LanguageNote], spoken: [String]) -> String {
     let added = spoken.compactMap { code in
         notes[code] ?? notes.first(where: { languageSubtag($0.key) == languageSubtag(code) })?.value
     }
@@ -122,7 +122,7 @@ func lineWithLanguageNotes(_ line: String, notes: [String: LanguageNote], spoken
 
 /// The *Languages I speak* caption's warning, while the selected model cannot take one of
 /// the listed languages: "Phonon-2 can't take Ukrainian." Nil when it can, or nobody knows.
-func spokenLanguagesWarning(modelName: String, spoken: [String], coverage: LanguageCoverage,
+public func spokenLanguagesWarning(modelName: String, spoken: [String], coverage: LanguageCoverage,
                             onDevice: (String) -> Bool? = { _ in nil }) -> String? {
     let missing = missingLanguages(spoken: spoken, coverage: coverage, onDevice: onDevice)
     guard !missing.isEmpty else { return nil }

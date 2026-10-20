@@ -3,15 +3,14 @@
 
 import Foundation
 import os.log
-import SpeechTextCore
 
 private let histLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                              category: "History")
 
 // MARK: - Record
 
-struct TranscriptionRecord: Identifiable, Codable, Equatable {
-    enum Status: String, Codable {
+public struct TranscriptionRecord: Identifiable, Codable, Equatable {
+    public enum Status: String, Codable {
         case success
         case empty
         case failed
@@ -19,21 +18,21 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
 
     /// The LLM pass, when the dictation went through one. `text` always stays the raw
     /// transcription, so both versions survive and can be compared after the fact.
-    struct Refinement: Codable, Equatable {
+    public struct Refinement: Codable, Equatable {
         /// What was actually sent to the model. Usually equals the record's `text`, but
         /// the Record Window refines its whole text area, which can span several
         /// segments and manual edits — so it is stored rather than assumed.
-        var inputText: String
-        var outputText: String
+        public var inputText: String
+        public var outputText: String
         /// Preset the model routed to, when it reported one on the `<<mode:…>>` line.
-        var presetName: String?
-        var provider: String
-        var model: String
+        public var presetName: String?
+        public var provider: String
+        public var model: String
         /// Set when the LLM step failed; the raw transcription was used instead.
-        var errorMessage: String?
+        public var errorMessage: String?
         /// The app, window and field the model was told the text was for. Nil for the
         /// Record Window, for entries older than the setting, and when it was off.
-        var context: FocusContext? = nil
+        public var context: FocusContext? = nil
         /// The Edit shortcut's rewrite of text selected in another app: `inputText` is the
         /// selection, and the record's `text` the spoken instruction ("" with none).
         var editsSelection: Bool? = nil
@@ -42,62 +41,62 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
         /// it was kept, which Usage estimates from their words.
         var usage: ChatUsage? = nil
 
-        var isSelectionEdit: Bool { editsSelection == true }
-        var succeeded: Bool { errorMessage == nil && !outputText.isEmpty }
+        public var isSelectionEdit: Bool { editsSelection == true }
+        public var succeeded: Bool { errorMessage == nil && !outputText.isEmpty }
     }
 
-    let id: UUID
-    let date: Date
-    var text: String
-    var status: Status
-    var errorMessage: String?
+    public let id: UUID
+    public let date: Date
+    public var text: String
+    public var status: Status
+    public var errorMessage: String?
     /// The speech engine's `STTProviderType` raw value. A retry that succeeds rewrites
     /// it with the engine that transcribed it then. `noSpeechProvider` for an edit sent
     /// with no spoken instruction, which no engine heard.
-    var provider: String
-    let locale: String?
-    let duration: TimeInterval
+    public var provider: String
+    public let locale: String?
+    public let duration: TimeInterval
     /// The speech within `duration`, from the first word to the last — the silence before
     /// and after left out, a pause between words kept (`VoiceActivityReading.voicedSpanSeconds`).
     /// What Usage divides the words by; nil for a record from before it was kept, and
     /// whenever the voice detector could not read the segment, which then counts whole.
-    var speakingDuration: TimeInterval? = nil
+    public var speakingDuration: TimeInterval? = nil
     /// Filename (not a full path — the container may move) of the archived audio kept
     /// so a failed transcription can be retried instead of being lost.
     var audioFileName: String?
     /// Optional, so history written before AI mode existed still decodes.
-    var refinement: Refinement?
+    public var refinement: Refinement?
     /// The app an inline dictation started in, and the one it was pasted into — the app
     /// in front at the stop. Nil for the Record Window, for an edit, and for entries
     /// written before the stop chose where the text went.
-    var originApp: String?
-    var destinationApp: String?
+    public var originApp: String?
+    public var destinationApp: String?
     /// The speech model's ID (`STTModelDescriptor.id`) — the one selected, for a stream
     /// that fell back to its upload too. Nil for entries written before it was kept, which
     /// Usage then names by their engine alone.
-    var sttModel: String?
+    public var sttModel: String?
     /// Every request this record cost (`UsageEvent`), oldest first. Nil for records
     /// written before the ledger was kept, which Usage prices the old way; empty for one
     /// that sent nothing anywhere — Apple, a model on this Mac, or a silent segment.
-    var usageEvents: [UsageEvent]?
+    public var usageEvents: [UsageEvent]?
     /// The bundle identifiers of `originApp` and `destinationApp`, so an app's icon is
     /// still found after it is renamed or moved (`AppIdentity`). Nil for entries written
     /// before they were kept, which are looked up by name alone.
     var originBundleID: String?
     var destinationBundleID: String?
 
-    var isRetryable: Bool { audioFileName != nil && status != .success }
+    public var isRetryable: Bool { audioFileName != nil && status != .success }
 
     /// The `provider` of an edit sent with no instruction (a double press): nothing was
     /// recorded, so no engine heard anything and Usage counts no speech for it.
     static let noSpeechProvider = "edit"
 
     /// Whether a speech engine heard anything for this record.
-    var hasSpeech: Bool { provider != Self.noSpeechProvider }
+    public var hasSpeech: Bool { provider != Self.noSpeechProvider }
 
     /// What the user actually received — the refined text when the LLM pass worked,
     /// otherwise the raw transcription.
-    var deliveredText: String {
+    public var deliveredText: String {
         guard let refinement, refinement.succeeded else { return text }
         return refinement.outputText
     }
@@ -110,8 +109,8 @@ struct TranscriptionRecord: Identifiable, Codable, Equatable {
 /// upload it fell back to are two, a retry is another, a rewrite another — so Usage
 /// counts the work that was paid for, not the one result that survived. Prices are not
 /// stored: the units are, and Usage prices them.
-struct UsageEvent: Codable, Equatable {
-    enum Kind: String, Codable {
+public struct UsageEvent: Codable, Equatable {
+    public enum Kind: String, Codable {
         /// A segment's file upload — including a stream's fallback.
         case upload
         /// A realtime socket, reconnects included.
@@ -125,48 +124,48 @@ struct UsageEvent: Codable, Equatable {
 
         /// A speech request — priced by its audio, whatever else its reply reported
         /// (OpenAI's token-billed transcriptions carry tokens too).
-        var isSpeech: Bool { self == .upload || self == .stream || self == .retry }
+        public var isSpeech: Bool { self == .upload || self == .stream || self == .retry }
     }
 
     let date: Date
-    let kind: Kind
+    public let kind: Kind
     /// The vendor actually called — Groq for an Apple session's upload.
-    let vendor: Provider
-    let model: String
+    public let vendor: Provider
+    public let model: String
     /// The vendor answered, whatever the answer held — for a stream, the socket did not
     /// break; one that answered with nothing still counts, as its fallback upload is
     /// what shows it was paid for twice.
-    let succeeded: Bool
+    public let succeeded: Bool
     /// Audio sent, in seconds; nil for a chat request.
-    var audioSeconds: Double? = nil
+    public var audioSeconds: Double? = nil
     /// The vendor's own figure, or its documented minimum (`UsageMeter`); nil when
     /// neither is known — then only `audioSeconds` is.
-    var billedSeconds: Double? = nil
+    public var billedSeconds: Double? = nil
     /// A chat request's tokens, or a token-billed transcription's.
-    var tokens: ChatUsage? = nil
+    public var tokens: ChatUsage? = nil
     /// Terms sent with a speech request (ElevenLabs bills a surcharge for them).
     var keyterms: Int? = nil
     /// Seconds from sending the request to its answer.
-    var latency: Double? = nil
+    public var latency: Double? = nil
 }
 
 // MARK: - Store
 
 @Observable
-final class TranscriptionHistory {
-    static let shared = TranscriptionHistory()
+public final class TranscriptionHistory {
+    public static let shared = TranscriptionHistory()
 
     /// Newest first.
-    private(set) var records: [TranscriptionRecord] = []
+    public private(set) var records: [TranscriptionRecord] = []
 
     /// How long History keeps dictations (`SettingsKeys.historyRetention`): forever until
     /// the user chooses otherwise. Entries it lets go take their archived audio with them.
-    var retention: HistoryRetention {
+    public var retention: HistoryRetention {
         HistoryRetention.stored(UserDefaults.standard.string(forKey: SettingsKeys.historyRetention))
     }
     /// How long a failed dictation's audio is kept for a retry (`SettingsKeys.failedAudioRetention`):
     /// a week until the user chooses otherwise.
-    var audioRetention: HistoryRetention {
+    public var audioRetention: HistoryRetention {
         HistoryRetention.stored(UserDefaults.standard.string(forKey: SettingsKeys.failedAudioRetention),
                                 default: .defaultAudio)
     }
@@ -234,7 +233,7 @@ final class TranscriptionHistory {
     }
 
     /// What History takes on disk: its file and the audio kept for retries.
-    func diskBytes() -> Int64 {
+    public func diskBytes() -> Int64 {
         let fm = FileManager.default
         func size(_ url: URL) -> Int64 {
             (try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize).flatMap { $0 }
@@ -247,7 +246,7 @@ final class TranscriptionHistory {
     }
 
     /// Full path of the archived audio for a record, if it still exists on disk.
-    func audioURL(for record: TranscriptionRecord) -> URL? {
+    public func audioURL(for record: TranscriptionRecord) -> URL? {
         guard let name = record.audioFileName else { return nil }
         let url = recordingsDirectory.appendingPathComponent(name)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
@@ -262,7 +261,7 @@ final class TranscriptionHistory {
 
     /// Returns the new record's id so a later LLM pass can be attached to this entry.
     @discardableResult
-    func recordSuccess(text: String, provider: String, model: String? = nil, locale: String?,
+    public func recordSuccess(text: String, provider: String, model: String? = nil, locale: String?,
                        duration: TimeInterval, speakingDuration: TimeInterval? = nil,
                        usage: [UsageEvent] = []) -> UUID {
         let id = UUID()
@@ -274,14 +273,14 @@ final class TranscriptionHistory {
     }
 
     /// The speech in a record the detector read after it was written (an Apple segment).
-    func recordSpeakingDuration(id: UUID, _ seconds: TimeInterval) {
+    public func recordSpeakingDuration(id: UUID, _ seconds: TimeInterval) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].speakingDuration = seconds
         save()
     }
 
     /// Where an inline dictation started and where it was pasted.
-    func recordApps(id: UUID, origin: String?, originBundleID: String? = nil,
+    public func recordApps(id: UUID, origin: String?, originBundleID: String? = nil,
                     destination: String?, destinationBundleID: String? = nil) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].originApp = origin
@@ -294,7 +293,7 @@ final class TranscriptionHistory {
     // MARK: LLM pass
 
     /// Attaches the result of the AI step to an existing transcription entry.
-    func recordRefinement(id: UUID, input: String, output: String, presetName: String?,
+    public func recordRefinement(id: UUID, input: String, output: String, presetName: String?,
                           provider: String, model: String, context: FocusContext? = nil,
                           usage: ChatUsage? = nil, latency: Double? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
@@ -307,7 +306,7 @@ final class TranscriptionHistory {
     /// silently differs from what the user asked for, and the entry explains why.
     /// `usage`: a reply that came back and was refused by us (the Record Window's collapse
     /// guard) was still billed.
-    func recordRefinementFailure(id: UUID, input: String, error: String,
+    public func recordRefinementFailure(id: UUID, input: String, error: String,
                                  provider: String, model: String, context: FocusContext? = nil,
                                  usage: ChatUsage? = nil, latency: Double? = nil) {
         updateRefinement(id: id, TranscriptionRecord.Refinement(
@@ -319,7 +318,7 @@ final class TranscriptionHistory {
     /// The Edit shortcut's rewrite. It belongs to the spoken instruction's record when
     /// there was one (`recordID`); an edit with no instruction gets a record of its own,
     /// whose text — the instruction — is empty.
-    func recordSelectionEdit(recordID: UUID?, selection: String, output: String, error: String?,
+    public func recordSelectionEdit(recordID: UUID?, selection: String, output: String, error: String?,
                              presetName: String?, provider: String, model: String,
                              context: FocusContext?, usage: ChatUsage? = nil, latency: Double? = nil) {
         let refinement = TranscriptionRecord.Refinement(
@@ -370,7 +369,7 @@ final class TranscriptionHistory {
     /// audio file here transfers ownership — do not call `AudioBufferWriter.cleanup` on it after.
     /// Returns the new record's id, so a failure the user can retry can name its row.
     @discardableResult
-    func recordFailure(error: String, provider: String, model: String? = nil, locale: String?,
+    public func recordFailure(error: String, provider: String, model: String? = nil, locale: String?,
                        duration: TimeInterval, audioURL: URL?, usage: [UsageEvent] = []) -> UUID {
         let archived = archive(audioURL: audioURL)
         let id = UUID()
@@ -380,13 +379,13 @@ final class TranscriptionHistory {
         return id
     }
 
-    func record(id: UUID) -> TranscriptionRecord? {
+    public func record(id: UUID) -> TranscriptionRecord? {
         records.first { $0.id == id }
     }
 
     /// Transcription succeeded technically but produced no words. Audio is kept too —
     /// an empty result is often a provider hiccup worth retrying.
-    func recordEmpty(provider: String, model: String? = nil, locale: String?, duration: TimeInterval, audioURL: URL?,
+    public func recordEmpty(provider: String, model: String? = nil, locale: String?, duration: TimeInterval, audioURL: URL?,
                      usage: [UsageEvent] = []) {
         let archived = archive(audioURL: audioURL)
         add(TranscriptionRecord(id: UUID(), date: Date(), text: "", status: .empty,
@@ -400,7 +399,7 @@ final class TranscriptionHistory {
     /// `event`: the retry's own request, added to the ledger — the attempts before it
     /// were billed too, and stay. Not added to a record from before the ledger, which
     /// Usage keeps pricing the old way.
-    func markRetrySucceeded(id: UUID, text: String, provider: String? = nil, model: String? = nil,
+    public func markRetrySucceeded(id: UUID, text: String, provider: String? = nil, model: String? = nil,
                             event: UsageEvent? = nil) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         var record = records[index]
@@ -423,7 +422,7 @@ final class TranscriptionHistory {
         save()
     }
 
-    func markRetryFailed(id: UUID, error: String, event: UsageEvent? = nil) {
+    public func markRetryFailed(id: UUID, error: String, event: UsageEvent? = nil) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].errorMessage = error
         if let event { records[index].usageEvents?.append(event) }
@@ -441,24 +440,24 @@ final class TranscriptionHistory {
 
     /// How many entries `retention` would let go right now — what Settings asks about
     /// before a shorter choice deletes them.
-    func droppedCount(under retention: HistoryRetention) -> Int {
+    public func droppedCount(under retention: HistoryRetention) -> Int {
         records.count - retention.keptCount(of: records, sessionStart: sessionStart)
     }
 
     /// How many failed dictations' audio `audioRetention` would delete right now.
-    func droppedAudioCount(under audioRetention: HistoryRetention) -> Int {
+    public func droppedAudioCount(under audioRetention: HistoryRetention) -> Int {
         expiredAudio(under: audioRetention, sessionStart: sessionStart).count
     }
 
     /// Lets go of what the stored choices no longer keep — at launch, and once the user has
     /// agreed to a shorter one in Settings.
-    func applyRetention() {
+    public func applyRetention() {
         let trimmed = trim(to: retention)
         if pruneExpiredAudio(sessionStart: sessionStart) || trimmed { save() }
     }
 
     /// At quit: what *Don't keep* kept for this session goes now.
-    func applyRetentionAtQuit() {
+    public func applyRetentionAtQuit() {
         let quitting = Date.distantFuture
         let trimmed = trim(to: retention, sessionStart: quitting)
         if pruneExpiredAudio(sessionStart: quitting) || trimmed { save() }
@@ -473,7 +472,7 @@ final class TranscriptionHistory {
         return true
     }
 
-    func delete(_ record: TranscriptionRecord) {
+    public func delete(_ record: TranscriptionRecord) {
         deleteAudio(record)
         records.removeAll { $0.id == record.id }
         save()
@@ -481,7 +480,7 @@ final class TranscriptionHistory {
 
     /// Everything goes: the entries this build cannot read too, and any unreadable file
     /// copied aside — Clear History asks first, and means every dictation on this Mac.
-    func clear() {
+    public func clear() {
         records.forEach(deleteAudio)
         records.removeAll()
         undecodable.forEach { deleteAudio(named: $0.audioFileName) }
@@ -593,7 +592,7 @@ final class TranscriptionHistory {
 
     /// Writes any pending change immediately, on the calling thread. Called at
     /// termination, where an asynchronous write would not land before the process exits.
-    func flush() {
+    public func flush() {
         guard Thread.isMainThread else {
             DispatchQueue.main.sync { self.flush() }
             return

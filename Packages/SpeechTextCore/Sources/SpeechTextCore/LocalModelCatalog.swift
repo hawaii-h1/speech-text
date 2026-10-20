@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 /// Which inference engine a local model runs on.
 ///
@@ -14,7 +13,7 @@ import SpeechTextCore
 ///
 /// The app pairs each case with a runtime at launch (`registerLocalSTT()`); this enum is
 /// plain data, so the test target sees it without either framework.
-enum LocalSTTEngine: String, Hashable, Sendable {
+public enum LocalSTTEngine: String, Hashable, Sendable {
     /// Whisper through WhisperKit (`LocalWhisperRuntime.swift`).
     case whisperKit
     /// Parakeet TDT through FluidAudio (`LocalParakeetRuntime.swift`).
@@ -27,34 +26,34 @@ enum LocalSTTEngine: String, Hashable, Sendable {
 /// FluidAudio's folder name for a Parakeet repo — and the folder name on disk. One
 /// string, so an installed model is recognised by directory listing alone and the
 /// catalogue can grow without a migration.
-struct LocalSTTModel: Identifiable, Hashable {
-    let id: String
-    let engine: LocalSTTEngine
-    let displayName: String
+public struct LocalSTTModel: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let engine: LocalSTTEngine
+    public let displayName: String
     /// Measured from the HuggingFace tree API, not estimated from the variant's name:
     /// the "_632MB" suffix names the weights, while the folder also carries the mel
     /// filterbank and configs, so the real download is ~2% larger.
-    let downloadBytes: Int64
+    public let downloadBytes: Int64
     /// Below this much installed RAM the model still loads but pages, and a dictation
     /// that takes longer than it did to speak is not usable. Settings still lets the user
     /// install a heavier model — it only says so.
-    let memoryFloorBytes: UInt64
+    public let memoryFloorBytes: UInt64
     /// What a row says for an ID `speechModelLine` has no words of its own for. Names no
     /// language: a row names only the user's own, through `languageNotes`.
-    let summary: String
+    public let summary: String
     /// The languages the model was trained to transcribe — what it *knows*, not how well;
     /// how well is `languageNotes`. Required, as every speech catalogue entry's is.
-    let languages: LanguageCoverage
+    public let languages: LanguageCoverage
     /// Weaknesses we measured, by language code, shown only to someone who speaks it.
-    let languageNotes: [String: LanguageNote]
+    public let languageNotes: [String: LanguageNote]
     /// Superseded at most, never deprecated: a launch that moved a stored choice to a
     /// local model would point it at files nobody downloaded. A newer local model is
     /// offered, and only downloaded once the user takes it.
-    var lifecycle: ModelLifecycle = .current
+    public var lifecycle: ModelLifecycle = .current
     /// Which Parakeet build FluidAudio loads for it — nil for a Whisper model. Mirrors
     /// FluidAudio's own `AsrModelVersion` cases; `LocalParakeetRuntime.swift` maps one onto
     /// the other, so this file stays free of the framework.
-    var parakeetVersion: ParakeetVersion? = nil
+    public var parakeetVersion: ParakeetVersion? = nil
     /// The oldest macOS (major version) the model runs on — what Apple calls a *minimum
     /// system version*. A property of the Mac, not of the vendor: Parakeet Redux and
     /// Phonon-2 compress their encoders with Core ML ops macOS 14 does not have, and
@@ -73,7 +72,7 @@ struct LocalSTTModel: Identifiable, Hashable {
         return stated.isEmpty ? codes.count > 1 : Set(stated).isSubset(of: codes)
     }
 
-    var downloadSizeDescription: String {
+    public var downloadSizeDescription: String {
         ByteCountFormatter.string(fromByteCount: downloadBytes, countStyle: .file)
     }
 
@@ -89,7 +88,7 @@ struct LocalSTTModel: Identifiable, Hashable {
 /// The Parakeet TDT 0.6B v3 family FluidAudio runs: v3 itself and three re-trainings of
 /// it with the same tokenizer, window and decoder contract, so one runtime runs them all.
 /// Named as FluidAudio names them (`AsrModelVersion`).
-enum ParakeetVersion: Hashable, Sendable {
+public enum ParakeetVersion: Hashable, Sendable {
     /// NVIDIA's `parakeet-tdt-0.6b-v3`.
     case v3
     /// moondream's post-training of v3: the same 25 languages, more accurate on FLEURS by
@@ -102,7 +101,7 @@ enum ParakeetVersion: Hashable, Sendable {
 }
 
 /// The local models a Mac is offered, in catalogue order.
-func offeredLocalSTTModels(for capabilities: SystemCapabilities) -> [LocalSTTModel] {
+public func offeredLocalSTTModels(for capabilities: SystemCapabilities) -> [LocalSTTModel] {
     localSTTModels.filter { $0.isOffered(on: capabilities) }
 }
 
@@ -112,11 +111,11 @@ private let gigabyte: UInt64 = 1_073_741_824
 /// `FluidInference/parakeet-tdt-0.6b-v3-coreml`. Named once here because the runtime has
 /// to pass a folder of exactly this name to `AsrModels.download(to:)` — see
 /// `LocalParakeetRuntime.swift`.
-let parakeetV3ModelID = "parakeet-tdt-0.6b-v3"
+public let parakeetV3ModelID = "parakeet-tdt-0.6b-v3"
 
 /// Parakeet Ultra's catalogue ID — FluidAudio's folder name for
 /// `FluidInference/parakeet-ultra-coreml`, as v3's is for its repo.
-let parakeetUltraModelID = "parakeet-ultra"
+public let parakeetUltraModelID = "parakeet-ultra"
 
 /// Every local speech model on offer, **heaviest first**. Sizes were read from the
 /// HuggingFace tree API on 2026-09-16 (each Parakeet measured from an install: v3 on
@@ -135,7 +134,7 @@ let parakeetUltraModelID = "parakeet-ultra"
 /// MacBook Air does — only faster. Size is not the ranking either. The 483 MB Parakeet
 /// beat the 645 MB Turbo and the 1.6 GB full model on the one thing that matters here,
 /// which is why the order below is download size and the *picks* are a separate table.
-let localSTTModels: [LocalSTTModel] = [
+public let localSTTModels: [LocalSTTModel] = [
     LocalSTTModel(
         id: "openai_whisper-large-v3-v20240930",
         engine: .whisperKit,
@@ -243,7 +242,7 @@ let localSTTModels: [LocalSTTModel] = [
     ),
 ]
 
-func localSTTModel(id: String) -> LocalSTTModel? {
+public func localSTTModel(id: String) -> LocalSTTModel? {
     localSTTModels.first { $0.id == id }
 }
 
@@ -327,7 +326,7 @@ let localModelDiskHeadroomBytes: UInt64 = gigabyte
 /// against the free space on the Application Support root (`SystemCapabilities.freeDiskBytes`).
 /// Asked before every download, because one that fills the volume fails every app on it
 /// long before URLSession gives up, and its resume data may keep the partial file.
-func localModelDiskShortfall(downloadBytes: Int64, alreadyOnDisk: Int64 = 0,
+public func localModelDiskShortfall(downloadBytes: Int64, alreadyOnDisk: Int64 = 0,
                              freeDiskBytes: UInt64) -> LocalModelError? {
     let remaining = UInt64(max(0, downloadBytes - max(0, alreadyOnDisk)))
     let needed = remaining + localModelDiskHeadroomBytes
@@ -342,19 +341,19 @@ private func pickable(for capabilities: SystemCapabilities, languages: [String])
 
 /// `languages` is "Languages I speak" (`storedSpokenLanguages()`), passed in so the
 /// pick stays a pure function of the Mac and the person.
-func recommendedLocalSTTModel(for capabilities: SystemCapabilities, languages: [String] = []) -> LocalSTTModel? {
+public func recommendedLocalSTTModel(for capabilities: SystemCapabilities, languages: [String] = []) -> LocalSTTModel? {
     firstFitting(localSTTPicks(for: MacTier(capabilities)).recommended, in: pickable(for: capabilities, languages: languages),
                  id: \.id, floor: \.memoryFloorBytes, bytes: \.downloadBytes, capabilities: capabilities)
 }
 
-func bestQualityLocalSTTModel(for capabilities: SystemCapabilities, languages: [String] = []) -> LocalSTTModel? {
+public func bestQualityLocalSTTModel(for capabilities: SystemCapabilities, languages: [String] = []) -> LocalSTTModel? {
     firstFitting(localSTTPicks(for: MacTier(capabilities)).bestQuality, in: pickable(for: capabilities, languages: languages),
                  id: \.id, floor: \.memoryFloorBytes, bytes: \.downloadBytes, capabilities: capabilities)
 }
 
 /// Whether the Mac has the memory for a model at all — Settings labels heavier ones
 /// rather than hiding them, since the user may know better (a Mac that does nothing else).
-func localModelFitsMemory(_ floorBytes: UInt64, _ capabilities: SystemCapabilities) -> Bool {
+public func localModelFitsMemory(_ floorBytes: UInt64, _ capabilities: SystemCapabilities) -> Bool {
     capabilities.memoryBytes >= floorBytes
 }
 
@@ -374,13 +373,13 @@ func localSTTRecommendationReason(for capabilities: SystemCapabilities, language
     return "\(model.displayName) for a \(tier.displayName) Mac."
 }
 
-enum LocalModelError: LocalizedError, Equatable {
+public enum LocalModelError: LocalizedError, Equatable {
     case notInstalled(String)
     case downloadFailed(String)
     /// `needed` counts the headroom, so it is the free space to make, as the user reads it.
     case insufficientDisk(needed: UInt64, free: UInt64)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .notInstalled(let name): "The local model \"\(name)\" is not installed yet"
         case .downloadFailed(let why): "Could not install the local model: \(why)"
@@ -401,7 +400,7 @@ enum LocalModelError: LocalizedError, Equatable {
 /// `interval` has passed since the last one let through — at most ten a second, about two
 /// hundred a download — and the first and the finish always are. One per download; the
 /// reports come on whatever thread the downloader has, so it locks.
-final class DownloadProgressThrottle: @unchecked Sendable {
+public final class DownloadProgressThrottle: @unchecked Sendable {
     static let step = 0.005
     static let interval: TimeInterval = 0.1
 
@@ -409,9 +408,11 @@ final class DownloadProgressThrottle: @unchecked Sendable {
     private var published: Double?
     private var publishedAt: TimeInterval = 0
 
+    public init() {}
+
     /// The fraction to publish, held to 0…1, or nil when this report is dropped. `time`
     /// is a parameter so the tests need no clock.
-    func admit(_ fraction: Double, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Double? {
+    public func admit(_ fraction: Double, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Double? {
         let fraction = min(max(fraction, 0), 1)
         return lock.withLock {
             if let published {
@@ -437,9 +438,9 @@ final class DownloadProgressThrottle: @unchecked Sendable {
 /// on the catalogue entry's `LocalSTTEngine`) and everything else talks to this box.
 /// Unregistered — which is exactly the test target's state — the tier reports itself
 /// unavailable instead of crashing.
-enum LocalSTT {
+public enum LocalSTT {
     /// Builds a batch provider for an installed model ID. Replaced at launch.
-    nonisolated(unsafe) static var transcriberFactory: (String) -> BatchTranscriber = {
+    public nonisolated(unsafe) static var transcriberFactory: (String) -> BatchTranscriber = {
         UnavailableLocalTranscriber(modelID: $0)
     }
 
@@ -447,12 +448,12 @@ enum LocalSTT {
     /// it, so deleting a model frees its RAM too instead of leaving it resident until the
     /// next switch. Only that model: removing another one must not cost the model in use a
     /// reload in front of the next paste.
-    nonisolated(unsafe) static var releaseModel: (String) -> Void = { _ in }
+    public nonisolated(unsafe) static var releaseModel: (String) -> Void = { _ in }
 
     /// Loads an installed model in the background, so its load lands before the dictation
     /// that needs it rather than in front of the paste. A no-op for a model already loaded
     /// or not on disk; it never downloads. Replaced at launch.
-    nonisolated(unsafe) static var prewarm: (String) -> Void = { _ in }
+    public nonisolated(unsafe) static var prewarm: (String) -> Void = { _ in }
 }
 
 // MARK: - On-disk layout
@@ -462,13 +463,13 @@ enum LocalSTT {
 /// Inside `Application Support/SpeechText/` on purpose: `TranscriptionHistory`'s
 /// `adoptPreRenameStore()` moves that whole folder across a bundle-identifier change,
 /// so models survive a rename without a migration of their own.
-func localModelsDirectory() -> URL {
+public func localModelsDirectory() -> URL {
     let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     return support.appendingPathComponent("SpeechText", isDirectory: true)
         .appendingPathComponent("Models", isDirectory: true)
 }
 
-func localModelFolder(for modelID: String) -> URL {
+public func localModelFolder(for modelID: String) -> URL {
     localModelsDirectory().appendingPathComponent(modelID, isDirectory: true)
 }
 
@@ -482,7 +483,7 @@ func localModelFolder(for modelID: String) -> URL {
 /// instead of the model simply not being there. Ultra, Redux and Phonon-2 install the
 /// same four names (seen in real installs on 2026-10-16); Phonon-2's alternative encoders
 /// in its repo are not fetched.
-let parakeetRequiredBundles = [
+public let parakeetRequiredBundles = [
     "Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc",
 ]
 
@@ -491,7 +492,7 @@ let parakeetRequiredBundles = [
 /// The vocabulary is asked for too: `AsrModels.download` fetched it on its own
 /// (FluidInference/FluidAudio#748), while the files-only fetch gets it only as one of the
 /// repo's `.json` files, and without it the model fails at its first load rather than at the install.
-func isParakeetFolderComplete(_ folder: URL) -> Bool {
+public func isParakeetFolderComplete(_ folder: URL) -> Bool {
     let contents = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
     return (parakeetRequiredBundles + ["parakeet_vocab.json"]).allSatisfy(contents.contains)
 }
@@ -505,7 +506,7 @@ func isParakeetFolderComplete(_ folder: URL) -> Bool {
 /// `in` is a parameter only so the rule above can be tested against a temporary
 /// directory; nothing in the app passes it. Reading the real Application Support folder
 /// in a test would make the assertion depend on what the user has installed.
-func isLocalModelInstalled(_ modelID: String, in directory: URL = localModelsDirectory()) -> Bool {
+public func isLocalModelInstalled(_ modelID: String, in directory: URL = localModelsDirectory()) -> Bool {
     let folder = directory.appendingPathComponent(modelID, isDirectory: true)
     guard let contents = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
     else { return false }
@@ -518,10 +519,14 @@ func isLocalModelInstalled(_ modelID: String, in directory: URL = localModelsDir
 /// Stands in for the local engine when none was registered. It never silently returns
 /// empty text: a dictation that produced nothing has to surface as an error so the
 /// existing failure paths (status overlay, History entry with the audio kept) run.
-struct UnavailableLocalTranscriber: BatchTranscriber {
+public struct UnavailableLocalTranscriber: BatchTranscriber {
     let modelID: String
 
-    func transcribe(audioFileURL: URL, language: String?) async throws -> String {
+    public init(modelID: String) {
+        self.modelID = modelID
+    }
+
+    public func transcribe(audioFileURL: URL, language: String?) async throws -> String {
         throw LocalModelError.notInstalled(localSTTModel(id: modelID)?.displayName ?? modelID)
     }
 }

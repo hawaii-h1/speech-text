@@ -7,7 +7,7 @@ import Foundation
 
 /// The steps of the setup window, in order. The raw values are what `onboardingStep`
 /// stores, so a window closed half-way opens where it was left.
-enum OnboardingStep: String, CaseIterable, Comparable {
+public enum OnboardingStep: String, CaseIterable, Comparable {
     case welcome
     case speech
     case ai
@@ -16,9 +16,9 @@ enum OnboardingStep: String, CaseIterable, Comparable {
     case done
 
     /// The five the step bar names; Done is the Try it step's second state, not a stop.
-    static let named: [OnboardingStep] = [.welcome, .speech, .ai, .permissions, .tryIt]
+    public static let named: [OnboardingStep] = [.welcome, .speech, .ai, .permissions, .tryIt]
 
-    var title: String {
+    public var title: String {
         switch self {
         case .welcome: "Welcome"
         case .speech: "Speech"
@@ -30,7 +30,7 @@ enum OnboardingStep: String, CaseIterable, Comparable {
 
     var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
 
-    static func < (lhs: OnboardingStep, rhs: OnboardingStep) -> Bool { lhs.index < rhs.index }
+    public static func < (lhs: OnboardingStep, rhs: OnboardingStep) -> Bool { lhs.index < rhs.index }
 }
 
 /// Whether the setup window opens at launch.
@@ -40,13 +40,13 @@ enum OnboardingStep: String, CaseIterable, Comparable {
 /// or any setting that crosses a rename (which is also how a renamed install is caught,
 /// once `adoptPreRenameDefaults()` has carried its settings over). Such a user is marked
 /// done and never shown a flow for a setup they finished long ago.
-enum OnboardingGate: Equatable {
+public enum OnboardingGate: Equatable {
     case show
     /// An existing install: record setup as done, show nothing.
     case markCompleted
     case skip
 
-    static func decide(completed: Bool?, hasUsedTheAppBefore: Bool) -> OnboardingGate {
+    public static func decide(completed: Bool?, hasUsedTheAppBefore: Bool) -> OnboardingGate {
         switch completed {
         case true?: .skip
         case false?: .show
@@ -58,36 +58,53 @@ enum OnboardingGate: Equatable {
 // MARK: - The online services setup offers
 
 /// A card on setup's Speech step: the service, the engine choosing it saves, and its words.
-struct SpeechServiceCard {
-    let service: Provider
-    let engine: STTProviderType
-    let title: String
-    let subtitle: String
-    let detail: String
+public struct SpeechServiceCard {
+    public let service: Provider
+    public let engine: STTProviderType
+    public let title: String
+    public let subtitle: String
+    public let detail: String
     /// The card promises the words while speaking, so choosing it saves the provider's
     /// realtime model; otherwise the stored model is left as it is.
     let promisesLiveWords: Bool
 
+    public init(service: Provider, engine: STTProviderType, title: String, subtitle: String, detail: String,
+                promisesLiveWords: Bool) {
+        self.service = service
+        self.engine = engine
+        self.title = title
+        self.subtitle = subtitle
+        self.detail = detail
+        self.promisesLiveWords = promisesLiveWords
+    }
+
     /// The model choosing the card saves, or nil to leave the stored one.
-    var savedModel: String? {
+    public var savedModel: String? {
         promisesLiveWords ? offeredSTTModels(of: service).first(where: \.isRealtime)?.id : nil
     }
 }
 
 /// A card on setup's AI step: the service, the AI Rewrite pick choosing it saves, and its words.
-struct AIServiceCard {
-    let service: Provider
-    let pick: LLMProviderType
-    let title: String
-    let subtitle: String
+public struct AIServiceCard {
+    public let service: Provider
+    public let pick: LLMProviderType
+    public let title: String
+    public let subtitle: String
+
+    public init(service: Provider, pick: LLMProviderType, title: String, subtitle: String) {
+        self.service = service
+        self.pick = pick
+        self.title = title
+        self.subtitle = subtitle
+    }
 }
 
 /// Which online services get a card in setup — the maintainer's choice, not every
 /// provider — in card order. Every service setup can hold comes from one of these lists,
 /// so the look-ups below find a card; the first card is what a stored value that should
 /// never have selected anything else falls back to.
-enum SetupCards {
-    static let speech: [SpeechServiceCard] = [
+public enum SetupCards {
+    public static let speech: [SpeechServiceCard] = [
         SpeechServiceCard(service: .groq, engine: .groq, title: "Groq", subtitle: "Free plan",
                           detail: "The same key also turns on AI text polish.", promisesLiveWords: false),
         SpeechServiceCard(service: .elevenLabs, engine: .elevenlabs, title: "ElevenLabs", subtitle: "Paid",
@@ -97,45 +114,45 @@ enum SetupCards {
                           promisesLiveWords: true),
     ]
 
-    static let ai: [AIServiceCard] = [
+    public static let ai: [AIServiceCard] = [
         AIServiceCard(service: .groq, pick: .groq, title: "Groq", subtitle: "Free plan"),
         AIServiceCard(service: .anthropic, pick: .anthropic, title: "Claude", subtitle: "Anthropic · Paid"),
         AIServiceCard(service: .openAI, pick: .openai, title: "ChatGPT", subtitle: "OpenAI · Paid"),
     ]
 
     /// The Speech card for a service, else the first.
-    static func speech(for service: Provider) -> SpeechServiceCard {
+    public static func speech(for service: Provider) -> SpeechServiceCard {
         speech.first { $0.service == service } ?? speech[0]
     }
 
     /// The AI card for a service, else the first.
-    static func ai(for service: Provider) -> AIServiceCard {
+    public static func ai(for service: Provider) -> AIServiceCard {
         ai.first { $0.service == service } ?? ai[0]
     }
 
     /// The card setup opens on when run again with this engine stored; nil for an engine
     /// with no card (Apple, the Mac).
-    static func speechCard(reopening engine: STTProviderType) -> SpeechServiceCard? {
+    public static func speechCard(reopening engine: STTProviderType) -> SpeechServiceCard? {
         speech.first { $0.engine == engine }
     }
 
     /// The AI card setup opens on when run again with this AI Rewrite pick stored; nil for
     /// a pick with no card (Ollama, which opens on the Mac's card instead).
-    static func aiCard(reopening pick: LLMProviderType) -> AIServiceCard? {
+    public static func aiCard(reopening pick: LLMProviderType) -> AIServiceCard? {
         ai.first { $0.pick == pick }
     }
 }
 
 /// The order Settings › API Keys lists the providers with a key in: the speech step's
 /// first, as a dictation runs, then AI Rewrite's only.
-enum APIKeyPage {
-    static var order: [Provider] {
+public enum APIKeyPage {
+    public static var order: [Provider] {
         Provider.allCases.filter { $0.descriptor.roles.contains(.speech) }
             + Provider.allCases.filter { !$0.descriptor.roles.contains(.speech) }
     }
 }
 
-enum KeyVerdict: Equatable {
+public enum KeyVerdict: Equatable {
     case valid
     case invalid
     /// No answer about the key: offline, or the service is down. The user may go on.
@@ -146,13 +163,13 @@ enum KeyVerdict: Equatable {
 
 /// A disk image macOS has mounted, as `hdiutil info -plist` describes it: the `.dmg` file
 /// and where its volume is.
-struct MountedDiskImage: Equatable {
-    let imagePath: String
+public struct MountedDiskImage: Equatable {
+    public let imagePath: String
     let mountPoint: String
 
     /// Every mounted image that has a volume. An image attached without one (a raw
     /// device, a partition map) has no mount point and is left out.
-    static func parse(hdiutilInfo data: Data) -> [MountedDiskImage] {
+    public static func parse(hdiutilInfo data: Data) -> [MountedDiskImage] {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let images = plist["images"] as? [[String: Any]] else { return [] }
         return images.compactMap { image in
@@ -172,7 +189,7 @@ struct MountedDiskImage: Equatable {
 /// that copy: opened straight from the image, where it has to move itself first or it
 /// stops working the moment the image is ejected. The image, once the app is installed,
 /// is the user's to eject and throw away.
-enum InstallLocation: Equatable {
+public enum InstallLocation: Equatable {
     /// Running from inside a mounted image. `image` is nil when that is known only from
     /// App Translocation's path and no mounted image carries the app.
     case inDiskImage(MountedDiskImage?)
@@ -188,7 +205,7 @@ enum InstallLocation: Equatable {
     /// names no volume. So a translocated app is matched to the image that carries it.
     /// An app run from anywhere else (Xcode's build folder, `~/Applications`) counts as
     /// installed — a development build must never be asked to move.
-    static func decide(bundlePath: String, appName: String, images: [MountedDiskImage]) -> InstallLocation {
+    public static func decide(bundlePath: String, appName: String, images: [MountedDiskImage]) -> InstallLocation {
         func carriesThisApp(_ image: MountedDiskImage) -> Bool {
             [image.imagePath, image.mountPoint].contains {
                 ($0 as NSString).lastPathComponent.lowercased().hasPrefix(appName.lowercased())
@@ -213,8 +230,8 @@ enum InstallLocation: Equatable {
 /// How a stored API key is shown: enough of each end to tell two keys apart, never the
 /// middle. The vendor's prefix ("gsk_", "sk-ant-") is the same for every key it issues,
 /// so four characters after it and the last four are what tells one key from another.
-enum APIKeyDisplay {
-    static func masked(_ key: String, prefix: String? = nil) -> String {
+public enum APIKeyDisplay {
+    public static func masked(_ key: String, prefix: String? = nil) -> String {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         let lead = prefix.flatMap { key.hasPrefix($0) ? $0.count : nil } ?? 0
         // Less than eight characters past the prefix would show most of the key.

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 // The audio corpus: what a clip is expected to produce, how an engine's answer is
 // judged, and the run's report. Pure logic, shared by `LiveProviderTests` (the cloud

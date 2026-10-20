@@ -3,6 +3,7 @@
 
 import XCTest
 import AVFoundation
+@testable import SpeechTextCore
 
 // MARK: - Multipart helpers (Transcribers.swift)
 

@@ -12,7 +12,7 @@ import Foundation
 /// Groq and OpenAI serve both, with one key.
 /// `Codable` by its raw value, which History's ledger stores (`UsageEvent.vendor`) — so a
 /// rename of a case is a migration, pinned by `StoredProviderNameTests`.
-enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
+public enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
     case apple
     case groq
     case elevenLabs
@@ -21,7 +21,7 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
     case local
     case ollama
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
     /// Everything the app knows about the provider, in one place. Every field of
     /// `ProviderDescriptor` is required, so a new case does not build until it is
@@ -38,7 +38,7 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
     /// Chat defaults are the fast end of each catalogue that still rewrites well — the
     /// user is waiting on the paste; Groq's is its own replacement for the retired
     /// Llama 3.3 70B.
-    var descriptor: ProviderDescriptor {
+    public var descriptor: ProviderDescriptor {
         switch self {
         case .apple:
             ProviderDescriptor(displayName: "Apple", roles: [.speech], apiKey: nil,
@@ -128,16 +128,16 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
         }
     }
 
-    var displayName: String { descriptor.displayName }
+    public var displayName: String { descriptor.displayName }
 
     /// The speech model used while none is stored; empty for a provider with none.
-    var defaultSpeechModel: String { descriptor.speechModel?.defaultID ?? "" }
+    public var defaultSpeechModel: String { descriptor.speechModel?.defaultID ?? "" }
     /// The chat model used while none is stored; empty for a provider with none.
-    var defaultChatModel: String { descriptor.chatModel?.defaultID ?? "" }
+    public var defaultChatModel: String { descriptor.chatModel?.defaultID ?? "" }
 
     /// What a model is chosen *for* in a notice — "Choose a model for OpenAI", and for
     /// the local tier "for this Mac" — worded so no article depends on the name.
-    var modelChoiceTarget: String { self == .local ? "this Mac" : displayName }
+    public var modelChoiceTarget: String { self == .local ? "this Mac" : displayName }
 
     /// The phrase the retry notice uses — "a Groq API key", "an OpenAI API key".
     var apiKeyPhrase: String {
@@ -147,17 +147,17 @@ enum Provider: String, CaseIterable, Hashable, Identifiable, Codable {
 }
 
 /// What the app knows about a provider. See `Provider.descriptor`.
-struct ProviderDescriptor {
+public struct ProviderDescriptor {
     /// The company, as Settings, setup and History name it.
     let displayName: String
     /// The steps it can serve. A provider serving both has one key for both.
-    let roles: ProviderRoles
+    public let roles: ProviderRoles
     /// Its API key, or nil when it needs none.
-    let apiKey: APIKeyDescriptor?
+    public let apiKey: APIKeyDescriptor?
     /// The speech model the user picks, or nil when it serves no speech.
-    let speechModel: ModelSetting?
+    public let speechModel: ModelSetting?
     /// The chat model the user picks, or nil when it serves no AI Rewrite.
-    let chatModel: ModelSetting?
+    public let chatModel: ModelSetting?
     /// How it takes an audio file in OpenAI's transcription shape, or nil when it does not
     /// (`OpenAICompatibleTranscriber`).
     let speechUpload: OpenAICompatibleUpload?
@@ -165,42 +165,47 @@ struct ProviderDescriptor {
 
 /// Where the user's pick of one of a provider's models is stored, and what is used
 /// while nothing is.
-struct ModelSetting {
+public struct ModelSetting {
     /// Its `SettingsKeys` name, which is in `portable`; nil when there is nothing to
     /// pick (Apple's recogniser is one model).
-    let settingsKey: String?
+    public let settingsKey: String?
     /// A catalogue entry's ID — the pointer, never the entry's own constant.
-    let defaultID: String
+    public let defaultID: String
     /// A stored ID the vendor is retiring is moved to its replacement at launch, and one
     /// that leads to no offered model is cleared (`migrateStoredModels`); an unset one is
     /// pinned for the provider in use (`pinUntouchedModelChoices`). False for Ollama,
     /// whose models are the user's.
     var normalized = true
     /// What Settings says beside the model picker, whichever model is picked.
-    var caption: String? = nil
+    public var caption: String? = nil
 }
 
-struct ProviderRoles: OptionSet, Hashable {
-    let rawValue: Int
-    static let speech = ProviderRoles(rawValue: 1 << 0)
-    static let chat = ProviderRoles(rawValue: 1 << 1)
+public struct ProviderRoles: OptionSet, Hashable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let speech = ProviderRoles(rawValue: 1 << 0)
+    public static let chat = ProviderRoles(rawValue: 1 << 1)
 }
 
 /// A provider's API key: where it is kept, where the user gets one, and how setup tells
 /// it apart and checks it.
-struct APIKeyDescriptor {
+public struct APIKeyDescriptor {
     /// Its `SettingsKeys` name: the key's name in `APIKeyStore`, its keychain account,
     /// and the name it had in UserDefaults before it moved.
-    let settingsKey: String
-    let keysPage: URL
+    public let settingsKey: String
+    public let keysPage: URL
     /// The account has a free plan, so setup's link says "free key".
     let freePlan: Bool
     /// The button on the vendor's page that makes a key.
-    let createButton: String
+    public let createButton: String
     /// What the vendor's create dialog needs, or the key will not work. Markdown.
-    let createNote: String
+    public let createNote: String
     /// What every key of this provider begins with.
-    let prefix: String
+    public let prefix: String
     /// A made-up key of the right shape, for the tests.
     let sample: String
     let verification: KeyVerification
@@ -229,7 +234,7 @@ extension Provider {
     /// whatever else the user copied is never mistaken for one. A key belongs to the
     /// provider with the longest prefix it begins with, so an Anthropic `sk-ant-` key is
     /// not taken for an OpenAI `sk-` one.
-    func looksLikeKey(_ text: String) -> Bool {
+    public func looksLikeKey(_ text: String) -> Bool {
         let key = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let prefix = descriptor.apiKey?.prefix, key.hasPrefix(prefix) else { return false }
         let claimedByLongerPrefix = Provider.allCases.contains { other in
@@ -243,7 +248,7 @@ extension Provider {
     }
 
     /// The key check's request, or nil for a provider with no key.
-    func verificationRequest(key: String) -> URLRequest? {
+    public func verificationRequest(key: String) -> URLRequest? {
         guard let verification = descriptor.apiKey?.verification else { return nil }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         var request = URLRequest(url: verification.url)
@@ -260,7 +265,7 @@ extension Provider {
     }
 
     /// Setup's and Settings' link to the key page.
-    var linkTitle: String {
+    public var linkTitle: String {
         descriptor.apiKey?.freePlan == true ? "Get your free key ↗" : "Get your key ↗"
     }
 
@@ -271,7 +276,7 @@ extension Provider {
     /// `missing_permissions`; a restricted OpenAI key answers "insufficient permissions".
     /// Both mean the service knew who was asking, which is all this check is for. A rate
     /// limit means the same. A server error says nothing about the key either way.
-    static func verdict(statusCode: Int, body: String) -> KeyVerdict {
+    public static func verdict(statusCode: Int, body: String) -> KeyVerdict {
         switch statusCode {
         case 200 ..< 300, 429:
             return .valid

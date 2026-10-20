@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // MARK: - Terms to the engine
 
@@ -24,7 +23,7 @@ struct VocabularyTerm: Codable, Hashable, Identifiable {
 
 /// How many terms a model takes, and what shape each must have. Every limit is the
 /// vendor's documented one unless its comment in the catalogue says it is ours.
-struct TermListLimits: Hashable {
+public struct TermListLimits: Hashable {
     let maxTerms: Int
     /// Inclusive.
     let maxCharacters: Int
@@ -47,7 +46,7 @@ struct TermListLimits: Hashable {
 /// is a term list (`STTModelDescriptor.vocabulary`). Pure logic, in both targets; its
 /// only reader of History is `historyUses`, which the app points at
 /// `TranscriptionHistory` at launch.
-enum CustomVocabulary {
+public enum CustomVocabulary {
     /// Words added this recently go first when a model cannot take them all.
     static let recentDays: Double = 7
 
@@ -58,7 +57,7 @@ enum CustomVocabulary {
     /// Replaced at launch by History's count of each needle asked for (`searchable` of a
     /// term), kept between dictations by a `HistoryTermCounts`. No counts until then, which
     /// is the test bundle's state: nothing is ranked by use there.
-    nonisolated(unsafe) static var historyUses: (Set<String>) -> [String: Int] = { _ in [:] }
+    public nonisolated(unsafe) static var historyUses: (Set<String>) -> [String: Int] = { _ in [:] }
 
     /// Whether the Dictionary's words are sent to the speech engine — the one switch, on
     /// the Dictionary page. On unless the user turned it off.
@@ -89,7 +88,7 @@ enum CustomVocabulary {
     /// nothing when there is nothing stored: a stored setting is evidence of an earlier
     /// install to `OnboardingGate` (this runs after it has decided, but a new install has
     /// no reason to gain a key).
-    static func migrateLegacyStoreIfNeeded(_ defaults: UserDefaults = .standard) {
+    public static func migrateLegacyStoreIfNeeded(_ defaults: UserDefaults = .standard) {
         guard let data = defaults.data(forKey: SettingsKeys.customVocabulary) else { return }
         let legacy = (try? JSONDecoder().decode([VocabularyTerm].self, from: data)) ?? []
         if !legacy.isEmpty {
@@ -109,7 +108,7 @@ enum CustomVocabulary {
     /// second spelling of one already listed (ignoring case), are left out. `historyTexts`
     /// is read only when `rankByUse` — the order matters only when some engine cannot
     /// take them all.
-    static func ranked(_ entries: [VocabularyEntry], now: Date, rankByUse: Bool,
+    public static func ranked(_ entries: [VocabularyEntry], now: Date, rankByUse: Bool,
                        historyTexts: () -> [String]) -> [String] {
         ranked(entries, now: now, rankByUse: rankByUse) { uses(of: $0, in: historyTexts()) }
     }
@@ -143,7 +142,7 @@ enum CustomVocabulary {
     /// What a model with `limits` is sent from the `ranked` list: every term it accepts,
     /// in order, up to its count. A term it would refuse is skipped, never cut short —
     /// half a name is a different name. Nil limits send nothing.
-    static func selected(_ ranked: [String], limits: TermListLimits?) -> [String] {
+    public static func selected(_ ranked: [String], limits: TermListLimits?) -> [String] {
         guard let limits else { return [] }
         return Array(ranked.lazy.filter { limits.accepts($0) }.prefix(limits.maxTerms))
     }
@@ -223,16 +222,18 @@ enum CustomVocabulary {
 /// Records are told apart by id, which History never repeats — a second record with an id
 /// already seen is not counted. Not thread-safe: the app keeps one on the main thread,
 /// where History lives.
-final class HistoryTermCounts {
+public final class HistoryTermCounts {
     /// Each record's text as last counted — History's own string, so nothing is copied, and
     /// telling an unchanged one costs no more than comparing the two references.
     private var texts: [UUID: String] = [:]
     /// The count of each needle asked for last time, over `texts`.
     private var counts: [String: Int] = [:]
 
+    public init() {}
+
     /// How many times each of `needles` occurs across `history` (every record's id and
     /// text) — what `CustomVocabulary.uses(of:in:)` gives, without redoing it.
-    func uses(of needles: Set<String>, in history: some Sequence<(id: UUID, text: String)>) -> [String: Int] {
+    public func uses(of needles: Set<String>, in history: some Sequence<(id: UUID, text: String)>) -> [String: Int] {
         // A term no longer asked for stops being kept.
         counts = counts.filter { needles.contains($0.key) }
         let kept = CustomVocabulary.Needles(counts.keys)

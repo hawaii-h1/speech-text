@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
-enum SettingsKeys {
+public enum SettingsKeys {
     /// Pre-list single language choice. Read once by `migrateSelectedLanguageIfNeeded()`
     /// and never again; kept in `portable` so the migration still has its source after a
     /// bundle-identifier change.
@@ -13,143 +12,143 @@ enum SettingsKeys {
     /// ("uk,en"). Empty means none stated, which is what leaves an engine to detect one.
     /// A list rather than a single value because a model is only *forced* onto one
     /// language when exactly one is named — see `resolveLocale`.
-    static let spokenLanguages = "spokenLanguages"
+    public static let spokenLanguages = "spokenLanguages"
 
     // STT Provider
-    static let sttProvider = "sttProvider"
+    public static let sttProvider = "sttProvider"
     static let groqAPIKey = "groqAPIKey"
-    static let groqModel = "groqModel"
+    public static let groqModel = "groqModel"
     static let elevenLabsAPIKey = "elevenLabsAPIKey"
-    static let elevenLabsModel = "elevenLabsModel"
+    public static let elevenLabsModel = "elevenLabsModel"
     /// The transcription model the OpenAI engine uses. Deliberately *not*
     /// `openAIModel`, which is the chat model for the rewrite pass — the two tiers
     /// pick independently and share only `openAIAPIKey`.
-    static let openAISTTModel = "openAISTTModel"
+    public static let openAISTTModel = "openAISTTModel"
     /// `LocalSTTModel.id` (a WhisperKit variant or Parakeet) the local engine transcribes with.
-    static let localSTTModel = "localSTTModel"
+    public static let localSTTModel = "localSTTModel"
     /// The chat model AI Rewrite runs on this Mac — a `LocalChatModel` id, normalised
     /// against `localChatModels`.
-    static let localLLMModel = "localLLMModel"
+    public static let localLLMModel = "localLLMModel"
     /// Whether "е-е-е", "тооо" and trailing "..." are cleaned out of transcripts.
-    static let removeDisfluencies = "removeDisfluencies"
+    public static let removeDisfluencies = "removeDisfluencies"
     /// `DashStyle.rawValue`: how em dashes in transcripts and AI output are drawn.
-    static let dashStyle = "dashStyle"
+    public static let dashStyle = "dashStyle"
     /// The Settings › Speech › Vocabulary list an earlier release shipped (JSON `[VocabularyTerm]`).
     /// Read once by `CustomVocabulary.migrateLegacyStoreIfNeeded`, which moves it into
     /// `vocabulary` and deletes it.
     static let customVocabulary = "customVocabulary"
     /// Whether the Dictionary's words are sent to the speech engine — the switch on the
     /// Dictionary page. On when absent; the Dictionary starts empty, so that sends nothing.
-    static let sendVocabularyToEngine = "sendVocabularyToEngine"
+    public static let sendVocabularyToEngine = "sendVocabularyToEngine"
     /// The Dictionary page's Replacements table: JSON-encoded `[TextReplacementPair]`.
     /// Written only by that page.
     static let textReplacements = "textReplacements"
 
     // Hotkey (inline recording)
-    static let hotkeyKeyCode = "hotkeyKeyCode"
-    static let hotkeyModifierFlags = "hotkeyModifierFlags"
+    public static let hotkeyKeyCode = "hotkeyKeyCode"
+    public static let hotkeyModifierFlags = "hotkeyModifierFlags"
 
     // Hotkey (record window)
-    static let recordWindowHotkeyKeyCode = "recordWindowHotkeyKeyCode"
-    static let recordWindowHotkeyModifierFlags = "recordWindowHotkeyModifierFlags"
+    public static let recordWindowHotkeyKeyCode = "recordWindowHotkeyKeyCode"
+    public static let recordWindowHotkeyModifierFlags = "recordWindowHotkeyModifierFlags"
 
     // Hotkey (AI recording — transcription is post-processed by an LLM)
-    static let aiHotkeyKeyCode = "aiHotkeyKeyCode"
-    static let aiHotkeyModifierFlags = "aiHotkeyModifierFlags"
+    public static let aiHotkeyKeyCode = "aiHotkeyKeyCode"
+    public static let aiHotkeyModifierFlags = "aiHotkeyModifierFlags"
 
     // Hotkey (edit the selection with AI)
-    static let editHotkeyKeyCode = "editHotkeyKeyCode"
-    static let editHotkeyModifierFlags = "editHotkeyModifierFlags"
+    public static let editHotkeyKeyCode = "editHotkeyKeyCode"
+    public static let editHotkeyModifierFlags = "editHotkeyModifierFlags"
 
     // LLM post-processing
-    static let llmProvider = "llmProvider"
-    static let groqLLMModel = "groqLLMModel"
+    public static let llmProvider = "llmProvider"
+    public static let groqLLMModel = "groqLLMModel"
     static let anthropicAPIKey = "anthropicAPIKey"
-    static let anthropicModel = "anthropicModel"
+    public static let anthropicModel = "anthropicModel"
     static let openAIAPIKey = "openAIAPIKey"
-    static let openAIModel = "openAIModel"
+    public static let openAIModel = "openAIModel"
     /// JSON-encoded `[PromptPreset]`.
-    static let promptPresets = "promptPresets"
+    public static let promptPresets = "promptPresets"
     /// UUID string of the preset used when no other preset matches.
-    static let defaultPresetID = "defaultPresetID"
+    public static let defaultPresetID = "defaultPresetID"
     /// Whether the Record Window's ✨ toggle is on.
-    static let aiModeInRecordWindow = "aiModeInRecordWindow"
+    public static let aiModeInRecordWindow = "aiModeInRecordWindow"
 
     // Launch at Login
-    static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
+    public static let hasRegisteredLaunchAtLogin = "hasRegisteredLaunchAtLogin"
 
     /// Whether holding a dictation shortcut records until it is let go. A lone tap then
     /// cancels and a double tap locks the dictation on. Off by default.
-    static let holdToTalk = "holdToTalk"
+    public static let holdToTalk = "holdToTalk"
 
     /// ⎋ cancels a dictation or an edit while its overlay is up. Off by default: the
     /// shortcut is global for that time, so ⎋ reaches no other app.
-    static let escapeCancelsDictation = "escapeCancelsDictation"
+    public static let escapeCancelsDictation = "escapeCancelsDictation"
 
     /// Bumped when the built-in hotkey layout changes, so stored shortcuts can be
     /// migrated once instead of silently keeping the old assignment.
-    static let hotkeyLayoutVersion = "hotkeyLayoutVersion"
+    public static let hotkeyLayoutVersion = "hotkeyLayoutVersion"
 
     // Appearance
     /// `AppSkin.rawValue`.
-    static let appSkin = "appSkin"
+    public static let appSkin = "appSkin"
     /// `#RRGGBB` — only the minimal skin uses it.
-    static let accentColor = "accentColor"
+    public static let accentColor = "accentColor"
     /// The techno display's colour: a `TechnoPhosphor.rawValue`, or any colour as `#RRGGBB`.
-    static let technoPhosphor = "technoPhosphor"
+    public static let technoPhosphor = "technoPhosphor"
     /// `DockIconMode.rawValue`: never, while a window is open, or always.
-    static let dockIconMode = "dockIconMode"
+    public static let dockIconMode = "dockIconMode"
     /// Where the user dragged the inline overlay: its bottom-left corner as `"x,y"` in
     /// screen coordinates (UserDefaults has no point type). Empty means the default
     /// corner. Monitor geometry, so machine-local and not in `portable`.
-    static let overlayOrigin = "overlayOrigin"
+    public static let overlayOrigin = "overlayOrigin"
     /// Hold recordings in which the hold tip was followed (⌃⇧ let go, the letter still
     /// down), plus one once its switch hint has been shown — `HoldTip.stage` reads it.
     /// Machine-local, like the overlay's spot: a new Mac is a fresh start, so not in
     /// `portable`.
-    static let holdTipFollowedCount = "holdTipFollowedCount"
+    public static let holdTipFollowedCount = "holdTipFollowedCount"
     /// The main window's Home has its intro card — the shortcut to learn — hidden, from
     /// Settings › Appearance. A lesson taken on this Mac, so not in `portable`.
-    static let homeIntroHidden = "homeIntroHidden"
+    public static let homeIntroHidden = "homeIntroHidden"
     /// The Prompts page has its card on how AI Rewrite picks a prompt hidden, from
     /// Settings › Appearance. Machine-local, like Home's.
-    static let promptsIntroHidden = "promptsIntroHidden"
+    public static let promptsIntroHidden = "promptsIntroHidden"
     /// How long History keeps dictations, `HistoryRetention.rawValue`; absent — or the
     /// "300" / "1000" of the count it once was — means forever, so an update deletes
     /// nothing. Machine-local like History itself, so not in `portable`.
-    static let historyRetention = "historyRetention"
+    public static let historyRetention = "historyRetention"
     /// How long a failed dictation's audio is kept for a retry, `HistoryRetention.rawValue`;
     /// absent means 7 days, as it always was. Machine-local.
-    static let failedAudioRetention = "failedAudioRetention"
+    public static let failedAudioRetention = "failedAudioRetention"
     /// The main window's Dictionary: JSON-encoded `[VocabularyEntry]`. In `portable`, like
     /// every setting the user builds up; written only by the page and by the one-time
     /// move of `customVocabulary`.
     static let vocabulary = "vocabulary"
     /// The user's typing speed in words a minute, which Usage and Home weigh dictation
     /// against; absent means the average, `HomeWeek.typingWordsPerMinute`.
-    static let typingWordsPerMinute = "typingWordsPerMinute"
+    public static let typingWordsPerMinute = "typingWordsPerMinute"
     /// The microphone a dictation records from, `MicrophoneChoice.stored`: empty for
     /// Automatic, `"system"` for the system's input, otherwise a Core Audio device UID.
     /// A device of this Mac, so machine-local and not in `portable`.
-    static let microphone = "microphone"
+    public static let microphone = "microphone"
     /// The picked device's name when it was picked, so the picker can name it while it
     /// is not connected. Machine-local, like `microphone`.
-    static let microphoneName = "microphoneName"
+    public static let microphoneName = "microphoneName"
     /// The one-time notice that Automatic recorded from the Mac's microphone instead of
     /// Bluetooth headphones has been shown. Machine-local.
-    static let microphoneNoticeShown = "microphoneNoticeShown"
+    public static let microphoneNoticeShown = "microphoneNoticeShown"
     /// Stored model choices the launch moved or cleared because their vendor is retiring
     /// the model: JSON-encoded `[ModelMigration]`, newest last, for the notice the next
     /// dictation shows. Describes this Mac's history, so machine-local.
     static let modelMigrations = "modelMigrations"
     /// The model IDs whose lifecycle notice has been shown, so each is shown once.
     /// Machine-local.
-    static let modelNoticesShown = "modelNoticesShown"
+    public static let modelNoticesShown = "modelNoticesShown"
 
     // Debug
     /// Whether inline dictations are written to `Traces/` for `DictationReplay`. Machine-
     /// local, like the traces themselves, so not in `portable`.
-    static let recordDictationTraces = "recordDictationTraces"
+    public static let recordDictationTraces = "recordDictationTraces"
 
     /// Marks that settings were carried over from the pre-rename preference domain.
     static let didAdoptPreRenameDefaults = "didAdoptPreRenameDefaults"
@@ -158,9 +157,9 @@ enum SettingsKeys {
     /// Whether the setup window was finished (or the install predates it). Absent on a
     /// new install. Not in `portable`: it describes this identity's permission grants,
     /// which a rename asks for again.
-    static let onboardingCompleted = "onboardingCompleted"
+    public static let onboardingCompleted = "onboardingCompleted"
     /// `OnboardingStep.rawValue` the setup window was left on, so it reopens there.
-    static let onboardingStep = "onboardingStep"
+    public static let onboardingStep = "onboardingStep"
 
     /// Everything worth carrying across a rename.
     ///
@@ -179,7 +178,7 @@ enum SettingsKeys {
     ///
     /// Each provider's model keys are added from its `ProviderDescriptor`, so a new
     /// provider's pick survives a rename without a line here.
-    static let portable: [String] = [
+    public static let portable: [String] = [
         selectedLanguage, spokenLanguages,
         sttProvider,
         removeDisfluencies, dashStyle,
@@ -207,7 +206,7 @@ enum SettingsKeys {
 /// matters: a machine that saw several should take the *latest* value, and the loop below
 /// never overwrites a key it has already adopted.
 /// An end-to-end build (`E2EMode`) has none: its domain starts empty on purpose.
-var preRenameDefaultsDomains: [String] {
+public var preRenameDefaultsDomains: [String] {
     E2EMode.isActive ? [] : ["com.speechtext.app", "com.speachtext.app", "com.voicepeter.app"]
 }
 
@@ -217,7 +216,7 @@ var preRenameDefaultsDomains: [String] {
 ///
 /// Runs before `normalizeStoredProviders()` so anything stale that comes over is
 /// still checked against the current catalogues.
-func adoptPreRenameDefaults() {
+public func adoptPreRenameDefaults() {
     let defaults = UserDefaults.standard
     guard !defaults.bool(forKey: SettingsKeys.didAdoptPreRenameDefaults) else { return }
     defaults.set(true, forKey: SettingsKeys.didAdoptPreRenameDefaults)
@@ -241,21 +240,21 @@ func adoptPreRenameDefaults() {
 
 /// Scribe's streaming model. Picking it switches ElevenLabs from a file upload after
 /// the recording to a WebSocket that returns text while the user is still speaking.
-let elevenLabsRealtimeModel = "scribe_v2_realtime"
+public let elevenLabsRealtimeModel = "scribe_v2_realtime"
 
 /// OpenAI's streaming transcription model. Picking it switches the engine from a file
 /// upload after the recording to the realtime WebSocket — see `OpenAIRealtimeTranscriber`.
 /// It exists only there: the upload endpoint rejects it, so `batchModel` maps it to
 /// `gpt-transcribe` for the stream's fallback and for History retries.
-let openAIRealtimeSTTModel = "gpt-live-transcribe"
+public let openAIRealtimeSTTModel = "gpt-live-transcribe"
 
 /// One language the user can say they speak. `id` is the ISO-639-1 code the stored
 /// list holds and the cloud providers are sent; `localeIdentifier` is the regional
 /// locale Apple's recogniser needs, since it takes nothing else.
-struct SpokenLanguage: Identifiable, Hashable {
-    let id: String
-    let displayName: String
-    let localeIdentifier: String
+public struct SpokenLanguage: Identifiable, Hashable {
+    public let id: String
+    public let displayName: String
+    public let localeIdentifier: String
     /// What the language is written in — what `HallucinationFilter` lets through once the
     /// user has stated it (Latin is let through for every language).
     let scripts: [WritingScript]
@@ -269,7 +268,7 @@ let autoLanguageID = "auto"
 /// a locale `SFSpeechRecognizer` knows, so a selection means the same thing on every
 /// engine. One entry per language rather than per region — the regional identifier only
 /// exists because Apple demands one, and the cloud tiers are sent the ISO code alone.
-let spokenLanguageCatalog: [SpokenLanguage] = [
+public let spokenLanguageCatalog: [SpokenLanguage] = [
     SpokenLanguage(id: "en", displayName: "English", localeIdentifier: "en-US", scripts: [.latin]),
     SpokenLanguage(id: "uk", displayName: "Ukrainian", localeIdentifier: "uk-UA", scripts: [.cyrillic]),
     SpokenLanguage(id: "ar", displayName: "Arabic", localeIdentifier: "ar-SA", scripts: [.arabic]),
@@ -304,7 +303,7 @@ let spokenLanguageCatalog: [SpokenLanguage] = [
     SpokenLanguage(id: "vi", displayName: "Vietnamese", localeIdentifier: "vi-VN", scripts: [.latin]),
 ]
 
-func spokenLanguage(id: String) -> SpokenLanguage? {
+public func spokenLanguage(id: String) -> SpokenLanguage? {
     spokenLanguageCatalog.first { $0.id == id }
 }
 
@@ -313,14 +312,14 @@ func spokenLanguage(id: String) -> SpokenLanguage? {
 /// Reads the stored `"uk,en"` form. Unknown codes are dropped and duplicates collapsed,
 /// so a list hand-edited in defaults — or carried over from an older catalogue — cannot
 /// put a code into a request that no engine would accept. Order is the user's.
-func parseSpokenLanguages(_ raw: String) -> [String] {
+public func parseSpokenLanguages(_ raw: String) -> [String] {
     var seen = Set<String>()
     return raw.split(separator: ",")
         .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         .filter { spokenLanguage(id: $0) != nil && seen.insert($0).inserted }
 }
 
-func encodeSpokenLanguages(_ codes: [String]) -> String {
+public func encodeSpokenLanguages(_ codes: [String]) -> String {
     parseSpokenLanguages(codes.joined(separator: ",")).joined(separator: ",")
 }
 
@@ -408,7 +407,7 @@ private func currentInputSourceLanguage() -> String? {
 /// A stale identifier is worse than a missing one: the picker in Settings finds no
 /// matching tag and renders blank, while the engine quietly falls back to its
 /// default — so the UI shows nothing and the app runs something the user did not pick.
-func normalizeStoredProviders() {
+public func normalizeStoredProviders() {
     normalizeStoredProviders(in: .standard)
 }
 
@@ -501,7 +500,7 @@ private func preserveInstalledLocalModel(in defaults: UserDefaults, onDisk: (Str
 }
 
 /// The languages the user says they speak, newest storage format.
-func storedSpokenLanguages() -> [String] {
+public func storedSpokenLanguages() -> [String] {
     parseSpokenLanguages(UserDefaults.standard.string(forKey: SettingsKeys.spokenLanguages) ?? "")
 }
 
@@ -515,7 +514,7 @@ func setStoredSpokenLanguages(_ codes: [String]) {
 /// list is a meaningful answer ("let the model detect"), so it has to be written and then
 /// left alone, and a user who clears the list must not have their old single choice
 /// restored on the next launch.
-func migrateSelectedLanguageIfNeeded() {
+public func migrateSelectedLanguageIfNeeded() {
     let defaults = UserDefaults.standard
     guard defaults.object(forKey: SettingsKeys.spokenLanguages) == nil else { return }
     let codes = spokenLanguagesMigrating(from: defaults.string(forKey: SettingsKeys.selectedLanguage))
@@ -526,7 +525,7 @@ func migrateSelectedLanguageIfNeeded() {
 /// Resolves the effective locale identifier for speech recognition — see `resolveLocale`
 /// for the three cases. The UserDefaults read lives here so the decision itself stays a
 /// pure function the tests can drive without touching the user's real settings.
-func resolvedLocale() -> String {
+public func resolvedLocale() -> String {
     resolveLocale(
         spoken: storedSpokenLanguages(),
         keyboardLanguage: currentInputSourceLanguage(),
@@ -538,8 +537,8 @@ func resolvedLocale() -> String {
 
 /// Observes keyboard input source changes using .deliverImmediately so
 /// notifications arrive even when the app is in the background.
-final class KeyboardChangeObserver: NSObject {
-    static let shared = KeyboardChangeObserver()
+public final class KeyboardChangeObserver: NSObject {
+    public static let shared = KeyboardChangeObserver()
 
     private var handlers: [(id: UUID, block: () -> Void)] = []
 
@@ -558,13 +557,13 @@ final class KeyboardChangeObserver: NSObject {
         handlers.forEach { $0.block() }
     }
 
-    func addHandler(_ block: @escaping () -> Void) -> UUID {
+    public func addHandler(_ block: @escaping () -> Void) -> UUID {
         let id = UUID()
         handlers.append((id: id, block: block))
         return id
     }
 
-    func removeHandler(id: UUID) {
+    public func removeHandler(id: UUID) {
         handlers.removeAll { $0.id == id }
     }
 }

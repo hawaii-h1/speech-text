@@ -3,12 +3,11 @@
 
 import Foundation
 import Observation
-import SpeechTextCore
 
 /// Where the API keys are kept outside memory. The app registers the data-protection
 /// keychain (`KeychainSecretStorage`, app target only); the test bundle registers a fake,
 /// so nothing it runs can reach a real keychain.
-protocol SecretStorage: AnyObject {
+public protocol SecretStorage: AnyObject {
     /// The stored value, or nil when there is none.
     func read(_ account: String) throws -> String?
     func write(_ value: String, for account: String) throws
@@ -30,15 +29,15 @@ protocol SecretStorage: AnyObject {
 /// - **defaults** — a build without the profile (Xcode ⌘R, a contributor's clone) cannot
 ///   reach that keychain at all, so it keeps the keys in UserDefaults as before.
 @Observable
-final class APIKeyStore: @unchecked Sendable {
-    static let shared = APIKeyStore()
+public final class APIKeyStore: @unchecked Sendable {
+    public static let shared = APIKeyStore()
 
     /// Every key the store holds, by its `SettingsKeys` name: one per provider that has a
     /// key (`APIKeyDescriptor`). The launch migration moves exactly these, so the list is
     /// pinned literally in the tests.
     static let keys: [String] = Provider.allCases.compactMap { $0.descriptor.apiKey?.settingsKey }
 
-    enum Mode: Equatable {
+    public enum Mode: Equatable {
         /// Not opened: every key reads as empty. The test bundle's state.
         case unopened
         case keychain
@@ -46,14 +45,14 @@ final class APIKeyStore: @unchecked Sendable {
     }
 
     /// What `open` did, for the Debug Log and the tests.
-    struct Report: Equatable {
-        var mode: Mode
+    public struct Report: Equatable {
+        public var mode: Mode
         /// Keys written into the keychain from a preferences domain.
-        var moved: [String] = []
+        public var moved: [String] = []
         /// Keys copied into the current domain from a pre-rename one (defaults mode).
-        var adopted: [String] = []
+        public var adopted: [String] = []
         /// Keys whose keychain write or read-back failed; their copies were kept.
-        var failed: [String] = []
+        public var failed: [String] = []
     }
 
     @ObservationIgnored private let lock = NSLock()
@@ -65,20 +64,20 @@ final class APIKeyStore: @unchecked Sendable {
     init() {}
 
     /// The key, or "" when there is none. Safe from any thread.
-    func value(for key: String) -> String {
+    public func value(for key: String) -> String {
         lock.lock(); defer { lock.unlock() }
         return values[key] ?? ""
     }
 
     /// Whether any key is stored — one of the signs that this is not a new install.
-    var hasAnyKey: Bool {
+    public var hasAnyKey: Bool {
         lock.lock(); defer { lock.unlock() }
         return values.values.contains { !$0.isEmpty }
     }
 
     /// Stores a key; an empty value removes it. In keychain mode a failed write keeps the
     /// value for this session only and is logged — it is never written to UserDefaults.
-    func set(_ value: String, for key: String) {
+    public func set(_ value: String, for key: String) {
         lock.lock()
         let changed = values[key] ?? "" != value
         values[key] = value
@@ -109,7 +108,7 @@ final class APIKeyStore: @unchecked Sendable {
     #if DEBUG
     /// Debug builds only, for an end-to-end run (`E2EMode.keysFile`): the keys this
     /// session reads, held in memory and never written to the keychain or a plist.
-    func useForThisSession(_ keys: [String: String]) {
+    public func useForThisSession(_ keys: [String: String]) {
         lock.lock()
         values.merge(keys) { _, new in new }
         lock.unlock()
@@ -120,7 +119,7 @@ final class APIKeyStore: @unchecked Sendable {
     /// keychain is there. `keychain` is nil for a build that cannot reach it.
     /// `legacy` is the chain of pre-rename domains, newest first.
     @discardableResult
-    func open(keychain: SecretStorage?, defaults: UserDefaults, legacy: [UserDefaults]) -> Report {
+    public func open(keychain: SecretStorage?, defaults: UserDefaults, legacy: [UserDefaults]) -> Report {
         var loaded: [String: String] = [:]
         var report = Report(mode: keychain == nil ? .defaults : .keychain)
 

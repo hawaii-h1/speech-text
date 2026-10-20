@@ -90,18 +90,18 @@ check_anchors() {
     # Every capability value the code has is explained in the guide's vocabulary table.
     local vocab
     for spec in \
-        "SpeechText/SpeechText/STTModelCatalog.swift|enum Delivery" \
-        "SpeechText/SpeechText/STTModelCatalog.swift|enum TranscriptForm" \
-        "SpeechText/SpeechText/STTModelCatalog.swift|enum LanguageSupport" \
-        "SpeechText/SpeechText/STTModelCatalog.swift|enum BatchUpload" \
-        "SpeechText/SpeechText/STTModelCatalog.swift|enum Requirement" \
-        "SpeechText/SpeechText/STTModelCatalog.swift|enum Vocabulary" \
-        "SpeechText/SpeechText/STTModelCatalog.swift|enum ListPrice" \
-        "SpeechText/SpeechText/ModelLanguages.swift|enum LanguageCoverage" \
-        "SpeechText/SpeechText/ModelLifecycle.swift|enum ModelLifecycle" \
-        "SpeechText/SpeechText/ChatClients.swift|enum Dialect" \
-        "SpeechText/SpeechText/ChatClients.swift|enum ReasoningOutput" \
-        "SpeechText/SpeechText/Transcribers.swift|enum VocabularyField"; do
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift|enum Delivery" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift|enum TranscriptForm" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift|enum LanguageSupport" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift|enum BatchUpload" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift|enum Requirement" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift|enum Vocabulary" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift|enum ListPrice" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/ModelLanguages.swift|enum LanguageCoverage" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/ModelLifecycle.swift|enum ModelLifecycle" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/ChatClients.swift|enum Dialect" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/ChatClients.swift|enum ReasoningOutput" \
+        "Packages/SpeechTextCore/Sources/SpeechTextCore/Transcribers.swift|enum VocabularyField"; do
         file=${spec%%|*}
         anchor=${spec#*|}
         vocab=$(block "$file" "$anchor" | sed -n 's/^[[:space:]]*case \([A-Za-z_][A-Za-z0-9_]*\).*/\1/p')

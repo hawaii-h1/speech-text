@@ -4,6 +4,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import SpeechTextCore
 
 // MARK: - Home
 

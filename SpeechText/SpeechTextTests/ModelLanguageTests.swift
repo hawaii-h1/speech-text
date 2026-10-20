@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+@testable import SpeechTextCore
 
 /// What a model row says about languages (#30, docs/design/model-details/): the catalogue's
 /// lists, the count, the "No …" badge, the notes for the user's own languages, the

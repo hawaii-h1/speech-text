@@ -3,20 +3,19 @@
 
 import Foundation
 import ChatTemplates
-import SpeechTextCore
 
 // MARK: - Provider Type
 
-enum LLMProviderType: String, CaseIterable, Identifiable {
+public enum LLMProviderType: String, CaseIterable, Identifiable {
     case groq = "groq"
     case anthropic = "anthropic"
     case openai = "openai"
     /// Built in: a GGUF model run by llama.cpp in the SpeechTextLLM service.
     case local = "local"
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .groq: "Groq"
         case .anthropic: "Anthropic (Claude)"
@@ -26,7 +25,7 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
     }
 
     /// The provider that serves the pick.
-    var vendor: Provider {
+    public var vendor: Provider {
         switch self {
         case .groq: .groq
         case .anthropic: .anthropic
@@ -38,7 +37,7 @@ enum LLMProviderType: String, CaseIterable, Identifiable {
     /// The Mac has no key; `LLMConfiguration.isConfigured` then means "a model is chosen",
     /// and one not downloaded surfaces as the request's own error, through the same
     /// raw-transcript fallback as any other failure — which says what to do.
-    var needsAPIKey: Bool { vendor.descriptor.apiKey != nil }
+    public var needsAPIKey: Bool { vendor.descriptor.apiKey != nil }
 }
 
 // MARK: - Model catalogue
@@ -59,10 +58,10 @@ enum ReasoningOutput: Equatable {
 /// the wrong one is an HTTP 400 and the whole rewrite lost — so they are written down per
 /// model here, and no request is built from a check on the model's name. The local
 /// entries are derived from `localChatModels`, so each model is written down once.
-struct ChatModelDescriptor: Equatable {
-    let provider: LLMProviderType
-    let id: String
-    let displayName: String
+public struct ChatModelDescriptor: Equatable {
+    public let provider: LLMProviderType
+    public let id: String
+    public let displayName: String
     /// Sent as `reasoning_effort` (Anthropic: `output_config.effort`); nil sends nothing.
     let reasoningEffort: String?
     let reasoningOutput: ReasoningOutput
@@ -70,19 +69,19 @@ struct ChatModelDescriptor: Equatable {
     let refusalFallbacks: Bool
     /// The vendor's list price, checked on `UsagePrices.checked`. Required, so a model
     /// added without one fails to build rather than showing as free.
-    let price: ListPrice<ChatRates>
+    public let price: ListPrice<ChatRates>
     /// Where the model is in its vendor's life (`ModelLifecycle`). A model on this Mac is
     /// current while the catalogue lists it.
-    var lifecycle: ModelLifecycle = .current
+    public var lifecycle: ModelLifecycle = .current
 }
 
 /// What a vendor charges for a chat model's tokens.
-struct ChatRates: Hashable {
-    let inputPerToken: Double
+public struct ChatRates: Hashable {
+    public let inputPerToken: Double
     /// A cache read (`ChatUsage.cachedInputTokens`) — the input price where the vendor
     /// lists no cache.
-    let cachedInputPerToken: Double
-    let outputPerToken: Double
+    public let cachedInputPerToken: Double
+    public let outputPerToken: Double
 
     init(inputPerToken: Double, cachedInputPerToken: Double? = nil, outputPerToken: Double) {
         self.inputPerToken = inputPerToken
@@ -127,7 +126,7 @@ struct ChatRates: Hashable {
 /// (docs/prices.md): Groq's models page (cached input only for gpt-oss, at the 50 %
 /// discount its prompt-caching page states), Anthropic's pricing page (cache hits as the
 /// cached price), OpenAI's pricing page (standard tier). A model on this Mac is free.
-let chatModelCatalog: [ChatModelDescriptor] = [
+public let chatModelCatalog: [ChatModelDescriptor] = [
     ChatModelDescriptor(provider: .groq, id: "openai/gpt-oss-120b", displayName: "GPT-OSS 120B",
                         reasoningEffort: "low", reasoningOutput: .excluded, refusalFallbacks: false,
                         price: .listed(.perMillion(input: 0.15, cachedInput: 0.075, output: 0.60))),
@@ -169,7 +168,7 @@ let chatModelCatalog: [ChatModelDescriptor] = [
 }
 
 /// A provider's models a picker, setup or a recommendation may offer, in picker order.
-func offeredChatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
+public func offeredChatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
     chatModelCatalog.filter { $0.provider == provider && $0.lifecycle.isOffered }
 }
 
@@ -183,7 +182,7 @@ func knownChatModels(of provider: LLMProviderType) -> [ChatModelDescriptor] {
 /// What a chat model picker lists: the offered models, and the selected one after them
 /// when it is not offered, so the picker never renders blank. An empty selection (a
 /// choice the launch cleared) adds nothing.
-func pickerChatModels(of provider: LLMProviderType, selected: String) -> [ChatModelDescriptor] {
+public func pickerChatModels(of provider: LLMProviderType, selected: String) -> [ChatModelDescriptor] {
     let offered = offeredChatModels(of: provider)
     if selected.isEmpty || offered.contains(where: { $0.id == selected }) { return offered }
     return offered + [chatModel(provider: provider, id: selected)]
@@ -196,14 +195,14 @@ func listedChatModel(provider: LLMProviderType, id: String) -> ChatModelDescript
 
 /// A chat model's name wherever it is known — the catalogue, else the archive — for a
 /// caller that has the ID but not the provider; the ID itself otherwise.
-func knownChatModelName(id: String) -> String {
+public func knownChatModelName(id: String) -> String {
     chatModelCatalog.first { $0.id == id }?.displayName
         ?? archivedChatModels.first { $0.id == id }?.displayName
         ?? id
 }
 
 /// The model a request is built for: its catalogue entry, or what an unlisted ID is sent.
-func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
+public func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
     if let listed = listedChatModel(provider: provider, id: id) { return listed }
     switch provider {
     case .groq, .anthropic, .openai:
@@ -227,16 +226,21 @@ func chatModel(provider: LLMProviderType, id: String) -> ChatModelDescriptor {
 
 // MARK: - Protocol
 
-protocol ChatClient {
+public protocol ChatClient {
     /// Sends a single-turn completion and returns the assistant's plain-text reply, with
     /// the tokens the provider says it billed for it.
     func complete(system: String, user: String) async throws -> ChatReply
 }
 
 /// What a chat request returned: the reply and, when the provider reported it, its usage.
-struct ChatReply: Equatable {
-    let text: String
-    let usage: ChatUsage?
+public struct ChatReply: Equatable {
+    public let text: String
+    public let usage: ChatUsage?
+
+    public init(text: String, usage: ChatUsage?) {
+        self.text = text
+        self.usage = usage
+    }
 }
 
 /// The tokens a chat request was billed for, as the provider reported them — Usage
@@ -246,14 +250,21 @@ struct ChatReply: Equatable {
 /// `input_tokens` leaves out cache reads and writes, which are added in), and
 /// `outputTokens` every output token, reasoning included (both vendors already include
 /// it). `cachedInputTokens` and `reasoningTokens` are parts of those totals, never extra.
-struct ChatUsage: Codable, Equatable {
-    var inputTokens: Int
-    var outputTokens: Int
+public struct ChatUsage: Codable, Equatable {
+    public var inputTokens: Int
+    public var outputTokens: Int
     var cachedInputTokens: Int? = nil
     var reasoningTokens: Int? = nil
+
+    public init(inputTokens: Int, outputTokens: Int, cachedInputTokens: Int? = nil, reasoningTokens: Int? = nil) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.reasoningTokens = reasoningTokens
+    }
 }
 
-enum LLMError: LocalizedError {
+public enum LLMError: LocalizedError {
     case missingAPIKey(LLMProviderType)
     case invalidResponse
     case httpError(Int, String)
@@ -266,7 +277,7 @@ enum LLMError: LocalizedError {
     /// (`clearedModelChoice`), and the user has not picked another.
     case noModelChosen(LLMProviderType)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .missingAPIKey(let p): "No API key set for \(p.displayName)"
         case .invalidResponse: "Invalid response from the LLM API"
@@ -316,9 +327,9 @@ private let llmSession: URLSession = {
 /// Both Groq and OpenAI expose the same `/chat/completions` shape, so one
 /// implementation covers them. They diverge on which parameters they accept —
 /// see `Dialect`.
-struct OpenAICompatibleChatClient: ChatClient {
+public struct OpenAICompatibleChatClient: ChatClient {
     /// The two backends share an endpoint shape but not its parameters.
-    enum Dialect {
+    public enum Dialect {
         /// Groq: classic Chat Completions — `max_tokens` and sampling params accepted.
         case classic
         /// OpenAI's GPT-5.x reasoning models: `max_tokens` and `temperature` are both
@@ -333,6 +344,14 @@ struct OpenAICompatibleChatClient: ChatClient {
     let apiKey: String
     let model: ChatModelDescriptor
     let dialect: Dialect
+
+    public init(label: String, baseURL: URL, apiKey: String, model: ChatModelDescriptor, dialect: Dialect) {
+        self.label = label
+        self.baseURL = baseURL
+        self.apiKey = apiKey
+        self.model = model
+        self.dialect = dialect
+    }
 
     /// The request body, built apart from the network so it can be asserted directly.
     /// The switches are the model's descriptor's; see `chatModelCatalog`.
@@ -362,7 +381,7 @@ struct OpenAICompatibleChatClient: ChatClient {
         return body
     }
 
-    func complete(system: String, user: String) async throws -> ChatReply {
+    public func complete(system: String, user: String) async throws -> ChatReply {
         var request = URLRequest(url: baseURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -563,16 +582,16 @@ struct AnthropicChatClient: ChatClient {
 
 // MARK: - Factory
 
-enum LLMConfiguration {
+public enum LLMConfiguration {
     /// When AI Rewrite runs on this Mac, gets its model ready while the user speaks: the
     /// first rewrite after the service went idle otherwise pays the load and the system
     /// prompt at the stop. Nothing for a cloud provider.
-    static func prewarmIfLocal() {
+    public static func prewarmIfLocal() {
         guard providerType == .local, let model = localChatModel(id: model(for: .local)) else { return }
         LocalChat.prewarm(model)
     }
 
-    static var providerType: LLMProviderType {
+    public static var providerType: LLMProviderType {
         let raw = UserDefaults.standard.string(forKey: SettingsKeys.llmProvider) ?? LLMProviderType.groq.rawValue
         return LLMProviderType(rawValue: raw) ?? .groq
     }
@@ -583,21 +602,21 @@ enum LLMConfiguration {
 
     /// The chat model stored for the pick, else its provider's default; empty for a choice
     /// the launch cleared (`clearedModelChoice`).
-    static func model(for type: LLMProviderType) -> String {
+    public static func model(for type: LLMProviderType) -> String {
         let setting = type.vendor.descriptor.chatModel
         return setting?.settingsKey.flatMap { UserDefaults.standard.string(forKey: $0) } ?? setting?.defaultID ?? ""
     }
 
     /// True when the selected provider can be called: a non-empty API key for the cloud
     /// providers, a chosen model on this Mac.
-    static var isConfigured: Bool {
+    public static var isConfigured: Bool {
         let type = providerType
         if type == .local { return localChatModel(id: model(for: type)) != nil }
         let value = type.needsAPIKey ? apiKey(for: type) : model(for: type)
         return !value.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    static func makeChatClient() throws -> ChatClient {
+    public static func makeChatClient() throws -> ChatClient {
         let type = providerType
         if type == .local {
             guard let model = localChatModel(id: model(for: type)) else { throw LLMError.noLocalModel }

@@ -10,10 +10,10 @@ import Foundation
 /// instead ("кома" → ","). Unlike a Dictionary word it is never sent to an engine or to
 /// AI Rewrite — it only corrects text. `replace` is matched as whole words, ignoring
 /// case; `with` is written exactly as typed.
-struct TextReplacementPair: Codable, Hashable, Identifiable {
-    var id: UUID
-    var replace: String
-    var with: String
+public struct TextReplacementPair: Codable, Hashable, Identifiable {
+    public var id: UUID
+    public var replace: String
+    public var with: String
 
     init(id: UUID = UUID(), replace: String, with: String) {
         self.id = id
@@ -114,8 +114,8 @@ struct TextReplacementRules {
 
 /// The Replacements table's store, and what it may hold. Only the Dictionary page writes
 /// it: a stored setting is evidence of an earlier install to `OnboardingGate`.
-enum TextReplacements {
-    enum EntryProblem: Equatable {
+public enum TextReplacements {
+    public enum EntryProblem: Equatable {
         case emptyReplace
         case emptyWith
         case noWord
@@ -123,7 +123,7 @@ enum TextReplacements {
     }
 
     /// Why a pair cannot be added to `existing`, or nil when it can.
-    static func entryProblem(replace: String, with: String, existing: [TextReplacementPair]) -> EntryProblem? {
+    public static func entryProblem(replace: String, with: String, existing: [TextReplacementPair]) -> EntryProblem? {
         let key = TextReplacementRules.key(replace)
         if key.isEmpty { return .emptyReplace }
         if with.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .emptyWith }
@@ -133,7 +133,7 @@ enum TextReplacements {
     }
 
     /// The pair as it is stored: `replace` on one line with single spaces, `with` trimmed.
-    static func normalized(replace: String, with: String) -> TextReplacementPair {
+    public static func normalized(replace: String, with: String) -> TextReplacementPair {
         TextReplacementPair(replace: replace.split(whereSeparator: { $0.isWhitespace }).joined(separator: " "),
                             with: with.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -151,11 +151,11 @@ enum TextReplacements {
 
     /// The stored pairs. Read once per recording by `RecordingConfiguration` and once per
     /// LLM reply, never by the tests.
-    static func load() -> [TextReplacementPair] {
+    public static func load() -> [TextReplacementPair] {
         decode(UserDefaults.standard.data(forKey: SettingsKeys.textReplacements))
     }
 
-    static func save(_ pairs: [TextReplacementPair]) {
+    public static func save(_ pairs: [TextReplacementPair]) {
         UserDefaults.standard.set(encode(pairs), forKey: SettingsKeys.textReplacements)
     }
 }

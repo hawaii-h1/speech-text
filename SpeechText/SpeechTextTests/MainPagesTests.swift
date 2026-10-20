@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+@testable import SpeechTextCore
 
 /// The main window's Usage, Prompts and Dictionary pages: their numbers and the
 /// Dictionary's effect on a dictation — built from records and words made here, never the

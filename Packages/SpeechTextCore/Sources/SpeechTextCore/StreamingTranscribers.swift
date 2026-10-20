@@ -3,11 +3,10 @@
 
 import Foundation
 import AVFoundation
-import SpeechTextCore
 
 // MARK: - Streaming STT Protocol
 
-enum StreamingSTTEvent {
+public enum StreamingSTTEvent: Sendable {
     /// The in-progress text of the current speech segment. Replaces the previous partial.
     case partial(String)
     /// A segment the provider considers final. Segments accumulate.
@@ -23,7 +22,7 @@ enum StreamingSTTEvent {
 ///
 /// `Sendable`, because a recognition session uses one from three places at once: the
 /// audio thread sends to it, main reads its events, and the stop finishes it off main.
-protocol StreamingTranscriber: AnyObject, Sendable {
+public protocol StreamingTranscriber: AnyObject, Sendable {
     /// The sample rate `send(pcm16:)` expects. The engine converts the mic feed to it.
     var sampleRate: Double { get }
     var events: AsyncStream<StreamingSTTEvent> { get }
@@ -48,7 +47,7 @@ protocol StreamingTranscriber: AnyObject, Sendable {
 
 /// Builds a streaming provider for a session's configuration, or nil when the
 /// selected engine/model works in batch mode.
-func makeStreamingTranscriber(configuration: RecordingConfiguration) -> StreamingTranscriber? {
+public func makeStreamingTranscriber(configuration: RecordingConfiguration) -> StreamingTranscriber? {
     guard configuration.streams else { return nil }
     switch configuration.provider {
     case .elevenlabs:

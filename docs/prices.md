@@ -11,9 +11,9 @@ so a refresh reprices everything without a migration.
 
 | What | Where |
 |---|---|
-| Speech models, a minute of audio and the keyterm surcharge (`SpeechRates`) | `price:` on each entry of `sttModelCatalog`, `SpeechText/SpeechText/STTModelCatalog.swift` |
-| Chat models, input / cached input / output per token (`ChatRates`, written `.perMillion(…)`) | `price:` on each entry of `chatModelCatalog`, `SpeechText/SpeechText/ChatClients.swift` |
-| The date the table was checked | `UsagePrices.checked`, `SpeechText/SpeechText/HomeSummary.swift` |
+| Speech models, a minute of audio and the keyterm surcharge (`SpeechRates`) | `price:` on each entry of `sttModelCatalog`, `Packages/SpeechTextCore/Sources/SpeechTextCore/STTModelCatalog.swift` |
+| Chat models, input / cached input / output per token (`ChatRates`, written `.perMillion(…)`) | `price:` on each entry of `chatModelCatalog`, `Packages/SpeechTextCore/Sources/SpeechTextCore/ChatClients.swift` |
+| The date the table was checked | `UsagePrices.checked`, `Packages/SpeechTextCore/Sources/SpeechTextCore/HomeSummary.swift` |
 | The same table, written out for review | `ListPriceTests`, `SpeechText/SpeechTextTests/HomeSummaryTests.swift` |
 
 A price is one of `ListPrice`'s cases: `.free` (a model on the Mac, Apple),

@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 // MARK: - Provider Type
 
-enum STTProviderType: String, CaseIterable, Identifiable {
+public enum STTProviderType: String, CaseIterable, Identifiable {
     case apple = "apple"
     case groq = "groq"
     case elevenlabs = "elevenlabs"
     case openai = "openai"
     case local = "local"
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
     var displayName: String {
         switch self {
@@ -31,7 +30,7 @@ enum STTProviderType: String, CaseIterable, Identifiable {
 /// Every latency and quality knob the cloud STT providers use, in one place, so a value
 /// measured against the live service is not re-derived by feel in two files. All of
 /// these were verified by probing the ElevenLabs API on 2026-08-29.
-enum STTTuning {
+public enum STTTuning {
     /// Seconds of silence after which Scribe Realtime's VAD commits a segment — the
     /// server's own default. Each segment is transcribed on its own and punctuated as a
     /// finished sentence, so a pause this long mid-sentence leaves a full stop and a
@@ -109,7 +108,7 @@ enum STTTuning {
     /// it by 20 dB even on a quiet microphone, so what it catches is a muted or dead
     /// input and a shortcut pressed with nothing said. Room noise above it still goes to
     /// the model. Chosen from the levels in the Debug Log, not from a measured corpus.
-    static let silencePeakFloor: Float = 0.006
+    public static let silencePeakFloor: Float = 0.006
 
     /// A segment shorter than this is dropped without an upload, a History row or an
     /// error: it is a shortcut pressed and let go at once, or a pause the instant after a
@@ -117,7 +116,7 @@ enum STTTuning {
     /// FLAC block (`AudioBufferWriter.flacBlockFrames`, 0.29 s) — and the measured 0.2 s
     /// segment that prompted this was answered with "Audio file might be corrupted" by
     /// OpenAI and could never be retried from History.
-    static let minimumSegmentSeconds: Double = 0.3
+    public static let minimumSegmentSeconds: Double = 0.3
 
     /// A segment no longer than this whose whole result is a known hallucination
     /// (`HallucinationFilter`) is kept as an empty result, its audio archived. Long
@@ -131,7 +130,7 @@ enum STTTuning {
     /// room noise reached 0.78 (the MacBook's own microphone), every recording of speech
     /// reached 1.00 in at least four windows; a cough reached 1.00 too, which is why
     /// `HallucinationFilter` still judges what comes back.
-    static let voiceProbabilityThreshold: Float = 0.85
+    public static let voiceProbabilityThreshold: Float = 0.85
 
     /// How many windows over `voiceProbabilityThreshold` a segment needs to be sent.
     /// Measured on the corpus's tap path: a single word, «Так.», filled exactly two
@@ -140,19 +139,19 @@ enum STTTuning {
     /// long segment needs two, which that spike never reaches, and a short one needs one,
     /// because a one-word dictation is short and losing it is worse than letting a
     /// moment of noise reach the engine, where `HallucinationFilter` still judges it.
-    static let voiceWindowsRequired = 2
-    static let voiceWindowsRequiredWhenShort = 1
+    public static let voiceWindowsRequired = 2
+    public static let voiceWindowsRequiredWhenShort = 1
     /// At most this long, a segment is short for `voiceWindowsRequiredWhenShort`: a
     /// one-word dictation with the press and release around it (the corpus's «Так.» is
     /// 2.0 s); the noise clips are 10–15 s.
-    static let voiceShortSegmentSeconds = 2.5
+    public static let voiceShortSegmentSeconds = 2.5
 
     /// Batch upload timeouts. `URLSession.shared` ignores `URLRequest.timeoutInterval`
     /// and enforces its own 60 s default, which a multi-minute FLAC can exceed. 120 s
     /// per request covers a stalled response; 300 s for the whole resource covers a
     /// slow upload of a long recording.
     static let batchRequestTimeoutSeconds: TimeInterval = 120
-    static let batchResourceTimeoutSeconds: TimeInterval = 300
+    public static let batchResourceTimeoutSeconds: TimeInterval = 300
 
     /// Quality flags for Scribe. `tag_audio_events` defaults to *true* on the API, which
     /// would put "(laughs)" and "(door closes)" into pasted text, so it is sent off
@@ -165,7 +164,7 @@ enum STTTuning {
 
 // MARK: - Batch STT Protocol
 
-protocol BatchTranscriber {
+public protocol BatchTranscriber {
     func transcribe(audioFileURL: URL, language: String?) async throws -> String
     /// The text and what the vendor said it billed. Declared here, not only in the
     /// extension, so a transcriber's own version is the one called through
@@ -178,23 +177,23 @@ protocol BatchTranscriber {
 }
 
 extension BatchTranscriber {
-    func transcribeMetered(audioFileURL: URL, language: String?) async throws -> Transcription {
+    public func transcribeMetered(audioFileURL: URL, language: String?) async throws -> Transcription {
         Transcription(text: try await transcribe(audioFileURL: audioFileURL, language: language))
     }
 
-    var meter: UsageMeter? { nil }
+    public var meter: UsageMeter? { nil }
 }
 
 /// An upload's text, and what the vendor said it billed for it.
-struct Transcription: Equatable {
-    let text: String
-    var billing: SpeechBilling? = nil
+public struct Transcription: Equatable {
+    public let text: String
+    public var billing: SpeechBilling? = nil
 }
 
 /// What one speech request was billed for, in the vendor's own words. Only what the
 /// reply said: a vendor that reports nothing leaves both nil, and `UsageMeter` supplies a
 /// documented rule where one exists.
-struct SpeechBilling: Equatable {
+public struct SpeechBilling: Equatable {
     /// OpenAI's `usage` of `type: "duration"`, ElevenLabs' `audio_duration_secs`.
     var seconds: Double? = nil
     /// OpenAI's `usage` of `type: "tokens"`: `inputTokens` counts the audio tokens.
@@ -222,7 +221,7 @@ struct SpeechBilling: Equatable {
 /// Who a speech request is billed by: the vendor actually called (an Apple session's
 /// uploads go to Groq), the model, and the billing rule the vendor documents where its
 /// reply says nothing — Groq's ten-second minimum per request.
-struct UsageMeter: Equatable {
+public struct UsageMeter: Equatable {
     let vendor: Provider
     let model: String
     /// Data on the vendor's `OpenAICompatibleUpload`, never a check on its name.
@@ -234,7 +233,7 @@ struct UsageMeter: Equatable {
     /// the vendor's figure, else its documented minimum, else unknown — never a guess.
     /// `succeeded`: the vendor answered, whatever the answer held — a reply dropped as a
     /// hallucination was still billed.
-    func event(_ kind: UsageEvent.Kind, audioSeconds: Double, billing: SpeechBilling?, succeeded: Bool,
+    public func event(_ kind: UsageEvent.Kind, audioSeconds: Double, billing: SpeechBilling?, succeeded: Bool,
                latency: Double?, date: Date = Date()) -> UsageEvent {
         // A request the vendor refused is taken as unbilled: no vendor here documents
         // charging for an error reply.
@@ -264,7 +263,7 @@ func multipartAudioPart(for fileURL: URL) -> (filename: String, mimeType: String
 /// the same snapshot. The realtime→scribe_v2 and Apple→Groq mappings live on
 /// `RecordingConfiguration.batchModel`. The local tier goes through `LocalSTT` so this
 /// file never names WhisperKit (it is compiled into the standalone test bundle).
-func makeBatchTranscriber(configuration: RecordingConfiguration) -> BatchTranscriber {
+public func makeBatchTranscriber(configuration: RecordingConfiguration) -> BatchTranscriber {
     switch configuration.provider {
     case .elevenlabs:
         ElevenLabsTranscriber(apiKey: configuration.apiKey(for: .elevenLabs), model: configuration.batchModel,
@@ -454,14 +453,14 @@ private struct TranscriptionResponse: Decodable {
 
 /// A transcription that failed, in any provider's words: an upload's reply the app could
 /// not use, an HTTP error (`providerErrorMessage`), or a realtime socket's error event.
-enum TranscriptionError: LocalizedError {
+public enum TranscriptionError: LocalizedError {
     case invalidResponse(Provider)
     case httpError(Provider, Int, String)
     /// The realtime socket reported an error, or sent something unusable. The code is
     /// what `StreamReconnectPolicy` reads (`no_session` is a drop worth reopening).
     case realtime(Provider, String, String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidResponse(let provider): "Invalid response from \(provider.displayName) API"
         case .httpError(let provider, let code, let body):

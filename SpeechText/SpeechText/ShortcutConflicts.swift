@@ -3,6 +3,7 @@
 
 import AppKit
 import Carbon.HIToolbox
+import SpeechTextCore
 
 /// A key combination as Carbon's hotkey APIs see it: a virtual key code and the four
 /// modifiers a global shortcut can carry. Anything else in the mask (Caps Lock, the

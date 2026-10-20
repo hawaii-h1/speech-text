@@ -18,10 +18,10 @@ import Foundation
 /// are not on the list, however often a model invents them.
 ///
 /// Pure logic, in both targets.
-enum HallucinationFilter {
+public enum HallucinationFilter {
     /// Compared after `normalized`: lowercase, letters and digits only, one space
     /// between words.
-    static let phrases: Set<String> = [
+    public static let phrases: Set<String> = [
         // English
         "thank you for watching",
         "thanks for watching",
@@ -53,7 +53,7 @@ enum HallucinationFilter {
     /// "Субтитри створено спільнотою Amara.org"): a whole result that *begins* with one of these is a
     /// credit line, not speech. Each is the credit's own wording, never a lone word or a
     /// loose pair — "Субтитры готовы" and "Subtitles by tomorrow" are things people say.
-    static let prefixes: [String] = [
+    public static let prefixes: [String] = [
         "subtitles by the amara org community",
         "субтитры сделал",
         "субтитры создавал",
@@ -77,7 +77,7 @@ enum HallucinationFilter {
     }
 
     /// Why a segment's whole result is not speech, or nil to keep it.
-    enum Rejection: Equatable, CustomStringConvertible {
+    public enum Rejection: Equatable, CustomStringConvertible {
         /// A known phrase (`isHallucination`), the segment short enough to trust it.
         case knownPhrase
         /// Not one letter or digit: «.», «..», «…» — what a model makes of a breath.
@@ -86,7 +86,7 @@ enum HallucinationFilter {
         /// «うーん。» or «흠..» for someone who speaks Ukrainian and English.
         case foreignScript
 
-        var description: String {
+        public var description: String {
             switch self {
             case .knownPhrase: "a known hallucination"
             case .noLettersOrDigits: "no letter or digit"
@@ -100,7 +100,7 @@ enum HallucinationFilter {
     /// languages they speak — a result written wholly in a script none of them uses. With
     /// no languages stated the script is never judged: the model may be right that the
     /// user spoke Korean.
-    static func rejection(_ text: String, segmentSeconds: TimeInterval, languages: [String]) -> Rejection? {
+    public static func rejection(_ text: String, segmentSeconds: TimeInterval, languages: [String]) -> Rejection? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if !trimmed.contains(where: { $0.isLetter || $0.isNumber }) { return .noLettersOrDigits }
@@ -129,7 +129,7 @@ enum HallucinationFilter {
 
     /// Lowercased, punctuation and symbols dropped, words separated by one space.
     /// Apostrophes are dropped rather than split on, so "Don't" stays one word.
-    static func normalized(_ text: String) -> String {
+    public static func normalized(_ text: String) -> String {
         var words: [String] = []
         var current = ""
         for character in text.lowercased() {

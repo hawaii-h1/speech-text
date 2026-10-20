@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 /// What `scripts/e2e.sh` changes in a debug build, read from launch arguments (the
 /// argument domain, so nothing here is ever written to the app's preferences). A
@@ -27,7 +26,7 @@ import SpeechTextCore
 ///   (kAFAssistantErrorDomain 1101; `AppleRecognitionSession.failChunkForE2E`), so the
 ///   rotation after an error (`AppleErrorRotation`) runs without a recogniser that fails
 ///   on cue.
-enum E2EMode {
+public enum E2EMode {
     static let bundleIdentifier = "app.speech-text.SpeechText.e2e"
 
     /// The env-file names, as `LiveProviderTests` reads them from the environment.
@@ -40,7 +39,7 @@ enum E2EMode {
 
     /// `NAME=value` lines (an `export ` prefix, quotes, blank lines and `#` comments
     /// allowed) mapped onto the `SettingsKeys` the store holds; unknown names are left out.
-    static func parseKeys(_ text: String) -> [String: String] {
+    public static func parseKeys(_ text: String) -> [String: String] {
         var keys: [String: String] = [:]
         for raw in text.split(whereSeparator: \.isNewline) {
             var line = raw.trimmingCharacters(in: .whitespaces)
@@ -61,11 +60,11 @@ enum E2EMode {
     static var isActive: Bool { Bundle.main.bundleIdentifier == bundleIdentifier }
 
     /// The clips `-SPTAudioInput` names, in order; nil when the argument is absent.
-    static let audioInputs: [URL]? = UserDefaults.standard.string(forKey: "SPTAudioInput").map { list in
+    public static let audioInputs: [URL]? = UserDefaults.standard.string(forKey: "SPTAudioInput").map { list in
         list.split(separator: ",").map { URL(fileURLWithPath: String($0).trimmingCharacters(in: .whitespaces)) }
     }
 
-    static let keysFile: URL? = UserDefaults.standard.string(forKey: "SPTKeysFile")
+    public static let keysFile: URL? = UserDefaults.standard.string(forKey: "SPTKeysFile")
         .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
 
     /// `-SPTCloseStreamAfter`'s seconds; nil when the argument is absent or not positive.
@@ -87,7 +86,7 @@ enum E2EMode {
     /// `-SPTAppleFailAfter`'s seconds the first time it is asked in an e2e launch with the
     /// argument — an Apple chunk's first words — and nil every other time, so one chunk in
     /// the launch fails and no other.
-    static func appleFailureOnce() -> TimeInterval? {
+    public static func appleFailureOnce() -> TimeInterval? {
         guard isActive, let seconds = appleFailAfter else { return nil }
         let first = lock.withLock { () -> Bool in
             defer { appleFailureUsed = true }
@@ -99,7 +98,7 @@ enum E2EMode {
     /// `provider`, or — the first time in an e2e launch with `-SPTCloseStreamAfter` — the
     /// same provider behind a `StreamCloser`. Only the first: the reconnect builds its
     /// transcriber straight from `makeStreamingTranscriber`, so it is never closed again.
-    static func closingOnce(_ provider: StreamingTranscriber) -> StreamingTranscriber {
+    public static func closingOnce(_ provider: StreamingTranscriber) -> StreamingTranscriber {
         guard isActive, let seconds = closeStreamAfter else { return provider }
         let first = lock.withLock { () -> Bool in
             defer { streamCloserUsed = true }
@@ -113,7 +112,7 @@ enum E2EMode {
 
     /// The clip for the next capture, or nil once every one has played — that capture
     /// records silence, as a microphone in a quiet room would.
-    static func nextAudioInput() -> URL? {
+    public static func nextAudioInput() -> URL? {
         guard let inputs = audioInputs else { return nil }
         return lock.withLock {
             defer { playedInputs += 1 }
@@ -124,13 +123,13 @@ enum E2EMode {
     static let isActive = false
     static let closeStreamAfter: TimeInterval? = nil
     static let appleFailAfter: TimeInterval? = nil
-    static let audioInputs: [URL]? = nil
-    static let keysFile: URL? = nil
+    public static let audioInputs: [URL]? = nil
+    public static let keysFile: URL? = nil
     #endif
 
     /// The folder in Application Support this build keeps History, recordings and
     /// traces in.
-    static var supportFolderName: String { isActive ? "SpeechText-e2e" : "SpeechText" }
+    public static var supportFolderName: String { isActive ? "SpeechText-e2e" : "SpeechText" }
 }
 
 #if DEBUG

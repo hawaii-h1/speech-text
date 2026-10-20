@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+@testable import SpeechTextCore
 
 /// `CatalogueExport` is a contract with `scripts/check-vendor-models.sh`: these pin what
 /// the script reads, so a change to the catalogues' types cannot quietly change it.

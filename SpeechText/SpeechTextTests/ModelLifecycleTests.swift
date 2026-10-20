@@ -3,6 +3,7 @@
 
 import AppKit
 import XCTest
+@testable import SpeechTextCore
 
 /// The catalogues' lifecycle (#19): what is offered, what is still known, where a retired
 /// model's users go, and that nothing is left behind.

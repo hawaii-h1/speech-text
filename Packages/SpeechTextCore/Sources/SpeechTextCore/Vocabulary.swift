@@ -21,24 +21,24 @@ import Foundation
 // Pure, in both targets. The page is DictionaryView.swift.
 
 /// One word the user taught: how it is spelled, and how it has come out wrong.
-struct VocabularyEntry: Identifiable, Codable, Hashable {
-    var id: UUID
-    var term: String
+public struct VocabularyEntry: Identifiable, Codable, Hashable {
+    public var id: UUID
+    public var term: String
     /// Spellings that are replaced by `term` — what the engine wrote instead.
-    var misheard: [String]
+    public var misheard: [String]
     var added: Date
 
-    init(id: UUID = UUID(), term: String, misheard: [String] = [], added: Date = Date()) {
+    public init(id: UUID = UUID(), term: String, misheard: [String] = [], added: Date = Date()) {
         self.id = id
         self.term = term
         self.misheard = misheard
         self.added = added
     }
 
-    var trimmedTerm: String { term.trimmingCharacters(in: .whitespacesAndNewlines) }
+    public var trimmedTerm: String { term.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// The listed spellings, trimmed, without blanks or the term itself.
-    var replacements: [String] {
+    public var replacements: [String] {
         var seen = Set<String>()
         return misheard
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -49,7 +49,7 @@ struct VocabularyEntry: Identifiable, Codable, Hashable {
     /// put back the way it is written when it comes out in other capitals, even with no
     /// wrong spelling listed. A plain word or a name ("Olena", "Apple") is not: lower case
     /// may be another word, and a capital may only be the start of a sentence.
-    var fixesCapitals: Bool {
+    public var fixesCapitals: Bool {
         let letters = trimmedTerm.filter(\.isLetter)
         guard letters.count >= 2 else { return false }
         let rest = letters.dropFirst()
@@ -57,14 +57,14 @@ struct VocabularyEntry: Identifiable, Codable, Hashable {
     }
 }
 
-enum Vocabulary {
+public enum Vocabulary {
     // MARK: Replacing
 
     /// `text` with every listed wrong spelling replaced by its word, and the Replacements
     /// table's pairs written in — one pass under `TextReplacementRules`' rules: whole
     /// words with Unicode edges, ignoring case, the longest source first, no chaining. A
     /// word already right changes nothing, so running it twice is the same as once.
-    static func corrected(_ text: String, entries: [VocabularyEntry],
+    public static func corrected(_ text: String, entries: [VocabularyEntry],
                           replacements: [TextReplacementPair] = []) -> String {
         TextReplacementRules(entries: entries, replacements: replacements).applied(to: text)
     }
@@ -73,7 +73,7 @@ enum Vocabulary {
 
     /// The words for a recogniser that takes a list — Apple's `contextualStrings`, which
     /// Apple advises keeping to about a hundred.
-    static func hints(_ entries: [VocabularyEntry], limit: Int = 100) -> [String] {
+    public static func hints(_ entries: [VocabularyEntry], limit: Int = 100) -> [String] {
         var seen = Set<String>()
         return Array(entries.map(\.trimmedTerm).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
             .prefix(limit))
@@ -95,7 +95,7 @@ enum Vocabulary {
     }
 
     /// The words `whisperPrompt` holds — the Dictionary page counts them.
-    static func whisperPromptTerms(_ terms: [String]) -> [String] {
+    public static func whisperPromptTerms(_ terms: [String]) -> [String] {
         var fitting: [String] = []
         var length = 0
         for term in terms where !term.isEmpty {
@@ -112,7 +112,7 @@ enum Vocabulary {
     /// The `<vocabulary>` block a dictation's user message carries: one word a line, made
     /// unable to close the block. Data, like `<context>` — the system prompt says what to
     /// do with it.
-    static func promptBlock(_ entries: [VocabularyEntry]) -> String? {
+    public static func promptBlock(_ entries: [VocabularyEntry]) -> String? {
         let terms = hints(entries).map {
             $0.replacingOccurrences(of: "<", with: "‹").replacingOccurrences(of: ">", with: "›")
                 .replacingOccurrences(of: "\n", with: " ")
@@ -219,11 +219,11 @@ enum Vocabulary {
 
     /// The user's words, as stored. Read once per recording by `RecordingConfiguration`
     /// and once per rewrite, never by the tests.
-    static func load() -> [VocabularyEntry] {
+    public static func load() -> [VocabularyEntry] {
         decode(UserDefaults.standard.data(forKey: SettingsKeys.vocabulary))
     }
 
-    static func save(_ entries: [VocabularyEntry]) {
+    public static func save(_ entries: [VocabularyEntry]) {
         UserDefaults.standard.set(encode(entries), forKey: SettingsKeys.vocabulary)
     }
 }
@@ -240,7 +240,7 @@ enum Vocabulary {
 /// what was delivered). One that changed without changing any of those — a rewrite
 /// replaced by another of exactly the same length — goes unseen until the next change, and
 /// a count or a suggestion is that much out of date meanwhile.
-final class VocabularyHistoryCache {
+public final class VocabularyHistoryCache {
     private var fingerprint: Int?
     /// The delivered text of every successful dictation, newest first.
     private var texts: [String] = []
@@ -249,8 +249,10 @@ final class VocabularyHistoryCache {
     private var useCounts: [String: Int] = [:]
     private var matchers: [String: NSRegularExpression] = [:]
 
+    public init() {}
+
     /// Brought up to date with `records`; read in full only when they changed.
-    func refresh(from records: [TranscriptionRecord]) {
+    public func refresh(from records: [TranscriptionRecord]) {
         var hasher = Hasher()
         hasher.combine(records.count)
         hasher.combine(records.first?.id)
@@ -271,14 +273,14 @@ final class VocabularyHistoryCache {
     }
 
     /// `Vocabulary.suggestions` of the dictations last refreshed from.
-    func suggestions(excluding entries: [VocabularyEntry]) -> [(term: String, count: Int)] {
+    public func suggestions(excluding entries: [VocabularyEntry]) -> [(term: String, count: Int)] {
         let candidates = candidates ?? Vocabulary.suggestionCandidates(from: texts)
         self.candidates = candidates
         return Vocabulary.suggestions(from: candidates, excluding: entries)
     }
 
     /// `Vocabulary.uses` of the dictations last refreshed from.
-    func uses(of entry: VocabularyEntry) -> Int {
+    public func uses(of entry: VocabularyEntry) -> Int {
         let term = entry.trimmedTerm
         if let count = useCounts[term] { return count }
         let matcher = matchers[term] ?? Vocabulary.useMatcher(for: term)

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 /// Where a catalogue model is in its vendor's life (#19).
 ///
@@ -15,7 +14,7 @@ import SpeechTextCore
 ///
 /// "Needs a newer macOS" is not a lifecycle state: that is a property of this Mac, not of
 /// the vendor, and is a separate input to the same *offered* filter.
-enum ModelLifecycle: Hashable {
+public enum ModelLifecycle: Hashable, Sendable {
     /// Offered, nothing better to suggest.
     case current
     /// Still works and is still offered, but this model (same vendor) is better — or is
@@ -44,7 +43,7 @@ enum ModelLifecycle: Hashable {
     }
 
     /// What a picker row says about the model on `day`, or nil for one that needs no note.
-    func status(on day: Date) -> String? {
+    public func status(on day: Date) -> String? {
         guard let deprecation else { return nil }
         // An archived model's dates are not kept: it is past them by definition.
         guard let shutdown = deprecation.shutdown.date else { return "Retired" }
@@ -53,12 +52,12 @@ enum ModelLifecycle: Hashable {
 }
 
 /// A vendor's announcement that a model will be switched off.
-struct Deprecation: Hashable {
+public struct Deprecation: Hashable, Sendable {
     /// The day the vendor announced it.
     let announced: DateComponents
     /// The day the vendor stops answering — the vendor's own word for it is OpenAI's
     /// "shutdown date". Shown, never a trigger: users move with our release.
-    let shutdown: DateComponents
+    public let shutdown: DateComponents
     /// The same vendor's model its users are moved to. A chain (A → B → C) is followed.
     let replacement: String
     /// The vendor's page that says so.
@@ -172,7 +171,7 @@ func chatLifecycleLink(provider: LLMProviderType, id: String) -> LifecycleLink? 
 
 /// One stored model choice the launch changed, kept so the first dictation after the
 /// update can say so (`SettingsKeys.modelMigrations`). Machine-local.
-struct ModelMigration: Codable, Equatable {
+public struct ModelMigration: Codable, Equatable {
     enum Reason: String, Codable {
         /// The vendor is switching the model off; `to` is its replacement.
         case deprecated
@@ -213,7 +212,7 @@ func storedModelVerdict(_ id: String, link: (String) -> LifecycleLink?) -> Store
 /// an engine whose choice is cleared is refused until the user picks
 /// (`RecordingConfiguration.modelChoiceMissing`), and AI Rewrite falls back to the text as
 /// dictated (`LLMError.noModelChosen`).
-let clearedModelChoice = ""
+public let clearedModelChoice = ""
 
 /// Applies `storedModelVerdict` to every normalised model setting in `defaults` and
 /// appends what changed to `SettingsKeys.modelMigrations`. Takes the store, so the tests
@@ -259,7 +258,7 @@ func migrateStoredModels(in defaults: UserDefaults, now: Date = Date()) -> [Mode
 }
 
 /// The moves recorded so far, oldest first.
-func storedModelMigrations(in defaults: UserDefaults) -> [ModelMigration] {
+public func storedModelMigrations(in defaults: UserDefaults) -> [ModelMigration] {
     guard let data = defaults.data(forKey: SettingsKeys.modelMigrations) else { return [] }
     return (try? JSONDecoder().decode([ModelMigration].self, from: data)) ?? []
 }
@@ -332,7 +331,7 @@ enum ModelUnavailableReply {
 
 extension TranscriptionError {
     /// The vendor answered that the model is not served (`ModelUnavailableReply`).
-    var isModelUnavailable: Bool {
+    public var isModelUnavailable: Bool {
         if case .httpError(_, _, let body) = self { ModelUnavailableReply.matches(body) } else { false }
     }
 }
@@ -340,7 +339,7 @@ extension TranscriptionError {
 extension LLMError {
     /// The vendor answered that the model is not served, or none is chosen: either way the
     /// user's next step is the model picker.
-    var needsModelChoice: Bool {
+    public var needsModelChoice: Bool {
         switch self {
         case .httpError(_, let body): ModelUnavailableReply.matches(body)
         case .noModelChosen: true
@@ -354,12 +353,12 @@ extension LLMError {
 /// A one-time notice about the model in use, or the one that says a dictation needs a
 /// model picked. Built here, shown by `AppState` as a status notice whose action is one of
 /// `Action`'s.
-struct ModelNotice: Equatable {
-    enum Role: Equatable {
+public struct ModelNotice: Equatable {
+    public enum Role: Equatable {
         case speech, chat
     }
 
-    enum Action: Equatable {
+    public enum Action: Equatable {
         /// Opens Settings on the role's page.
         case openSettings(Role)
         /// Stores `id` under `settingsKey`.
@@ -367,17 +366,17 @@ struct ModelNotice: Equatable {
     }
 
     /// What `SettingsKeys.modelNoticesShown` records, so each is told once.
-    let id: String
-    let title: String
-    let detail: String
-    let actionTitle: String
-    let action: Action
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let actionTitle: String
+    public let action: Action
 }
 
 /// The model settings a notice can be about: the speech engine's and the AI provider's
 /// in use (`nil` for one with no stored choice — Apple's speech, an AI provider without a
 /// list). Read from the store by `AppState`, handed in so the rules stay testable.
-struct ModelSettingsInUse: Equatable {
+public struct ModelSettingsInUse: Equatable {
     var speechKey: String?
     var chatKey: String?
 
@@ -386,7 +385,7 @@ struct ModelSettingsInUse: Equatable {
         self.chatKey = chatKey
     }
 
-    init(_ defaults: UserDefaults) {
+    public init(_ defaults: UserDefaults) {
         let engine = defaults.string(forKey: SettingsKeys.sttProvider).flatMap(STTProviderType.init(rawValue:)) ?? .apple
         let ai = defaults.string(forKey: SettingsKeys.llmProvider).flatMap(LLMProviderType.init(rawValue:)) ?? .groq
         speechKey = engine.vendor.descriptor.speechModel.flatMap { $0.normalized ? $0.settingsKey : nil }
@@ -400,7 +399,7 @@ struct ModelSettingsInUse: Equatable {
 /// model the vendor is retiring that the launch moved (`ModelMigration`), then a model in
 /// use that a newer one supersedes. A cleared choice is not here: a dictation that needs
 /// it is refused with `modelChoiceNotice` every time until the user picks.
-func pendingModelNotice(inUse: ModelSettingsInUse, stored: (String) -> String?,
+public func pendingModelNotice(inUse: ModelSettingsInUse, stored: (String) -> String?,
                         migrations: [ModelMigration], shown: Set<String>) -> ModelNotice? {
     for (role, key) in [(ModelNotice.Role.speech, inUse.speechKey), (.chat, inUse.chatKey)] {
         guard let key, let current = stored(key) else { continue }
@@ -417,7 +416,7 @@ func pendingModelNotice(inUse: ModelSettingsInUse, stored: (String) -> String?,
 
 /// The notice a dictation (or an AI pass) that needs a model is refused with: names the
 /// model the launch cleared when a move recorded it, and opens the picker.
-func modelChoiceNotice(settingsKey key: String, role: ModelNotice.Role, migrations: [ModelMigration]) -> ModelNotice {
+public func modelChoiceNotice(settingsKey key: String, role: ModelNotice.Role, migrations: [ModelMigration]) -> ModelNotice {
     let naming = ModelNaming(key: key)
     let old = migrations.last { $0.settingsKey == key && $0.to == nil }.map { naming.name(of: $0.from) }
     return ModelNotice(

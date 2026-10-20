@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
-import SpeechTextCore
 
 /// Everything the engine and the provider factories need for one recording session,
 /// read from UserDefaults exactly once (`current()`) and carried through the session.
 /// Settings changed mid-recording must not affect the running session — a picker
 /// change while the mic was live used to switch the provider between pause and stop.
-struct RecordingConfiguration {
-    let provider: STTProviderType
+public struct RecordingConfiguration {
+    public let provider: STTProviderType
     /// The recognition locale, always a concrete identifier. `var` because
     /// `SpeechEngine.resumeRecording(locale:)` follows the keyboard layout across
     /// segments; everything else is fixed for the session.
-    var locale: String
+    public var locale: String
     /// The languages the user says they speak, as ISO-639-1 codes, in their own order.
     /// Empty when none were named.
     ///
@@ -21,7 +20,7 @@ struct RecordingConfiguration {
     /// `gpt-live-transcribe` narrows detection to a list of candidates, where every
     /// other engine here takes a single value or nothing. Defaulted so a configuration
     /// built by hand still describes a valid session.
-    var languages: [String] = []
+    public var languages: [String] = []
     /// True when no single language was named, so `locale` is a guess — read off the
     /// keyboard layout, or picked from the several languages the user listed — rather
     /// than the one language they said they were speaking. Only a *single* stated
@@ -37,26 +36,26 @@ struct RecordingConfiguration {
     /// Drop hesitation sounds, stretched words and trailing-off dots from what the
     /// recogniser returns — see `cleanedTranscript`. `var` with a default so a value
     /// built by hand (the tests) gets the setting's default.
-    var removesDisfluencies = true
+    public var removesDisfluencies = true
     /// How the recogniser's em dashes are drawn — see `DashStyle`. Independent of
     /// `removesDisfluencies`: a user who wants every "е-е-е" kept may still not want "—".
-    var dashStyle: DashStyle = .default
+    public var dashStyle: DashStyle = .default
     /// The microphone choice; which device it comes to is looked up each time the audio
     /// engine is built, so a headset that leaves mid-recording falls back on its own.
-    var microphone: MicrophoneChoice = .automatic
+    public var microphone: MicrophoneChoice = .automatic
     /// The Dictionary's words in the order they are sent to the speech engine
     /// (`CustomVocabulary.ranked`), or empty when the page's switch is off. Each model
     /// takes what its limits allow (`vocabulary(for:)`), and Groq's Whisper a prompt
     /// (`whisperPrompt`). Defaulted so a configuration built by hand sends nothing.
-    var vocabulary: [String] = []
+    public var vocabulary: [String] = []
 
     /// The terms the selected model is sent — the stream, or Apple's recogniser.
-    var liveVocabulary: [String] { vocabulary(for: model) }
+    public var liveVocabulary: [String] { vocabulary(for: model) }
     /// The terms a file upload is sent: the batch tier, the stream's fallback, a retry.
     var batchVocabulary: [String] { vocabulary(for: batchDescriptor) }
 
     /// Who a realtime socket is billed by: the selected model, with the terms it is sent.
-    var streamMeter: UsageMeter {
+    public var streamMeter: UsageMeter {
         UsageMeter(vendor: model.vendor, model: model.id, keyterms: liveVocabulary.count)
     }
 
@@ -71,7 +70,7 @@ struct RecordingConfiguration {
     /// pass `HallucinationFilter` as letters and come out of the cleanup as «, ,» (Scribe
     /// on a cough). Safe on cumulative text — an empty view is a prefix of
     /// whatever real words follow.
-    func cleaned(_ text: String) -> String {
+    public func cleaned(_ text: String) -> String {
         let cleaned = dashStyle.applied(to: removesDisfluencies ? cleanedTranscript(text) : text)
         return cleaned.contains(where: { $0.isLetter || $0.isNumber }) ? cleaned : ""
     }
@@ -88,12 +87,30 @@ struct RecordingConfiguration {
     /// The Dictionary page's Replacements table — read once at the start, like the words.
     var replacements: [TextReplacementPair] = []
 
+    public init(provider: STTProviderType, locale: String, languages: [String] = [], localeIsAutomatic: Bool,
+                apiKeys: [Provider: String] = [:], models: [Provider: String] = [:], removesDisfluencies: Bool = true,
+                dashStyle: DashStyle = .default, microphone: MicrophoneChoice = .automatic, vocabulary: [String] = [],
+                dictionary: [VocabularyEntry] = [], replacements: [TextReplacementPair] = []) {
+        self.provider = provider
+        self.locale = locale
+        self.languages = languages
+        self.localeIsAutomatic = localeIsAutomatic
+        self.apiKeys = apiKeys
+        self.models = models
+        self.removesDisfluencies = removesDisfluencies
+        self.dashStyle = dashStyle
+        self.microphone = microphone
+        self.vocabulary = vocabulary
+        self.dictionary = dictionary
+        self.replacements = replacements
+    }
+
     /// A segment's text once it is final: `cleaned`, then the Dictionary's wrong
     /// spellings replaced. Not applied to the live text while the user speaks, as
     /// `cleaned` is: a spelling of two words would rewrite a word already drawn on the
     /// overlay, which the span layer would have to draw as a revision. The segment result
     /// replaces the live spans anyway (`commitSegment`), so the stop pastes this.
-    func finished(_ text: String) -> String {
+    public func finished(_ text: String) -> String {
         Self.finished(text, removesDisfluencies: removesDisfluencies, dashStyle: dashStyle,
                       dictionary: dictionary, replacements: replacements)
     }
@@ -117,35 +134,35 @@ struct RecordingConfiguration {
     /// a model told the wrong language does not merely mis-spell — it drops most of the
     /// recording and *translates* the rest. Apple is the exception (below): its
     /// recogniser has no auto mode and must be handed a locale.
-    var cloudLanguage: String? { localeIsAutomatic ? nil : locale }
+    public var cloudLanguage: String? { localeIsAutomatic ? nil : locale }
 
     /// What History records as the segment's language: the locale Apple was given, or
     /// "auto" when a cloud model was left to detect it — so a record never claims a
     /// language that was never requested.
-    var historyLocale: String {
+    public var historyLocale: String {
         model.language == .localeRequired ? locale : (cloudLanguage ?? autoLanguageID)
     }
 
     /// The selected model and what it can do — see `STTModelDescriptor`.
-    var model: STTModelDescriptor {
+    public var model: STTModelDescriptor {
         sttModel(vendor: provider.vendor, id: modelID(for: provider.vendor))
     }
 
     /// True when the selected model is served over a realtime WebSocket rather than an
     /// upload endpoint. Two engines have one; whether live text appears is a function of
     /// the stored *model*, not of the engine.
-    var streams: Bool { model.isRealtime }
+    public var streams: Bool { model.isRealtime }
 
     /// True when the tier reports text while the user speaks — a realtime stream, or
     /// Apple's on-device recogniser, whose partials arrive as `.live` events too. An
     /// inline dictation shows that text on the overlay; the upload tiers have none to show.
-    var hasLiveText: Bool { model.delivery == .systemRecognizer || streams }
+    public var hasLiveText: Bool { model.delivery == .systemRecognizer || streams }
 
     /// The longest segment the stream's own text is trusted for
     /// (`STTTuning.streamLongestTrustedSegmentSeconds`): a model whose server closes
     /// segments on a pause. nil for one that keeps a single item open until the stop —
     /// OpenAI's, which invented nothing in that time on the corpus.
-    var longestTrustedStreamSegment: Double? {
+    public var longestTrustedStreamSegment: Double? {
         guard case .realtime(let shape) = model.delivery, shape.serverVAD else { return nil }
         return STTTuning.streamLongestTrustedSegmentSeconds
     }
@@ -153,11 +170,11 @@ struct RecordingConfiguration {
     /// Model ID used for any file upload: the stream's fallback, and History retries.
     /// The realtime model only exists behind the WebSocket, so it maps to its vendor's
     /// upload model; Apple has no batch API, so an Apple session's upload goes to Groq.
-    var batchModel: String { batchDescriptor.id }
+    public var batchModel: String { batchDescriptor.id }
 
     /// The engine a file upload goes to — Groq for an Apple session, the selected one
     /// otherwise.
-    var batchProvider: STTProviderType {
+    public var batchProvider: STTProviderType {
         STTProviderType.allCases.first { $0.vendor == batchDescriptor.vendor } ?? provider
     }
 
@@ -178,7 +195,7 @@ struct RecordingConfiguration {
     /// History retry asks this instead of testing the key itself: the local tier needs a
     /// model on disk rather than a key, and "add a Groq key" would be the wrong advice.
     /// `modelInstalled` is a parameter so the check stays testable without a filesystem.
-    func batchUnavailableReason(modelInstalled: (String) -> Bool = { isLocalModelInstalled($0) }) -> String? {
+    public func batchUnavailableReason(modelInstalled: (String) -> Bool = { isLocalModelInstalled($0) }) -> String? {
         let batch = batchDescriptor
         if models[batch.vendor] == clearedModelChoice {
             return "Choose a model for \(batch.vendor.modelChoiceTarget) in Settings."
@@ -198,10 +215,10 @@ struct RecordingConfiguration {
     /// The engine in use has no model chosen: the launch cleared one that leads to no
     /// model on offer (`clearedModelChoice`), and a dictation is refused until the user
     /// picks — never run on the default in its place (the owner's call, 2026-10-17).
-    var modelChoiceMissing: Bool { models[provider.vendor] == clearedModelChoice }
+    public var modelChoiceMissing: Bool { models[provider.vendor] == clearedModelChoice }
 
     /// The speech model stored for a provider, else its default; empty for a cleared choice.
-    func modelID(for vendor: Provider) -> String {
+    public func modelID(for vendor: Provider) -> String {
         models[vendor] ?? vendor.defaultSpeechModel
     }
 
@@ -212,7 +229,7 @@ struct RecordingConfiguration {
 
     /// One read of UserDefaults, and of the API keys `APIKeyStore` holds. `locale` defaults to `resolvedLocale()` (keyboard-layout
     /// aware) but callers that already resolved it pass it through.
-    static func current(locale: String = resolvedLocale()) -> RecordingConfiguration {
+    public static func current(locale: String = resolvedLocale()) -> RecordingConfiguration {
         let defaults = UserDefaults.standard
         let raw = defaults.string(forKey: SettingsKeys.sttProvider) ?? "apple"
         let spoken = storedSpokenLanguages()

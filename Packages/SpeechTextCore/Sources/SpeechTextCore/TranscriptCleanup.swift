@@ -139,7 +139,7 @@ enum TranscriptCleanupRules {
 /// A character swap is safe on cumulative text: the spacing it adds depends only on the
 /// characters either side of the dash, and a dash that ends the text gets no space after
 /// it until a word follows — which the span layer joins with a space anyway.
-enum DashStyle: String, CaseIterable, Identifiable, Codable {
+public enum DashStyle: String, CaseIterable, Identifiable, Codable {
     /// "–", what the Mac's own keyboard types with ⌥-.
     case enDash
     /// "-", what a keyboard without substitutions produces.
@@ -147,11 +147,11 @@ enum DashStyle: String, CaseIterable, Identifiable, Codable {
     /// Leave the transcriber's "—" as it is.
     case emDash
 
-    static let `default`: DashStyle = .enDash
+    public static let `default`: DashStyle = .enDash
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .enDash: "Short dash ( – )"
         case .hyphen: "Hyphen ( - )"
@@ -159,7 +159,7 @@ enum DashStyle: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    static var current: DashStyle {
+    public static var current: DashStyle {
         UserDefaults.standard.string(forKey: SettingsKeys.dashStyle).flatMap(DashStyle.init(rawValue:)) ?? .default
     }
 
@@ -167,7 +167,7 @@ enum DashStyle: String, CaseIterable, Identifiable, Codable {
     /// either side ("1914—1918", "word—word") is given spaces, because a short dash
     /// or a hyphen without them reads as a range or a compound. For `.hyphen`, an en
     /// dash standing alone between spaces goes too; one inside "2–5" is a range and stays.
-    func applied(to text: String) -> String {
+    public func applied(to text: String) -> String {
         guard self != .emDash, text.contains(where: { $0 == "—" || $0 == "–" }) else { return text }
         let dash: Character = self == .enDash ? "–" : "-"
         var output = ""
@@ -225,7 +225,7 @@ private let confusablePunctuation: [Unicode.Scalar: String] = [
 /// `text` with every disguised character redrawn as the one it imitates. Each mapping is
 /// one scalar to one scalar or to nothing, so no word is joined to its neighbour and none
 /// is split.
-func replacingConfusablePunctuation(_ text: String) -> String {
+public func replacingConfusablePunctuation(_ text: String) -> String {
     guard text.unicodeScalars.contains(where: { confusablePunctuation[$0] != nil }) else { return text }
     var output = ""
     output.reserveCapacity(text.count)

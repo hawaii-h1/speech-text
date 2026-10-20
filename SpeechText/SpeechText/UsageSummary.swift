@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import SpeechTextCore
 
 // What the main window's Usage page says, worked out from History — pure, so the numbers,
 // the chart's buckets and the breakdowns are testable without a window. Counted as Home's

@@ -3,6 +3,7 @@
 
 import Foundation
 import Speech
+import SpeechTextCore
 
 // App target only: it names `AppleRecognitionSession`, which needs the Speech framework,
 // and the protocol and the cloud sessions it builds stay in the test bundle without it.

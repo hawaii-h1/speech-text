@@ -11,21 +11,21 @@ import Foundation
 /// Home's week: what was dictated, the time it saved against typing, and roughly what the
 /// speaking cost at the providers' list prices (`UsagePrices`) — then each day's words,
 /// oldest first.
-struct HomeWeek: Equatable {
-    struct Day: Equatable {
-        let date: Date
-        let words: Int
-        let isToday: Bool
+public struct HomeWeek: Equatable {
+    public struct Day: Equatable {
+        public let date: Date
+        public let words: Int
+        public let isToday: Bool
     }
 
     /// Words that ended up as text. An edit's instruction is a command, not text, and a
     /// failed or empty dictation produced none.
-    var words = 0
-    var dictations = 0
+    public var words = 0
+    public var dictations = 0
     /// Minutes of speech behind those words — first word to last, as Usage counts them.
     var speakingMinutes: Double = 0
     /// Typing the same words at `typingWordsPerMinute`, less the time spent saying them.
-    var savedMinutes: Double = 0
+    public var savedMinutes: Double = 0
     var speechCost: Double = 0
     var aiCost: Double = 0
     /// AI passes this week priced from their words, not their tokens: written before the
@@ -33,16 +33,16 @@ struct HomeWeek: Equatable {
     var estimatedAIPasses = 0
     /// Cloud models used this week with no list price, by name, so `spent` leaves them
     /// out.
-    var unpricedModels: [String] = []
-    var days: [Day] = []
+    public var unpricedModels: [String] = []
+    public var days: [Day] = []
 
-    var spent: Double { speechCost + aiCost }
+    public var spent: Double { speechCost + aiCost }
 
     /// An average typist, until the user sets their own speed (Usage › How this is
     /// counted).
-    static let typingWordsPerMinute = 40.0
+    public static let typingWordsPerMinute = 40.0
 
-    init(records: [TranscriptionRecord], typingSpeed: Double = HomeWeek.typingWordsPerMinute,
+    public init(records: [TranscriptionRecord], typingSpeed: Double = HomeWeek.typingWordsPerMinute,
          now: Date = Date(), calendar: Calendar = .current) {
         let today = calendar.startOfDay(for: now)
         guard let start = calendar.date(byAdding: .day, value: -6, to: today) else { return }
@@ -79,14 +79,14 @@ struct HomeWeek: Equatable {
     /// How many of `rows` dots a day's column lights: its share of the busiest day, never
     /// fewer than one for a day that has any words — the design's "a day is only as tall as
     /// its words".
-    func litRows(for day: Day, rows: Int) -> Int {
+    public func litRows(for day: Day, rows: Int) -> Int {
         let most = days.map(\.words).max() ?? 0
         guard day.words > 0, most > 0 else { return 0 }
         return max(1, Int((Double(day.words) / Double(most) * Double(rows)).rounded()))
     }
 }
 
-func homeWordCount(_ text: String) -> Int {
+public func homeWordCount(_ text: String) -> Int {
     text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
 }
 
@@ -96,23 +96,23 @@ func homeWordCount(_ text: String) -> Int {
 /// is priced at today's table from the units its ledger keeps — no price history, so an
 /// update reprices everything — and every figure is shown as an estimate, never as the
 /// vendor's bill. A model with no price is named, not guessed; one on the Mac is free.
-enum UsagePrices {
+public enum UsagePrices {
     /// When the table was last checked against every vendor's page.
-    static let checked = DateComponents(calendar: Calendar(identifier: .gregorian), year: 2026, month: 10, day: 14)
+    public static let checked = DateComponents(calendar: Calendar(identifier: .gregorian), year: 2026, month: 10, day: 14)
     /// When every vendor's deprecations page was last read against both catalogues'
     /// `lifecycle` (docs/prices.md › Deprecations). Its own date: a price check and a
     /// deprecation check are separate passes.
     static let deprecationsChecked = DateComponents(calendar: Calendar(identifier: .gregorian), year: 2026, month: 10, day: 16)
 
     /// "14 October 2026".
-    static var checkedText: String {
+    public static var checkedText: String {
         let formatter = HistoryFormat.formatter("d MMMM yyyy", calendar: Calendar(identifier: .gregorian))
         return checked.date.map(formatter.string(from:)) ?? ""
     }
 
     /// The line beside every total: an estimate from the list prices the app knows, not the bill.
     /// The date they were checked is on Usage's How this is counted.
-    static var disclaimer: String { "estimated from known prices" }
+    public static var disclaimer: String { "estimated from known prices" }
 
     /// The speech model a ledger entry names.
     static func speech(vendor: Provider, model: String) -> ListPrice<SpeechRates> {
@@ -122,7 +122,7 @@ enum UsagePrices {
     /// A record from before the ledger: its stored speech model, else its engine's — but
     /// only where every model of that engine costs the same, since which one ran is
     /// unknown and a price is never guessed.
-    static func speech(provider: String, model: String?) -> ListPrice<SpeechRates> {
+    public static func speech(provider: String, model: String?) -> ListPrice<SpeechRates> {
         guard let engine = STTProviderType(rawValue: provider) else { return .notPriced }
         if let model { return speech(vendor: engine.vendor, model: model) }
         let prices = Set(knownSTTModels(of: engine.vendor).map(\.price))
@@ -137,7 +137,7 @@ enum UsagePrices {
     }
 
     /// A chat model's token prices, by `LLMProviderType` raw value and model ID.
-    static func chat(provider: String, model: String) -> ListPrice<ChatRates> {
+    public static func chat(provider: String, model: String) -> ListPrice<ChatRates> {
         // A model Ollama ran on this Mac, recorded before AI Rewrite ran models itself.
         if provider == "ollama" { return .free }
         guard let provider = LLMProviderType(rawValue: provider) else { return .notPriced }
@@ -157,7 +157,7 @@ enum UsagePrices {
 
 /// A picker's model name without its note: "GPT-5.6 Luna — fastest" → "GPT-5.6 Luna",
 /// "GPT-OSS 20B (fastest)" → "GPT-OSS 20B".
-func plainModelName(_ name: String) -> String {
+public func plainModelName(_ name: String) -> String {
     var name = name
     if let dash = name.range(of: " — ") { name = String(name[..<dash.lowerBound]) }
     if let paren = name.range(of: " (") { name = String(name[..<paren.lowerBound]) }
@@ -165,10 +165,10 @@ func plainModelName(_ name: String) -> String {
 }
 
 extension ListPrice {
-    var isFree: Bool { self == .free }
+    public var isFree: Bool { self == .free }
 
     /// The rates of a listed price; nil for a free model and an unpriced one.
-    var listed: Rates? {
+    public var listed: Rates? {
         if case .listed(let rates) = self { rates } else { nil }
     }
 }
@@ -222,18 +222,18 @@ extension ChatRates {
 /// where it reported them, each at its own model's price. One from before the ledger is
 /// priced by its length at its speech model's price (`UsagePrices.speech(provider:model:)`),
 /// and its AI pass from `ChatRates.cost(of:)`.
-struct RecordCost: Equatable {
-    var speech: Double = 0
-    var ai: Double = 0
+public struct RecordCost: Equatable {
+    public var speech: Double = 0
+    public var ai: Double = 0
     /// Speech and chat models used here with no price, by the names the pages give them.
-    var unpricedSpeech: [String] = []
-    var unpricedChat: [String] = []
+    public var unpricedSpeech: [String] = []
+    public var unpricedChat: [String] = []
     /// AI passes priced from their words rather than their tokens.
-    var estimatedAIPasses = 0
+    public var estimatedAIPasses = 0
 
     var total: Double { speech + ai }
 
-    init(_ record: TranscriptionRecord) {
+    public init(_ record: TranscriptionRecord) {
         guard let events = record.usageEvents else {
             if record.hasSpeech {
                 // An edit with no instruction heard nothing, so has nothing to price.
@@ -299,9 +299,9 @@ struct RecordCost: Equatable {
 
 // MARK: - Formatting
 
-enum HomeFormat {
+public enum HomeFormat {
     /// "1,234" — in English whatever the Mac's region, as everything else on the pages is.
-    static func integer(_ value: Int) -> String {
+    public static func integer(_ value: Int) -> String {
         integerFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
@@ -316,19 +316,19 @@ enum HomeFormat {
     }()
 
     /// "52 min", "1 h 5 min", "2 h".
-    static func duration(minutes: Double) -> (hours: Int?, minutes: Int?) {
+    public static func duration(minutes: Double) -> (hours: Int?, minutes: Int?) {
         let total = Int(minutes.rounded())
         guard total >= 60 else { return (nil, total) }
         let rest = total % 60
         return (total / 60, rest == 0 ? nil : rest)
     }
 
-    static func durationText(minutes: Double) -> String {
+    public static func durationText(minutes: Double) -> String {
         let (h, m) = duration(minutes: minutes)
         return [h.map { "\($0) h" }, m.map { "\($0) min" }].compactMap { $0 }.joined(separator: " ")
     }
 
-    static func money(_ value: Double) -> String {
+    public static func money(_ value: Double) -> String {
         if value <= 0 { return "$0" }
         if value < 0.01 { return "<$0.01" }
         if value >= 100 { return "$" + integer(Int(value.rounded())) }
@@ -336,7 +336,7 @@ enum HomeFormat {
     }
 
     /// A cost said as the estimate it is: "≈ $1.20" — "$0" stays exact.
-    static func estimate(_ value: Double) -> String {
+    public static func estimate(_ value: Double) -> String {
         value > 0 ? "≈ " + money(value) : money(value)
     }
 }
@@ -345,8 +345,8 @@ enum HomeFormat {
 
 /// One row of Home's Recent and of History: what was said, where it went and when, and
 /// what rewrote it.
-struct HomeRecentEntry: Equatable, Identifiable {
-    enum Tag: Equatable {
+public struct HomeRecentEntry: Equatable, Identifiable {
+    public enum Tag: Equatable {
         case preset(String)
         case edit
         /// AI Rewrite or an edit did not work: the dictated text was pasted, or the
@@ -355,17 +355,17 @@ struct HomeRecentEntry: Equatable, Identifiable {
         case failed
     }
 
-    let id: UUID
-    let text: String
+    public let id: UUID
+    public let text: String
     /// The app the text went to; nil when History does not know (the Record Window, a
     /// dictation that pasted nothing, and entries from before the stop recorded it).
-    let app: String?
+    public let app: String?
     let date: Date
-    let status: TranscriptionRecord.Status
-    let tags: [Tag]
-    let canRetry: Bool
+    public let status: TranscriptionRecord.Status
+    public let tags: [Tag]
+    public let canRetry: Bool
 
-    init(_ record: TranscriptionRecord) {
+    public init(_ record: TranscriptionRecord) {
         id = record.id
         date = record.date
         status = record.status
@@ -399,17 +399,17 @@ struct HomeRecentEntry: Equatable, Identifiable {
     /// The text as a row shows it: every run of whitespace — a paragraph break above all —
     /// one space, so a letter's "Hi Amie!" and blank line do not leave the row's second
     /// line empty. `text` keeps the line breaks for Copy.
-    var preview: String {
+    public var preview: String {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     /// Where the row says the text went: its app, the Record Window for a success that
     /// names none — or that nothing was pasted.
-    var place: String { Self.place(app: app, status: status) }
+    public var place: String { Self.place(app: app, status: status) }
 
     /// `place` of a record, without the rest of its row — History narrows by it and Usage
     /// counts by it for every record, and the row's text and tags were worked out for nothing.
-    static func place(of record: TranscriptionRecord) -> String {
+    public static func place(of record: TranscriptionRecord) -> String {
         place(app: app(of: record), status: record.status)
     }
 
@@ -422,12 +422,12 @@ struct HomeRecentEntry: Equatable, Identifiable {
     }
 
     /// "14:02" today, "Yesterday", a weekday within the week, a date before that.
-    func timeText(now: Date = Date(), calendar: Calendar = .current) -> String {
+    public func timeText(now: Date = Date(), calendar: Calendar = .current) -> String {
         Self.relativeDay(date, now: now, calendar: calendar)
     }
 
     /// `timeText` for any date.
-    static func relativeDay(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+    public static func relativeDay(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let format: String
         if calendar.isDate(date, inSameDayAs: now) {
             format = "HH:mm"
@@ -453,17 +453,17 @@ struct HomeRecentEntry: Equatable, Identifiable {
 /// stop are the design's approved animation. The keys press one after another, quickly,
 /// and with hold to talk the modifiers are let go while the letter stays down — changed at
 /// the owner's call on 2026-10-12, so the card teaches what the hold tip does.
-struct HomeTalk: Equatable {
-    enum Phase: Equatable { case idle, hear, work, done }
-    enum Mode: Equatable { case dictate, ai, edit }
+public struct HomeTalk: Equatable {
+    public enum Phase: Equatable { case idle, hear, work, done }
+    public enum Mode: Equatable { case dictate, ai, edit }
 
-    struct Script: Equatable {
-        let app: String
-        let place: String
+    public struct Script: Equatable {
+        public let app: String
+        public let place: String
         let said: [String]
-        let output: String
+        public let output: String
         /// The preset the rewrite reports, shown beside the pasted text.
-        let preset: String?
+        public let preset: String?
         /// The text selected before an edit, which its output replaces.
         var selection: String? = nil
     }
@@ -488,24 +488,24 @@ struct HomeTalk: Equatable {
         selection: "i think maybe we could go on friday if thats ok for everyone")
 
     /// One tick is 100 ms.
-    static let tickSeconds = 0.1
+    public static let tickSeconds = 0.1
 
-    let script: Script
+    public let script: Script
     let mode: Mode
-    let phase: Phase
+    public let phase: Phase
     /// Words heard so far.
-    let heard: Int
+    public let heard: Int
     /// Which of the shortcut's caps are down, by index — the modifiers first, the letter
     /// last, as the caps are drawn.
-    let litKeys: Set<Int>
+    public let litKeys: Set<Int>
 
     /// The text goes to AI — a rewrite or an edit; the overlay is violet.
-    var isAI: Bool { mode != .dictate }
-    var isEdit: Bool { mode == .edit }
+    public var isAI: Bool { mode != .dictate }
+    public var isEdit: Bool { mode == .edit }
     /// Every key is down.
     var keysDown: Bool { !litKeys.isEmpty }
 
-    init(tick: Int, mode: Mode, holdToTalk: Bool, keyCount: Int = 3) {
+    public init(tick: Int, mode: Mode, holdToTalk: Bool, keyCount: Int = 3) {
         let script = switch mode { case .dictate: Self.dictate; case .ai: Self.ai; case .edit: Self.edit }
         let idle = 8, hear = script.said.count * 4, work = mode == .dictate ? 3 : 14, show = 30
         let k = tick % (idle + hear + work + show)
@@ -544,13 +544,13 @@ struct HomeTalk: Equatable {
 
     /// The transcript on the overlay's glass: the settled words, then the last two — the
     /// partial the engine may still take back — while it is hearing.
-    var settled: String {
+    public var settled: String {
         let words = script.said.prefix(heard)
         let cut = phase == .hear ? max(0, words.count - 2) : words.count
         return words.prefix(cut).joined(separator: " ")
     }
 
-    var partial: String {
+    public var partial: String {
         guard phase == .hear else { return "" }
         let words = script.said.prefix(heard)
         return words.suffix(from: max(0, words.count - 2)).joined(separator: " ")
@@ -560,9 +560,9 @@ struct HomeTalk: Equatable {
     /// until then, as the overlay's has none), the words — kept while AI Rewrite works,
     /// with the comet on the display saying it is busy — and, once the text has landed,
     /// where it went, as the overlay says it for a few seconds after the paste.
-    enum Caption: Equatable { case hidden, words, pasted }
+    public enum Caption: Equatable { case hidden, words, pasted }
 
-    var caption: Caption {
+    public var caption: Caption {
         switch phase {
         case .idle: .hidden
         case .hear, .work: .words
@@ -573,9 +573,9 @@ struct HomeTalk: Equatable {
     /// What the message holds: the selection waiting to be edited, nothing but the caret
     /// (before a paste, and once an edit's instruction is over and the selection is cut),
     /// or the text pasted.
-    enum Message: Equatable { case caret, selection(String), pasted }
+    public enum Message: Equatable { case caret, selection(String), pasted }
 
-    var message: Message {
+    public var message: Message {
         if phase == .done { return .pasted }
         if let selection = script.selection, phase != .work { return .selection(selection) }
         return .caret
@@ -583,9 +583,9 @@ struct HomeTalk: Equatable {
 
     /// The dot matrix — `PixelDisplayMode`, which this file cannot name: the voice while
     /// it hears, the comet while AI Rewrite works, at rest before and after.
-    enum Display: Equatable { case idle, level, busy }
+    public enum Display: Equatable { case idle, level, busy }
 
-    var display: Display {
+    public var display: Display {
         phase == .hear ? .level : phase == .work && isAI ? .busy : .idle
     }
 }

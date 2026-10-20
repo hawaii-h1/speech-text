@@ -4,6 +4,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import SpeechTextCore
 
 // The setup window's steps — the design is docs/design/setup/0N-*.html, variant C.
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+@testable import SpeechTextCore
 
 /// A keychain in memory. Never the real one: the test bundle is unsigned, and a real
 /// keychain holds the user's own keys.

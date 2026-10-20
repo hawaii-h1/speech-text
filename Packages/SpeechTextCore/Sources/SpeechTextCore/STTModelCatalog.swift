@@ -5,7 +5,7 @@ import Foundation
 
 extension STTProviderType {
     /// The provider that serves the engine.
-    var vendor: Provider {
+    public var vendor: Provider {
         switch self {
         case .apple: .apple
         case .groq: .groq
@@ -26,41 +26,41 @@ extension STTProviderType {
 /// Vendor-protocol quirks — OpenAI's deltas, Scribe's echo, the pre-session buffer, the
 /// commit padding — stay inside each provider. A descriptor says *what* a model does,
 /// never how its socket is spoken to.
-struct STTModelDescriptor: Identifiable, Hashable {
+public struct STTModelDescriptor: Identifiable, Hashable {
     /// The ID the vendor's API takes and the settings store. Unique within a vendor only:
     /// a model is always looked up by vendor *and* ID (`sttModel(vendor:id:)`), because a
     /// realtime ID stored for one engine must not make another engine stream.
-    let id: String
-    let vendor: Provider
-    let displayName: String
-    let delivery: Delivery
+    public let id: String
+    public let vendor: Provider
+    public let displayName: String
+    public let delivery: Delivery
     let language: LanguageSupport
     /// Where a file of this session's audio is transcribed: the stream's fallback, and
     /// History retries.
-    let batchUpload: BatchUpload
+    public let batchUpload: BatchUpload
     /// What must be in place before the model can run.
-    let requirement: Requirement
+    public let requirement: Requirement
     /// The vendor's list price, checked on `UsagePrices.checked`. Required, so a model
     /// added without one fails to build rather than showing as free.
-    let price: ListPrice<SpeechRates>
+    public let price: ListPrice<SpeechRates>
     /// Which languages the model knows (`LanguageCoverage`): the vendor's list with its
     /// source and date, `.unpublished`, or `.decidedBySystem` for Apple. Required, so a
     /// model added without it fails to build; the rows' count and "No …" badge read it.
-    let languages: LanguageCoverage
+    public let languages: LanguageCoverage
     /// Weaknesses we measured, by language code, shown only to someone who speaks it.
-    let languageNotes: [String: LanguageNote]
+    public let languageNotes: [String: LanguageNote]
     /// Whether the model takes the user's vocabulary, and within what limits. `var` with
     /// a default so a descriptor built without it — every model that takes none, and an
     /// unlisted ID — sends nothing.
-    var vocabulary: Vocabulary = .none
+    public var vocabulary: Vocabulary = .none
     /// What Settings says under the speech model picker while this model is selected;
     /// every realtime model explains its stream. Nil says nothing.
-    var settingsNote: String? = nil
+    public var settingsNote: String? = nil
     /// Where the model is in its vendor's life (`ModelLifecycle`). Only an offered one
     /// reaches a picker, setup or a recommendation; every one is still known to History.
-    var lifecycle: ModelLifecycle = .current
+    public var lifecycle: ModelLifecycle = .current
 
-    enum Delivery: Hashable {
+    public enum Delivery: Hashable {
         /// A file POSTed after the segment ends.
         case upload
         /// A WebSocket that returns text while the user speaks.
@@ -73,7 +73,7 @@ struct STTModelDescriptor: Identifiable, Hashable {
     }
 
     /// How a realtime model's socket behaves, as far as the rest of the app can tell.
-    struct RealtimeShape: Hashable {
+    public struct RealtimeShape: Hashable {
         /// The only rate the socket takes — 16 kHz for Scribe, exactly 24 kHz for
         /// OpenAI (which calls 16 kHz "below minimum").
         let sampleRate: Double
@@ -103,7 +103,7 @@ struct STTModelDescriptor: Identifiable, Hashable {
         case set
     }
 
-    enum BatchUpload: Hashable {
+    public enum BatchUpload: Hashable {
         /// The model is its own upload model.
         case itself
         /// A realtime model: the same vendor's upload model with this ID, since the
@@ -114,7 +114,7 @@ struct STTModelDescriptor: Identifiable, Hashable {
         case selectedModel(of: Provider)
     }
 
-    enum Requirement: Hashable {
+    public enum Requirement: Hashable {
         case none
         /// An API key stored under this `SettingsKeys` name.
         case apiKey(String)
@@ -125,16 +125,16 @@ struct STTModelDescriptor: Identifiable, Hashable {
     /// Whether a model is handed the user's vocabulary (`CustomVocabulary`). Only a
     /// *list* parameter counts: a free-text prompt (Groq's `prompt`, WhisperKit's prompt
     /// tokens) is reported to be echoed back on silence, and waits for the audio corpus.
-    enum Vocabulary: Hashable {
+    public enum Vocabulary: Hashable {
         case none
         case termList(TermListLimits)
 
-        var limits: TermListLimits? {
+        public var limits: TermListLimits? {
             if case .termList(let limits) = self { limits } else { nil }
         }
     }
 
-    var isRealtime: Bool {
+    public var isRealtime: Bool {
         if case .realtime = delivery { true } else { false }
     }
 }
@@ -166,18 +166,18 @@ extension TermListLimits {
 
 /// A model's list price: free (it runs on the Mac), the vendor's rates, or explicitly
 /// not priced — a vendor that publishes none, which Usage names instead of guessing.
-enum ListPrice<Rates: Hashable>: Hashable {
+public enum ListPrice<Rates: Hashable>: Hashable {
     case free
     case listed(Rates)
     case notPriced
 }
 
 /// What a vendor charges for speech, a minute of audio at a time.
-struct SpeechRates: Hashable {
-    let perMinute: Double
+public struct SpeechRates: Hashable {
+    public let perMinute: Double
     /// Added for a request that carried the user's words (`UsageEvent.keyterms`) — Scribe's
     /// keyterm prompting. Zero where sending them costs nothing extra.
-    var keytermSurchargePerMinute: Double = 0
+    public var keytermSurchargePerMinute: Double = 0
 
     init(perMinute: Double, keytermSurchargePerMinute: Double = 0) {
         self.perMinute = perMinute
@@ -192,7 +192,7 @@ struct SpeechRates: Hashable {
 
 /// Apple's recogniser in the catalogue. Never stored — `sttProvider == "apple"` selects
 /// it — so it only has to be unique among Apple's entries, of which it is the one.
-let appleSpeechModelID = "apple-speech"
+public let appleSpeechModelID = "apple-speech"
 
 /// Every speech model the app offers, grouped by vendor, each vendor's in picker order.
 /// The Settings pickers read it (`offeredSTTModels(of:)`), so a model and its capabilities are
@@ -204,7 +204,7 @@ let appleSpeechModelID = "apple-speech"
 /// (by the hour; keyterm prompting is a separate line per model, $0.05/h on Scribe v2 and
 /// $0.08/h on Realtime — the page's figures, not the API reference's "+20 %"), and
 /// OpenAI's pricing page (its per-minute estimate, the only figure it gives for all three).
-let sttModelCatalog: [STTModelDescriptor] = {
+public let sttModelCatalog: [STTModelDescriptor] = {
     let groqKey = STTModelDescriptor.Requirement.apiKey(SettingsKeys.groqAPIKey)
     let elevenLabsKey = STTModelDescriptor.Requirement.apiKey(SettingsKeys.elevenLabsAPIKey)
     let openAIKey = STTModelDescriptor.Requirement.apiKey(SettingsKeys.openAIAPIKey)
@@ -321,21 +321,21 @@ let sttModelCatalog: [STTModelDescriptor] = {
 /// A vendor's models a picker, setup or a recommendation may offer, in picker order. A
 /// picker also shows the model selected now when it is not among them
 /// (`pickerSTTModels(of:selected:)`), so it is never blank.
-func offeredSTTModels(of vendor: Provider) -> [STTModelDescriptor] {
+public func offeredSTTModels(of vendor: Provider) -> [STTModelDescriptor] {
     sttModelCatalog.filter { $0.vendor == vendor && $0.lifecycle.isOffered }
 }
 
 /// Every model of a vendor the catalogue still describes, offered or not — what prices,
 /// names, History, Usage and normalisation look in. The archive (`archivedSpeechModels`)
 /// is the rest of what is known.
-func knownSTTModels(of vendor: Provider) -> [STTModelDescriptor] {
+public func knownSTTModels(of vendor: Provider) -> [STTModelDescriptor] {
     sttModelCatalog.filter { $0.vendor == vendor }
 }
 
 /// What a speech model picker lists: the offered models, and the selected one after them
 /// when it is not offered — marked by its `ModelLifecycle.status(on:)` — so the picker
 /// never renders blank.
-func pickerSTTModels(of vendor: Provider, selected: String) -> [STTModelDescriptor] {
+public func pickerSTTModels(of vendor: Provider, selected: String) -> [STTModelDescriptor] {
     let offered = offeredSTTModels(of: vendor)
     // A cleared choice (`clearedModelChoice`) adds no row: nothing is selected until the user picks.
     if selected.isEmpty || offered.contains(where: { $0.id == selected }) { return offered }
@@ -347,7 +347,7 @@ func pickerSTTModels(of vendor: Provider, selected: String) -> [STTModelDescript
 /// is taken for its vendor's plain model: it uploads (or runs on the Mac) under its own
 /// ID and needs what the vendor's models need. That is how every such ID behaved before
 /// the catalogue existed: no stream, no mapping, the vendor's key.
-func sttModel(vendor: Provider, id: String) -> STTModelDescriptor {
+public func sttModel(vendor: Provider, id: String) -> STTModelDescriptor {
     if let listed = sttModelCatalog.first(where: { $0.vendor == vendor && $0.id == id }) {
         return listed
     }

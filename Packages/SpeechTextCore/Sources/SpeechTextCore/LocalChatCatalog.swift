@@ -3,40 +3,39 @@
 
 import Foundation
 import ChatTemplates
-import SpeechTextCore
 
 /// A chat model AI Rewrite can run on this Mac: one GGUF file, downloaded from HuggingFace
 /// into `Models/llm/<id>/` and run by llama.cpp in the SpeechTextLLM service.
-struct LocalChatModel: Identifiable, Hashable, Sendable {
+public struct LocalChatModel: Identifiable, Hashable, Sendable {
     /// The file name without `.gguf` — stable, and what `localLLMModel` stores.
-    let id: String
-    let displayName: String
-    let family: ChatTemplateFamily
+    public let id: String
+    public let displayName: String
+    public let family: ChatTemplateFamily
     /// Where it is downloaded from: an ungated repository (the app downloads with no
     /// account), pinned to a commit so the bytes cannot change under the hash.
-    let repository: String
+    public let repository: String
     let revision: String
-    let file: String
+    public let file: String
     /// The file's SHA-256 — HuggingFace's LFS object id, which is exactly that.
-    let sha256: String
-    let downloadBytes: Int64
+    public let sha256: String
+    public let downloadBytes: Int64
     /// Memory the Mac needs for it to be offered as a pick: the weights, the 8K context's
     /// cache, macOS and whatever the user has open — a model that only just fits pages as
     /// soon as a browser tab loads, and a rewrite that stalls reads as the app hanging.
-    let memoryFloorBytes: UInt64
+    public let memoryFloorBytes: UInt64
     /// Names no language: a row names only the user's own, through `languageNotes`.
-    let summary: String
+    public let summary: String
     /// Weaknesses the rewrite evaluation measured, by language code, shown only to someone
     /// who speaks it. None today: on llama.cpp no model drifted out of the dictated language
     /// (docs/specs/2026-10-16-built-in-local-llm.md). Required, so a model added later is
     /// asked the question.
-    let languageNotes: [String: LanguageNote]
+    public let languageNotes: [String: LanguageNote]
 
-    var downloadURL: URL {
+    public var downloadURL: URL {
         URL(string: "https://huggingface.co/\(repository)/resolve/\(revision)/\(file)")!
     }
 
-    var downloadSizeDescription: String {
+    public var downloadSizeDescription: String {
         ByteCountFormatter.string(fromByteCount: downloadBytes, countStyle: .file)
     }
 }
@@ -51,7 +50,7 @@ private let gigabyte: UInt64 = 1_073_741_824
 ///
 /// Only what the pinned llama.cpp build loads is listed (the rewrite evaluation loads
 /// each). Larger models — Gemma 4 26B/31B, Qwen3.6 35B, gpt-oss 120B — are for later.
-let localChatModels: [LocalChatModel] = [
+public let localChatModels: [LocalChatModel] = [
     LocalChatModel(
         id: "Qwen3.8-27B-Q4_K_M", displayName: "Qwen3.8 27B", family: .qwen,
         repository: "ggml-org/Qwen3.8-27B-GGUF", revision: "71bc7b627595dc8a91039addd9c791ae548d6747",
@@ -99,7 +98,7 @@ let localChatModels: [LocalChatModel] = [
     ),
 ]
 
-func localChatModel(id: String) -> LocalChatModel? {
+public func localChatModel(id: String) -> LocalChatModel? {
     localChatModels.first { $0.id == id }
 }
 
@@ -128,19 +127,19 @@ func localChatPicks(for tier: MacTier) -> TierPicks {
     }
 }
 
-func recommendedLocalChatModel(for capabilities: SystemCapabilities) -> LocalChatModel? {
+public func recommendedLocalChatModel(for capabilities: SystemCapabilities) -> LocalChatModel? {
     firstFitting(localChatPicks(for: MacTier(capabilities)).recommended, in: localChatModels,
                  id: \.id, floor: \.memoryFloorBytes, bytes: \.downloadBytes, capabilities: capabilities)
 }
 
-func bestQualityLocalChatModel(for capabilities: SystemCapabilities) -> LocalChatModel? {
+public func bestQualityLocalChatModel(for capabilities: SystemCapabilities) -> LocalChatModel? {
     firstFitting(localChatPicks(for: MacTier(capabilities)).bestQuality, in: localChatModels,
                  id: \.id, floor: \.memoryFloorBytes, bytes: \.downloadBytes, capabilities: capabilities)
 }
 
 /// Where a chat model's file lives: `Models/llm/<id>/<file>`, beside the speech models
 /// and inside the folder the rename migration moves.
-func localChatModelFile(for model: LocalChatModel) -> URL {
+public func localChatModelFile(for model: LocalChatModel) -> URL {
     localModelsDirectory()
         .appendingPathComponent("llm", isDirectory: true)
         .appendingPathComponent(model.id, isDirectory: true)
@@ -149,7 +148,7 @@ func localChatModelFile(for model: LocalChatModel) -> URL {
 
 /// Installed means the whole file is there under its final name — the download writes
 /// to a staging folder and moves the file only after its hash matched.
-func isLocalChatModelInstalled(_ model: LocalChatModel) -> Bool {
+public func isLocalChatModelInstalled(_ model: LocalChatModel) -> Bool {
     FileManager.default.fileExists(atPath: localChatModelFile(for: model).path)
 }
 
@@ -159,14 +158,14 @@ func isLocalChatModelInstalled(_ model: LocalChatModel) -> Bool {
 /// `ChatClients.swift` is in the test subset and may not name the XPC client, which is
 /// app-only. `registerLocalChat()` (LocalChatClient.swift) fills it at launch; unfilled —
 /// the test bundle — every client throws rather than answering with nothing.
-enum LocalChat {
-    nonisolated(unsafe) static var clientFactory: (LocalChatModel) -> ChatClient = { _ in UnavailableLocalChatClient() }
+public enum LocalChat {
+    public nonisolated(unsafe) static var clientFactory: (LocalChatModel) -> ChatClient = { _ in UnavailableLocalChatClient() }
     /// Loads the model in the service ahead of the first rewrite — after a download, and
     /// when the user picks an installed one.
-    nonisolated(unsafe) static var prewarm: (LocalChatModel) -> Void = { _ in }
+    public nonisolated(unsafe) static var prewarm: (LocalChatModel) -> Void = { _ in }
     /// Drops a removed download from the service's memory, if it is the model loaded
     /// there — removing another one must not cost the model in use a cold load.
-    nonisolated(unsafe) static var release: (LocalChatModel) -> Void = { _ in }
+    public nonisolated(unsafe) static var release: (LocalChatModel) -> Void = { _ in }
 }
 
 struct UnavailableLocalChatClient: ChatClient {
