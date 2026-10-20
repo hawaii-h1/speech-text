@@ -49,9 +49,11 @@ xcodebuild test -project SpeechText/SpeechText.xcodeproj \
   -scheme SpeechText -destination 'platform=macOS'
 ```
 
-The test bundle is **standalone** — no `TEST_HOST`, no `@testable import`. The app is a menu bar agent that asks for microphone access at launch, so hosting tests inside it would hang a headless run. Instead the test target compiles a curated subset of app sources directly.
+The test bundle is **standalone** — no `TEST_HOST`, no `@testable import` of the app. The app is a menu bar agent that asks for microphone access at launch, so hosting tests inside it would hang a headless run. Instead the test target compiles a curated subset of app sources directly.
 
 **Consequence:** if your test needs a new app file, add that file to *both* targets' Sources phases. The same goes for anything it depends on. Files in the test subset must not reach into the app's view or state graph (SwiftUI views, `AppState`, `SpeechEngine`) — if they do, the subset stops being a subset.
+
+That logic is moving, a few files at a time, into a local Swift package, `Packages/SpeechTextCore`, whose module of the same name the app, the tests and the evaluation tool link. A file under `Packages/SpeechTextCore/Sources/SpeechTextCore/` needs no Sources-phase edit: the package compiles every file there, once. The app reaches what it uses through `import SpeechTextCore`, so whatever the app or the tool calls is `public`; a test reaches the rest with `@testable import SpeechTextCore`, which imports a module, not the app, so the bundle stays standalone. The three test files the evaluation tool also compiles (`CatalogueExport`, `CorpusEvaluation`, `LiveDictation`) use a plain `import`, since the tool is built in Release, without testing enabled. The package depends on nothing, so an engine's import there is a build error. `ChatTemplates` is a second product of the same package, linked on its own by the `SpeechTextLLM` service.
 
 Tests never touch `UserDefaults` or the keychain: your real settings live in that domain, and a build without the profile keeps your API keys there too. Construct values directly instead; `APIKeyStoreTests` gives the store an isolated `suiteName` and a keychain in memory.
 
@@ -230,7 +232,14 @@ which is `NO` unless a build says otherwise. The indirection is what keeps the
 packages out of it: `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` given to `xcodebuild`
 directly reaches every target, WhisperKit's and FluidAudio's included, which
 Xcode builds with `-suppress-warnings` — and the compiler refuses the two
-together. A package's warnings are not ours to fix, and they are never shown.
+together. A package's warnings are not ours to fix, and they are never shown. Our own
+package, `Packages/SpeechTextCore`, is the exception, and no build setting
+reaches it — Xcode passes none of the project's into a package, and an
+environment variable read by its manifest is no better, since SwiftPM caches the
+evaluated manifest per user without the environment. So the Tests job builds it
+first on its own, `swift build --package-path Packages/SpeechTextCore
+-Xswiftc -warnings-as-errors` in a fresh scratch folder; in Xcode its warnings
+show as warnings, as the app's do.
 Warnings from other tools (`appintentsmetadataprocessor`'s "Metadata extraction
 skipped", the linker) are left as warnings.
 
@@ -242,6 +251,9 @@ anyone working. To see what CI will say before you push:
 xcodebuild test -project SpeechText/SpeechText.xcodeproj \
   -scheme SpeechText -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO SPT_WARNINGS_AS_ERRORS=YES
+rm -rf /tmp/speechtextcore-build   # a stale build shows no warning for an unchanged file
+swift build --package-path Packages/SpeechTextCore \
+  --scratch-path /tmp/speechtextcore-build -Xswiftc -warnings-as-errors
 ```
 
 (and the same with `build -scheme SpeechTextEvaluation`). A warning your change
@@ -279,6 +291,9 @@ SpeechText/
   SpeechText/          app sources
   SpeechTextTests/     unit tests
   SpeechText.xcodeproj
+Packages/
+  SpeechTextCore/      the app's logic, as a local Swift package (moving in; see Tests)
+  LlamaBinary/         llama.cpp's prebuilt xcframework, pinned
 docs/
   development.md       this file
   specs/               design documents for larger features

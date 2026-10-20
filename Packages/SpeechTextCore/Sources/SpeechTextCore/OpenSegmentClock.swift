@@ -17,36 +17,36 @@ import Foundation
 /// each client commit itself often ended in an invented sentence. So the stream is
 /// trusted only while no segment ran longer than `limit`; past it, the stop takes the
 /// upload's answer, as it does after an outage.
-struct OpenSegmentClock {
+public struct OpenSegmentClock: Sendable {
     /// The socket's rate: 16-bit mono, so two bytes a sample.
     let sampleRate: Double
 
     private var openBytes = 0
     private var longestClosedBytes = 0
 
-    init(sampleRate: Double) {
+    public init(sampleRate: Double) {
         self.sampleRate = sampleRate
     }
 
     /// Audio sent to the socket.
-    mutating func feed(byteCount: Int) {
+    public mutating func feed(byteCount: Int) {
         openBytes += byteCount
     }
 
     /// The server closed the segment — a `committed_transcript` arrived — or a new socket
     /// opened one of its own.
-    mutating func segmentClosed() {
+    public mutating func segmentClosed() {
         longestClosedBytes = max(longestClosedBytes, openBytes)
         openBytes = 0
     }
 
     /// The longest segment so far, the one still open included.
-    var longestSeconds: Double {
+    public var longestSeconds: Double {
         Double(max(longestClosedBytes, openBytes)) / (sampleRate * 2)
     }
 
     /// Did any segment run longer than `limit` seconds? Never, with no limit.
-    func exceeded(_ limit: Double?) -> Bool {
+    public func exceeded(_ limit: Double?) -> Bool {
         guard let limit else { return false }
         return longestSeconds > limit
     }

@@ -3,6 +3,7 @@
 
 import XCTest
 import AVFoundation
+@testable import SpeechTextCore
 
 // MARK: - What counts as "no connection" (NetworkFailure.swift)
 

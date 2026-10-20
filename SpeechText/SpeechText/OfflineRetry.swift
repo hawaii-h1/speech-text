@@ -3,6 +3,7 @@
 
 import Foundation
 import Network
+import SpeechTextCore
 
 // MARK: - Retry what was saved offline, once the network returns
 

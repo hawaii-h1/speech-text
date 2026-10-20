@@ -80,6 +80,19 @@ jobs:
           path: .swiftpm-cache
           key: spm-${{ runner.os }}-${{ hashFiles('SpeechText/SpeechText.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
+      # Packages/SpeechTextCore, on its own: Xcode passes no project build setting
+      # into a package, so SPT_WARNINGS_AS_ERRORS below never reaches it, and
+      # neither does an environment variable read by its manifest, whose evaluation
+      # SwiftPM caches per user without the environment. A fresh scratch path, so a
+      # warning in a file that did not change still shows on a rerun.
+      - name: Build SpeechTextCore with warnings as errors
+        run: |
+          rm -rf "$RUNNER_TEMP/core-build"
+          swift build \
+            --package-path Packages/SpeechTextCore \
+            --scratch-path "$RUNNER_TEMP/core-build" \
+            -Xswiftc -warnings-as-errors
+
       # Coverage is measured on every run and only reported: no threshold, and the
       # summary step below never fails the job. The result bundle is removed first
       # because the self-hosted runner keeps $RUNNER_TEMP between runs, and

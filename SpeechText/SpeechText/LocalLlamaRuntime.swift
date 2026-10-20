@@ -3,6 +3,7 @@
 
 import Foundation
 import llama
+import ChatTemplates
 
 /// The one file that imports llama.cpp: a GGUF chat model loaded and run on this Mac.
 /// Compiled into the SpeechTextLLM service and the SpeechTextEvaluation tool only — the

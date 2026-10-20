@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import ChatTemplates
 
 /// AI Rewrite through the local chat models, against a cloud model as the reference — the
 /// measurement the built-in local LLM had to earn its place with (docs/specs/

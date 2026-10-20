@@ -6,7 +6,8 @@
 # rewritten.
 #
 #   scripts/check-log-privacy.sh [DIR]
-#       Scans every .swift file under DIR (default: SpeechText/) for `dlog(…)` calls
+#       Scans every .swift file under DIR (default: SpeechText/ and Packages/SpeechTextCore/,
+#       where the app's logic is moving) for `dlog(…)` calls
 #       and for the bare `log(…)` wrappers that forward to it (TranscriptSpan.swift's).
 #       Every Debug Log entry also goes to the system log as public (DebugLog.swift), so
 #       an entry may say how long a text is, never what it says.
@@ -30,9 +31,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-dir=${1:-SpeechText}
+dir=${1:-SpeechText Packages/SpeechTextCore}
 
-files=$(find "$dir" -name '*.swift' -type f | sort)
+# shellcheck disable=SC2086
+files=$(find $dir -name '*.swift' -type f | sort)
 [ -n "$files" ] || { echo "No Swift files under $dir" >&2; exit 2; }
 
 # shellcheck disable=SC2086

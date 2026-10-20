@@ -11,7 +11,7 @@ import Foundation
 /// Every rendering is checked token for token against `llama-server --jinja` by the
 /// rewrite evaluation, and written out literally in `ChatTemplateTests`; a family whose
 /// template changes upstream is a change here, made against that diff, never by feel.
-enum ChatTemplateFamily: String, Codable, CaseIterable, Sendable {
+public enum ChatTemplateFamily: String, Codable, CaseIterable, Sendable {
     /// Qwen3.5 and Qwen3.8 (`qwen35` in GGUF): chatml. Thinking is switched off as the
     /// template's own `enable_thinking=false` does it — an empty `<think>` block already
     /// written into the assistant turn. Both trim the system and user text. No BOS.
@@ -27,13 +27,13 @@ enum ChatTemplateFamily: String, Codable, CaseIterable, Sendable {
     case harmony
 }
 
-enum ChatTemplates {
+public enum ChatTemplates {
 
     /// The prompt for one system + user exchange, ending where the model starts writing.
     /// Special tokens are written as text: the runtime tokenizes it with `parse_special`,
     /// and adds no BOS of its own (Gemma's is in the text, the others take none).
     /// `date` only reaches Harmony, whose system message carries the current date.
-    static func render(_ family: ChatTemplateFamily, system: String, user: String,
+    public static func render(_ family: ChatTemplateFamily, system: String, user: String,
                        date: Date = Date()) -> String {
         let prefix = cacheablePrefix(family, system: system, date: date)
         switch family {
@@ -53,7 +53,7 @@ enum ChatTemplates {
     /// token that closes the system turn. Tokenization restarts after a special token, so
     /// its tokens are exactly the first tokens of the whole prompt: the runtime reads it
     /// once and restores its state for every later request with the same system prompt.
-    static func cacheablePrefix(_ family: ChatTemplateFamily, system: String, date: Date = Date()) -> String {
+    public static func cacheablePrefix(_ family: ChatTemplateFamily, system: String, date: Date = Date()) -> String {
         switch family {
         case .qwen:
             return "<|im_start|>system\n\(trimmed(system))<|im_end|>"
@@ -75,7 +75,7 @@ enum ChatTemplates {
     /// is a whole reply. Harmony is the one that needs it: its `<|end|>` closes the
     /// analysis message too, which llama.cpp reports as end-of-generation, so only the
     /// final channel's `<|return|>` (or its `<|end|>`) ends the reply.
-    static func isComplete(_ generated: String, family: ChatTemplateFamily) -> Bool {
+    public static func isComplete(_ generated: String, family: ChatTemplateFamily) -> Bool {
         switch family {
         case .qwen: return generated.contains("<|im_end|>")
         case .gemma4: return generated.contains("<turn|>")
@@ -96,7 +96,7 @@ enum ChatTemplates {
     /// still ends on one the family does not end its turn with — Qwen's `<|endoftext|>`,
     /// Gemma's `<eos>` — loses it here too, so its text cannot be pasted. Only at the very
     /// end: the same letters inside a reply may be words the user dictated.
-    static func reply(from generated: String, family: ChatTemplateFamily) -> String {
+    public static func reply(from generated: String, family: ChatTemplateFamily) -> String {
         switch family {
         case .qwen:
             let body = generated.components(separatedBy: "<|im_end|>").first ?? ""
@@ -131,7 +131,7 @@ enum ChatTemplates {
     /// Output tokens a reply may take beyond what its text needs. Harmony writes its
     /// analysis first, from the same budget, so it gets more room: a budget sized for
     /// the reply alone would end inside the analysis and leave no final channel at all.
-    static func reasoningAllowance(_ family: ChatTemplateFamily) -> Int {
+    public static func reasoningAllowance(_ family: ChatTemplateFamily) -> Int {
         family == .harmony ? 1024 : 0
     }
 
@@ -141,7 +141,7 @@ enum ChatTemplates {
     /// `minimum`. A fixed budget cut a long selection's rewrite short. The context still
     /// bounds it: `LlamaModel.complete` stops where the context fills, and the app takes
     /// a reply stopped that way for a cut-off one, not a rewrite.
-    static func replyTokens(atLeast minimum: Int, forInputTokens inputTokens: Int) -> Int {
+    public static func replyTokens(atLeast minimum: Int, forInputTokens inputTokens: Int) -> Int {
         max(minimum, 2 * inputTokens)
     }
 
@@ -174,14 +174,16 @@ enum ChatTemplates {
 /// made of comes out as U+FFFD, as llama-server writes it. Holding back until the whole
 /// pending run decoded, as the runtime once did, let one such byte silence the rest of
 /// the reply.
-struct UTF8Accumulator {
+public struct UTF8Accumulator: Sendable {
     private var pending: [UInt8] = []
+
+    public init() {}
 
     /// The bytes held back for the next piece.
     var heldBytes: Int { pending.count }
 
     /// Adds one piece's bytes and returns the text they complete.
-    mutating func append<Bytes: Sequence>(_ bytes: Bytes) -> String where Bytes.Element == UInt8 {
+    public mutating func append<Bytes: Sequence>(_ bytes: Bytes) -> String where Bytes.Element == UInt8 {
         pending.append(contentsOf: bytes)
         let ready = pending.count - Self.unfinishedTail(of: pending)
         let text = String(decoding: pending[..<ready], as: UTF8.self)
@@ -190,7 +192,7 @@ struct UTF8Accumulator {
     }
 
     /// What is still held at the end — a character the model never finished — as U+FFFD.
-    mutating func flush() -> String {
+    public mutating func flush() -> String {
         defer { pending.removeAll() }
         return String(decoding: pending, as: UTF8.self)
     }
@@ -225,35 +227,37 @@ struct UTF8Accumulator {
 /// was running rather than the request it named. A cancel can also arrive before its
 /// request (the app gave up while sending it); it waits for it. One for a request that has
 /// already ended stays until the service exits, a few bytes. The service keeps one under
-/// its lock; it is here, in a file every target compiles, so the rules are tested.
+/// its lock; it is here, in the ChatTemplates product the tests import, so the rules are tested.
 ///
 /// The idle exit is armed when the last job ends and carries `started` as it was then; it
 /// may exit only while no job has begun since. Freeing the model before the exit takes
 /// hundreds of milliseconds, and a request that arrived in them used to be killed with the
 /// process — the app saw an interrupted connection and pasted the transcript unrewritten.
-struct LocalChatActivity {
-    private(set) var running = 0
+public struct LocalChatActivity: Sendable {
+    public private(set) var running = 0
     /// Jobs begun since the service started.
-    private(set) var started = 0
+    public private(set) var started = 0
     private var cancelled: Set<String> = []
 
-    mutating func begin() {
+    public init() {}
+
+    public mutating func begin() {
         running += 1
         started += 1
     }
 
     /// `requestID` is the completion's; nil for a prewarm, which nothing cancels.
-    mutating func end(_ requestID: String?) {
+    public mutating func end(_ requestID: String?) {
         running -= 1
         if let requestID { cancelled.remove(requestID) }
     }
 
-    mutating func cancel(_ requestID: String) { cancelled.insert(requestID) }
+    public mutating func cancel(_ requestID: String) { cancelled.insert(requestID) }
 
-    func isCancelled(_ requestID: String) -> Bool { cancelled.contains(requestID) }
+    public func isCancelled(_ requestID: String) -> Bool { cancelled.contains(requestID) }
 
     /// Whether an idle exit armed when `started` was `mark` may still exit.
-    func mayExit(armedAt mark: Int) -> Bool { running == 0 && started == mark }
+    public func mayExit(armedAt mark: Int) -> Bool { running == 0 && started == mark }
 }
 
 /// Removes a leading `<think>…</think>` block.
@@ -267,7 +271,7 @@ struct LocalChatActivity {
 /// Only a *leading* block is removed, and only a closed one: text that merely contains
 /// the word elsewhere is left alone, and an unterminated tag means the reply was cut off
 /// rather than that it reasoned, so there is nothing safe to strip.
-func strippingReasoning(_ text: String) -> String {
+public func strippingReasoning(_ text: String) -> String {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     for tag in ["think", "thinking", "reasoning"] {
         let open = "<\(tag)>"

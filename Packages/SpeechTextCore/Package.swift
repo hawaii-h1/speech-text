@@ -1,0 +1,36 @@
+// swift-tools-version:6.0
+// SPDX-FileCopyrightText: 2026 Vladyslav Husakov
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import PackageDescription
+
+/// The app's logic that needs neither a view nor an engine: what the app, the unit tests
+/// and the SpeechTextEvaluation tool used to compile three times from one hand-kept list
+/// of Sources phases. Files move here a few at a time; one placed under `Sources/` is
+/// compiled with no project edit.
+///
+/// It depends on no other package, so `import WhisperKit`, `FluidAudio`, `Sparkle` or
+/// `llama` here is a build error rather than a rule for review. `ChatTemplates` is a
+/// product of its own because the SpeechTextLLM service links it and nothing else.
+///
+/// Swift 5 language mode with targeted concurrency checking, as the app's targets are
+/// built. Xcode passes none of the project's build settings into a package, so
+/// `SPT_WARNINGS_AS_ERRORS` does not reach it; CI builds it on its own with
+/// `swift build -Xswiftc -warnings-as-errors` instead (docs/development.md › Compiler warnings).
+let swiftSettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v5),
+    .enableExperimentalFeature("StrictConcurrency=targeted"),
+]
+
+let package = Package(
+    name: "SpeechTextCore",
+    platforms: [.macOS(.v14)],
+    products: [
+        .library(name: "SpeechTextCore", targets: ["SpeechTextCore"]),
+        .library(name: "ChatTemplates", targets: ["ChatTemplates"]),
+    ],
+    targets: [
+        .target(name: "SpeechTextCore", dependencies: ["ChatTemplates"], swiftSettings: swiftSettings),
+        .target(name: "ChatTemplates", swiftSettings: swiftSettings),
+    ]
+)

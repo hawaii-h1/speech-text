@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import ChatTemplates
 
 /// AI Rewrite on this Mac: a `ChatClient` that sends the request to the SpeechTextLLM
 /// service over XPC. App target only — the test bundle has no service to talk to, and

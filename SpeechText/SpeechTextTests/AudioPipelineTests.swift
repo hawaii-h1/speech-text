@@ -4,6 +4,7 @@
 import XCTest
 import AppKit
 import AVFoundation
+@testable import SpeechTextCore
 
 // MARK: - Helpers
 

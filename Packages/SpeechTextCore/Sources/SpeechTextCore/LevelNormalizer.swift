@@ -21,8 +21,8 @@ import Foundation
 /// hiss fills the glass.
 ///
 /// One per tap: a new device starts from the defaults rather than from the scale of
-/// the one before it. Pure logic, in both targets.
-struct LevelNormalizer {
+/// the one before it. Pure logic, in SpeechTextCore.
+public struct LevelNormalizer: Sendable {
     /// Where the room is assumed to start: a quiet room on a built-in microphone.
     static let initialFloor: Double = -60
     /// Where the voice is assumed to start — low enough that a quiet voice on a distant
@@ -45,9 +45,11 @@ struct LevelNormalizer {
     private(set) var floor = initialFloor
     private(set) var peak = initialPeak
 
+    public init() {}
+
     /// The display heights, 0…1, for one buffer's per-segment RMS values (linear,
     /// 0…1 full scale), lasting `seconds` together.
-    mutating func levels(rms: [Float], seconds: Double) -> [CGFloat] {
+    public mutating func levels(rms: [Float], seconds: Double) -> [CGFloat] {
         guard !rms.isEmpty else { return [] }
         let power = rms.reduce(0) { $0 + Double($1) * Double($1) } / Double(rms.count)
         let loudness = Self.decibels(power.squareRoot())

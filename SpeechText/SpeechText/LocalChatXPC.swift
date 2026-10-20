@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import ChatTemplates
 
 /// What the app and the SpeechTextLLM service say to each other. The service runs
 /// llama.cpp in its own process (`Contents/XPCServices/SpeechTextLLM.xpc`), so a crash in

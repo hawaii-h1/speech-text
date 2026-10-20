@@ -5,6 +5,7 @@ import Foundation
 import Speech
 import AVFoundation
 import os.log
+import SpeechTextCore
 
 private let seLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeechText",
                             category: "SpeechEngine")

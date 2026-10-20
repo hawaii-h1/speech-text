@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import ChatTemplates
 
 /// The SpeechTextLLM service: llama.cpp in a process of its own, answering the app over
 /// XPC (`LocalChatServiceProtocol`). One model in memory, one completion at a time —

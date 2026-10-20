@@ -3,6 +3,7 @@
 
 import Foundation
 import AVFoundation
+import SpeechTextCore
 
 // MARK: - Streaming with batch fallback
 
