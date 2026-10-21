@@ -53,7 +53,7 @@ The test bundle is **standalone** — no `TEST_HOST`, no `@testable import` of t
 
 A file under `Packages/SpeechTextCore/Sources/SpeechTextCore/` needs no `project.pbxproj` edit: the package compiles every file there, once. The app reaches what it uses through `import SpeechTextCore`, so whatever the app or the tool calls is `public`; a test reaches the rest with `@testable import SpeechTextCore`, which imports a module, not the app, so the bundle stays standalone. The three test files the evaluation tool also compiles (`CatalogueExport`, `CorpusEvaluation`, `LiveDictation`) use a plain `import`, since the tool is built in Release, without testing enabled. `ChatTemplates` is a second product of the same package, under `Sources/ChatTemplates/`, linked on its own by the `SpeechTextLLM` service.
 
-**Consequence:** if your test needs new logic, put it in the package, together with anything it depends on. What stays in `SpeechText/SpeechText/` is what the package may not hold: SwiftUI views, `AppState`, `SpeechEngine`, the capture, `PasteService`, the hotkeys, the engine runtimes, the stores, the XPC client and the keychain. A package file must not reach into that graph, and it cannot import an engine at all — the manifest declares no dependency, so `import WhisperKit`, `FluidAudio`, `Sparkle` or `llama` there is a build error. `import SwiftUI` is the one the manifest cannot stop; CI's *Core imports* job does. A new file in the app (a view, say) is still added to the app target in Xcode, and the evaluation tool compiles the engine runtimes it runs directly, so a new runtime file goes in its Sources phase too.
+**Consequence:** if your test needs new logic, put it in the package, together with anything it depends on. What stays in `SpeechText/SpeechText/` is what the package may not hold: SwiftUI views, `AppState`, `SpeechEngine`, the capture, `PasteService`, the hotkeys, the engine runtimes, the stores, the XPC client and the keychain. A package file must not reach into that graph, and it cannot import an engine at all — the manifest declares no dependency, so `import WhisperKit`, `FluidAudio`, `Sparkle` or `llama` there is a build error. `import SwiftUI` is the one the manifest cannot stop; CI's *Core imports* check does. A new file in the app (a view, say) is still added to the app target in Xcode, and the evaluation tool compiles the engine runtimes it runs directly, so a new runtime file goes in its Sources phase too.
 
 Tests never touch `UserDefaults` or the keychain: your real settings live in that domain, and a build without the profile keeps your API keys there too. Construct values directly instead; `APIKeyStoreTests` gives the store an isolated `suiteName` and a keychain in memory.
 
@@ -79,10 +79,10 @@ before the history rewrite: a pull request merged into a branch `main` had stopp
 following seven minutes earlier.
 
 Stacking is still allowed where it earns its keep. Label the pull request
-`stacked` and re-run the *Base branch* job; it then passes and prints which pull
-request has to land first, and that this one must be retargeted at `main`
+`stacked` and re-run the *Checks* job; its *Base branch* step then passes and prints
+which pull request has to land first, and that this one must be retargeted at `main`
 afterwards. The label is read live, so labelling a refused run and re-running the
-job is enough — no new push. The job still refuses a stack whose base has already
+job is enough — no new push. The step still refuses a stack whose base has already
 merged, which is that shape itself.
 
 The audit that catches an evasion after the fact:
@@ -113,17 +113,18 @@ settings take care of the rest:
   button makes one commit on `main` per pull request and never a merge commit.
 - **The squash message is the pull request's title and description.** GitHub
   appends the trailers of the commits being squashed, so the squash commit carries
-  their `Signed-off-by`. Leave those lines in when you merge: the `dco` job checks
+  their `Signed-off-by`. Leave those lines in when you merge: the *DCO sign-off* check reads
   the pull request's commits, and nothing checks the squash commit afterwards.
 - **Head branches are deleted on merge**, so merged branches do not pile up.
 
-The `dco` job fails a pull request with an unsigned commit; the one exemption is
+The *DCO sign-off* check fails a pull request with an unsigned commit; the one exemption is
 Dependabot's own commits (`.github/dependabot.yml`), and only in a pull request that
 Dependabot itself opened. On this private
-repository, though, that failure does not block anything: branch protection and
-required checks need GitHub Pro or a public repository. A red *DCO sign-off* check
-therefore means "do not merge", and pushing straight to `main` skips it
-altogether.
+repository, though, that failure does not block anything — and neither does any
+other: branch protection and required checks need GitHub Pro or a public
+repository (the API answers 403 for both, checked 2026-10-21), so a red Tests run
+can be merged as easily as a red sign-off. Every red check therefore means "do not
+merge", and pushing straight to `main` skips them altogether.
 
 ### Known unsigned history
 
@@ -197,8 +198,8 @@ way: `git filter-repo` on a fresh clone of `main`, pushed to a new repository.
 
 `.github/workflows/ci.yml` runs on every pull request and on every push to `main`: the
 squash that lands a pull request is a new commit, two green pull requests can combine into
-a red `main`, and the README's CI badge reads `main`'s latest run. (`dco` and the base
-check mean something only for a pull request and are skipped on a push.) **On a public repository
+a red `main`, and the README's CI badge reads `main`'s latest run. (*DCO sign-off* and *Base
+branch* mean something only for a pull request and are skipped on a push.) **On a public repository
 no job may run on the organisation's self-hosted Mac.** A pull request is code,
 and anyone can open one; building and running it on someone's own Mac would hand
 a stranger that machine's keychain, SSH keys and the app's `app.speech-text.SpeechText`
@@ -210,14 +211,24 @@ moves the work:
 | Job | While private | Once public | What it does |
 |---|---|---|---|
 | Tests | `self-hosted` | `macos-latest` | `xcodebuild test` and the evaluation tool's build, a compiler warning in our code an error — one of the two jobs that need a Mac, with Swift lint |
-| No development team | `self-hosted` | `ubuntu-latest` | greps `project.pbxproj` for a `DEVELOPMENT_TEAM` |
-| SPDX headers | `self-hosted` | `ubuntu-latest` | the two-line header on every Swift file |
-| DCO sign-off | `self-hosted` | `ubuntu-latest` | a `Signed-off-by` trailer on every commit in the range |
-| Provider guide | `self-hosted` | `ubuntu-latest` | `scripts/check-provider-guide.sh` — docs/adding-a-provider.md still names code that exists |
-| Base branch | `self-hosted` | `ubuntu-latest` | the base is `main`, or the stack is labelled — see above |
-| Log privacy | `self-hosted` | `ubuntu-latest` | `scripts/check-log-privacy.sh` — no `dlog` call interpolates dictated, selected or rewritten text |
-| Core imports | `self-hosted` | `ubuntu-latest` | `scripts/check-core-imports.sh` — no file under `Packages/SpeechTextCore/Sources` imports SwiftUI, WhisperKit, FluidAudio, Sparkle or llama |
 | Swift lint | `self-hosted` | `macos-latest` | `scripts/lint-swift.sh` — swift-format's semantic rules (not layout) on the lines a pull request adds or changes; needs Xcode's `swift-format` |
+| Checks | `self-hosted` | `ubuntu-latest` | the seven checks below, one step each |
+
+| *Checks* step | What it checks |
+|---|---|
+| No development team | greps `project.pbxproj` for a `DEVELOPMENT_TEAM` |
+| SPDX headers | the two-line header on every Swift file |
+| Provider guide | `scripts/check-provider-guide.sh` — docs/adding-a-provider.md still names code that exists |
+| Log privacy | `scripts/check-log-privacy.sh` — no `dlog` call interpolates dictated, selected or rewritten text |
+| Core imports | `scripts/check-core-imports.sh` — no file under `Packages/SpeechTextCore/Sources` imports SwiftUI, WhisperKit, FluidAudio, Sparkle or llama |
+| DCO sign-off | a `Signed-off-by` trailer on every commit in the range (pull requests only) |
+| Base branch | the base is `main`, or the stack is labelled — see above (pull requests only) |
+
+The seven were seven jobs of ten seconds each until 2026-10-21. On the one
+self-hosted runner they queued one after another, around the Tests job, so a
+failing grep could report last. As steps of one job each still runs whatever the
+one before it did (`if: !cancelled()`), so a run shows every check that fails,
+under its own name; re-running the job re-runs all seven.
 
 While the repository is private only collaborators can open a pull request, so
 the self-hosted Mac is the arrangement it has always been. The moment visibility
@@ -227,14 +238,24 @@ is deliberate: an unrecognised visibility falls through to the hosted runner, so
 the failure is a job that does not start rather than a stranger's code on
 someone's Mac.
 
+**No check blocks a merge while the repository is private.** Branch protection,
+rulesets and required checks need GitHub Pro or a public repository, so every job
+here is a signal for whoever merges, not a gate: a red run is "do not merge" by
+agreement only, and a push straight to `main` is checked after the fact. Going
+public makes the gate possible; it still has to be set up — a ruleset on `main`
+requiring Tests, Swift lint and Checks.
+
 Actions minutes are free for a public repository on the standard runners. The
-seven cheap jobs then run on Linux, where they are faster and cost a tenth as
-much, and stop competing for a runner with the tests.
+Checks job then runs on Linux, where it is faster and costs a tenth as
+much, and stops competing for a runner with the tests.
 
 A hosted runner starts empty, so WhisperKit, FluidAudio and Sparkle would be
 cloned on every run. `-clonedSourcePackagesDirPath .swiftpm-cache` puts them
 somewhere `actions/cache` can keep, keyed on the hash of `Package.resolved` —
-which pins all three, so it is exactly the right key.
+which pins all three, so it is exactly the right key. The step runs on a hosted
+runner only: on the self-hosted Mac it downloaded the 614 MB archive on every run
+(6.5 of the Tests job's 9 minutes on 2026-10-21) into a folder checkout had just
+cleaned, while xcodebuild resolves from SwiftPM's own cache there in seconds.
 
 ### Compiler warnings
 
@@ -293,6 +314,28 @@ pull-request run after the flip belongs here. Do not anchor on the self-hosted
 Mac's number: that build is warm and incremental (16 s on 2026-09-22), whereas a
 hosted run resolves and builds all three Swift packages from nothing, which is
 exactly what the cache above exists for.
+
+### The first run after going public
+
+The hosted half of every `runs-on` has never run: since 2026-09-22 everything has
+gone to the self-hosted Mac. One part of it has been tried by hand: on
+2026-10-21 the Checks job's steps (all but Base branch, which needs the API) ran
+in an `ubuntu:24.04` container under both mawk, the image's `awk`, and gawk — and
+each failed as it should on a tree with a violation of its own planted in it.
+Tests, Swift lint and `release.yml`'s pull-request Package have never run on
+`macos-latest`. So the first pull request after the flip is a test of CI itself,
+and is watched rather than trusted:
+
+1. Every job's log names a GitHub-hosted runner, never `Vlad-DO-Laptop`, and
+   Package's first step (the self-hosted refusal) is skipped, not run.
+2. Tests: *Select the newest Xcode* prints a version, *Cache the resolved
+   packages* misses and its post step saves; the next run restores it. Put both
+   runs' times under *Run time on a hosted runner* above.
+3. Swift lint: `xcrun swift-format` exists in the Xcode that was selected.
+4. Checks runs on Ubuntu and *Base branch* reads the labels.
+5. A pull request that touches the packaging (`release.yml`'s `paths:`) gets an
+   unsigned image from Package on `macos-latest` — the `dmgbuild` venv included.
+6. Then the ruleset on `main` (*No check blocks a merge* above).
 
 The self-hosted Mac keeps the tag-triggered packaging in
 [`release.yml`](../.github/workflows/release.yml), because that is where the
