@@ -1022,9 +1022,13 @@ private struct SpokenLanguagesField: View {
 
 /// Settings › Recording: how a dictation shortcut records, as two segments side by side —
 /// press it to start and again to paste, or hold it while speaking. Words only: the keys
-/// are drawn, live, by the gestures under it. Stored as `holdToTalk`.
-private struct RecordingModePicker: View {
+/// are drawn, live, by the gestures under it. Stored as `holdToTalk`. Setup's Try it
+/// step offers the same choice.
+struct RecordingModePicker: View {
     @Binding var holdToTalk: Bool
+    /// Titles only: setup's column is too narrow for the captions, and its own words
+    /// already say what the shortcut does.
+    var compact = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -1044,14 +1048,16 @@ private struct RecordingModePicker: View {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(selected ? SetupColor.label : SetupColor.label2)
-                Text(caption)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(SetupColor.label2)
-                    .lineLimit(1)
+                if !compact {
+                    Text(caption)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(SetupColor.label2)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.vertical, compact ? 7 : 9)
             .background {
                 if selected {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
