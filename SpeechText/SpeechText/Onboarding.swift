@@ -162,8 +162,10 @@ final class OnboardingModel {
     private(set) var dictationOn = true
     /// Bumped when a permission turns on, so its row can glow once.
     private(set) var justGranted: (row: String, count: Int) = ("", 0)
-    private var accessibilityPoll: Timer?
-    private var helper: AccessibilityHelperPanel?
+    /// The Permissions step re-reads every permission each second while it is shown: a
+    /// switch turned *off* in System Settings never brings setup to the front, and the
+    /// row went on saying Allowed.
+    private var permissionsPoll: Timer?
 
     /// When the local speech model was downloaded from this window, so the task pill and
     /// the Try it step follow that one.
@@ -235,6 +237,8 @@ final class OnboardingModel {
     func tearDown() {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
+        permissionsPoll?.invalidate()
+        permissionsPoll = nil
         stopWatchingAccessibility()
         checks.values.forEach { $0.cancel() }
         appState.dictationTest.isActive = false
@@ -257,7 +261,12 @@ final class OnboardingModel {
         } else if !defaults.bool(forKey: SettingsKeys.onboardingCompleted) {
             defaults.set(step.rawValue, forKey: SettingsKeys.onboardingStep)
         }
+        permissionsPoll?.invalidate()
+        permissionsPoll = nil
         if step == .permissions {
+            permissionsPoll = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshPermissions() }
+            }
             // On by default, like every install before setup existed — turned on here, on
             // the screen whose switch turns it off, rather than silently at launch.
             if !defaults.bool(forKey: SettingsKeys.hasRegisteredLaunchAtLogin) { setLaunchAtLogin(true) }
@@ -514,15 +523,25 @@ final class OnboardingModel {
 
     func refreshPermissions() {
         let mic = AVCaptureDevice.authorizationStatus(for: .audio)
-        if mic == .authorized && micStatus != .authorized { flash("mic") }
-        micStatus = mic
+        // Written only on a change: this runs every second on the Permissions step, and an
+        // observed write redraws the step even when the value is the same.
+        if mic != micStatus {
+            if mic == .authorized { flash("mic") }
+            micStatus = mic
+        }
         let ax = AXIsProcessTrusted()
-        if ax && !accessibilityGranted { flash("ax") }
-        accessibilityGranted = ax
-        launchAtLogin = SMAppService.mainApp.status == .enabled
+        if ax != accessibilityGranted {
+            if ax { flash("ax") } else { accessibilityChoice = .idle }
+            dlog("Setup", "accessibility: \(ax ? "allowed" : "not allowed")")
+            accessibilityGranted = ax
+        }
+        let login = SMAppService.mainApp.status == .enabled
+        if login != launchAtLogin { launchAtLogin = login }
         let dictation = Self.macDictationIsOn()
-        if dictation && !dictationOn && needsMacDictation { flash("dictation") }
-        dictationOn = dictation
+        if dictation != dictationOn {
+            if dictation && needsMacDictation { flash("dictation") }
+            dictationOn = dictation
+        }
     }
 
     /// The Permissions step shows a Dictation row: Apple Dictation is the engine chosen.
@@ -558,50 +577,20 @@ final class OnboardingModel {
     }
 
     /// Accessibility has no system dialog of its own to grant it: the user turns
-    /// SpeechText on in System Settings. The prompt goes first so SpeechText is already
-    /// in the list; then the pane opens, a helper points at the switch, and the grant is
-    /// polled for every second.
+    /// SpeechText on in System Settings, with `AccessibilityGuide`'s helper beside it.
     func openAccessibilitySettings() {
-        let options = [PasteService.trustedCheckOptionPrompt: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
         accessibilityChoice = .waiting
-        showHelper()
-        startWatchingAccessibility()
-    }
-
-    private func startWatchingAccessibility() {
-        accessibilityPoll?.invalidate()
-        accessibilityPoll = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, AXIsProcessTrusted() else { return }
-                self.stopWatchingAccessibility()
-                self.accessibilityChoice = .idle
-                self.refreshPermissions()
-                // Back to setup, the next step in view.
-                NSApp.activate(ignoringOtherApps: true)
-            }
+        AccessibilityGuide.shared.start { [weak self] granted in
+            guard let self else { return }
+            self.accessibilityChoice = .idle
+            self.refreshPermissions()
+            // Back to setup, the next step in view.
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
     private func stopWatchingAccessibility() {
-        accessibilityPoll?.invalidate()
-        accessibilityPoll = nil
-        helper?.close()
-        helper = nil
-    }
-
-    private func showHelper() {
-        helper?.close()
-        let panel = AccessibilityHelperPanel { [weak self] in
-            // Done: the user says they're finished; setup comes back and re-checks.
-            self?.helper?.close()
-            self?.helper = nil
-            NSApp.activate(ignoringOtherApps: true)
-            self?.refreshPermissions()
-        }
-        helper = panel
-        panel.showBesideSystemSettings()
+        AccessibilityGuide.shared.stop()
     }
 
     /// Registered or unregistered on change, not on Continue.
