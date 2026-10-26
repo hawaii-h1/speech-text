@@ -42,6 +42,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.appSkin) private var skinRaw = AppSkin.default.rawValue
     @AppStorage(SettingsKeys.accentColor) private var accentHex = AccentColor.neutral
     @AppStorage(SettingsKeys.technoPhosphor) private var technoRaw = TechnoPhosphor.green.rawValue
+    @AppStorage(SettingsKeys.glassTransparency) private var transparencyRaw = GlassTransparency.default.rawValue
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @AppStorage(SettingsKeys.dockIconMode) private var dockIconRaw = DockIconMode.default.rawValue
     @AppStorage(SettingsKeys.homeIntroHidden) private var homeIntroHidden = false
     @AppStorage(SettingsKeys.promptsIntroHidden) private var promptsIntroHidden = false
@@ -382,10 +384,9 @@ struct SettingsView: View {
 
         SettingsGroup(title: "Colour") {
             if skin.supportsAccent {
-                SettingsRow(title: "Accent",
-                            detail: AccentColor.isNeutral(accentHex)
-                                ? "Default — ink on glass, with a red record button."
-                                : "Tints the level meter and the record button.") {
+                // No caption, here or under Display: the swatches say it, and a caption of
+                // another length moved them when the skin changed.
+                SettingsRow(title: "Accent") {
                     HStack(spacing: 8) {
                         ForEach(AccentColor.presets, id: \.hex) { preset in
                             swatch(preset)
@@ -402,8 +403,10 @@ struct SettingsView: View {
                         .help("Any colour")
                     }
                 }
+                SettingsDivider()
+                transparencyRow
             } else {
-                SettingsRow(title: "Display", detail: technoColorDetail) {
+                SettingsRow(title: "Display", detail: technoColorWarning) {
                     HStack(spacing: 8) {
                         ForEach(TechnoPhosphor.allCases) { option in
                             phosphorSwatch(option, selected: option == selectedPhosphor)
@@ -445,16 +448,47 @@ struct SettingsView: View {
         return TechnoPhosphor.customHex(technoRaw) == nil ? .green : nil
     }
 
-    private var technoColorDetail: String {
-        if let hex = TechnoPhosphor.customHex(technoRaw) {
-            return TechnoPalette.isCloseToAI(hex)
-                ? "Close to AI mode's violet — a plain dictation will be hard to tell from an AI one."
-                : "Your colour, on glass of the same hue. AI mode stays violet."
+    /// The minimal skin's glass: a scale of stops, as History's retention is, since only a
+    /// few points of it look the same on every macOS the app runs on.
+    private var transparencyRow: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Transparency")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SetupColor.label)
+                Text(transparencyDetail)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(SetupColor.label2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            SettingsStepSlider(values: GlassTransparency.allCases,
+                               selection: reduceTransparency ? .default : GlassTransparency(stored: transparencyRaw),
+                               title: \.title, label: "Transparency") { transparencyRaw = $0.rawValue }
+                .allowsHitTesting(!reduceTransparency)
+                .opacity(reduceTransparency ? 0.45 : 1)
         }
-        switch selectedPhosphor {
-        case .green, nil: return "Default — the green of the design."
-        case let preset?: return "\(preset.displayName) dots and text on matching glass. AI mode stays violet."
+        .padding(.vertical, 14)
+    }
+
+    private var transparencyDetail: String {
+        if reduceTransparency {
+            return "Reduce transparency is on in System Settings — nothing to adjust."
         }
+        let isDefault = GlassTransparency(stored: transparencyRaw) == .default
+        if #available(macOS 26, *) {
+            return isDefault
+                ? "Default — follows Liquid Glass in System Settings › Appearance."
+                : "Set here — Liquid Glass in System Settings no longer changes it."
+        }
+        return isDefault
+            ? "Default — the system's thinnest material."
+            : "How much of what is behind the panels shows through."
+    }
+
+    /// Said only when it matters: a colour of the user's own close to AI mode's violet.
+    private var technoColorWarning: String? {
+        guard let hex = TechnoPhosphor.customHex(technoRaw), TechnoPalette.isCloseToAI(hex) else { return nil }
+        return "Close to AI mode's violet — a plain dictation will be hard to tell from an AI one."
     }
 
     /// A display colour as the glass would show it: a lit dot on its own screen.
