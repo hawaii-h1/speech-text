@@ -21,7 +21,7 @@ Issues labelled [`good first issue`](../../labels/good%20first%20issue) and [`he
 
 ## What is unlikely to be accepted
 
-- New third-party dependencies. The app is Apple frameworks plus four packages, each a deliberate decision with its own boundary: WhisperKit and FluidAudio for local speech models (FluidAudio also runs the voice activity detector), Sparkle for updates, and llama.cpp for AI Rewrite on this Mac — the last as a prebuilt binary package (`Packages/LlamaBinary/`) run in the SpeechTextLLM XPC service, which the app never links. Each is imported by one file per use — see the *Not planned* section of ROADMAP.md for the rule a fifth would have to meet.
+- New third-party dependencies. The app is Apple frameworks plus four packages, each a deliberate decision with its own boundary: WhisperKit and FluidAudio for local speech models (FluidAudio also runs the voice activity detector), Sparkle for updates, and llama.cpp for AI Rewrite on this Mac — the last as a prebuilt binary package (`Packages/LlamaBinary/`) run in the SpeechTextLLM XPC service, which the app never links. Each is imported by one file per use. A fifth is fine if it earns its place the same way: a measurement showing it beats what we have, and one file that names it. What this rule is against is a package imported from three places across the app.
 - Large refactors that arrive unannounced
 - Reformatting or restyling existing code
 - Features that expand the product's scope without a prior discussion
@@ -99,7 +99,7 @@ What is checked is a short list of swift-format's rules about constructs to avoi
 
 ## Language
 
-Everything in the repository is written in English: code, comments, commit messages, pull requests, issues and documentation — the same language as the app's UI. Words in other languages appear only as data, such as a Ukrainian transcript a test or an explanation quotes.
+Everything in the repository is written in English: code, comments, commit messages, pull requests, issues and documentation — the same language as the app's UI. Words in other languages appear only as data, such as a non-English transcript a test or an explanation quotes.
 
 ## Setting up
 

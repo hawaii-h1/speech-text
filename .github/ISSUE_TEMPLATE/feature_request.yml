@@ -4,7 +4,7 @@ labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
-      value: "Check [ROADMAP.md](../blob/main/ROADMAP.md) first — especially the **Not planned** section — and search the existing issues."
+      value: "Check [ROADMAP.md](../blob/main/ROADMAP.md) first, and search the existing issues."
   - type: textarea
     id: problem
     attributes:

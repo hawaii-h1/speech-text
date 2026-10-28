@@ -13,7 +13,7 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 
 - **Notetaker** — record a conversation you are part of, then review a speaker-attributed transcript, summarise it, ask questions and export it. Microphone and system audio are captured as two separate tracks, so who-said-what is exact for a one-to-one conversation without any speaker model at all.
 - **More providers** — behind the provider registry (`ProviderDescriptor`, see `docs/adding-a-provider.md`). New providers are a good contribution.
-- **Localization** — the UI is English-only. Ukrainian first.
+- **Localization** — the UI is English-only. Translations come in the order people ask for them.
 
 ## Later
 
@@ -23,20 +23,6 @@ Tracked work lives in [issues](../../issues). This file is the direction; issues
 ## Done
 
 Kept short, because a roadmap that never records an arrival stops being believed: continuous integration on every pull request; live transcription shown on the overlay while you speak and pasted once at the stop; local speech and chat models with a hardware-based recommendation; first-run setup; signed, notarized releases that update themselves; OpenAI as a speech engine; API keys in the keychain; dictations made offline saved and retried once the network is back; a main window with History, Usage and Prompts; a Dictionary whose words reach the engine, a replacement table and the AI prompt; AI Rewrite built into the app on llama.cpp, with nothing else to install; a voice activity detector that keeps typing and room noise from being sent; the languages each model knows, shown before you download it; a lifecycle for models, so one a vendor retires is moved to its replacement; a weekly check of the catalogues against the vendors.
-
-## Not planned
-
-Saying no early saves everyone time:
-
-- **Third-party dependencies, beyond the four we have.** The app is Apple frameworks plus [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) and [FluidAudio](https://github.com/FluidInference/FluidAudio) for the two local speech engines, [Sparkle](https://sparkle-project.org) for updates, and [llama.cpp](https://github.com/ggml-org/llama.cpp) for AI Rewrite on this Mac. llama.cpp came in on 2026-10-16 by the rule below: measured first (Gemma 4 12B rewrote 40 of 42 Ukrainian test dictations right in about 2.4 s on an M1 Pro, against 31 for the cloud reference — docs/specs/2026-10-16-built-in-local-llm.md), imported by `LocalLlamaRuntime.swift` alone, and run in an XPC service the app never links, so its crashes are not the app's. Running Whisper needs a tokenizer and a decode loop that Core ML does not provide; running Parakeet needs a TDT decode loop and a mel frontend it does not provide either, and that model is smaller, faster and better on Ukrainian than any Whisper build we measured; updating an app outside the App Store needs a downloader, a signature check and an installer that can replace a running app, and getting that wrong breaks every user at once. Each is imported by one file per use — `LocalWhisperRuntime.swift`, `LocalParakeetRuntime.swift` and `VoiceActivityRuntime.swift` (FluidAudio's voice activity detector) and `UpdateChecker.swift` — and everything else stays Apple-only.
-
-  The bar is that boundary, not the count: a fifth dependency is fine if it earns its place the way these did — a measurement showing it beats what we have, and one file that names it. Anything that would be imported from three places across the app is the thing this rule is actually against.
-- **iOS / iPadOS.** The whole design rests on pasting into another app on a desktop.
-- **Windows / Linux.** Different project entirely.
-- **A general audio-file transcription tool.** Dropping arbitrary podcasts, lectures or video rips in for text is someone else's product. Recording a conversation you are taking part in is not that, and is planned — see Notetaker above.
-- **A meeting bot.** Something that joins a call as a participant needs a cloud, an account and a presence in someone else's meeting. Capture stays on this Mac.
-- **Recording that starts by itself.** No calendar-triggered or call-detected capture, however often it is asked for: a recording that begins without a person starting it is the thing that consent rules exist about.
-- **Telemetry or analytics of any kind.**
 
 ## Want to help?
 
